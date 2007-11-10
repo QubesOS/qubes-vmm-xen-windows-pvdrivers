@@ -1,0 +1,94 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=SCSIAdapter
+ClassGuid={B968331F-9539-47d0-855E-66CB6AA613E2}
+Provider=%JAMESHARPER%
+DriverVer=11/09/2007,1.0.1.285
+
+[DestinationDirs]
+DefaultDestDir = 12
+ClassInstall32_CopyFiles=11
+CoInstaller_CopyFiles = 11
+
+; ================= Class section =====================
+
+[ClassInstall32]
+Addreg=ClassInstall32_AddReg
+CopyFiles=ClassInstall32_CopyFiles
+
+[ClassInstall32_AddReg]
+HKR,,,0,%ClassName%
+HKR,,Icon,,-5
+HKR,,DeviceCharacteristics,0x10001,0x100
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+
+[ClassInstall32_CopyFiles]
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+
+[Manufacturer]
+%JAMESHARPER%=JAMESHARPER,NTx86
+
+[JAMESHARPER]
+%XenVbd.DRVDESC%=XenVbd_Inst, XEN\VBD
+
+[JAMESHARPER.NTx86]
+%XenVbd.DRVDESC%=XenVbd_Inst, XEN\VBD
+
+[XenVbd_Inst.NT]
+CopyFiles=XenVbd.CopyFiles
+
+[XenVbd.CopyFiles]
+xenvbd.sys
+
+[SourceDisksFiles]
+xenvbd.sys=1
+WdfCoinstaller01005.dll=1,,
+
+[SourceDisksNames.x86]
+1 = %DISK_NAME%,,,\i386
+
+[XenVbd_Inst.Services]
+AddService=XenVbd,2,XenVbd_Service 
+
+[XenVbd_Inst.NT.Services]
+AddService=XenVbd,2,XenVbd_Service 
+
+[XenVbd_Service]
+DisplayName    = %XenVbd.SVCDESC%                            
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+LoadOrderGroup = WdfLoadGroup
+ServiceBinary  = %12%\xenvbd.sys                            
+AddReg = XenVbd_Service_AddReg
+
+[XenVbd_Service_AddReg]
+; 5 = PciBus, 0 = Internal, 15 = PnpBus
+HKR,"Parameters\PnpInterface", "15", 0x00010001, 0x00000001
+
+
+[XenVbd_Inst.NT.CoInstallers]
+AddReg=CoInstaller_AddReg
+CopyFiles=CoInstaller_CopyFiles
+
+[CoInstaller_CopyFiles]
+WdfCoinstaller01005.dll,,,2
+
+[CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoinstaller01005.dll,WdfCoInstaller"
+
+[XenVbd_Inst.NT.Wdf]
+KmdfService = xenvbd, xenvbd_wdfsect
+
+[xenvbd_wdfsect]
+KmdfLibraryVersion = 1.0
+
+[Strings]
+JAMESHARPER = "James Harper"
+ClassName = "SCSI Adapters"
+XenVbd.SVCDESC = "Xen Block Device Driver"
+XenVbd.DRVDESC = "Xen Block Device Driver"
+DISK_NAME = "Xen Block Device Driver Install Disk"
