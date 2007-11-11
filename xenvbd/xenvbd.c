@@ -8,6 +8,7 @@
 #include <xen_public.h>
 #include <gnttbl_public.h>
 #include <io/xenbus.h>
+#include <ntddft.h>
 
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
@@ -581,6 +582,7 @@ XenVbd_DpcThreadProc(WDFDPC Dpc)
   }
 
   KeReleaseSpinLock(&ChildDeviceData->Lock, KIrql);
+
   //KdPrint((__DRIVER_NAME " <-- XenVbd_DpcThreadProc\n"));
   //KdPrint((__DRIVER_NAME " <-- XenVbd_DpcThreadProc (AddedToList = %d, RemovedFromList = %d, AddedToRing = %d, AddedToRingAtLastNotify = %d, AddedToRingAtLastInterrupt = %d, AddedToRingAtLastDpc = %d, RemovedFromRing = %d, IrpCompleted = %d)\n", ChildDeviceData->IrpAddedToList, ChildDeviceData->IrpRemovedFromList, ChildDeviceData->IrpAddedToRing, ChildDeviceData->IrpAddedToRingAtLastNotify, ChildDeviceData->IrpAddedToRingAtLastInterrupt, ChildDeviceData->IrpAddedToRingAtLastDpc, ChildDeviceData->IrpRemovedFromRing, ChildDeviceData->IrpCompleted));
 }
@@ -838,20 +840,24 @@ XenVbd_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_D
 
   WdfDeviceInitSetDeviceType(ChildInit, FILE_DEVICE_MASS_STORAGE);
 
+  // Capabilities = CM_DEVCAP_UNIQUEID
+  // Devnode Flages = DN_NEED_RESTART??? DN_DISABLEABLE???
+
   status = RtlUnicodeStringPrintf(&buffer, L"XEN\\Disk&Ven_James&Prod_James&Rev_1.00\0");
   status = WdfPdoInitAssignDeviceID(ChildInit, &buffer);
 
   status = RtlUnicodeStringPrintf(&buffer, L"%02d", ChildDeviceData->DeviceIndex);
   status = WdfPdoInitAssignInstanceID(ChildInit, &buffer);
 
-  status = RtlUnicodeStringPrintf(&buffer, L"XEN\\Disk\0");
-  status = WdfPdoInitAddCompatibleID(ChildInit, &buffer);
-  status = RtlUnicodeStringPrintf(&buffer, L"XEN\\RAW\0");
-  status = WdfPdoInitAddCompatibleID(ChildInit, &buffer);
+  //status = RtlUnicodeStringPrintf(&buffer, L"XEN\\Disk\0");
+  //status = WdfPdoInitAddCompatibleID(ChildInit, &buffer);
+  //status = RtlUnicodeStringPrintf(&buffer, L"XEN\\RAW\0");
+  //status = WdfPdoInitAddCompatibleID(ChildInit, &buffer);
   status = RtlUnicodeStringPrintf(&buffer, L"GenDisk\0");
   status = WdfPdoInitAddCompatibleID(ChildInit, &buffer);
+  status = WdfPdoInitAddHardwareID(ChildInit, &buffer);
 
-  status = RtlUnicodeStringPrintf(&buffer, L"vbd_%d", ChildDeviceData->DeviceIndex);
+  status = RtlUnicodeStringPrintf(&buffer, L"Xen PV Disk (%d)", ChildDeviceData->DeviceIndex);
   status = WdfPdoInitAddDeviceText(ChildInit, &buffer, &DeviceLocation, 0x409);
 
   WdfPdoInitSetDefaultLocale(ChildInit, 0x409);
@@ -867,6 +873,10 @@ XenVbd_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_D
   {
     KdPrint((__DRIVER_NAME "     WdfDeviceCreate status = %08X\n", status));
   }
+
+  WdfDeviceSetSpecialFileSupport(ChildDevice, WdfSpecialFilePaging, TRUE);
+  WdfDeviceSetSpecialFileSupport(ChildDevice, WdfSpecialFileHibernation, TRUE);
+  WdfDeviceSetSpecialFileSupport(ChildDevice, WdfSpecialFileDump, TRUE);
 
   WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&IoQueueConfig, WdfIoQueueDispatchSequential);
   IoQueueConfig.EvtIoDefault = XenVbd_Child_IoDefault;
@@ -978,8 +988,6 @@ XenVbd_PutIrpOnRing(WDFDEVICE Device, PIRP Irp)
     }
   }
 
-//  if (MmGetMdlByteOffset(Irp->MdlAddress) != 0)
-//    KdPrint((__DRIVER_NAME "     ByteOffset == %08x - we can't cope with this yet!\n", MmGetMdlByteOffset(Irp->MdlAddress)));
   sect_offset = MmGetMdlByteOffset(ChildDeviceData->shadow[req->id].Mdl) >> 9;
   for (i = 0, req->nr_segments = 0; i < BlockCount; req->nr_segments++)
   {
@@ -995,7 +1003,6 @@ XenVbd_PutIrpOnRing(WDFDEVICE Device, PIRP Irp)
     if (DataBuffer == NULL)
       KdPrint((__DRIVER_NAME "     MmGetSystemAddressForMdlSafe failed in PutIrpOnRing\n"));
     memcpy(ChildDeviceData->shadow[req->id].Buf, DataBuffer, BlockCount * ChildDeviceData->BytesPerSector);
-    //MmUnmapLockedPages(DataBuffer, Irp->MdlAddress);
   }
   ChildDeviceData->shadow[req->id].req = *req;
 
@@ -1181,11 +1188,11 @@ XenVbd_Child_IoDefault(WDFQUEUE  Queue, WDFREQUEST  Request)
 {
   UNREFERENCED_PARAMETER(Queue);
 
-  //KdPrint((__DRIVER_NAME " --> EvtDeviceIoDefault\n"));
+  KdPrint((__DRIVER_NAME " --> EvtDeviceIoDefault\n"));
 
   WdfRequestComplete(Request, STATUS_NOT_IMPLEMENTED);
 
-  //KdPrint((__DRIVER_NAME " <-- EvtDeviceIoDefault\n"));
+  KdPrint((__DRIVER_NAME " <-- EvtDeviceIoDefault\n"));
 }
 
 static VOID 
@@ -1197,6 +1204,8 @@ XenVbd_Child_IoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBu
   PSTORAGE_PROPERTY_QUERY Spq;
   PSTORAGE_ADAPTER_DESCRIPTOR Sad;
   PSTORAGE_DEVICE_DESCRIPTOR Sdd;
+  PSTORAGE_DEVICE_ID_DESCRIPTOR Sdid;
+  PSTORAGE_IDENTIFIER Si;
   PSCSI_ADDRESS Sa;
 
   UNREFERENCED_PARAMETER(Queue);
@@ -1271,54 +1280,78 @@ XenVbd_Child_IoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBu
       }
       WdfRequestComplete(Request, STATUS_SUCCESS);
     }
+    else if (Spq->PropertyId == StorageDeviceIdProperty && Spq->QueryType == PropertyStandardQuery)
+    {
+      if (OutputBufferLength >= 8)
+      {
+        Sdid = (PSTORAGE_DEVICE_ID_DESCRIPTOR)Irp->AssociatedIrp.SystemBuffer;
+        Sdid->Version = 1;
+        Sdid->Size = sizeof(STORAGE_DEVICE_ID_DESCRIPTOR) - 1 + sizeof(STORAGE_IDENTIFIER) - 1 + 5;
+        if (OutputBufferLength >= Sdid->Size)
+        {
+          Sdid->NumberOfIdentifiers = 1;
+          Si = (PSTORAGE_IDENTIFIER)Sdid->Identifiers;
+          Si->CodeSet = 0;
+          Si->Type = StorageIdTypeScsiNameString;
+          Si->IdentifierSize = 5;
+          Si->NextOffset = 0;
+          Si->Association = StorageIdAssocDevice;
+          Si->Identifier[0] = 'J';
+          Si->Identifier[0] = 'a';
+          Si->Identifier[0] = 'm';
+          Si->Identifier[0] = 'e';
+          Si->Identifier[0] = 's';
+        }
+      }
+      WdfRequestComplete(Request, STATUS_SUCCESS);
+    }
     else
     {
       switch (Spq->PropertyId)
       {
       case StorageDeviceProperty:
-        //KdPrint((__DRIVER_NAME "     StorageDeviceProperty\n"));
+        KdPrint((__DRIVER_NAME "     StorageDeviceProperty\n"));
         break;        
       case StorageAccessAlignmentProperty:
-        //KdPrint((__DRIVER_NAME "     StorageAccessAlignmentProperty\n"));
+        KdPrint((__DRIVER_NAME "     StorageAccessAlignmentProperty\n"));
         break;
       case StorageAdapterProperty:
-        //KdPrint((__DRIVER_NAME "     StorageAdapterProperty\n"));
-         break;
+        KdPrint((__DRIVER_NAME "     StorageAdapterProperty\n"));
+        break;
       case StorageDeviceIdProperty:
-        //KdPrint((__DRIVER_NAME "     StorageDeviceIdProperty\n"));
-         break;
+        KdPrint((__DRIVER_NAME "     StorageDeviceIdProperty\n"));
+        break;
       case StorageDeviceUniqueIdProperty:
-        //KdPrint((__DRIVER_NAME "     StorageDeviceUniqueIdProperty\n"));
+        KdPrint((__DRIVER_NAME "     StorageDeviceUniqueIdProperty\n"));
         break;
       case StorageDeviceWriteCacheProperty:
-        //KdPrint((__DRIVER_NAME "     StorageDeviceWriteCacheProperty\n"));
+        KdPrint((__DRIVER_NAME "     StorageDeviceWriteCacheProperty\n"));
         break;
       default:
-        //KdPrint((__DRIVER_NAME "     Unknown Property %08x\n", Spq->PropertyId));
-         break;
+        KdPrint((__DRIVER_NAME "     Unknown Property %08x\n", Spq->PropertyId));
+        break;
       }
       switch (Spq->QueryType)
       {
       case PropertyStandardQuery:
-        //KdPrint((__DRIVER_NAME "     PropertyStandardQuery\n"));
+        KdPrint((__DRIVER_NAME "     PropertyStandardQuery\n"));
         break;        
-       //case PropertyIncludeSwIds:
-      //  //KdPrint((__DRIVER_NAME "     PropertyIncludeSwIds\n"));
-      //  break;        
+      /*
+      case PropertyIncludeSwIds:
+        KdPrint((__DRIVER_NAME "     PropertyIncludeSwIds\n"));
+        break;        
+      */
       case PropertyExistsQuery:
-        //KdPrint((__DRIVER_NAME "     PropertyExistsQuery\n"));
+        KdPrint((__DRIVER_NAME "     PropertyExistsQuery\n"));
         break;        
       default:
-        //KdPrint((__DRIVER_NAME "     Unknown Query %08x\n", Spq->QueryType));
+        KdPrint((__DRIVER_NAME "     Unknown Query %08x\n", Spq->QueryType));
         break;
       }
       WdfRequestComplete(Request, STATUS_NOT_IMPLEMENTED);
     }
     break;
   // http://www.osronline.com/article.cfm?article=229
-  // 0x00070000 device = 0x70, Function = 0x000 = IOCTL_DISK_GET_DRIVE_GEOMETRY
-  // 0x00041018 device = 0x04, function = 0x406 = IOCTL_SCSI_GET_ADDRESS 
-  // 0x00049400 device = 0x04, function = 0x500 = ???IOCTL_STORAGE_QUERY_PROPERTY
   // 0x00560030 device = 0x56, Function = 0x00c = 
   case IOCTL_DISK_GET_DRIVE_GEOMETRY:
     KdPrint((__DRIVER_NAME "     IOCTL_DISK_GET_DRIVE_GEOMETRY\n"));
@@ -1335,8 +1368,11 @@ XenVbd_Child_IoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBu
     Sa->Lun = 0;
     WdfRequestComplete(Request, STATUS_SUCCESS);
     break;
+  case FT_BALANCED_READ_MODE: // just pretend we know what this is...
+    WdfRequestComplete(Request, STATUS_SUCCESS);
+    break;
   default:
-    //KdPrint((__DRIVER_NAME "     Not Implemented IoControlCode=%08X\n", IoControlCode));
+    KdPrint((__DRIVER_NAME "     Not Implemented IoControlCode=%08X\n", IoControlCode));
     WdfRequestComplete(Request, STATUS_NOT_IMPLEMENTED);
     break;
   }
