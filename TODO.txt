@@ -9,6 +9,7 @@ Known problems or things that need doing to make it properly useful:
 . Probably really poor performance - no optimisation done at all yet.
 . Probably lots of other things too.
 . Put up a binary release so it can get some further testing
+. Write an installer for the above binaries to automate everything
 
 TODO:
 . Do some performance testing

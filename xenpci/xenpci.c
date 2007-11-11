@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <stdlib.h>
 
 #define SHUTDOWN_PATH "control/shutdown"
+#define BALLOON_PATH "memory/target"
 
 DRIVER_INITIALIZE DriverEntry;
 static NTSTATUS
@@ -57,6 +58,8 @@ XenPCI_RemoveAddedResources(WDFDEVICE Device, WDFCMRESLIST ResourcesRaw, WDFCMRE
 
 static VOID
 XenBus_ShutdownHandler(char *Path, PVOID Data);
+static VOID
+XenBus_BalloonHandler(char *Path, PVOID Data);
 static VOID
 XenPCI_XenBusWatchHandler(char *Path, PVOID Data);
 
@@ -315,7 +318,7 @@ XenPCI_AddDevice(
   WDF_INTERRUPT_CONFIG interruptConfig;
   PNP_BUS_INFORMATION busInfo;
   BUS_INTERFACE_STANDARD BusInterface;
-  WDFDEVICE Parent;
+  //WDFDEVICE Parent;
 
   //PDEVICE_OBJECT pdo;
   //ULONG propertyAddress, length;
@@ -552,6 +555,9 @@ XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE  Device, WDF_POWER_DEVICE_STATE Pr
   //KdPrint((__DRIVER_NAME "     PsCreateSystemThread returned %08X\n", status));
 
   response = XenBus_AddWatch(XBT_NIL, SHUTDOWN_PATH, XenBus_ShutdownHandler, NULL);
+  //KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
+
+  response = XenBus_AddWatch(XBT_NIL, BALLOON_PATH, XenBus_BalloonHandler, NULL);
   //KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
 
   response = XenBus_AddWatch(XBT_NIL, "device", XenPCI_XenBusWatchHandler, NULL);
@@ -852,22 +858,22 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
 }
 
 static void
-XenBus_ShutdownHandler(char *Path, PVOID StartContext)
+XenBus_ShutdownHandler(char *Path, PVOID Data)
 {
   char *value;
   xenbus_transaction_t xbt;
   int retry;
 
   UNREFERENCED_PARAMETER(Path);
-  UNREFERENCED_PARAMETER(StartContext);
+  UNREFERENCED_PARAMETER(Data);
 
-  //KdPrint((__DRIVER_NAME " --> XenBus_ShutdownHandler\n"));
+  KdPrint((__DRIVER_NAME " --> XenBus_ShutdownHandler\n"));
 
   XenBus_StartTransaction(&xbt);
 
   XenBus_Read(XBT_NIL, SHUTDOWN_PATH, &value);
 
-  //KdPrint((__DRIVER_NAME "     Shutdown Value = %s\n", value));
+  KdPrint((__DRIVER_NAME "     Shutdown Value = %s\n", value));
 
   // should check for error here... but why have we been called at all???
   if (value != NULL && strlen(value) != 0)
@@ -875,7 +881,33 @@ XenBus_ShutdownHandler(char *Path, PVOID StartContext)
 
   XenBus_EndTransaction(xbt, 0, &retry);
   
-  //KdPrint((__DRIVER_NAME " <-- XenBus_ShutdownHandler\n"));
+  KdPrint((__DRIVER_NAME " <-- XenBus_ShutdownHandler\n"));
+}
+
+static VOID
+XenBus_BalloonHandler(char *Path, PVOID Data)
+{
+  char *value;
+  xenbus_transaction_t xbt;
+  int retry;
+
+  UNREFERENCED_PARAMETER(Path);
+  UNREFERENCED_PARAMETER(Data);
+
+  KdPrint((__DRIVER_NAME " --> XenBus_BalloonHandler\n"));
+
+  XenBus_StartTransaction(&xbt);
+
+  XenBus_Read(XBT_NIL, BALLOON_PATH, &value);
+
+  KdPrint((__DRIVER_NAME "     Balloon Value = %s\n", value));
+
+  // use the memory_op(unsigned int op, void *arg) hypercall to adjust this
+  // use XENMEM_increase_reservation and XENMEM_decrease_reservation
+
+  XenBus_EndTransaction(xbt, 0, &retry);
+  
+  KdPrint((__DRIVER_NAME " <-- XenBus_BalloonHandler\n"));
 }
 
 /*
@@ -940,6 +972,7 @@ XenPCI_FilterRemoveResourceRequirements(WDFDEVICE Device, WDFIORESREQLIST Requir
 
   return status;
 }
+
 
 static NTSTATUS
 XenPCI_FilterAddResourceRequirements(WDFDEVICE Device, WDFIORESREQLIST RequirementsList)

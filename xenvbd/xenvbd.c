@@ -563,6 +563,16 @@ XenVbd_DpcThreadProc(WDFDPC Dpc)
     }
   }
 
+  KeReleaseSpinLock(&ChildDeviceData->Lock, KIrql);
+
+  for (j = 0; j < IrpCount; j++)
+  {
+    IoCompleteRequest(Irps[j], IO_NO_INCREMENT);
+    //ChildDeviceData->IrpCompleted++;
+  }
+
+  KeAcquireSpinLock(&ChildDeviceData->Lock, &KIrql);
+
   while (!RING_FULL(&ChildDeviceData->Ring) && (ListEntry = (XenVbd_ListEntry *)/*ExInterlocked*/RemoveHeadList(&ChildDeviceData->IrpListHead)) != (XenVbd_ListEntry *)&ChildDeviceData->IrpListHead)
   {
     //ChildDeviceData->IrpRemovedFromList++;
@@ -571,12 +581,6 @@ XenVbd_DpcThreadProc(WDFDPC Dpc)
   }
 
   KeReleaseSpinLock(&ChildDeviceData->Lock, KIrql);
-
-  for (j = 0; j < IrpCount; j++)
-  {
-    IoCompleteRequest(Irps[j], IO_NO_INCREMENT);
-    //ChildDeviceData->IrpCompleted++;
-  }
   //KdPrint((__DRIVER_NAME " <-- XenVbd_DpcThreadProc\n"));
   //KdPrint((__DRIVER_NAME " <-- XenVbd_DpcThreadProc (AddedToList = %d, RemovedFromList = %d, AddedToRing = %d, AddedToRingAtLastNotify = %d, AddedToRingAtLastInterrupt = %d, AddedToRingAtLastDpc = %d, RemovedFromRing = %d, IrpCompleted = %d)\n", ChildDeviceData->IrpAddedToList, ChildDeviceData->IrpRemovedFromList, ChildDeviceData->IrpAddedToRing, ChildDeviceData->IrpAddedToRingAtLastNotify, ChildDeviceData->IrpAddedToRingAtLastInterrupt, ChildDeviceData->IrpAddedToRingAtLastDpc, ChildDeviceData->IrpRemovedFromRing, ChildDeviceData->IrpCompleted));
 }
