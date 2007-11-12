@@ -3,7 +3,7 @@ Signature="$WINDOWS NT$"
 Class=System
 ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider=%JAMESHARPER%
-DriverVer=11/11/2007,1.0.0.21
+DriverVer=11/11/2007,1.0.0.22
 
 [ControlFlags]
 ExcludeFromSelect = *
@@ -53,6 +53,7 @@ Needs=PCI_DRV_ROOT.HW
 
 [XenHide_Inst_HW_AddReg]
 HKR,,"LowerFilters",0x00010000,"XenHide"
+HKLM,SYSTEM\CurrentControlSet\Services\Wdf01000,Group,0x00000000,Boot Bus Extender
 
 [XenHide.CopyFiles]
 xenhide.sys
