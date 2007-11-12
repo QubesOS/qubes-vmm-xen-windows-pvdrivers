@@ -260,16 +260,13 @@ static void xb_write(int type, int req_id, xenbus_transaction_t trans_id,
 }
 
 static struct xsd_sockmsg *
-xenbus_msg_reply(int type,
-                 xenbus_transaction_t trans,
-                 struct write_req *io,
-                 int nr_reqs)
+xenbus_msg_reply(int type, xenbus_transaction_t trans, struct write_req *io, int nr_reqs)
 {
   int id;
 //  DEFINE_WAIT(w);
   struct xsd_sockmsg *rep;
 
-  //KdPrint((__DRIVER_NAME " --> xenbus_msg_reply\n"));
+  KdPrint((__DRIVER_NAME " --> xenbus_msg_reply\n"));
 
   id = allocate_xenbus_id();
 //  add_waiter(w, req_info[id].waitq);
@@ -280,18 +277,17 @@ xenbus_msg_reply(int type,
 //  remove_waiter(w);
 //  wake(current);
 //
-  //KdPrint((__DRIVER_NAME "     starting wait\n"));
+  KdPrint((__DRIVER_NAME "     starting wait\n"));
 
   KeWaitForSingleObject(&req_info[id].WaitEvent, Executive, KernelMode, FALSE, NULL);
 
-  //KdPrint((__DRIVER_NAME "     wait complete\n"));
+  KdPrint((__DRIVER_NAME "     wait complete\n"));
 
   rep = req_info[id].Reply;
 //  BUG_ON(rep->req_id != id);
   release_xenbus_id(id);
-  //KdPrint((__DRIVER_NAME " <-- xenbus_msg_reply\n"));
+  KdPrint((__DRIVER_NAME " <-- xenbus_msg_reply\n"));
   return rep;
-//  return NULL;
 }
 
 char *
@@ -383,7 +379,7 @@ XenBus_Start()
   NTSTATUS status;
   int i;
 
-  //KdPrint((__DRIVER_NAME " --> XenBus_Start\n"));
+  KdPrint((__DRIVER_NAME " --> XenBus_Start\n"));
 
   InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
   status = PsCreateSystemThread(&XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_ReadThreadProc, NULL);
@@ -398,7 +394,7 @@ XenBus_Start()
 
   EvtChn_Bind(xen_store_evtchn, XenBus_Interrupt, NULL);
 
-  //KdPrint((__DRIVER_NAME " <-- XenBus_Start\n"));
+  KdPrint((__DRIVER_NAME " <-- XenBus_Start\n"));
 
   return STATUS_SUCCESS;
 }
@@ -605,7 +601,7 @@ XenBus_AddWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBA
   char Token[20];
   struct write_req req[2];
 
-  //KdPrint((__DRIVER_NAME " --> XenBus_AddWatch\n"));
+  KdPrint((__DRIVER_NAME " --> XenBus_AddWatch\n"));
 
   // check that Path < 128 chars
 
@@ -640,7 +636,7 @@ XenBus_AddWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBA
   XenBus_WatchEntries[i].Count = 0;
   XenBus_WatchEntries[i].Active = 1;
 
-  //KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
+  KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
 
   return NULL;
 }

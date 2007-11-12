@@ -93,7 +93,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   size_t SystemStartOptionsLen;
   size_t i;
 
-  //KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
+  KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
 
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
   InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
@@ -172,7 +172,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   KdPrint((__DRIVER_NAME "     AutoEnumerate = %d\n", AutoEnumerate));
 
-
   WDF_DRIVER_CONFIG_INIT(&config, XenPCI_AddDevice);
   status = WdfDriverCreate(
                       DriverObject,
@@ -182,10 +181,10 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
                       WDF_NO_HANDLE);
   if(!NT_SUCCESS(status))
   {
-    //KdPrint((__DRIVER_NAME " WdfDriverCreate failed with status 0x%08x\n", status));
+    KdPrint((__DRIVER_NAME " WdfDriverCreate failed with status 0x%08x\n", status));
   }
 
-  //KdPrint((__DRIVER_NAME " <-- DriverEntry\n"));
+  KdPrint((__DRIVER_NAME " <-- DriverEntry\n"));
 
   return status;
 }
@@ -325,7 +324,7 @@ XenPCI_AddDevice(
 
   UNREFERENCED_PARAMETER(Driver);
 
-  //KdPrint((__DRIVER_NAME " --> DeviceAdd\n"));
+  KdPrint((__DRIVER_NAME " --> DeviceAdd\n"));
 
   // get PDO
   // get parent (should be PCI bus) (WdfPdoGetParent)
@@ -341,8 +340,6 @@ XenPCI_AddDevice(
 //  FdoCallbacks.EvtDeviceRemoveAddedResources = XenPCI_RemoveAddedResources;
 //  WdfFdoInitSetEventCallbacks(DeviceInit, &FdoCallbacks);
 
-  /*set the callback functions that will be 
-  executed on PNP and Power events*/
   WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnpPowerCallbacks);
   pnpPowerCallbacks.EvtDevicePrepareHardware = XenPCI_PrepareHardware;
   pnpPowerCallbacks.EvtDeviceReleaseHardware = XenPCI_ReleaseHardware;
@@ -358,8 +355,7 @@ XenPCI_AddDevice(
   WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, XENPCI_DEVICE_DATA);
 
   /*create a device instance.*/
-  status = WdfDeviceCreate(&DeviceInit, 
-           &attributes, &Device);  
+  status = WdfDeviceCreate(&DeviceInit, &attributes, &Device);  
   if(!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     WdfDeviceCreate failed with status 0x%08x\n", status));
@@ -383,6 +379,7 @@ XenPCI_AddDevice(
 
   /*create the default IO queue. this one will 
   be used for all requests*/
+/*
   WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&ioQConfig,
                                 WdfIoQueueDispatchSequential);
   ioQConfig.EvtIoDefault = XenPCI_IoDefault;
@@ -394,7 +391,7 @@ XenPCI_AddDevice(
     KdPrint((__DRIVER_NAME "     WdfIoQueueCreate failed with status 0x%08x\n", status));
     return status;
   }
-
+*/
 /*
   status = WdfDeviceCreateDeviceInterface(Device, &GUID_INTERFACE_XENPCI, NULL);
   if(!NT_SUCCESS(status))
@@ -414,7 +411,7 @@ XenPCI_AddDevice(
     return status;
   }
 
-  //KdPrint((__DRIVER_NAME " <-- DeviceAdd\n"));
+  KdPrint((__DRIVER_NAME " <-- DeviceAdd\n"));
   return status;
 }
 
@@ -430,7 +427,7 @@ XenPCI_PrepareHardware(
 
   UNREFERENCED_PARAMETER(Device);
 
-  //KdPrint((__DRIVER_NAME " --> EvtDevicePrepareHardware\n"));
+  KdPrint((__DRIVER_NAME " --> EvtDevicePrepareHardware\n"));
 
   for (i = 0; i < WdfCmResourceListGetCount(ResourceList); i++)
   {
@@ -498,7 +495,7 @@ XenPCI_PrepareHardware(
 
   //xen_reboot_init();
 
-  //KdPrint((__DRIVER_NAME " <-- EvtDevicePrepareHardware\n"));
+  KdPrint((__DRIVER_NAME " <-- EvtDevicePrepareHardware\n"));
 
   return status;
 }
@@ -523,9 +520,9 @@ XenPCI_D0Entry(
   UNREFERENCED_PARAMETER(Device);
   UNREFERENCED_PARAMETER(PreviousState);
 
-  //KdPrint((__DRIVER_NAME " --> EvtDeviceD0Entry\n"));
+  KdPrint((__DRIVER_NAME " --> EvtDeviceD0Entry\n"));
 
-  //KdPrint((__DRIVER_NAME " <-- EvtDeviceD0Entry\n"));
+  KdPrint((__DRIVER_NAME " <-- EvtDeviceD0Entry\n"));
 
   return status;
 }
@@ -546,22 +543,20 @@ XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE  Device, WDF_POWER_DEVICE_STATE Pr
   UNREFERENCED_PARAMETER(Device);
   UNREFERENCED_PARAMETER(PreviousState);
 
-  //KdPrint((__DRIVER_NAME " --> EvtDeviceD0EntryPostInterruptsEnabled\n"));
+  KdPrint((__DRIVER_NAME " --> EvtDeviceD0EntryPostInterruptsEnabled\n"));
 
   XenBus_Start();
-  
-  //InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
-  //status = PsCreateSystemThread(&ThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_ThreadProc, NULL);
-  //KdPrint((__DRIVER_NAME "     PsCreateSystemThread returned %08X\n", status));
 
+  KdPrint((__DRIVER_NAME "     A\n"));
+  
   response = XenBus_AddWatch(XBT_NIL, SHUTDOWN_PATH, XenBus_ShutdownHandler, NULL);
-  //KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
+  KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
 
   response = XenBus_AddWatch(XBT_NIL, BALLOON_PATH, XenBus_BalloonHandler, NULL);
-  //KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
+  KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
 
   response = XenBus_AddWatch(XBT_NIL, "device", XenPCI_XenBusWatchHandler, NULL);
-  //KdPrint((__DRIVER_NAME "     device watch response = '%s'\n", response)); 
+  KdPrint((__DRIVER_NAME "     device watch response = '%s'\n", response)); 
 
   msgTypes = XenBus_List(XBT_NIL, "device", &Types);
   if (!msgTypes) {
@@ -573,18 +568,7 @@ XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE  Device, WDF_POWER_DEVICE_STATE Pr
       ExFreePoolWithTag(Types[i], XENPCI_POOL_TAG);
     }
   }
-//      msgInstances = XenBus_List(XBT_NIL, buffer, &Instances);
-//      for (j = 0; Instances[j]; j++)
-//      {
-//        //KdPrint((__DRIVER_NAME "      ls %s[%d] -> %s\n", buffer, j, Instances[j]));
-//
-//        sprintf(buffer, "device/%s/%s", Types[i], Instances[j]);
-//
-//
-//        ExFreePoolWithTag(Instances[j], XENPCI_POOL_TAG);
-//      }
-  
-  //KdPrint((__DRIVER_NAME " <-- EvtDeviceD0EntryPostInterruptsEnabled\n"));
+  KdPrint((__DRIVER_NAME " <-- EvtDeviceD0EntryPostInterruptsEnabled\n"));
 
   return status;
 }
@@ -656,6 +640,7 @@ XenPCI_InterruptDisable(WDFINTERRUPT Interrupt, WDFDEVICE AssociatedDevice)
   //KdPrint((__DRIVER_NAME " --> EvtInterruptDisable\n"));
 
   shared_info_area->vcpu_info[0].evtchn_upcall_mask = 1;
+  // should we kick off any pending interrupts here?
 
   //KdPrint((__DRIVER_NAME " <-- EvtInterruptDisable\n"));
 
@@ -808,7 +793,7 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
 
   UNREFERENCED_PARAMETER(Data);
 
-  //KdPrint((__DRIVER_NAME " --> HotPlugHandler\n"));
+  KdPrint((__DRIVER_NAME " --> XenBusWatchHandle\n"));
 
   //KdPrint((__DRIVER_NAME "     %s\n", Path));
 
@@ -854,7 +839,7 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
 
   FreeSplitString(Bits, Count);
   
-  //KdPrint((__DRIVER_NAME " <-- HotPlugHandler\n"));  
+  KdPrint((__DRIVER_NAME " <-- XenBusWatchHandle\n"));  
 }
 
 static void

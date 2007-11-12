@@ -102,21 +102,20 @@ EvtChn_AllocUnbound(domid_t Domain)
 NTSTATUS
 EvtChn_Bind(evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
-  //KdPrint((__DRIVER_NAME " --> EvtChn_Bind\n"));
+  KdPrint((__DRIVER_NAME " --> EvtChn_Bind\n"));
 
-  if(ev_actions[Port].ServiceRoutine != ServiceRoutine)
+  if(ev_actions[Port].ServiceRoutine != NULL)
   {
     KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
   }
 
   ev_actions[Port].ServiceContext = ServiceContext;
-  //_WriteBarrier();
   KeMemoryBarrier();
   ev_actions[Port].ServiceRoutine = ServiceRoutine;
 
   EvtChn_Unmask(Port);
 
-  //KdPrint((__DRIVER_NAME " <-- EvtChn_Bind\n"));
+  KdPrint((__DRIVER_NAME " <-- EvtChn_Bind\n"));
 
   return STATUS_SUCCESS;
 }
