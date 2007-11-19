@@ -362,6 +362,10 @@ XenPCI_AddDevice(
     return status;
   }
 
+  WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFilePaging, TRUE);
+  WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileHibernation, TRUE);
+  WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileDump, TRUE);
+
   status = WdfFdoQueryForInterface(Device, &GUID_BUS_INTERFACE_STANDARD, (PINTERFACE) &BusInterface, sizeof(BUS_INTERFACE_STANDARD), 1, NULL);
   if(!NT_SUCCESS(status))
   {
@@ -701,6 +705,10 @@ XenPCI_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_D
   {
     KdPrint((__DRIVER_NAME "     WdfDeviceCreate status = %08X\n", status));
   }
+
+  WdfDeviceSetSpecialFileSupport(ChildDevice, WdfSpecialFilePaging, TRUE);
+  WdfDeviceSetSpecialFileSupport(ChildDevice, WdfSpecialFileHibernation, TRUE);
+  WdfDeviceSetSpecialFileSupport(ChildDevice, WdfSpecialFileDump, TRUE);
 
   ChildDeviceData = GetXenDeviceData(ChildDevice);
   strncpy(ChildDeviceData->BasePath, XenIdentificationDesc->Path, 128);

@@ -8,8 +8,6 @@ Known problems or things that need doing to make it properly useful:
 . Almost certainly won't support migration or suspend/resume.
 . Probably really poor performance - no optimisation done at all yet.
 . Probably lots of other things too.
-. Put up a binary release so it can get some further testing
-. Write an installer for the above binaries to automate everything
 
 TODO:
 . Do some performance testing
@@ -17,3 +15,5 @@ TODO:
 . network adapters (vif) (Andy Grover is looking at this)
 . virtual scsi (eg a front end for the scsi passthrough stuff)
 . balloon drivers (this should actually be pretty easy)
+. Write an installer for the above binaries to automate everything
+. Put up a binary release so it can get some further testing

@@ -3,7 +3,7 @@ Signature="$WINDOWS NT$"
 Class=Xen
 ClassGuid={C828ABE9-14CA-4445-BAA6-82C2376C6518}
 Provider=%JAMESHARPER%
-DriverVer=11/12/2007,1.0.1.5
+DriverVer=11/19/2007,1.0.1.8
 
 [DestinationDirs]
 DefaultDestDir = 12

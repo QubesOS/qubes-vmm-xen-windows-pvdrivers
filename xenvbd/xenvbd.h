@@ -81,14 +81,17 @@ struct {
   ULONGLONG TotalSectors;
   DISK_GEOMETRY Geometry;
 
-  //int IrpAddedToList;
-  //int IrpRemovedFromList;
-  //int IrpAddedToRing;
-  //int IrpAddedToRingAtLastNotify;
-  //int IrpAddedToRingAtLastInterrupt;
-  //int IrpAddedToRingAtLastDpc;
-  //int IrpRemovedFromRing;
-  //int IrpCompleted;
+  int IrpAddedToList;
+  int IrpRemovedFromList;
+  int IrpAddedToRing;
+  int IrpAddedToRingAtLastNotify;
+  int IrpAddedToRingAtLastInterrupt;
+  int IrpAddedToRingAtLastDpc;
+  int IrpRemovedFromRing;
+  int IrpCompleted;
+
+  int FastPathUsed;
+  int SlowPathUsed;
 
 } typedef XENVBD_CHILD_DEVICE_DATA, *PXENVBD_CHILD_DEVICE_DATA, **PPXENVBD_CHILD_DEVICE_DATA;
 
