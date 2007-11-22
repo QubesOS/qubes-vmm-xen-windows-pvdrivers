@@ -7,6 +7,9 @@ Known problems or things that need doing to make it properly useful:
 . No power management
 . Almost certainly won't support migration or suspend/resume.
 . Probably really poor performance - no optimisation done at all yet.
+. Reports of problems on Intel systems
+. No CDROM Support
+. Lockups under SMP
 . Probably lots of other things too.
 
 TODO:

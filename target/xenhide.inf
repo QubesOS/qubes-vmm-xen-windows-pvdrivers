@@ -3,31 +3,14 @@ Signature="$WINDOWS NT$"
 Class=System
 ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider=%JAMESHARPER%
-DriverVer=11/11/2007,1.0.0.22
+DriverVer=11/20/2007,0.3.0.1
 
 [ControlFlags]
 ExcludeFromSelect = *
 
 [DestinationDirs]
 DefaultDestDir = 12
-;ClassInstall32_CopyFiles=11
 CoInstaller_CopyFiles = 11
-
-; ================= Class section =====================
-;
-;[ClassInstall32]
-;Addreg=ClassInstall32_AddReg
-;CopyFiles=ClassInstall32_CopyFiles
-;
-;[ClassInstall32_AddReg]
-;HKR,,,0,%ClassName%
-;HKR,,Icon,,100
-;HKR,,DeviceCharacteristics,0x10001,0x100     ;Use same security checks on relative opens
-;HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)" ;Allow generic all access to system and built-in Admin. 
-
-;[ClassInstall32_CopyFiles]
-
-; ================= Device Install section =====================
 
 [Manufacturer]
 %JAMESHARPER%=JAMESHARPER,NTx86
@@ -96,7 +79,6 @@ KmdfLibraryVersion = 1.0
 
 [Strings]
 JAMESHARPER = "James Harper"
-ClassName = "System devices"
 XenHide.SVCDESC = "Xen PCI Device Hider Driver"
 XenHide.DRVDESC = "Xen PCI Device Hider Driver"
 DISK_NAME = "Xen PCI Device Driver Hider Install Disk"

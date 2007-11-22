@@ -281,7 +281,7 @@ xenbus_msg_reply(int type, xenbus_transaction_t trans, struct write_req *io, int
 
   KeWaitForSingleObject(&req_info[id].WaitEvent, Executive, KernelMode, FALSE, NULL);
 
-  KdPrint((__DRIVER_NAME "     wait complete\n"));
+  //KdPrint((__DRIVER_NAME "     wait complete\n"));
 
   rep = req_info[id].Reply;
 //  BUG_ON(rep->req_id != id);

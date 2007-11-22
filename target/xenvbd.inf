@@ -1,32 +1,17 @@
 [Version]
 Signature="$WINDOWS NT$"
 Class=SCSIAdapter
-ClassGuid={B968331F-9539-47d0-855E-66CB6AA613E2}
+ClassGuid={4D36E97B-E325-11CE-BFC1-08002BE10318}
 Provider=%JAMESHARPER%
-DriverVer=11/19/2007,1.0.1.332
+DriverVer=11/23/2007,0.3.0.32
 
 [DestinationDirs]
 DefaultDestDir = 12
 ClassInstall32_CopyFiles=11
 CoInstaller_CopyFiles = 11
 
-; ================= Class section =====================
-
-[ClassInstall32]
-Addreg=ClassInstall32_AddReg
-CopyFiles=ClassInstall32_CopyFiles
-
-[ClassInstall32_AddReg]
-HKR,,,0,%ClassName%
-HKR,,Icon,,-5
-HKR,,DeviceCharacteristics,0x10001,0x100
-HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)"
-
-[ClassInstall32_CopyFiles]
-
 [ControlFlags]
 ExcludeFromSelect=*
-
 
 [Manufacturer]
 %JAMESHARPER%=JAMESHARPER,NTx86
@@ -66,9 +51,7 @@ ServiceBinary  = %12%\xenvbd.sys
 AddReg = XenVbd_Service_AddReg
 
 [XenVbd_Service_AddReg]
-; 5 = PciBus, 0 = Internal, 15 = PnpBus
 HKR,"Parameters\PnpInterface", "15", 0x00010001, 0x00000001
-
 
 [XenVbd_Inst.NT.CoInstallers]
 AddReg=CoInstaller_AddReg
@@ -88,7 +71,6 @@ KmdfLibraryVersion = 1.0
 
 [Strings]
 JAMESHARPER = "James Harper"
-ClassName = "SCSI Adapters"
 XenVbd.SVCDESC = "Xen Block Device Driver"
 XenVbd.DRVDESC = "Xen Block Device Driver"
 DISK_NAME = "Xen Block Device Driver Install Disk"

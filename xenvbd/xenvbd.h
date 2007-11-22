@@ -55,6 +55,12 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENVBD_QUEUE_DATA, GetQueueData)
 extern XEN_IFACE_EVTCHN EvtChnInterface;
 extern XEN_IFACE_XENBUS XenBusInterface;
 
+typedef enum {
+  XENVBD_DEVICETYPE_UNKNOWN,
+  XENVBD_DEVICETYPE_DISK,
+  XENVBD_DEVICETYPE_CDROM
+} XENVBD_DEVICETYPE;
+
 struct {
   LIST_ENTRY Entry;
   KSPIN_LOCK Lock;
@@ -80,6 +86,7 @@ struct {
   ULONG BytesPerSector;
   ULONGLONG TotalSectors;
   DISK_GEOMETRY Geometry;
+  XENVBD_DEVICETYPE DeviceType;
 
   int IrpAddedToList;
   int IrpRemovedFromList;

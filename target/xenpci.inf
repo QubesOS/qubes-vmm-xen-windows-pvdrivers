@@ -1,34 +1,17 @@
 [Version]
 Signature="$WINDOWS NT$"
-Class=Xen
-ClassGuid={C828ABE9-14CA-4445-BAA6-82C2376C6518}
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider=%JAMESHARPER%
-DriverVer=11/19/2007,1.0.1.8
+DriverVer=11/20/2007,0.3.0.2
 
 [DestinationDirs]
 DefaultDestDir = 12
 ClassInstall32_CopyFiles=11
 CoInstaller_CopyFiles = 11
 
-; ================= Class section =====================
-
-[ClassInstall32]
-Addreg=ClassInstall32_AddReg
-CopyFiles=ClassInstall32_CopyFiles
-
-[ClassInstall32_AddReg]
-HKR,,,0,%ClassName%
-HKR,,Icon,,-5
-HKR,,DeviceCharacteristics,0x10001,0x100     ;Use same security checks on relative opens
-HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)" ;Allow generic all access to system and built-in Admin. 
-
-[ClassInstall32_CopyFiles]
-
-; ================= Device Install section =====================
-
 [ControlFlags]
 ExcludeFromSelect=*
-
 
 [Manufacturer]
 %JAMESHARPER%=JAMESHARPER,NTx86
@@ -87,7 +70,6 @@ KmdfLibraryVersion = 1.0
 
 [Strings]
 JAMESHARPER = "James Harper"
-ClassName = "System devices"
 XenPCI.SVCDESC = "Xen PCI Device Driver"
 XenPCI.DRVDESC = "Xen PCI Device Driver"
 DISK_NAME = "Xen PCI Device Driver Install Disk"
