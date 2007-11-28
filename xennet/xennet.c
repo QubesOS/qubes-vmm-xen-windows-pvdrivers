@@ -29,12 +29,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NET_TX_RING_SIZE __RING_SIZE((struct netif_tx_sring *)0, PAGE_SIZE)
 #define NET_RX_RING_SIZE __RING_SIZE((struct netif_rx_sring *)0, PAGE_SIZE)
 
+#pragma warning(disable: 4127)
+
 struct xennet_info
 {
   PDEVICE_OBJECT pdo;
   PDEVICE_OBJECT fdo;
   PDEVICE_OBJECT lower_do;
-  WDFDEVICE *wdf_device;
+  WDFDEVICE wdf_device;
 
   WCHAR name[NAME_SIZE];
   NDIS_HANDLE adapter_handle;
@@ -52,12 +54,13 @@ struct xennet_info
   struct netif_tx_front_ring tx;
   struct netif_rx_front_ring rx;
 
-  /* do we need to keep track of these? */
-  struct netif_tx_sring *txs;
-  struct netif_rx_sring *rxs;
+  PMDL tx_mdl;
+  PMDL rx_mdl;
+  struct netif_tx_sring *tx_pgs;
+  struct netif_rx_sring *rx_pgs;
 
   UINT irq;
-  SHORT event_channel;
+  evtchn_port_t event_channel;
 
   grant_ref_t tx_ring_ref;
   grant_ref_t rx_ring_ref;
@@ -104,8 +107,11 @@ XenNet_Interrupt(
   PVOID ServiceContext
   )
 {
-  struct xennet_info *xennet_info = ServiceContext;
-  KIRQL KIrql;
+  // struct xennet_info *xennet_info = ServiceContext;
+  // KIRQL KIrql;
+
+  UNREFERENCED_PARAMETER(Interrupt);
+  UNREFERENCED_PARAMETER(ServiceContext);
 
   // KeAcquireSpinLock(&ChildDeviceData->Lock, &KIrql);
   // KdPrint((__DRIVER_NAME " --> Setting Dpc Event\n"));
@@ -123,6 +129,7 @@ XenNet_Halt(
   IN NDIS_HANDLE MiniportAdapterContext
   )
 {
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
 }
 
 static NDIS_STATUS
@@ -139,10 +146,11 @@ XenNet_Init(
   UINT i;
   BOOLEAN medium_found = FALSE;
   struct xennet_info *xi = NULL;
-  UINT length;
+  ULONG length;
   WDF_OBJECT_ATTRIBUTES wdf_attrs;
-  PMDL mdl;
-  ULONG pfn;
+
+  UNREFERENCED_PARAMETER(OpenErrorStatus);
+  UNREFERENCED_PARAMETER(WrapperConfigurationContext);
 
   /* deal with medium stuff */
   for (i = 0; i < MediumArraySize; i++)
@@ -247,21 +255,23 @@ XenNet_Init(
 
   /* TODO: must free pages in MDL as well as MDL using MmFreePagesFromMdl and ExFreePool */
   // or, allocate mem and then get mdl, then free mdl
-  mdl = AllocatePage();
-  pfn = *MmGetMdlPfnArray(mdl);
-  xi->txs = MmMapLockedPages(mdl, KernelMode);
-  SHARED_RING_INIT(xi->txs);
-  FRONT_RING_INIT(&xi->tx, xi->txs, PAGE_SIZE);
+  xi->tx_mdl = AllocatePage();
+  xi->tx_pgs = MmMapLockedPagesSpecifyCache(xi->tx_mdl, KernelMode, MmNonCached,
+    NULL, FALSE, NormalPagePriority);
+  SHARED_RING_INIT(xi->tx_pgs);
+  FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
   xi->tx_ring_ref = xi->GntTblInterface.GrantAccess(
-    xi->GntTblInterface.InterfaceHeader.Context, 0, pfn, FALSE);
-
-  mdl = AllocatePage();
-  pfn = *MmGetMdlPfnArray(mdl);
-  xi->rxs = MmMapLockedPages(mdl, KernelMode);
-  SHARED_RING_INIT(xi->rxs);
-  FRONT_RING_INIT(&xi->rx, xi->rxs, PAGE_SIZE);
+    xi->GntTblInterface.InterfaceHeader.Context, 0,
+    *MmGetMdlPfnArray(xi->tx_mdl), FALSE);
+ 
+  xi->rx_mdl = AllocatePage();
+  xi->rx_pgs = MmMapLockedPagesSpecifyCache(xi->rx_mdl, KernelMode, MmNonCached,
+    NULL, FALSE, NormalPagePriority);
+  SHARED_RING_INIT(xi->rx_pgs);
+  FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
   xi->rx_ring_ref = xi->GntTblInterface.GrantAccess(
-    xi->GntTblInterface.InterfaceHeader.Context, 0, pfn, FALSE);
+    xi->GntTblInterface.InterfaceHeader.Context, 0,
+    *MmGetMdlPfnArray(xi->rx_mdl), FALSE);
 
   {
   char *msg;
@@ -455,6 +465,13 @@ XenNet_SetInformation(
   OUT PULONG BytesNeeded
   )
 {
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+  UNREFERENCED_PARAMETER(Oid);
+  UNREFERENCED_PARAMETER(InformationBuffer);
+  UNREFERENCED_PARAMETER(InformationBufferLength);
+  UNREFERENCED_PARAMETER(BytesRead);
+  UNREFERENCED_PARAMETER(BytesNeeded);
+
   KdPrint((__FUNCTION__ " called with OID=0x%x\n", Oid));
   return NDIS_STATUS_SUCCESS;
 }
@@ -465,6 +482,9 @@ XenNet_ReturnPacket(
   IN PNDIS_PACKET Packet
   )
 {
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+  UNREFERENCED_PARAMETER(Packet);
+
   KdPrint((__FUNCTION__ " called\n"));
 }
 
@@ -513,6 +533,11 @@ XenNet_PnPEventNotify(
   IN ULONG InformationBufferLength
   )
 {
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+  UNREFERENCED_PARAMETER(PnPEvent);
+  UNREFERENCED_PARAMETER(InformationBuffer);
+  UNREFERENCED_PARAMETER(InformationBufferLength);
+
   KdPrint((__FUNCTION__ " called\n"));
 }
 
@@ -521,6 +546,8 @@ XenNet_Shutdown(
   IN NDIS_HANDLE MiniportAdapterContext
   )
 {
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+
   KdPrint((__FUNCTION__ " called\n"));
 }
 
