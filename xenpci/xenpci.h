@@ -79,8 +79,6 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
-extern char *hypercall_stubs;
-
 typedef struct _XENPCI_IDENTIFICATION_DESCRIPTION
 {
   WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Header;
@@ -89,28 +87,38 @@ typedef struct _XENPCI_IDENTIFICATION_DESCRIPTION
   char Path[128];
 } XENPCI_IDENTIFICATION_DESCRIPTION, *PXENPCI_IDENTIFICATION_DESCRIPTION;
 
+typedef struct _ev_action_t {
+  PKSERVICE_ROUTINE ServiceRoutine;
+  PVOID ServiceContext;
+  ULONG Count;
+} ev_action_t;
+
+#define NR_EVENTS 1024
 
 typedef struct {
-  WDFQUEUE          IoDefaultQueue;
 
-  // Resources
-  //WDFINTERRUPT      Interrupt;
-  //PULONG            PhysAddress;
+  WDFDEVICE Device;
 
-  //ULONG platform_mmio_addr;
-  //ULONG platform_mmio_len;
-  //ULONG platform_mmio_alloc;
+  WDFINTERRUPT XenInterrupt;
+  ULONG irqNumber;
 
-  //ULONG shared_info_frame;
-  //char *hypercall_stubs;
+  shared_info_t *shared_info_area;
 
-  //PULONG            IoBaseAddress;
-  //ULONG             IoRange;
+  PHYSICAL_ADDRESS platform_mmio_addr;
+  ULONG platform_mmio_orig_len;
+  ULONG platform_mmio_len;
+  ULONG platform_mmio_alloc;
 
-  // Grant Table stuff
+  char *hypercall_stubs;
 
-  //grant_entry_t *gnttab_table;
-  //grant_ref_t gnttab_list[NR_GRANT_ENTRIES];
+  evtchn_port_t xen_store_evtchn;
+
+  grant_entry_t *gnttab_table;
+  PHYSICAL_ADDRESS gnttab_table_physical;
+  grant_ref_t gnttab_list[NR_GRANT_ENTRIES];
+
+  ev_action_t ev_actions[NR_EVENTS];
+  unsigned long bound_ports[NR_EVENTS/(8*sizeof(unsigned long))];
 
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
@@ -142,17 +150,17 @@ typedef uint32_t XENSTORE_RING_IDX;
 #include <gnttbl_public.h>
 
 char *
-XenBus_Read(xenbus_transaction_t xbt, const char *path, char **value);
+XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value);
 char *
-XenBus_Write(xenbus_transaction_t xbt, const char *path, const char *value);
+XenBus_Write(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *value);
 char *
-XenBus_Printf(xenbus_transaction_t xbt, const char *path, const char *fmt, ...);
+XenBus_Printf(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *fmt, ...);
 char *
-XenBus_StartTransaction(xenbus_transaction_t *xbt);
+XenBus_StartTransaction(PVOID Context, xenbus_transaction_t *xbt);
 char *
-XenBus_EndTransaction(xenbus_transaction_t t, int abort, int *retry);
+XenBus_EndTransaction(PVOID Context, xenbus_transaction_t t, int abort, int *retry);
 char *
-XenBus_List(xenbus_transaction_t xbt, const char *prefix, char ***contents);
+XenBus_List(PVOID Context, xenbus_transaction_t xbt, const char *prefix, char ***contents);
 NTSTATUS
 XenBus_Init();
 NTSTATUS
@@ -164,16 +172,16 @@ XenBus_Stop();
 //(*PXENBUS_WATCH_CALLBACK)(char *Path, PVOID ServiceContext);
 
 char *
-XenBus_AddWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
+XenBus_AddWatch(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 char *
-XenBus_RemWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
+XenBus_RemWatch(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 
 
 VOID
 XenBus_ThreadProc(PVOID StartContext);
 
 PHYSICAL_ADDRESS
-XenPCI_AllocMMIO(ULONG len);
+XenPCI_AllocMMIO(WDFDEVICE Device, ULONG len);
 
 //PVOID
 //map_frames(PULONG f, ULONG n);
@@ -186,28 +194,28 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID);
 BOOLEAN
 EvtChn_InterruptDpc(WDFINTERRUPT Interrupt, WDFOBJECT AssociatedObject);
 NTSTATUS
-EvtChn_Mask(evtchn_port_t Port);
+EvtChn_Mask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
-EvtChn_Unmask(evtchn_port_t Port);
+EvtChn_Unmask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
-EvtChn_Bind(evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
+EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 NTSTATUS
-EvtChn_Unbind(evtchn_port_t Port);
+EvtChn_Unbind(PVOID Context, evtchn_port_t Port);
 NTSTATUS
-EvtChn_Notify(evtchn_port_t Port);
+EvtChn_Notify(PVOID Context, evtchn_port_t Port);
 evtchn_port_t
-EvtChn_AllocUnbound(domid_t Domain);
+EvtChn_AllocUnbound(PVOID Context, domid_t Domain);
 NTSTATUS
-EvtChn_Init();
+EvtChn_Init(WDFDEVICE Device);
 
 grant_ref_t
-GntTbl_GrantAccess(domid_t domid, unsigned long frame, int readonly);
+GntTbl_GrantAccess(WDFDEVICE Device, domid_t domid, unsigned long frame, int readonly);
 BOOLEAN
-GntTbl_EndAccess(grant_ref_t ref);
+GntTbl_EndAccess(WDFDEVICE Device, grant_ref_t ref);
 
 evtchn_port_t
-EvtChn_GetXenStorePort();
+EvtChn_GetXenStorePort(WDFDEVICE Device);
 PVOID
-EvtChn_GetXenStoreRingAddr();
+EvtChn_GetXenStoreRingAddr(WDFDEVICE Device);
 
 #endif

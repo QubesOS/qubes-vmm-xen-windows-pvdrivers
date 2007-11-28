@@ -31,7 +31,7 @@ struct xenbus_req_info
   void *Reply;
 };
 
-typedef struct {
+typedef struct _XENBUS_WATCH_ENTRY {
   char Path[128];
   PXENBUS_WATCH_CALLBACK ServiceRoutine;
   PVOID ServiceContext;
@@ -39,7 +39,8 @@ typedef struct {
   int Active;
 } XENBUS_WATCH_ENTRY, *PXENBUS_WATCH_ENTRY;
 
-typedef struct {
+typedef struct _XENBUS_WATCH_RING
+{
   char Path[128];
   char Token[10];
 } XENBUS_WATCH_RING;
@@ -130,7 +131,6 @@ static void release_xenbus_id(int id)
 //    spin_unlock(&req_lock);
 }
 
-
 static char *errmsg(struct xsd_sockmsg *rep)
 {
   char *res;
@@ -176,11 +176,15 @@ struct write_req {
     unsigned len;
 };
 
-static evtchn_port_t xen_store_evtchn;
-
-static void xb_write(int type, int req_id, xenbus_transaction_t trans_id,
-                     const struct write_req *req, int nr_reqs)
+static void xb_write (
+  WDFDEVICE Device,
+  int type,
+  int req_id,
+  xenbus_transaction_t trans_id,
+  const struct write_req *req,
+  int nr_reqs)
 {
+  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
   XENSTORE_RING_IDX prod;
   int r;
   size_t len = 0;
@@ -254,13 +258,18 @@ static void xb_write(int type, int req_id, xenbus_transaction_t trans_id,
   //KdPrint((__DRIVER_NAME " prod = %08x\n", xen_store_interface->req_prod));
 
   /* Send evtchn to notify remote */
-  EvtChn_Notify(xen_store_evtchn);
+  EvtChn_Notify(Device, deviceData->xen_store_evtchn);
 
   //KdPrint((__DRIVER_NAME " <-- xb_write\n"));
 }
 
 static struct xsd_sockmsg *
-xenbus_msg_reply(int type, xenbus_transaction_t trans, struct write_req *io, int nr_reqs)
+xenbus_msg_reply(
+  WDFDEVICE Device,
+  int type,
+  xenbus_transaction_t trans,
+  struct write_req *io,
+  int nr_reqs)
 {
   int id;
 //  DEFINE_WAIT(w);
@@ -271,7 +280,7 @@ xenbus_msg_reply(int type, xenbus_transaction_t trans, struct write_req *io, int
   id = allocate_xenbus_id();
 //  add_waiter(w, req_info[id].waitq);
 
-  xb_write(type, id, trans, io, nr_reqs);
+  xb_write(Device, type, id, trans, io, nr_reqs);
 //
 //  schedule();
 //  remove_waiter(w);
@@ -291,43 +300,53 @@ xenbus_msg_reply(int type, xenbus_transaction_t trans, struct write_req *io, int
 }
 
 char *
-XenBus_Read(xenbus_transaction_t xbt, const char *path, char **value)
+XenBus_Read (
+  PVOID Context,
+  xenbus_transaction_t xbt,
+  const char *path,
+  char **value)
 {
-    struct write_req req[] = { {path, strlen(path) + 1} };
-    struct xsd_sockmsg *rep;
-    char *res;
-    char *msg;
+  WDFDEVICE Device = Context;
+  struct write_req req[] = { {path, strlen(path) + 1} };
+  struct xsd_sockmsg *rep;
+  char *res;
+  char *msg;
 
-    rep = xenbus_msg_reply(XS_READ, xbt, req, ARRAY_SIZE(req));
-    msg = errmsg(rep);
-    if (msg) {
-      *value = NULL;
-      return msg;
-    }
-    res = ExAllocatePoolWithTag(NonPagedPool, rep->len + 1, XENPCI_POOL_TAG);
-    memcpy(res, rep + 1, rep->len);
-    res[rep->len] = 0;
-    ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
-    *value = res;
-    return NULL;
+  rep = xenbus_msg_reply(Device, XS_READ, xbt, req, ARRAY_SIZE(req));
+  msg = errmsg(rep);
+  if (msg) {
+    *value = NULL;
+    return msg;
+  }
+  res = ExAllocatePoolWithTag(NonPagedPool, rep->len + 1, XENPCI_POOL_TAG);
+  memcpy(res, rep + 1, rep->len);
+  res[rep->len] = 0;
+  ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
+  *value = res;
+  return NULL;
 }
 
 char *
-XenBus_Write(xenbus_transaction_t xbt, const char *path, const char *value)
+XenBus_Write(
+  PVOID Context,
+  xenbus_transaction_t xbt,
+  const char *path,
+  const char *value)
 {
-    struct write_req req[] = {
-        {path, strlen(path) + 1},
-        {value, strlen(value) + 1},
-    };
-    struct xsd_sockmsg *rep;
-    char *msg;
+  WDFDEVICE Device = Context;
+  struct write_req req[] = {
+    {path, strlen(path) + 1},
+    {value, strlen(value) + 1},
+  };
+  struct xsd_sockmsg *rep;
+  char *msg;
 
-    rep = xenbus_msg_reply(XS_WRITE, xbt, req, ARRAY_SIZE(req));
-    msg = errmsg(rep);
-    if (msg)
-      return msg;
-    ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
-    return NULL;
+  rep = xenbus_msg_reply(Device, XS_WRITE, xbt, req, ARRAY_SIZE(req));
+  msg = errmsg(rep);
+  if (msg)
+    return msg;
+  ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
+  return NULL;
 }
 
 char* xenbus_wait_for_value(const char* path,const char* value)
@@ -354,12 +373,13 @@ char* xenbus_wait_for_value(const char* path,const char* value)
 }
 
 NTSTATUS
-XenBus_Init()
+XenBus_Init(WDFDEVICE Device)
 {
+  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);  
   //KdPrint((__DRIVER_NAME " --> XenBus_Init\n"));
 
-  xen_store_evtchn = EvtChn_GetXenStorePort();
-  xen_store_interface = EvtChn_GetXenStoreRingAddr();
+  deviceData->xen_store_evtchn = EvtChn_GetXenStorePort(Device);
+  xen_store_interface = EvtChn_GetXenStoreRingAddr(Device);
 
   //KdPrint((__DRIVER_NAME "     xen_store_evtchn = %08x\n", xen_store_evtchn));
   //KdPrint((__DRIVER_NAME "     xen_store_interface = %08x\n", xen_store_interface));
@@ -373,8 +393,9 @@ XenBus_Init()
 }
 
 NTSTATUS
-XenBus_Start()
+XenBus_Start(WDFDEVICE Device)
 {
+  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
   OBJECT_ATTRIBUTES oa;
   NTSTATUS status;
   int i;
@@ -392,7 +413,7 @@ XenBus_Start()
   InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
   status = PsCreateSystemThread(&XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_WatchThreadProc, NULL);
 
-  EvtChn_Bind(xen_store_evtchn, XenBus_Interrupt, NULL);
+  EvtChn_Bind(Device, deviceData->xen_store_evtchn, XenBus_Interrupt, NULL);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_Start\n"));
 
@@ -400,18 +421,19 @@ XenBus_Start()
 }
 
 NTSTATUS
-XenBus_Stop()
+XenBus_Stop(WDFDEVICE Device)
 {
+  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
   int i;
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
   {
     if (!XenBus_WatchEntries[i].Active)
       continue;
-    XenBus_RemWatch(XBT_NIL, XenBus_WatchEntries[i].Path, XenBus_WatchEntries[i].ServiceRoutine, XenBus_WatchEntries[i].ServiceContext);
+    XenBus_RemWatch(Device, XBT_NIL, XenBus_WatchEntries[i].Path, XenBus_WatchEntries[i].ServiceRoutine, XenBus_WatchEntries[i].ServiceContext);
   }
 
-  EvtChn_Unbind(xen_store_evtchn);
+  EvtChn_Unbind(Device, deviceData->xen_store_evtchn);
 
   // Does this actually stop the threads???
   ZwClose(XenBus_WatchThreadHandle);
@@ -421,8 +443,13 @@ XenBus_Stop()
 }
 
 char *
-XenBus_List(xenbus_transaction_t xbt, const char *pre, char ***contents)
+XenBus_List(
+  PVOID Context,
+  xenbus_transaction_t xbt,
+  const char *pre,
+  char ***contents)
 {
+  WDFDEVICE Device = Context;
   struct xsd_sockmsg *reply, *repmsg;
   struct write_req req[] = { { pre, strlen(pre)+1 } };
   ULONG nr_elems, x, i;
@@ -431,7 +458,7 @@ XenBus_List(xenbus_transaction_t xbt, const char *pre, char ***contents)
 
   //KdPrint((__DRIVER_NAME " --> xenbus_ls\n"));
 
-  repmsg = xenbus_msg_reply(XS_DIRECTORY, xbt, req, ARRAY_SIZE(req));
+  repmsg = xenbus_msg_reply(Device, XS_DIRECTORY, xbt, req, ARRAY_SIZE(req));
   msg = errmsg(repmsg);
   if (msg) {
     *contents = NULL;
@@ -455,6 +482,7 @@ XenBus_List(xenbus_transaction_t xbt, const char *pre, char ***contents)
   return NULL;
 }
 
+#if 0 // test code
 void
 do_ls_test(const char *pre)
 {
@@ -479,6 +507,7 @@ do_ls_test(const char *pre)
   ExFreePoolWithTag(dirs, XENPCI_POOL_TAG);
   //KdPrint((__DRIVER_NAME " --> do_ls_test\n"));
 }
+#endif
 
 int ReadThreadSetCount;
 int ReadThreadWaitCount;
@@ -593,8 +622,14 @@ XenBus_WatchThreadProc(PVOID StartContext)
 }    
 
 char *
-XenBus_AddWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext)
+XenBus_AddWatch (
+  PVOID Context,
+  xenbus_transaction_t xbt,
+  const char *Path,
+  PXENBUS_WATCH_CALLBACK ServiceRoutine,
+  PVOID ServiceContext)
 {
+  WDFDEVICE Device = Context;
   struct xsd_sockmsg *rep;
   char *msg;
   int i;
@@ -622,7 +657,7 @@ XenBus_AddWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBA
   req[1].data = Token;
   req[1].len = strlen(Token) + 1;
 
-  rep = xenbus_msg_reply(XS_WATCH, xbt, req, ARRAY_SIZE(req));
+  rep = xenbus_msg_reply(Device, XS_WATCH, xbt, req, ARRAY_SIZE(req));
 
   msg = errmsg(rep);
   if (msg)
@@ -642,8 +677,14 @@ XenBus_AddWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBA
 }
 
 char *
-XenBus_RemWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext)
+XenBus_RemWatch(
+  PVOID Context,
+  xenbus_transaction_t xbt,
+  const char *Path,
+  PXENBUS_WATCH_CALLBACK ServiceRoutine,
+  PVOID ServiceContext)
 {
+  WDFDEVICE Device = Context;
   struct xsd_sockmsg *rep;
   char *msg;
   int i;
@@ -672,7 +713,7 @@ XenBus_RemWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBA
   req[1].data = Token;
   req[1].len = strlen(Token) + 1;
 
-  rep = xenbus_msg_reply(XS_UNWATCH, xbt, req, ARRAY_SIZE(req));
+  rep = xenbus_msg_reply(Device, XS_UNWATCH, xbt, req, ARRAY_SIZE(req));
 
   msg = errmsg(rep);
   if (msg)
@@ -689,15 +730,16 @@ XenBus_RemWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBA
 
 
 char *
-XenBus_StartTransaction(xenbus_transaction_t *xbt)
+XenBus_StartTransaction(PVOID Context, xenbus_transaction_t *xbt)
 {
+  WDFDEVICE Device = Context;
   /* xenstored becomes angry if you send a length 0 message, so just
      shove a nul terminator on the end */
   struct write_req req = { "", 1};
   struct xsd_sockmsg *rep;
   char *err;
 
-  rep = xenbus_msg_reply(XS_TRANSACTION_START, 0, &req, 1);
+  rep = xenbus_msg_reply(Device, XS_TRANSACTION_START, 0, &req, 1);
   err = errmsg(rep);
   if (err)
     return err;
@@ -708,8 +750,9 @@ XenBus_StartTransaction(xenbus_transaction_t *xbt)
 }
 
 char *
-XenBus_EndTransaction(xenbus_transaction_t t, int abort, int *retry)
+XenBus_EndTransaction(PVOID Context, xenbus_transaction_t t, int abort, int *retry)
 {
+  WDFDEVICE Device = Context;
   struct xsd_sockmsg *rep;
   struct write_req req;
   char *err;
@@ -718,7 +761,7 @@ XenBus_EndTransaction(xenbus_transaction_t t, int abort, int *retry)
 
   req.data = abort ? "F" : "T";
   req.len = 2;
-  rep = xenbus_msg_reply(XS_TRANSACTION_END, t, &req, 1);
+  rep = xenbus_msg_reply(Device, XS_TRANSACTION_END, t, &req, 1);
   err = errmsg(rep);
   if (err) {
     if (!strcmp(err, "EAGAIN")) {
@@ -772,13 +815,14 @@ XenBus_Interrupt(PKINTERRUPT Interrupt, PVOID ServiceContext)
 }
 
 char *
-XenBus_Printf(xenbus_transaction_t xbt, const char *path, const char *fmt, ...)
+XenBus_Printf(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *fmt, ...)
 {
+  WDFDEVICE Device = Context;
   va_list ap;
   char buf[1024];
 
   va_start(ap, fmt);
   RtlStringCbVPrintfA(buf, ARRAY_SIZE(buf), fmt, ap);
   va_end(ap);
-  return XenBus_Write(xbt, path, buf);
+  return XenBus_Write(Device, xbt, path, buf);
 }

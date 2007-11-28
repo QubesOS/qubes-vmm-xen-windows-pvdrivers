@@ -19,11 +19,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 
-char *hypercall_stubs;
-
 static __inline int
-HYPERVISOR_memory_op(int cmd, void *arg)
+HYPERVISOR_memory_op(WDFDEVICE Device, int cmd, void *arg)
 {
+  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
   __asm {
     mov ebx, cmd
@@ -37,8 +36,9 @@ HYPERVISOR_memory_op(int cmd, void *arg)
 }
 
 static __inline int
-HYPERVISOR_xen_version(int cmd, void *arg)
+HYPERVISOR_xen_version(WDFDEVICE Device, int cmd, void *arg)
 {
+  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
   __asm {
     mov ebx, cmd
@@ -52,8 +52,9 @@ HYPERVISOR_xen_version(int cmd, void *arg)
 }
 
 static __inline int
-HYPERVISOR_grant_table_op(int cmd, void *uop, unsigned int count)
+HYPERVISOR_grant_table_op(WDFDEVICE Device, int cmd, void *uop, unsigned int count)
 {
+  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
   __asm {
     mov ebx, cmd
@@ -68,8 +69,9 @@ HYPERVISOR_grant_table_op(int cmd, void *uop, unsigned int count)
 }
 
 static __inline int
-HYPERVISOR_mmu_update(mmu_update_t *req, int count, int *success_count, domid_t domid)
+HYPERVISOR_mmu_update(WDFDEVICE Device, mmu_update_t *req, int count, int *success_count, domid_t domid)
 {
+  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
   long _domid = (long)domid;
   __asm {
@@ -86,8 +88,9 @@ HYPERVISOR_mmu_update(mmu_update_t *req, int count, int *success_count, domid_t 
 }
 
 static __inline int
-HYPERVISOR_console_io(int cmd, int count, char *string)
+HYPERVISOR_console_io(WDFDEVICE Device, int cmd, int count, char *string)
 {
+  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
   __asm {
     mov ebx, cmd
@@ -102,8 +105,9 @@ HYPERVISOR_console_io(int cmd, int count, char *string)
 }
 
 static __inline int
-HYPERVISOR_hvm_op(int op, struct xen_hvm_param *arg)
+HYPERVISOR_hvm_op(WDFDEVICE Device, int op, struct xen_hvm_param *arg)
 {
+  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
   __asm {
     mov ebx, op
@@ -117,8 +121,9 @@ HYPERVISOR_hvm_op(int op, struct xen_hvm_param *arg)
 }
 
 static __inline int
-HYPERVISOR_event_channel_op(int cmd, void *op)
+HYPERVISOR_event_channel_op(WDFDEVICE Device, int cmd, void *op)
 {
+  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
   __asm {
     mov ebx, cmd
@@ -132,7 +137,7 @@ HYPERVISOR_event_channel_op(int cmd, void *op)
 }
 
 static __inline ULONGLONG
-hvm_get_parameter(int hvm_param)
+hvm_get_parameter(WDFDEVICE Device, int hvm_param)
 {
   struct xen_hvm_param a;
   int retval;
@@ -141,7 +146,7 @@ hvm_get_parameter(int hvm_param)
   a.domid = DOMID_SELF;
   a.index = hvm_param;
   //a.value = via;
-  retval = HYPERVISOR_hvm_op(HVMOP_get_param, &a);
+  retval = HYPERVISOR_hvm_op(Device, HVMOP_get_param, &a);
   KdPrint((__DRIVER_NAME " hvm_get_parameter retval = %d\n", retval));
   KdPrint((__DRIVER_NAME " <-- hvm_get_parameter\n"));
   return a.value;

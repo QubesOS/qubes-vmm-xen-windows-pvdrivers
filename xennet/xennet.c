@@ -220,6 +220,7 @@ XenNet_Init(
     goto err;
   }
 
+#if 0
   status = WdfFdoQueryForInterface(xi->wdf_device, &GUID_XEN_IFACE_XEN,
     (PINTERFACE) &xi->XenInterface, sizeof(XEN_IFACE_XEN), 1, NULL);
   if(!NT_SUCCESS(status))
@@ -228,6 +229,7 @@ XenNet_Init(
     status = NDIS_STATUS_FAILURE;
     goto err;
   }
+#endif
 
   status = WdfFdoQueryForInterface(xi->wdf_device, &GUID_XEN_IFACE_GNTTBL,
     (PINTERFACE) &xi->GntTblInterface, sizeof(XEN_IFACE_GNTTBL), 1, NULL);
@@ -238,8 +240,10 @@ XenNet_Init(
     goto err;
   }
 
-  xi->event_channel = xi->EvtChnInterface.AllocUnbound(0);  
-  xi->EvtChnInterface.Bind(xi->event_channel, XenNet_Interrupt, xi);
+  xi->event_channel = xi->EvtChnInterface.AllocUnbound(
+    xi->EvtChnInterface.InterfaceHeader.Context, 0);  
+  xi->EvtChnInterface.Bind(xi->EvtChnInterface.InterfaceHeader.Context,
+    xi->event_channel, XenNet_Interrupt, xi);
 
   /* TODO: must free pages in MDL as well as MDL using MmFreePagesFromMdl and ExFreePool */
   // or, allocate mem and then get mdl, then free mdl
@@ -248,21 +252,24 @@ XenNet_Init(
   xi->txs = MmMapLockedPages(mdl, KernelMode);
   SHARED_RING_INIT(xi->txs);
   FRONT_RING_INIT(&xi->tx, xi->txs, PAGE_SIZE);
-  xi->tx_ring_ref = xi->GntTblInterface.GrantAccess(0, pfn, FALSE);
+  xi->tx_ring_ref = xi->GntTblInterface.GrantAccess(
+    xi->GntTblInterface.InterfaceHeader.Context, 0, pfn, FALSE);
 
   mdl = AllocatePage();
   pfn = *MmGetMdlPfnArray(mdl);
   xi->rxs = MmMapLockedPages(mdl, KernelMode);
   SHARED_RING_INIT(xi->rxs);
   FRONT_RING_INIT(&xi->rx, xi->rxs, PAGE_SIZE);
-  xi->rx_ring_ref = xi->GntTblInterface.GrantAccess(0, pfn, FALSE);
+  xi->rx_ring_ref = xi->GntTblInterface.GrantAccess(
+    xi->GntTblInterface.InterfaceHeader.Context, 0, pfn, FALSE);
 
   {
   char *msg;
   char **vif_devs;
   char buffer[128];
   // get mac addr
-  msg = xi->XenBusInterface.List(XBT_NIL, "device/vif", &vif_devs);
+  msg = xi->XenBusInterface.List(xi->EvtChnInterface.InterfaceHeader.Context,
+    XBT_NIL, "device/vif", &vif_devs);
   if (!msg)
   {
     for (i = 0; vif_devs[i]; i++)
@@ -448,7 +455,7 @@ XenNet_SetInformation(
   OUT PULONG BytesNeeded
   )
 {
-  KdPrint((__FUNCTION__ " called\n"));
+  KdPrint((__FUNCTION__ " called with OID=0x%x\n", Oid));
   return NDIS_STATUS_SUCCESS;
 }
 

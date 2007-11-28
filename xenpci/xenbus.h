@@ -132,13 +132,13 @@ struct xsd_sockmsg
 
 #define XBT_NIL ((xenbus_transaction_t)0)
 char *
-XenBus_Read(xenbus_transaction_t xbt, const char *path, char **value);
+XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value);
 char *
-XenBus_Write(xenbus_transaction_t xbt, const char *path, const char *value);
+XenBus_Write(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *value);
 char *
-XenBus_StartTransaction(xenbus_transaction_t *xbt);
+XenBus_StartTransaction(PVOID Context, xenbus_transaction_t *xbt);
 char *
-XenBus_EndTransaction(xenbus_transaction_t t, int abort, int *retry);
+XenBus_EndTransaction(PVOID Context, xenbus_transaction_t t, int abort, int *retry);
 
 
 char *
