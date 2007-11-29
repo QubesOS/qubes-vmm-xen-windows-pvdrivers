@@ -29,8 +29,8 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
   unsigned long evt_bit;
   unsigned long port;
   ev_action_t *ev_action;
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(WdfInterruptGetDevice(Interrupt));
-  shared_info_t *shared_info_area = deviceData->shared_info_area;
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(WdfInterruptGetDevice(Interrupt));
+  shared_info_t *shared_info_area = xpdd->shared_info_area;
 
   UNREFERENCED_PARAMETER(Interrupt);
   UNREFERENCED_PARAMETER(MessageID);
@@ -50,7 +50,7 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
     while (_BitScanForward(&evt_bit, shared_info_area->evtchn_pending[evt_word] & ~shared_info_area->evtchn_mask[evt_word]))
     {
       port = (evt_word << 5) + evt_bit;
-      ev_action = &deviceData->ev_actions[port];
+      ev_action = &xpdd->ev_actions[port];
       if (ev_action->ServiceRoutine == NULL)
       {
         KdPrint((__DRIVER_NAME "     Unhandled Event!!!\n"));
@@ -75,18 +75,18 @@ NTSTATUS
 EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
   WDFDEVICE Device = Context;
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
 
   KdPrint((__DRIVER_NAME " --> EvtChn_Bind\n"));
 
-  if(deviceData->ev_actions[Port].ServiceRoutine != NULL)
+  if(xpdd->ev_actions[Port].ServiceRoutine != NULL)
   {
     KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
   }
 
-  deviceData->ev_actions[Port].ServiceContext = ServiceContext;
+  xpdd->ev_actions[Port].ServiceContext = ServiceContext;
   KeMemoryBarrier();
-  deviceData->ev_actions[Port].ServiceRoutine = ServiceRoutine;
+  xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
 
   EvtChn_Unmask(Device, Port);
 
@@ -99,11 +99,11 @@ NTSTATUS
 EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
 {
   WDFDEVICE Device = Context;
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
 
   EvtChn_Mask(Context, Port);
-  deviceData->ev_actions[Port].ServiceContext = NULL;
-  deviceData->ev_actions[Port].ServiceRoutine = NULL;
+  xpdd->ev_actions[Port].ServiceContext = NULL;
+  xpdd->ev_actions[Port].ServiceRoutine = NULL;
 
   //KdPrint((__DRIVER_NAME " <-- EvtChn_UnBind\n"));
 
@@ -114,11 +114,11 @@ NTSTATUS
 EvtChn_Mask(PVOID Context, evtchn_port_t Port)
 {
   WDFDEVICE Device = Context;
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   //KdPrint((__DRIVER_NAME " --> EvtChn_Mask\n"));
 
   _interlockedbittestandset(
-    (volatile LONG *)&deviceData->shared_info_area->evtchn_mask[0], Port);
+    (volatile LONG *)&xpdd->shared_info_area->evtchn_mask[0], Port);
 
   //KdPrint((__DRIVER_NAME " <-- EvtChn_Mask\n"));
 
@@ -129,11 +129,11 @@ NTSTATUS
 EvtChn_Unmask(PVOID Context, evtchn_port_t Port)
 {
   WDFDEVICE Device = Context;
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   //KdPrint((__DRIVER_NAME " --> EvtChn_Unmask\n"));
 
   _interlockedbittestandreset(
-    (volatile LONG *)&deviceData->shared_info_area->evtchn_mask[0], Port);
+    (volatile LONG *)&xpdd->shared_info_area->evtchn_mask[0], Port);
   // should we kick off pending interrupts here too???
 
   //KdPrint((__DRIVER_NAME " <-- EvtChn_Unmask\n"));
@@ -218,23 +218,23 @@ EvtChn_GetXenStoreRingAddr(WDFDEVICE Device)
 NTSTATUS
 EvtChn_Init(WDFDEVICE Device)
 {
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   int i;
 
   for (i = 0; i < NR_EVENTS; i++)
   {
     EvtChn_Mask(Device, i);
-    deviceData->ev_actions[i].ServiceRoutine = NULL;
-    deviceData->ev_actions[i].ServiceContext = NULL;
-    deviceData->ev_actions[i].Count = 0;
+    xpdd->ev_actions[i].ServiceRoutine = NULL;
+    xpdd->ev_actions[i].ServiceContext = NULL;
+    xpdd->ev_actions[i].Count = 0;
   }
 
   for (i = 0; i < 8; i++)
   {
-    deviceData->shared_info_area->evtchn_pending[i] = 0;
+    xpdd->shared_info_area->evtchn_pending[i] = 0;
   }
-  deviceData->shared_info_area->vcpu_info[0].evtchn_upcall_pending = 0;
-  deviceData->shared_info_area->vcpu_info[0].evtchn_pending_sel = 0;
+  xpdd->shared_info_area->vcpu_info[0].evtchn_upcall_pending = 0;
+  xpdd->shared_info_area->vcpu_info[0].evtchn_pending_sel = 0;
 
   return STATUS_SUCCESS;
 }

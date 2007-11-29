@@ -188,7 +188,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 static NTSTATUS
 get_hypercall_stubs(WDFDEVICE Device)
 {
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   DWORD32 cpuid_output[4];
   char xensig[13];
   ULONG i;
@@ -207,15 +207,15 @@ get_hypercall_stubs(WDFDEVICE Device)
   msr = cpuid_output[1];
   //KdPrint((__DRIVER_NAME " Hypercall area is %u pages.\n", pages));
 
-  deviceData->hypercall_stubs = ExAllocatePoolWithTag(NonPagedPool, pages * PAGE_SIZE, XENPCI_POOL_TAG);
+  xpdd->hypercall_stubs = ExAllocatePoolWithTag(NonPagedPool, pages * PAGE_SIZE, XENPCI_POOL_TAG);
   //KdPrint((__DRIVER_NAME " Hypercall area at %08x\n", hypercall_stubs));
 
-  if (!deviceData->hypercall_stubs)
+  if (!xpdd->hypercall_stubs)
     return 1;
   for (i = 0; i < pages; i++) {
     ULONG pfn;
     //pfn = vmalloc_to_pfn((char *)hypercall_stubs + i * PAGE_SIZE);
-    pfn = (ULONG)(MmGetPhysicalAddress(deviceData->hypercall_stubs + i * PAGE_SIZE).QuadPart >> PAGE_SHIFT);
+    pfn = (ULONG)(MmGetPhysicalAddress(xpdd->hypercall_stubs + i * PAGE_SIZE).QuadPart >> PAGE_SHIFT);
     //KdPrint((__DRIVER_NAME " pfn = %08X\n", pfn));
     __writemsr(msr, ((ULONGLONG)pfn << PAGE_SHIFT) + i);
   }
@@ -225,13 +225,13 @@ get_hypercall_stubs(WDFDEVICE Device)
 PHYSICAL_ADDRESS
 XenPCI_AllocMMIO(WDFDEVICE Device, ULONG len)
 {
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
 
   PHYSICAL_ADDRESS addr;
 
-  addr = deviceData->platform_mmio_addr;
-  addr.QuadPart += deviceData->platform_mmio_alloc;
-  deviceData->platform_mmio_alloc += len;
+  addr = xpdd->platform_mmio_addr;
+  addr.QuadPart += xpdd->platform_mmio_alloc;
+  xpdd->platform_mmio_alloc += len;
 
   return addr;
 }
@@ -239,7 +239,7 @@ XenPCI_AllocMMIO(WDFDEVICE Device, ULONG len)
 static int
 init_xen_info(WDFDEVICE Device)
 {
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   struct xen_add_to_physmap xatp;
   int ret;
   PHYSICAL_ADDRESS shared_info_area_unmapped;
@@ -255,7 +255,7 @@ init_xen_info(WDFDEVICE Device)
   ret = HYPERVISOR_memory_op(Device, XENMEM_add_to_physmap, &xatp);
   //KdPrint((__DRIVER_NAME " ret = %d\n", ret));
 
-  deviceData->shared_info_area = MmMapIoSpace(shared_info_area_unmapped,
+  xpdd->shared_info_area = MmMapIoSpace(shared_info_area_unmapped,
     PAGE_SIZE, MmNonCached);
 
   return 0;
@@ -291,7 +291,7 @@ XenPCI_AddDevice(
   PNP_BUS_INFORMATION busInfo;
   BUS_INTERFACE_STANDARD BusInterface;
   WDFDEVICE Device;
-  PXENPCI_DEVICE_DATA deviceData;
+  PXENPCI_DEVICE_DATA xpdd;
 
   UNREFERENCED_PARAMETER(Driver);
 
@@ -334,8 +334,8 @@ XenPCI_AddDevice(
     KdPrint((__DRIVER_NAME " WdfDeviceCreate failed with status 0x%08x\n", status));
     return status;
   }
-  deviceData = GetDeviceData(Device);
-  deviceData->Device = Device;
+  xpdd = GetDeviceData(Device);
+  xpdd->Device = Device;
 
   WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFilePaging, TRUE);
   WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileHibernation, TRUE);
@@ -356,7 +356,7 @@ XenPCI_AddDevice(
   WDF_INTERRUPT_CONFIG_INIT(&interruptConfig, EvtChn_Interrupt, NULL);
   interruptConfig.EvtInterruptEnable = XenPCI_InterruptEnable;
   interruptConfig.EvtInterruptDisable = XenPCI_InterruptDisable;
-  status = WdfInterruptCreate(Device, &interruptConfig, WDF_NO_OBJECT_ATTRIBUTES, &deviceData->XenInterrupt);
+  status = WdfInterruptCreate(Device, &interruptConfig, WDF_NO_OBJECT_ATTRIBUTES, &xpdd->XenInterrupt);
   if (!NT_SUCCESS (status))
   {
     KdPrint((__DRIVER_NAME "WdfInterruptCreate failed 0x%08x\n", status));
@@ -376,11 +376,9 @@ XenPCI_PrepareHardware(
   NTSTATUS status = STATUS_SUCCESS;
   PCM_PARTIAL_RESOURCE_DESCRIPTOR descriptor;
   ULONG i;
-  PXENPCI_DEVICE_DATA deviceData;
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
 
   KdPrint((__DRIVER_NAME " --> EvtDevicePrepareHardware\n"));
-
-  deviceData = GetDeviceData(Device);
 
   for (i = 0; i < WdfCmResourceListGetCount(ResourceList); i++)
   {
@@ -390,7 +388,7 @@ XenPCI_PrepareHardware(
     switch (descriptor->Type)
     {
     case CmResourceTypeInterrupt:
-      deviceData->irqNumber = descriptor->u.Interrupt.Vector;
+      xpdd->irqNumber = descriptor->u.Interrupt.Vector;
       break;
     }
   }
@@ -409,14 +407,14 @@ XenPCI_PrepareHardware(
     switch (descriptor->Type) {
     case CmResourceTypePort:
       //KdPrint((__DRIVER_NAME "     I/O mapped CSR: (%x) Length: (%d)\n", descriptor->u.Port.Start.LowPart, descriptor->u.Port.Length));
-//      deviceData->IoBaseAddress = ULongToPtr(descriptor->u.Port.Start.LowPart);
-//      deviceData->IoRange = descriptor->u.Port.Length;
+//      xpdd->IoBaseAddress = ULongToPtr(descriptor->u.Port.Start.LowPart);
+//      xpdd->IoRange = descriptor->u.Port.Length;
       break;
     case CmResourceTypeMemory:
       KdPrint((__DRIVER_NAME "     Memory mapped CSR:(%x:%x) Length:(%d)\n", descriptor->u.Memory.Start.LowPart, descriptor->u.Memory.Start.HighPart, descriptor->u.Memory.Length));
-      deviceData->platform_mmio_addr = descriptor->u.Memory.Start; //(ULONG)MmMapIoSpace(descriptor->u.Memory.Start, descriptor->u.Memory.Length, MmNonCached);
-      deviceData->platform_mmio_len = descriptor->u.Memory.Length;
-      deviceData->platform_mmio_alloc = 0;
+      xpdd->platform_mmio_addr = descriptor->u.Memory.Start; //(ULONG)MmMapIoSpace(descriptor->u.Memory.Start, descriptor->u.Memory.Length, MmNonCached);
+      xpdd->platform_mmio_len = descriptor->u.Memory.Length;
+      xpdd->platform_mmio_alloc = 0;
       break;
     case CmResourceTypeInterrupt:
       //KdPrint((__DRIVER_NAME "     Interrupt level: 0x%0x, Vector: 0x%0x\n", descriptor->u.Interrupt.Level, descriptor->u.Interrupt.Vector));
@@ -438,13 +436,13 @@ XenPCI_PrepareHardware(
 
   EvtChn_Init(Device);
 
-  set_callback_irq(Device, deviceData->irqNumber);
+  set_callback_irq(Device, xpdd->irqNumber);
 
   XenBus_Init(Device);
 
   //KdPrint((__DRIVER_NAME " upcall_pending = %d\n", shared_info_area->vcpu_info[0].evtchn_upcall_pending));
 
-  deviceData->shared_info_area->vcpu_info[0].evtchn_upcall_mask = 0;
+  xpdd->shared_info_area->vcpu_info[0].evtchn_upcall_mask = 0;
 
   //xen_reboot_init();
 
@@ -568,12 +566,12 @@ XenPCI_IoDefault(
 static NTSTATUS
 XenPCI_InterruptEnable(WDFINTERRUPT Interrupt, WDFDEVICE AssociatedDevice)
 {
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(AssociatedDevice);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(AssociatedDevice);
   UNREFERENCED_PARAMETER(Interrupt);
 
   KdPrint((__DRIVER_NAME " --> EvtInterruptEnable\n"));
 
-  deviceData->shared_info_area->vcpu_info[0].evtchn_upcall_mask = 0;
+  xpdd->shared_info_area->vcpu_info[0].evtchn_upcall_mask = 0;
 
   KdPrint((__DRIVER_NAME " <-- EvtInterruptEnable\n"));
 
@@ -583,12 +581,12 @@ XenPCI_InterruptEnable(WDFINTERRUPT Interrupt, WDFDEVICE AssociatedDevice)
 static NTSTATUS
 XenPCI_InterruptDisable(WDFINTERRUPT Interrupt, WDFDEVICE AssociatedDevice)
 {
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(AssociatedDevice);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(AssociatedDevice);
   UNREFERENCED_PARAMETER(Interrupt);
 
   //KdPrint((__DRIVER_NAME " --> EvtInterruptDisable\n"));
 
-  deviceData->shared_info_area->vcpu_info[0].evtchn_upcall_mask = 1;
+  xpdd->shared_info_area->vcpu_info[0].evtchn_upcall_mask = 1;
   // should we kick off any pending interrupts here?
 
   //KdPrint((__DRIVER_NAME " <-- EvtInterruptDisable\n"));
@@ -997,7 +995,7 @@ XenPCI_DeviceResourceRequirementsQuery(WDFDEVICE Device, WDFIORESREQLIST IoResou
   NTSTATUS  status;
   WDFIORESLIST resourceList;
   IO_RESOURCE_DESCRIPTOR descriptor;
-  PXENPCI_DEVICE_DATA deviceData = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
 
   //KdPrint((__DRIVER_NAME " --> DeviceResourceRequirementsQuery\n"));
 
@@ -1031,9 +1029,9 @@ XenPCI_DeviceResourceRequirementsQuery(WDFDEVICE Device, WDFIORESREQLIST IoResou
   descriptor.u.Memory.Length = PAGE_SIZE;
   descriptor.u.Memory.Alignment = PAGE_SIZE;
   descriptor.u.Memory.MinimumAddress.QuadPart
-    = deviceData->platform_mmio_addr.QuadPart + PAGE_SIZE;
+    = xpdd->platform_mmio_addr.QuadPart + PAGE_SIZE;
   descriptor.u.Memory.MaximumAddress.QuadPart
-    = deviceData->platform_mmio_addr.QuadPart + deviceData->platform_mmio_len - 1;
+    = xpdd->platform_mmio_addr.QuadPart + xpdd->platform_mmio_len - 1;
 
   //KdPrint((__DRIVER_NAME "     MinimumAddress = %08x, MaximumAddress = %08X\n", descriptor.u.Memory.MinimumAddress.LowPart, descriptor.u.Memory.MaximumAddress.LowPart));
 
