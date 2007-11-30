@@ -18,6 +18,8 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
+#include <stdlib.h>
+#include <io/xenbus.h>
 #include "xennet.h"
 
 #if !defined (NDIS51_MINIPORT)
@@ -41,8 +43,8 @@ struct xennet_info
   WCHAR name[NAME_SIZE];
   NDIS_HANDLE adapter_handle;
   ULONG packet_filter;
-  UCHAR perm_mac_addr[ETH_ALEN];
-  UCHAR curr_mac_addr[ETH_ALEN];
+  UINT8 perm_mac_addr[ETH_ALEN];
+  UINT8 curr_mac_addr[ETH_ALEN];
 
   char Path[128];
   char BackendPath[128];
@@ -73,6 +75,36 @@ typedef struct _wdf_device_info
 } wdf_device_info;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(wdf_device_info, GetWdfDeviceInfo)
+
+/* This function copied from linux's lib/vsprintf.c, see it for attribution */
+static unsigned long
+simple_strtoul(const char *cp,char **endp,unsigned int base)
+{
+  unsigned long result = 0,value;
+
+  if (!base) {
+    base = 10;
+    if (*cp == '0') {
+      base = 8;
+      cp++;
+      if ((toupper(*cp) == 'X') && isxdigit(cp[1])) {
+        cp++;
+        base = 16;
+      }
+    }
+  } else if (base == 16) {
+    if (cp[0] == '0' && toupper(cp[1]) == 'X')
+    cp += 2;
+  }
+  while (isxdigit(*cp) &&
+  (value = isdigit(*cp) ? *cp-'0' : toupper(*cp)-'A'+10) < base) {
+    result = result*base + value;
+    cp++;
+  }
+  if (endp)
+  *endp = (char *)cp;
+  return result;
+ }
 
 static PMDL
 AllocatePages(int Pages)
@@ -123,6 +155,65 @@ XenNet_Interrupt(
 
   return TRUE;
 }
+
+static VOID
+XenNet_BackEndStateHandler(char *Path, PVOID Data)
+{
+  struct xennet_info *xi = Data;
+  char *Value;
+  int be_state;
+
+  xi->XenBusInterface.Read(xi->XenBusInterface.InterfaceHeader.Context,
+    XBT_NIL, Path, &Value);
+  be_state = atoi(Value);
+  ExFreePool(Value);
+
+  switch (be_state)
+  {
+  case XenbusStateUnknown:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Unknown\n"));  
+    break;
+
+  case XenbusStateInitialising:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialising\n"));  
+    break;
+
+  case XenbusStateInitWait:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait\n"));  
+
+    /* do stuff here */
+
+    KdPrint((__DRIVER_NAME "     Set Frontend state to Initialised\n"));
+    break;
+
+  case XenbusStateInitialised:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialised\n"));
+    // create the device
+    break;
+
+  case XenbusStateConnected:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Connected\n"));  
+
+    /* do more stuff here */
+
+    KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
+    break;
+
+  case XenbusStateClosing:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));  
+    break;
+
+  case XenbusStateClosed:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closed\n"));  
+    break;
+
+  default:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d\n", be_state));
+    break;
+  }
+
+}
+
 
 VOID
 XenNet_Halt(
@@ -304,12 +395,47 @@ XenNet_Init(
       XBT_NIL, TmpPath, &Value);
     if (!Value)
     {
-      KdPrint((__DRIVER_NAME "     Read Failed\n"));
+      KdPrint((__DRIVER_NAME "    backend Read Failed\n"));
     }
     else
     {
       RtlStringCbCopyA(xi->BackendPath, ARRAY_SIZE(xi->BackendPath), Value);
       KdPrint((__DRIVER_NAME "backend path = %s\n", xi->BackendPath));
+    }
+    ExFreePool(Value);
+
+    /* Add watch on backend state */
+    RtlStringCbCopyA(TmpPath, ARRAY_SIZE(TmpPath), xi->BackendPath);
+    RtlStringCbCatA(TmpPath, ARRAY_SIZE(TmpPath), "/state");
+    xi->XenBusInterface.AddWatch(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
+
+    /* get mac address */
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->Path);
+    xi->XenBusInterface.Read(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, &Value);
+    if (!Value)
+    {
+      KdPrint((__DRIVER_NAME "    mac Read Failed\n"));
+    }
+    else
+    {
+      char *s, *e;
+      int i;
+
+      s = Value;
+
+      for (i = 0; i < ETH_ALEN; i++) {
+        xi->perm_mac_addr[i] = (UINT8)simple_strtoul(s, &e, 16);
+        if ((s == e) || (*e != ((i == ETH_ALEN-1) ? '\0' : ':'))) {
+          KdPrint((__DRIVER_NAME "Error parsing MAC address\n"));
+          ExFreePool(Value);
+          ExFreePool(vif_devs);
+          status = NDIS_STATUS_FAILURE;
+          goto err;
+        }
+        s = e + 1;
+      }
     }
     ExFreePool(Value);
 
