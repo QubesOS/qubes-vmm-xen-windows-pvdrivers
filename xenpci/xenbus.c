@@ -447,16 +447,22 @@ XenBus_ReadThreadProc(PVOID StartContext)
         break;
       }
   
-      if(msg.type == XS_WATCH_EVENT)
+      if (msg.type != XS_WATCH_EVENT)
+      {
+        xpdd->req_info[msg.req_id].Reply = ExAllocatePoolWithTag(NonPagedPool, sizeof(msg) + msg.len, XENPCI_POOL_TAG);
+        memcpy_from_ring(xpdd->xen_store_interface->rsp,
+          xpdd->req_info[msg.req_id].Reply,
+          MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons),
+          msg.len + sizeof(msg));
+        xpdd->xen_store_interface->rsp_cons += msg.len + sizeof(msg);
+        KeSetEvent(&xpdd->req_info[msg.req_id].WaitEvent, 1, FALSE);
+      }
+      else // a watch: add to watch ring and signal watch thread
       {
         payload = ExAllocatePoolWithTag(NonPagedPool, sizeof(msg) + msg.len, XENPCI_POOL_TAG);
-  
         memcpy_from_ring(xpdd->xen_store_interface->rsp, payload,
           MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons), msg.len + sizeof(msg));
-  
         xpdd->xen_store_interface->rsp_cons += msg.len + sizeof(msg);
-        //KdPrint((__DRIVER_NAME "     b - Rsp_cons %d, rsp_prod %d.\n", xen_store_interface->rsp_cons, xen_store_interface->rsp_prod));
-  
         path = payload + sizeof(msg);
         token = path + strlen(path) + 1;
 
@@ -477,18 +483,6 @@ XenBus_ReadThreadProc(PVOID StartContext)
         ExFreePoolWithTag(payload, XENPCI_POOL_TAG);
         //KdPrint((__DRIVER_NAME " +++ Watch Path = %s Token = %s\n", path, token));
         KeSetEvent(&xpdd->XenBus_WatchThreadEvent, 1, FALSE);
-      }
-      else
-      {  
-        xpdd->req_info[msg.req_id].Reply = ExAllocatePoolWithTag(NonPagedPool, sizeof(msg) + msg.len, XENPCI_POOL_TAG);
-        memcpy_from_ring(xpdd->xen_store_interface->rsp,
-          xpdd->req_info[msg.req_id].Reply,
-          MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons),
-          msg.len + sizeof(msg));
-        xpdd->xen_store_interface->rsp_cons += msg.len + sizeof(msg);
-        //KdPrint((__DRIVER_NAME "     c - Rsp_cons %d, rsp_prod %d.\n", xen_store_interface->rsp_cons, xen_store_interface->rsp_prod));
-        //KdPrint((__DRIVER_NAME " +++ Message = %s\n", ((char *)req_info[msg.req_id].Reply) + sizeof(msg)));
-        KeSetEvent(&xpdd->req_info[msg.req_id].WaitEvent, 1, FALSE);
       }
     }
   }
