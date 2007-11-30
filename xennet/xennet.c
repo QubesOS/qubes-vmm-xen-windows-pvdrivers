@@ -148,6 +148,10 @@ XenNet_Init(
   struct xennet_info *xi = NULL;
   ULONG length;
   WDF_OBJECT_ATTRIBUTES wdf_attrs;
+  char *msg;
+  char *Value;
+  char **vif_devs;
+  char TmpPath[128];
 
   UNREFERENCED_PARAMETER(OpenErrorStatus);
   UNREFERENCED_PARAMETER(WrapperConfigurationContext);
@@ -273,25 +277,46 @@ XenNet_Init(
     xi->GntTblInterface.InterfaceHeader.Context, 0,
     *MmGetMdlPfnArray(xi->rx_mdl), FALSE);
 
-  {
-  char *msg;
-  char **vif_devs;
-  char buffer[128];
-  // get mac addr
   msg = xi->XenBusInterface.List(xi->EvtChnInterface.InterfaceHeader.Context,
     XBT_NIL, "device/vif", &vif_devs);
-  if (!msg)
+  if (msg)
   {
-    for (i = 0; vif_devs[i]; i++)
+    KdPrint((__DRIVER_NAME ": " __FUNCTION__ ": List retval is nonzero!\n"));
+    status = NDIS_STATUS_FAILURE;
+    goto err;
+  }
+
+  for (i = 0; vif_devs[i]; i++)
+  {
+    if (i > 0)
     {
-      RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer),
-        "device/vif/%s/state", vif_devs[i]);
-      KdPrint(("%s\n", buffer));
-      //XenVbd_HotPlugHandler(buffer, NULL);
-      //ExFreePoolWithTag(bdDevices[i], XENPCI_POOL_TAG);
+      KdPrint((__DRIVER_NAME "Can only handle 1 vif so far, ignoring vif %s\n", vif_devs[i]));
+      continue;
     }
+    RtlStringCbPrintfA(xi->Path, ARRAY_SIZE(xi->Path), "device/vif/%s", vif_devs[i]);
+
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
+      "device/vif/%s/state", vif_devs[i]);
+    KdPrint(("%s\n", TmpPath));
+
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/backend", xi->Path);
+    xi->XenBusInterface.Read(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, &Value);
+    if (!Value)
+    {
+      KdPrint((__DRIVER_NAME "     Read Failed\n"));
+    }
+    else
+    {
+      RtlStringCbCopyA(xi->BackendPath, ARRAY_SIZE(xi->BackendPath), Value);
+      KdPrint((__DRIVER_NAME "backend path = %s\n", xi->BackendPath));
+    }
+    ExFreePool(Value);
+
+    //XenVbd_HotPlugHandler(buffer, NULL);
+    //ExFreePoolWithTag(bdDevices[i], XENPCI_POOL_TAG);
   }
-  }
+  ExFreePool(vif_devs);
 
   return NDIS_STATUS_SUCCESS;
 
