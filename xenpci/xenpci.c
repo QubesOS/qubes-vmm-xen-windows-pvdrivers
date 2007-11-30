@@ -408,6 +408,7 @@ XenPCI_AddDevice(
   WDF_INTERRUPT_CONFIG_INIT(&interruptConfig, EvtChn_Interrupt, NULL); //EvtChn_InterruptDpc);
   interruptConfig.EvtInterruptEnable = XenPCI_InterruptEnable;
   interruptConfig.EvtInterruptDisable = XenPCI_InterruptDisable;
+  interruptConfig.ShareVector = WdfTrue;
   status = WdfInterruptCreate(Device, &interruptConfig, WDF_NO_OBJECT_ATTRIBUTES, &XenInterrupt);
   if (!NT_SUCCESS (status))
   {
