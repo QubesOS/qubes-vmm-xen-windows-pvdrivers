@@ -43,6 +43,7 @@ struct xennet_info
   WCHAR name[NAME_SIZE];
   NDIS_HANDLE adapter_handle;
   ULONG packet_filter;
+  int connected;
   UINT8 perm_mac_addr[ETH_ALEN];
   UINT8 curr_mac_addr[ETH_ALEN];
 
@@ -162,6 +163,10 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
   struct xennet_info *xi = Data;
   char *Value;
   int be_state;
+  char TmpPath[128];
+  xenbus_transaction_t xbt = 0;
+  int retry = 0;
+  char *err;
 
   xi->XenBusInterface.Read(xi->XenBusInterface.InterfaceHeader.Context,
     XBT_NIL, Path, &Value);
@@ -181,9 +186,101 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
   case XenbusStateInitWait:
     KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait\n"));  
 
-    /* do stuff here */
+    xi->event_channel = xi->EvtChnInterface.AllocUnbound(
+      xi->EvtChnInterface.InterfaceHeader.Context, 0);  
+    xi->EvtChnInterface.Bind(xi->EvtChnInterface.InterfaceHeader.Context,
+      xi->event_channel, XenNet_Interrupt, xi);
+
+    /* TODO: must free pages in MDL as well as MDL using MmFreePagesFromMdl and ExFreePool */
+    // or, allocate mem and then get mdl, then free mdl
+    xi->tx_mdl = AllocatePage();
+    xi->tx_pgs = MmMapLockedPagesSpecifyCache(xi->tx_mdl, KernelMode, MmNonCached,
+      NULL, FALSE, NormalPagePriority);
+    SHARED_RING_INIT(xi->tx_pgs);
+    FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
+    xi->tx_ring_ref = xi->GntTblInterface.GrantAccess(
+      xi->GntTblInterface.InterfaceHeader.Context, 0,
+      *MmGetMdlPfnArray(xi->tx_mdl), FALSE);
+
+    xi->rx_mdl = AllocatePage();
+    xi->rx_pgs = MmMapLockedPagesSpecifyCache(xi->rx_mdl, KernelMode, MmNonCached,
+      NULL, FALSE, NormalPagePriority);
+    SHARED_RING_INIT(xi->rx_pgs);
+    FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
+    xi->rx_ring_ref = xi->GntTblInterface.GrantAccess(
+      xi->GntTblInterface.InterfaceHeader.Context, 0,
+      *MmGetMdlPfnArray(xi->rx_mdl), FALSE);
+
+    xi->XenBusInterface.StartTransaction(xi->XenBusInterface.InterfaceHeader.Context,
+      &xbt);
+
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/tx-ring-ref", xi->Path);
+    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", xi->tx_ring_ref);
+    if (err)
+      goto trouble;
+
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/rx-ring-ref", xi->Path);
+    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", xi->rx_ring_ref);
+    if (err)
+      goto trouble;
+
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/event-channel", xi->Path);
+    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", xi->event_channel);
+    if (err)
+      goto trouble;
+
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/request-rx-copy", xi->Path);
+    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", 1);
+    if (err)
+      goto trouble;
+
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/feature-rx-notify",
+      xi->Path);
+    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", 1);
+    if (err)
+      goto trouble;
+
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
+      "%s/feature-no-csum-offload", xi->Path);
+    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", 1);
+    if (err)
+      goto trouble;
+
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
+      "%s/feature-sg", xi->Path);
+    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", 0);
+    if (err)
+      goto trouble;
+
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
+      "%s/feature-gso-tcpv4", xi->Path);
+    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", 0);
+    if (err)
+      goto trouble;
+
+    /* commit transaction */
+    xi->XenBusInterface.EndTransaction(xi->XenBusInterface.InterfaceHeader.Context,
+      xbt, 0, &retry);
+
+    /* TODO: prepare tx and rx rings */
 
     KdPrint((__DRIVER_NAME "     Set Frontend state to Initialised\n"));
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->Path);
+    xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", XenbusStateInitialised);
+
+    /* send fake arp? */
+
+    xi->connected = TRUE;
+
     break;
 
   case XenbusStateInitialised:
@@ -211,6 +308,11 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d\n", be_state));
     break;
   }
+
+trouble:
+  KdPrint((__DRIVER_NAME __FUNCTION__ ": Should never happen!\n"));
+  xi->XenBusInterface.EndTransaction(xi->XenBusInterface.InterfaceHeader.Context,
+    xbt, 1, &retry);
 
 }
 
@@ -343,31 +445,6 @@ XenNet_Init(
     goto err;
   }
 
-  xi->event_channel = xi->EvtChnInterface.AllocUnbound(
-    xi->EvtChnInterface.InterfaceHeader.Context, 0);  
-  xi->EvtChnInterface.Bind(xi->EvtChnInterface.InterfaceHeader.Context,
-    xi->event_channel, XenNet_Interrupt, xi);
-
-  /* TODO: must free pages in MDL as well as MDL using MmFreePagesFromMdl and ExFreePool */
-  // or, allocate mem and then get mdl, then free mdl
-  xi->tx_mdl = AllocatePage();
-  xi->tx_pgs = MmMapLockedPagesSpecifyCache(xi->tx_mdl, KernelMode, MmNonCached,
-    NULL, FALSE, NormalPagePriority);
-  SHARED_RING_INIT(xi->tx_pgs);
-  FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
-  xi->tx_ring_ref = xi->GntTblInterface.GrantAccess(
-    xi->GntTblInterface.InterfaceHeader.Context, 0,
-    *MmGetMdlPfnArray(xi->tx_mdl), FALSE);
- 
-  xi->rx_mdl = AllocatePage();
-  xi->rx_pgs = MmMapLockedPagesSpecifyCache(xi->rx_mdl, KernelMode, MmNonCached,
-    NULL, FALSE, NormalPagePriority);
-  SHARED_RING_INIT(xi->rx_pgs);
-  FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
-  xi->rx_ring_ref = xi->GntTblInterface.GrantAccess(
-    xi->GntTblInterface.InterfaceHeader.Context, 0,
-    *MmGetMdlPfnArray(xi->rx_mdl), FALSE);
-
   msg = xi->XenBusInterface.List(xi->EvtChnInterface.InterfaceHeader.Context,
     XBT_NIL, "device/vif", &vif_devs);
   if (msg)
@@ -405,8 +482,7 @@ XenNet_Init(
     ExFreePool(Value);
 
     /* Add watch on backend state */
-    RtlStringCbCopyA(TmpPath, ARRAY_SIZE(TmpPath), xi->BackendPath);
-    RtlStringCbCatA(TmpPath, ARRAY_SIZE(TmpPath), "/state");
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->BackendPath);
     xi->XenBusInterface.AddWatch(xi->XenBusInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
 
@@ -436,6 +512,7 @@ XenNet_Init(
         }
         s = e + 1;
       }
+      memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
     }
     ExFreePool(Value);
 
@@ -559,8 +636,10 @@ XenNet_QueryInformation(
         NDIS_MAC_OPTION_NO_LOOPBACK;
       break;
     case OID_GEN_MEDIA_CONNECT_STATUS:
-      /* how can we not be connected?? */
-      temp_data = NdisMediaStateConnected;
+      if (xi->connected)
+        temp_data = NdisMediaStateConnected;
+      else
+        temp_data = NdisMediaStateDisconnected;
       break;
     case OID_GEN_MAXIMUM_SEND_PACKETS:
       temp_data = XN_MAX_SEND_PKTS;
