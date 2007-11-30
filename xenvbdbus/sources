@@ -1,0 +1,13 @@
+TARGETNAME=XENVBDBUS
+TARGETTYPE=DRIVER
+TARGETPATH=..\Target
+
+MSC_WARNING_LEVEL=/W4
+
+INCLUDES = ..\common\include;..\common\include\public
+
+NO_BINPLACE=1
+KMDF_VERSION=1
+TARGETLIBS=$(DDK_LIB_PATH)\ntstrsafe.lib
+
+SOURCES=xenvbdbus.c
