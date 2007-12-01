@@ -119,7 +119,6 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_DATA, GetDeviceData);
 VOID
 GntTbl_Init();
 
-extern WDFDEVICE GlobalDevice;
 
 
 typedef unsigned long xenbus_transaction_t;
@@ -192,8 +191,6 @@ NTSTATUS
 EvtChn_Unmask(evtchn_port_t Port);
 NTSTATUS
 EvtChn_Bind(evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
-NTSTATUS
-EvtChn_BindDpc(evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 NTSTATUS
 EvtChn_Unbind(evtchn_port_t Port);
 NTSTATUS

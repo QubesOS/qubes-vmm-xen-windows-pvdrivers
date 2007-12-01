@@ -73,7 +73,7 @@ static ULONG irqNumber = 0;
 
 static BOOLEAN AutoEnumerate;
 
-WDFDEVICE GlobalDevice;
+static WDFDEVICE Device;
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
@@ -355,18 +355,18 @@ XenPCI_AddDevice(
   WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, XENPCI_DEVICE_DATA);
 
   /*create a device instance.*/
-  status = WdfDeviceCreate(&DeviceInit, &attributes, &GlobalDevice);  
+  status = WdfDeviceCreate(&DeviceInit, &attributes, &Device);  
   if(!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     WdfDeviceCreate failed with status 0x%08x\n", status));
     return status;
   }
 
-  WdfDeviceSetSpecialFileSupport(GlobalDevice, WdfSpecialFilePaging, TRUE);
-  WdfDeviceSetSpecialFileSupport(GlobalDevice, WdfSpecialFileHibernation, TRUE);
-  WdfDeviceSetSpecialFileSupport(GlobalDevice, WdfSpecialFileDump, TRUE);
+  WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFilePaging, TRUE);
+  WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileHibernation, TRUE);
+  WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileDump, TRUE);
 
-  status = WdfFdoQueryForInterface(GlobalDevice, &GUID_BUS_INTERFACE_STANDARD, (PINTERFACE) &BusInterface, sizeof(BUS_INTERFACE_STANDARD), 1, NULL);
+  status = WdfFdoQueryForInterface(Device, &GUID_BUS_INTERFACE_STANDARD, (PINTERFACE) &BusInterface, sizeof(BUS_INTERFACE_STANDARD), 1, NULL);
   if(!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     WdfFdoQueryForInterface (BusInterface) failed with status 0x%08x\n", status));
@@ -379,7 +379,7 @@ XenPCI_AddDevice(
   busInfo.LegacyBusType = PNPBus;
   busInfo.BusNumber = 0;
 
-  WdfDeviceSetBusInformationForChildren(GlobalDevice, &busInfo);
+  WdfDeviceSetBusInformationForChildren(Device, &busInfo);
 
   /*create the default IO queue. this one will 
   be used for all requests*/
@@ -387,7 +387,7 @@ XenPCI_AddDevice(
   WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&ioQConfig,
                                 WdfIoQueueDispatchSequential);
   ioQConfig.EvtIoDefault = XenPCI_IoDefault;
-  status = WdfIoQueueCreate(GlobalDevice, &ioQConfig,
+  status = WdfIoQueueCreate(Device, &ioQConfig,
                             WDF_NO_OBJECT_ATTRIBUTES,
                             &devData->IoDefaultQueue);
   if(!NT_SUCCESS(status))
@@ -397,7 +397,7 @@ XenPCI_AddDevice(
   }
 */
 /*
-  status = WdfDeviceCreateDeviceInterface(GlobalDevice, &GUID_INTERFACE_XENPCI, NULL);
+  status = WdfDeviceCreateDeviceInterface(Device, &GUID_INTERFACE_XENPCI, NULL);
   if(!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "WdfDeviceCreateDeviceInterface failed with status 0x%08x\n", status));
@@ -408,8 +408,7 @@ XenPCI_AddDevice(
   WDF_INTERRUPT_CONFIG_INIT(&interruptConfig, EvtChn_Interrupt, NULL); //EvtChn_InterruptDpc);
   interruptConfig.EvtInterruptEnable = XenPCI_InterruptEnable;
   interruptConfig.EvtInterruptDisable = XenPCI_InterruptDisable;
-  interruptConfig.ShareVector = WdfTrue;
-  status = WdfInterruptCreate(GlobalDevice, &interruptConfig, WDF_NO_OBJECT_ATTRIBUTES, &XenInterrupt);
+  status = WdfInterruptCreate(Device, &interruptConfig, WDF_NO_OBJECT_ATTRIBUTES, &XenInterrupt);
   if (!NT_SUCCESS (status))
   {
     KdPrint((__DRIVER_NAME "WdfInterruptCreate failed 0x%08x\n", status));
@@ -721,7 +720,6 @@ XenPCI_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_D
   EvtChnInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
   EvtChnInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
   EvtChnInterface.Bind = EvtChn_Bind;
-  EvtChnInterface.BindDpc = EvtChn_BindDpc;
   EvtChnInterface.Unbind = EvtChn_Unbind;
   EvtChnInterface.Mask = EvtChn_Mask;
   EvtChnInterface.Unmask = EvtChn_Unmask;
@@ -807,7 +805,7 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
 
   //KdPrint((__DRIVER_NAME "     %s\n", Path));
 
-  ChildList = WdfFdoGetDefaultChildList(GlobalDevice);
+  ChildList = WdfFdoGetDefaultChildList(Device);
 
   Bits = SplitString(Path, '/', 3, &Count);
   switch (Count)

@@ -42,7 +42,6 @@ typedef struct _XENBUS_IFACE_EVTCHN {
   INTERFACE InterfaceHeader;
 
   PXEN_EVTCHN_BIND Bind;
-  PXEN_EVTCHN_BIND BindDpc;
   PXEN_EVTCHN_UNBIND Unbind;
   PXEN_EVTCHN_MASK Mask;
   PXEN_EVTCHN_UNMASK Unmask;
