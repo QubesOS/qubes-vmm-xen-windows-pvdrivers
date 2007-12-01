@@ -502,13 +502,15 @@ XenVbdBus_Interrupt(PKINTERRUPT Interrupt, PVOID ServiceContext)
   UNREFERENCED_PARAMETER(Interrupt);
   // !!!RUNS AT DIRQL!!!
 
-  KdPrint((__DRIVER_NAME " --> XenVbd_Interrupt\n"));
+  KdPrint((__DRIVER_NAME " --> XenVbdBus_Interrupt\n"));
 
   ChildDeviceData = (PXENVBDBUS_CHILD_DEVICE_DATA)ServiceContext;
   if (ChildDeviceData->ScsiDeviceData->IsrRoutine != NULL)
     ChildDeviceData->ScsiDeviceData->IsrRoutine(ChildDeviceData->ScsiDeviceData->IsrContext);
   else
     KdPrint((__DRIVER_NAME "     Isr Not Set\n"));  
+
+  KdPrint((__DRIVER_NAME " <-- XenVbdBus_Interrupt\n"));
 
   return STATUS_SUCCESS;
 }
@@ -548,7 +550,7 @@ XenVbdBus_BackEndStateHandler(char *Path, PVOID Data)
     WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&Description.Header, sizeof(Description));
     Description.DeviceData = DeviceData;
     DeviceData->EventChannel = EvtChnInterface.AllocUnbound(0);
-    EvtChnInterface.Bind(DeviceData->EventChannel, XenVbdBus_Interrupt, DeviceData);
+    EvtChnInterface.BindDpc(DeviceData->EventChannel, XenVbdBus_Interrupt, DeviceData);
     
     DeviceData->SharedRingMDL = AllocatePage();
     SharedRing = (blkif_sring_t *)MmGetMdlVirtualAddress(DeviceData->SharedRingMDL);

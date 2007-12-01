@@ -6,7 +6,8 @@
 #include <stdlib.h>
 #include <xen_public.h>
 #include <io/xenbus.h>
-#include <ntddft.h>
+//#include <ntddft.h>
+//#include <ntifs.h>
 
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
@@ -127,7 +128,7 @@ FreePages(PMDL Mdl)
 static ULONG
 XenVbdDev_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
 {
-  NTSTATUS Status = SP_RETURN_FOUND;
+  ULONG Status = SP_RETURN_FOUND;
   ULONG i;
   PACCESS_RANGE AccessRange;
   PXENVBDDEV_DEVICE_DATA DeviceData = (PXENVBDDEV_DEVICE_DATA)DeviceExtension;
@@ -165,7 +166,7 @@ XenVbdDev_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInf
   ConfigInfo->ScatterGather = FALSE;
   ConfigInfo->Master = TRUE;
   ConfigInfo->AlignmentMask =  0;
-  ConfigInfo->MaximumNumberOfLogicalUnits = 1; 
+  ConfigInfo->MaximumNumberOfLogicalUnits = 1;
   ConfigInfo->MaximumNumberOfTargets = 2;
 
   *Again = FALSE;
@@ -193,18 +194,12 @@ ADD_ID_TO_FREELIST(PXENVBDDEV_DEVICE_DATA DeviceData, uint64_t Id)
   DeviceData->shadow_free = Id;
 }
 
-static HANDLE XenVbdDev_ScsiPortThreadHandle;
-static KEVENT XenVbdDev_ScsiPortThreadEvent;
+//static HANDLE XenVbdDev_ScsiPortThreadHandle;
+//static KEVENT XenVbdDev_ScsiPortThreadEvent;
 
 static VOID
 XenVbdDev_Interrupt(PVOID DeviceExtension)
 {
-  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
-
-  KeSetEvent(&XenVbdDev_ScsiPortThreadEvent, 1, FALSE);
-
-  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
-/*
   PXENVBDDEV_DEVICE_DATA DeviceData = (PXENVBDDEV_DEVICE_DATA)DeviceExtension;
   PSCSI_REQUEST_BLOCK Srb;
   RING_IDX i, rp;
@@ -215,6 +210,9 @@ XenVbdDev_Interrupt(PVOID DeviceExtension)
   int BlockCount;
   KIRQL KIrql;
   int notify;
+  KAPC_STATE ApcState;
+  PIRP Irp;
+  SCSI_REQUEST_BLOCK TmpSrb;
 
   //!!!IRQL_DISPATCH!!!
 
@@ -256,7 +254,26 @@ XenVbdDev_Interrupt(PVOID DeviceExtension)
 
       FreePages(DeviceData->shadow[rep->id].Mdl);
       Srb->SrbStatus = SRB_STATUS_SUCCESS;
-      ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
+      //KdPrint((__DRIVER_NAME "     Attaching to Process %08x\n", DeviceData->Process));
+      //KeStackAttachProcess(DeviceData->Process, &ApcState);
+      //KdPrint((__DRIVER_NAME "     Attached\n"));
+      //ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
+      //KdPrint((__DRIVER_NAME "     Detaching\n"));
+      //KeUnstackDetachProcess(&ApcState);
+      //KdPrint((__DRIVER_NAME "     Detached\n"));
+
+/*
+      RtlZeroMemory(&TmpSrb, sizeof(SCSI_REQUEST_BLOCK));
+      TmpSrb.Length = SCSI_REQUEST_BLOCK_SIZE;
+      TmpSrb.PathId = LunInfo->PathId;
+      TmpSrb.TargetId = LunInfo->TargetId;
+      TmpSrb.Lun = LunInfo->Lun;
+      TmpSrb.Function = SRB_FUNCTION_CLAIM_DEVICE;
+
+      Irp = IoBuildDeviceIoControlRequest(IOCTL_SCSI_EXECUTE_NONE, PortDeviceObject, NULL, 0, NULL, 0, TRUE, &Event, &IoStatusBlock);
+
+      IoCallDriver(DeviceData->DeviceObject, Irp);
+*/
 
       ADD_ID_TO_FREELIST(DeviceData, rep->id);
     }
@@ -278,11 +295,12 @@ XenVbdDev_Interrupt(PVOID DeviceExtension)
 //  KeReleaseSpinLock(&DeviceData->Lock, KIrql);
 
   KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
-*/
+
   return;
 }
 
-static void
+/*
+static VOID
 XenVbdDev_ScsiPortThreadProc(PVOID DeviceExtension)
 {
   PXENVBDDEV_DEVICE_DATA DeviceData = (PXENVBDDEV_DEVICE_DATA)DeviceExtension;
@@ -298,7 +316,7 @@ XenVbdDev_ScsiPortThreadProc(PVOID DeviceExtension)
 
   //!!!IRQL_DISPATCH!!!
 
-  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
+  KdPrint((__DRIVER_NAME " --> ScsiPortThreadProc\n"));
 
   for(;;)
   {
@@ -359,33 +377,69 @@ XenVbdDev_ScsiPortThreadProc(PVOID DeviceExtension)
   }
 }
 
+static VOID
+XenVbdDev_StartThread(PVOID DeviceExtension)
+{
+  NTSTATUS Status;
+  OBJECT_ATTRIBUTES oa;
+
+  KdPrint((__DRIVER_NAME " --> StartThread\n"));
+
+  InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+  Status = PsCreateSystemThread(&XenVbdDev_ScsiPortThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenVbdDev_ScsiPortThreadProc, DeviceExtension);
+
+  KdPrint((__DRIVER_NAME " <-- StartThread\n"));
+}
+*/
+
 static BOOLEAN
 XenVbdDev_HwScsiInitialize(PVOID DeviceExtension)
 {
   PXENVBDDEV_DEVICE_DATA DeviceData = (PXENVBDDEV_DEVICE_DATA)DeviceExtension;
   unsigned int i;
-  OBJECT_ATTRIBUTES oa;
   NTSTATUS Status;
 
+  KdPrint((__DRIVER_NAME " --> HwScsiInitialize\n"));
+
   GntTblInterface = DeviceData->ScsiData->GntTblInterface;
+
+  KdPrint((__DRIVER_NAME "     A\n"));
 
   DeviceData->ScsiData->IsrContext = DeviceExtension;
 // might we need a barrier here???
   DeviceData->ScsiData->IsrRoutine = XenVbdDev_Interrupt;
 
+  KdPrint((__DRIVER_NAME "     B\n"));
+
   DeviceData->shadow = ExAllocatePoolWithTag(NonPagedPool, sizeof(blkif_shadow_t) * BLK_RING_SIZE, XENVBDDEV_POOL_TAG);
+
+  KdPrint((__DRIVER_NAME "     C - %08x\n", DeviceData->shadow));
+
   memset(DeviceData->shadow, 0, sizeof(blkif_shadow_t) * BLK_RING_SIZE);
   for (i = 0; i < BLK_RING_SIZE; i++)
     DeviceData->shadow[i].req.id = i + 1;
   DeviceData->shadow_free = 0;
   DeviceData->shadow[BLK_RING_SIZE - 1].req.id = 0x0fffffff;
 
+  KdPrint((__DRIVER_NAME "     D\n"));
+
   KeInitializeSpinLock(&DeviceData->Lock);
 
-  KeInitializeEvent(&XenVbdDev_ScsiPortThreadEvent, SynchronizationEvent, FALSE);
+  KdPrint((__DRIVER_NAME "     E\n"));
 
-  InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
-  Status = PsCreateSystemThread(&XenVbdDev_ScsiPortThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenVbdDev_ScsiPortThreadProc, DeviceExtension);
+//  KeInitializeEvent(&XenVbdDev_ScsiPortThreadEvent, SynchronizationEvent, FALSE);
+
+  KdPrint((__DRIVER_NAME "     F\n"));
+
+//  Status = PsCreateSystemThread(&XenVbdDev_ScsiPortThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenVbdDev_ScsiPortThreadProc, DeviceExtension);
+
+//  ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbdDev_StartThread, 1);
+
+  DeviceData->Process = IoGetCurrentProcess();
+  KdPrint((__DRIVER_NAME "     Process = %08x\n", DeviceData->Process));
+
+  KdPrint((__DRIVER_NAME " <-- HwScsiInitialize\n"));
+
 
   return TRUE;
 }
@@ -513,6 +567,8 @@ XenVbdDev_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   ULONG Length;
 
   KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
+
+  KdPrint((__DRIVER_NAME "     Process = %08x\n", IoGetCurrentProcess()));
 
   if (Srb->TargetId != 0 || Srb->Lun != 0)
   {

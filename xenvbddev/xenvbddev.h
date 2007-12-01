@@ -1,6 +1,7 @@
 #if !defined(_XENVBDDEV_H_)
 #define _XENVBDDEV_H_
 
+#include <ntifs.h>
 #include <ntddk.h>
 #include <wdm.h>
 #include <wdf.h>
@@ -40,6 +41,8 @@ typedef struct {
 struct
 {
   PXENVBDDEV_SCSI_DATA ScsiData;
+
+  PEPROCESS Process;
 
   KSPIN_LOCK Lock;
 

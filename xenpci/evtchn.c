@@ -25,12 +25,29 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 typedef struct _ev_action_t {
   PKSERVICE_ROUTINE ServiceRoutine;
   PVOID ServiceContext;
+  BOOLEAN DpcFlag;
+  WDFDPC Dpc;
   ULONG Count;
 } ev_action_t;
 
 static ev_action_t ev_actions[NR_EVENTS];
 
 static unsigned long bound_ports[NR_EVENTS/(8*sizeof(unsigned long))];
+
+typedef struct {
+  ev_action_t *Action;
+} EVTCHN_DEVICE_DATA, *PEVTCHN_DEVICE_DATA;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(EVTCHN_DEVICE_DATA, GetEvtChnDeviceData);
+
+static VOID
+EvtChn_DpcBounce(WDFDPC Dpc)
+{
+  ev_action_t *Action;
+
+  Action = GetEvtChnDeviceData(Dpc)->Action;
+  Action->ServiceRoutine(NULL, Action->ServiceContext);
+}
 
 BOOLEAN
 EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
@@ -69,7 +86,14 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
       else
       {
         //KdPrint((__DRIVER_NAME "     Calling Handler for port %d\n", port));
-        ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
+        if (ev_action->DpcFlag)
+        {
+          WdfDpcEnqueue(ev_action->Dpc);
+        }
+        else
+        {
+          ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
+        }
       }
       _interlockedbittestandreset((volatile LONG *)&shared_info_area->evtchn_pending[0], port);
     }
@@ -110,12 +134,53 @@ EvtChn_Bind(evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceC
   }
 
   ev_actions[Port].ServiceContext = ServiceContext;
+  ev_actions[Port].DpcFlag = FALSE;
   KeMemoryBarrier();
   ev_actions[Port].ServiceRoutine = ServiceRoutine;
 
   EvtChn_Unmask(Port);
 
   KdPrint((__DRIVER_NAME " <-- EvtChn_Bind\n"));
+
+  return STATUS_SUCCESS;
+}
+
+NTSTATUS
+EvtChn_BindDpc(evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
+{
+  WDF_DPC_CONFIG DpcConfig;
+  WDF_OBJECT_ATTRIBUTES DpcObjectAttributes;
+
+  KdPrint((__DRIVER_NAME " --> EvtChn_BindDpc\n"));
+
+  if(ev_actions[Port].ServiceRoutine != NULL)
+  {
+    KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
+    ev_actions[Port].ServiceRoutine = NULL;
+    KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
+  }
+
+  ev_actions[Port].ServiceContext = ServiceContext;
+  ev_actions[Port].DpcFlag = TRUE;
+
+KdPrint((__DRIVER_NAME "     A\n"));
+  WDF_DPC_CONFIG_INIT(&DpcConfig, EvtChn_DpcBounce);
+KdPrint((__DRIVER_NAME "     B\n"));
+  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DpcObjectAttributes, EVTCHN_DEVICE_DATA);
+KdPrint((__DRIVER_NAME "     C\n"));
+  DpcObjectAttributes.ParentObject = GlobalDevice;
+KdPrint((__DRIVER_NAME "     D\n"));
+  WdfDpcCreate(&DpcConfig, &DpcObjectAttributes, &ev_actions[Port].Dpc);
+KdPrint((__DRIVER_NAME "     E\n"));
+KdPrint((__DRIVER_NAME "     (%08x)\n", GetEvtChnDeviceData(ev_actions[Port].Dpc)));
+  GetEvtChnDeviceData(ev_actions[Port].Dpc)->Action = &ev_actions[Port];
+
+  KeMemoryBarrier(); // make sure that the new service routine is only called once the context is set up
+  ev_actions[Port].ServiceRoutine = ServiceRoutine;
+
+  EvtChn_Unmask(Port);
+
+  KdPrint((__DRIVER_NAME " <-- EvtChn_BindDpc\n"));
 
   return STATUS_SUCCESS;
 }
