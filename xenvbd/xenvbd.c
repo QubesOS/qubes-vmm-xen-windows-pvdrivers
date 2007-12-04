@@ -46,6 +46,8 @@ XenVbd_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_D
 static NTSTATUS
 XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp);
 static NTSTATUS
+XenVbd_Child_PreprocessWdmIrpDEVICE_CONTROL(WDFDEVICE Device, PIRP Irp);
+static NTSTATUS
 XenVbd_Child_PreprocessWdmIrpSomethingSomething(WDFDEVICE Device, PIRP Irp);
 static VOID 
 XenVbd_Child_IoDefault(WDFQUEUE Queue, WDFREQUEST Request);
@@ -192,10 +194,7 @@ static WDFDEVICE GlobalDevice;
 static PDEVICE_OBJECT Pdo;
 
 static NTSTATUS
-XenVbd_AddDevice(
-    IN WDFDRIVER Driver,
-    IN PWDFDEVICE_INIT DeviceInit
-    )
+XenVbd_AddDevice(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 {
   WDF_CHILD_LIST_CONFIG ChildListConfig;
   NTSTATUS status;
@@ -978,9 +977,28 @@ XenVbd_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_D
 
   //WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSCSI, IRP_MJ_SCSI, ScsiMinors, 1);
   WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSCSI, IRP_MJ_SCSI, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpDEVICE_CONTROL, IRP_MJ_DEVICE_CONTROL, NULL, 0);
 
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_CLEANUP, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_CLOSE, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_CREATE, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_DIRECTORY_CONTROL, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_FILE_SYSTEM_CONTROL, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_FLUSH_BUFFERS, NULL, 0);
+///  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_INTERNAL_DEVICE_CONTROL, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_LOCK_CONTROL, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_POWER, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_QUERY_EA, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_QUERY_INFORMATION, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_QUERY_SECURITY, NULL, 0);
   WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_QUERY_VOLUME_INFORMATION, NULL, 0);
-  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_DEVICE_CHANGE, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_READ, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_SET_INFORMATION, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_SET_SECURITY, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_SET_VOLUME_INFORMATION, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_SHUTDOWN, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_SYSTEM_CONTROL, NULL, 0);
+  WdfDeviceInitAssignWdmIrpPreprocessCallback(ChildInit, XenVbd_Child_PreprocessWdmIrpSomethingSomething, IRP_MJ_WRITE, NULL, 0);
 
   WdfDeviceInitSetIoType(ChildInit, WdfDeviceIoDirect);
 
@@ -1024,7 +1042,7 @@ XenVbd_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_D
   //IoQueueConfig.EvtIoRead = XenVbd_Child_IoReadWrite;
   //IoQueueConfig.EvtIoWrite = XenVbd_Child_IoReadWrite;
   IoQueueConfig.EvtIoDeviceControl = XenVbd_Child_IoDeviceControl;
-  //IoQueueConfig.EvtIoInternalDeviceControl = XenVbd_Child_IoInternalDeviceControl;
+  //IoQueueConfig.EvtIoInternalDeviceControl = XenVbd_Child_IoInternalDeviceControl; // is IRP_MJ_SCSI
 
   status = WdfIoQueueCreate(ChildDevice, &IoQueueConfig, WDF_NO_OBJECT_ATTRIBUTES, &ChildDeviceData->IoDefaultQueue);
   if(!NT_SUCCESS(status))
@@ -1076,7 +1094,7 @@ XenVbd_PutIrpOnRing(WDFDEVICE Device, PIRP Irp)
 
   ChildDeviceData = *GetChildDeviceData(Device);
 
-  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
     KdPrint((__DRIVER_NAME " --> PutIrpOnRing\n"));
 
   if (RING_FULL(&ChildDeviceData->Ring))
@@ -1157,7 +1175,7 @@ XenVbd_PutIrpOnRing(WDFDEVICE Device, PIRP Irp)
 
   ChildDeviceData->IrpAddedToRing++;
 
-  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
     KdPrint((__DRIVER_NAME " <-- PutIrpOnRing\n"));
 }
 
@@ -1169,7 +1187,7 @@ XenVBD_FillModePage(PXENVBD_CHILD_DEVICE_DATA ChildDeviceData, UCHAR PageCode, P
   switch (PageCode)
   {
   case MODE_PAGE_RIGID_GEOMETRY:
-    if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+    if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_DISK)
     {
     KdPrint((__DRIVER_NAME "     MODE_PAGE_RIGID_GEOMETRY\n"));
     if (*Offset + sizeof(MODE_RIGID_GEOMETRY_PAGE) > BufferLength)
@@ -1198,11 +1216,61 @@ XenVBD_FillModePage(PXENVBD_CHILD_DEVICE_DATA ChildDeviceData, UCHAR PageCode, P
 }
 
 static NTSTATUS
+XenVbd_Child_PreprocessWdmIrpDEVICE_CONTROL(WDFDEVICE Device, PIRP Irp)
+{
+  NTSTATUS Status;
+  PIO_STACK_LOCATION IrpStack;
+  PSCSI_ADDRESS ScsiAddress;
+
+  KdPrint((__DRIVER_NAME " --> PreprocessWdmIrpDEVICE_CONTROL\n"));
+
+  IrpStack = IoGetCurrentIrpStackLocation(Irp);
+
+  switch (IrpStack->Parameters.DeviceIoControl.IoControlCode)
+  {
+  case IOCTL_SCSI_GET_ADDRESS:
+    KdPrint((__DRIVER_NAME "     IOCTL_SCSI_GET_ADDRESS\n"));
+    Irp->IoStatus.Information = sizeof(SCSI_ADDRESS);
+    if (IrpStack->Parameters.DeviceIoControl.OutputBufferLength >= sizeof(SCSI_ADDRESS))
+    {
+      ScsiAddress = (PSCSI_ADDRESS)Irp->AssociatedIrp.SystemBuffer;
+      ScsiAddress->Length = sizeof(SCSI_ADDRESS);
+      ScsiAddress->PortNumber = 0;
+      ScsiAddress->PathId = 0;
+      ScsiAddress->TargetId = 0;
+      ScsiAddress->Lun = 0;
+      Status = STATUS_SUCCESS;
+      Irp->IoStatus.Status = Status;
+      IoCompleteRequest(Irp, IO_NO_INCREMENT);      
+    }
+    else
+    {
+      KdPrint((__DRIVER_NAME "     (Buffer size too small @ %d\n", IrpStack->Parameters.DeviceIoControl.OutputBufferLength));    
+    }
+    break;  
+  default:
+    KdPrint((__DRIVER_NAME "     Control Code = %08x\n", IrpStack->Parameters.DeviceIoControl.IoControlCode));
+    IoSkipCurrentIrpStackLocation(Irp);
+    Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
+  }
+
+  KdPrint((__DRIVER_NAME " <-- PreprocessWdmIrpDEVICE_CONTROL\n"));
+
+  return Status;
+}
+
+static NTSTATUS
 XenVbd_Child_PreprocessWdmIrpSomethingSomething(WDFDEVICE Device, PIRP Irp)
 {
   NTSTATUS Status;
+  PIO_STACK_LOCATION IrpStack;
 
   KdPrint((__DRIVER_NAME " --> XenVbd_Child_PreprocessWdmIrpSomethingSomething\n"));
+
+  IrpStack = IoGetCurrentIrpStackLocation(Irp);
+  KdPrint((__DRIVER_NAME "     Major = %02X, Minor = %02X\n", IrpStack->MajorFunction, IrpStack->MinorFunction));
+
+  IoSkipCurrentIrpStackLocation(Irp);
 
   Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
 
@@ -1228,7 +1296,7 @@ XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
 
   ChildDeviceData = *GetChildDeviceData(Device);
 
-  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
     KdPrint((__DRIVER_NAME " --> WdmIrpPreprocessSCSI\n"));
 
   //KdPrint((__DRIVER_NAME "     SCSI Minor = %02X\n", irpSp->MinorFunction));
@@ -1239,12 +1307,12 @@ XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
   {
   case SRB_FUNCTION_EXECUTE_SCSI:
     cdb = (PCDB)Srb->Cdb;
-    if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//    if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
       KdPrint((__DRIVER_NAME "     SRB_FUNCTION_EXECUTE_SCSI\n"));
     switch(cdb->CDB6GENERIC.OperationCode) //Srb->Cdb[0])
     {
     case SCSIOP_TEST_UNIT_READY:
-      if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//      if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
         KdPrint((__DRIVER_NAME "     Command = TEST_UNIT_READY\n"));
       Srb->SrbStatus = SRB_STATUS_SUCCESS;
       Srb->ScsiStatus = 0;
@@ -1258,8 +1326,10 @@ XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
       KdPrint((__DRIVER_NAME "     (LUN = %d, EVPD = %d, Page Code = %02X)\n", Srb->Cdb[1] >> 5, Srb->Cdb[1] & 1, Srb->Cdb[2]));
       if ((Srb->Cdb[1] & 1) == 0)
       {
-        memset(Srb->DataBuffer, 0, Srb->DataTransferLength);
-        DataBuffer = Srb->DataBuffer;
+//        DataBuffer = Srb->DataBuffer;
+        DataBuffer = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, HighPagePriority);
+        RtlZeroMemory(DataBuffer, Srb->DataTransferLength);
+
         DataBuffer[0] = 0x00; // disk
         DataBuffer[1] = 0x00; // not removable
         memcpy(DataBuffer + 8, "James   ", 8); // vendor id
@@ -1279,9 +1349,10 @@ XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
       IoCompleteRequest(Irp, IO_NO_INCREMENT);
       break;
     case SCSIOP_READ_CAPACITY:
-      if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//      if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
         KdPrint((__DRIVER_NAME "     Command = READ_CAPACITY\n"));
-      DataBuffer = Srb->DataBuffer;
+//      DataBuffer = Srb->DataBuffer;
+      DataBuffer = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, HighPagePriority);
       DataBuffer[0] = (unsigned char)(ChildDeviceData->TotalSectors >> 24) & 0xff;
       DataBuffer[1] = (unsigned char)(ChildDeviceData->TotalSectors >> 16) & 0xff;
       DataBuffer[2] = (unsigned char)(ChildDeviceData->TotalSectors >> 8) & 0xff;
@@ -1301,9 +1372,10 @@ XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
       KdPrint((__DRIVER_NAME "     Command = MODE_SENSE (DBD = %d, PC = %d, Page Code = %02x)\n", Srb->Cdb[1] & 0x10, Srb->Cdb[2] & 0xC0, Srb->Cdb[2] & 0x3F));
       KdPrint((__DRIVER_NAME "     Length = %d\n", Srb->DataTransferLength));
 
-      Srb->ScsiStatus = 0;
-      Srb->SrbStatus = SRB_STATUS_SUCCESS;
       status = STATUS_SUCCESS; 
+      DataBuffer = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, HighPagePriority);
+//      DataBuffer = Srb->DataBuffer;
+      RtlZeroMemory(DataBuffer, Srb->DataTransferLength);
       switch(cdb->MODE_SENSE.PageCode) //Srb->Cdb[2] & 0x3F)
       {
       case MODE_SENSE_RETURN_ALL:
@@ -1311,17 +1383,19 @@ XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
         //Ptr = (UCHAR *)Srb->DataBuffer;
         for (i = 0; i < MODE_SENSE_RETURN_ALL; i++)
         {
-          if (XenVBD_FillModePage(ChildDeviceData, cdb->MODE_SENSE.PageCode, Srb->DataBuffer, cdb->MODE_SENSE.AllocationLength, &Irp->IoStatus.Information))
+          if (XenVBD_FillModePage(ChildDeviceData, cdb->MODE_SENSE.PageCode, DataBuffer, cdb->MODE_SENSE.AllocationLength, &Irp->IoStatus.Information))
           {
             break;
           }
         }
         break;
       default:
-        XenVBD_FillModePage(ChildDeviceData, cdb->MODE_SENSE.PageCode, Srb->DataBuffer, cdb->MODE_SENSE.AllocationLength, &Irp->IoStatus.Information);
+        XenVBD_FillModePage(ChildDeviceData, cdb->MODE_SENSE.PageCode, DataBuffer, cdb->MODE_SENSE.AllocationLength, &Irp->IoStatus.Information);
         break;
       }
       Srb->DataTransferLength = Irp->IoStatus.Information;
+//      Srb->ScsiStatus = 0;
+      Srb->SrbStatus = SRB_STATUS_SUCCESS;
       Irp->IoStatus.Status = status;
       IoCompleteRequest(Irp, IO_NO_INCREMENT);
       break;
@@ -1361,21 +1435,80 @@ XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
       KeReleaseSpinLock(&ChildDeviceData->Lock, KIrql);
       status = STATUS_PENDING;
       break;
+    case SCSIOP_READ_TOC:
+      DataBuffer = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, HighPagePriority);
+/*
+#define READ_TOC_FORMAT_TOC         0x00
+#define READ_TOC_FORMAT_SESSION     0x01
+#define READ_TOC_FORMAT_FULL_TOC    0x02
+#define READ_TOC_FORMAT_PMA         0x03
+#define READ_TOC_FORMAT_ATIP        0x04
+*/
+      KdPrint((__DRIVER_NAME "     Command = READ_TOC\n"));
+      KdPrint((__DRIVER_NAME "     Msf = %d\n", cdb->READ_TOC.Msf));
+      KdPrint((__DRIVER_NAME "     LogicalUnitNumber = %d\n", cdb->READ_TOC.LogicalUnitNumber));
+      KdPrint((__DRIVER_NAME "     Format2 = %d\n", cdb->READ_TOC.Format2));
+      KdPrint((__DRIVER_NAME "     StartingTrack = %d\n", cdb->READ_TOC.StartingTrack));
+      KdPrint((__DRIVER_NAME "     AllocationLength = %d\n", (cdb->READ_TOC.AllocationLength[0] << 8) | cdb->READ_TOC.AllocationLength[1]));
+      KdPrint((__DRIVER_NAME "     Control = %d\n", cdb->READ_TOC.Control));
+      KdPrint((__DRIVER_NAME "     Format = %d\n", cdb->READ_TOC.Format));
+      switch (cdb->READ_TOC.Format2)
+      {
+      case READ_TOC_FORMAT_TOC:
+        DataBuffer[0] = 0; // length MSB
+        DataBuffer[1] = 10; // length LSB
+        DataBuffer[2] = 1; // First Track
+        DataBuffer[3] = 1; // Last Track
+        DataBuffer[4] = 0; // Reserved
+        DataBuffer[5] = 0x14; // current position data + uninterrupted data
+        DataBuffer[6] = 1; // last complete track
+        DataBuffer[7] = 0; // reserved
+        DataBuffer[8] = 0; // MSB Block
+        DataBuffer[9] = 0;
+        DataBuffer[10] = 0;
+        DataBuffer[11] = 0; // LSB Block
+        Srb->SrbStatus = SRB_STATUS_SUCCESS;
+        break;
+      case READ_TOC_FORMAT_SESSION:
+      case READ_TOC_FORMAT_FULL_TOC:
+      case READ_TOC_FORMAT_PMA:
+      case READ_TOC_FORMAT_ATIP:
+        Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
+        break;
+      }
+      Irp->IoStatus.Status = status;
+      IoCompleteRequest(Irp, IO_NO_INCREMENT);
+      break;
+/*
+    case SCSIOP_GET_CONFIGURATION:
+#define SCSI_GET_CONFIGURATION_REQUEST_TYPE_ALL     0x0
+#define SCSI_GET_CONFIGURATION_REQUEST_TYPE_CURRENT 0x1
+#define SCSI_GET_CONFIGURATION_REQUEST_TYPE_ONE     0x2
+
+        UCHAR OperationCode;       // 0x46 - SCSIOP_GET_CONFIGURATION
+        UCHAR RequestType : 2;     // SCSI_GET_CONFIGURATION_REQUEST_TYPE_*
+        UCHAR Reserved1   : 6;     // includes obsolete LUN field
+        UCHAR StartingFeature[2];
+        UCHAR Reserved2[3];
+        UCHAR AllocationLength[2];
+        UCHAR Control;
+      break;
+*/     
     default:
       KdPrint((__DRIVER_NAME "     Unhandled EXECUTE_SCSI Command = %02X\n", Srb->Cdb[0]));
-      status = STATUS_NOT_IMPLEMENTED;
+      Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
       Irp->IoStatus.Status = status;
-      Irp->IoStatus.Information = 0;
       IoCompleteRequest(Irp, IO_NO_INCREMENT);
       break;
     }
     //status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
     break;
   case SRB_FUNCTION_CLAIM_DEVICE:
-    if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//    if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
       KdPrint((__DRIVER_NAME "     SRB_FUNCTION_CLAIM_DEVICE\n"));
-    ObReferenceObject(WdfDeviceWdmGetDeviceObject(Device));
+//    ObReferenceObject(WdfDeviceWdmGetDeviceObject(Device));
     Srb->DataBuffer = WdfDeviceWdmGetDeviceObject(Device);
+//    Srb->DataBuffer = WdfDeviceWdmGetAttachedDevice(Device);
     Srb->SrbStatus = SRB_STATUS_SUCCESS;
     status = STATUS_SUCCESS;
     Irp->IoStatus.Status = status;
@@ -1383,7 +1516,7 @@ XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
     break;
   case SRB_FUNCTION_IO_CONTROL:
-    if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//    if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
       KdPrint((__DRIVER_NAME "     SRB_FUNCTION_IO_CONTROL\n"));
     //status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
     Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
@@ -1393,7 +1526,7 @@ XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
     break;
   case SRB_FUNCTION_FLUSH:
-    if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//    if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
       KdPrint((__DRIVER_NAME "     SRB_FUNCTION_FLUSH\n"));
     Srb->SrbStatus = SRB_STATUS_SUCCESS;
     status = STATUS_SUCCESS;
@@ -1407,7 +1540,7 @@ XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
     break;
   }
 
-  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
     KdPrint((__DRIVER_NAME " <-- WdmIrpPreprocessSCSI (AddedToList = %d, RemovedFromList = %d, AddedToRing = %d, AddedToRingAtLastNotify = %d, AddedToRingAtLastInterrupt = %d, RemovedFromRing = %d)\n", ChildDeviceData->IrpAddedToList, ChildDeviceData->IrpRemovedFromList, ChildDeviceData->IrpAddedToRing, ChildDeviceData->IrpAddedToRingAtLastNotify, ChildDeviceData->IrpAddedToRingAtLastInterrupt, ChildDeviceData->IrpCompleted));
   //KdPrint((__DRIVER_NAME " <-- WdmIrpPreprocessSCSI\n"));
 
@@ -1464,7 +1597,7 @@ XenVbd_Child_IoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBu
 
   ChildDeviceData = *GetChildDeviceData(Device);
 
-  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
     KdPrint((__DRIVER_NAME " --> IoDeviceControl\n"));
   //KdPrint((__DRIVER_NAME "     InputBufferLength = %d\n", InputBufferLength));
   //KdPrint((__DRIVER_NAME "     OutputBufferLength = %d\n", OutputBufferLength));
@@ -1654,7 +1787,7 @@ XenVbd_Child_IoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBu
     break;
   }
 
-  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
+//  if (ChildDeviceData->DeviceType == XENVBD_DEVICETYPE_CDROM)
     KdPrint((__DRIVER_NAME " <-- IoDeviceControl\n"));
 }
 
