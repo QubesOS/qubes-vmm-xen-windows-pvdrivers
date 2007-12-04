@@ -26,10 +26,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #error requires NDIS 5.1 compilation environment
 #endif
 
-#define GRANT_INVALID_REF	0
+#define GRANT_INVALID_REF 0
 
-#define NET_TX_RING_SIZE __RING_SIZE((struct netif_tx_sring *)0, PAGE_SIZE)
-#define NET_RX_RING_SIZE __RING_SIZE((struct netif_rx_sring *)0, PAGE_SIZE)
+/* couldn't get regular xen ring macros to work...*/
+#define __NET_RING_SIZE(type, _sz) \
+    (__RD32( \
+    (_sz - sizeof(struct type##_sring) + sizeof(union type##_sring_entry)) \
+    / sizeof(union type##_sring_entry)))
+
+#define NET_TX_RING_SIZE __NET_RING_SIZE(netif_tx, PAGE_SIZE)
+#define NET_RX_RING_SIZE __NET_RING_SIZE(netif_rx, PAGE_SIZE)
 
 #pragma warning(disable: 4127)
 
@@ -54,13 +60,27 @@ struct xennet_info
   XEN_IFACE_XEN XenInterface;
   XEN_IFACE_GNTTBL GntTblInterface;
 
+  /* ring control structures */
   struct netif_tx_front_ring tx;
   struct netif_rx_front_ring rx;
 
-  PMDL tx_mdl;
-  PMDL rx_mdl;
+  /* ptrs to the actual rings themselvves */
   struct netif_tx_sring *tx_pgs;
   struct netif_rx_sring *rx_pgs;
+
+  /* MDLs for the above */
+  PMDL tx_mdl;
+  PMDL rx_mdl;
+
+  /* Outstanding packets. The first entry in tx_pkts
+   * is an index into a chain of free entries. */
+  PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
+  PNDIS_PACKET rx_pkts[NET_RX_RING_SIZE];
+
+  grant_ref_t gref_tx_head;
+  grant_ref_t grant_tx_ref[NET_TX_RING_SIZE];
+  grant_ref_t gref_rx_head;
+  grant_ref_t grant_rx_ref[NET_TX_RING_SIZE];
 
   UINT irq;
   evtchn_port_t event_channel;
@@ -107,6 +127,21 @@ simple_strtoul(const char *cp,char **endp,unsigned int base)
   return result;
  }
 
+static void
+add_id_to_freelist(NDIS_PACKET **list, unsigned short id)
+{
+  list[id] = list[0];
+  list[0]  = (void *)(unsigned long)id;
+}
+
+static unsigned short
+get_id_from_freelist(NDIS_PACKET **list)
+{
+  unsigned short id = (unsigned short)(unsigned long)list[0];
+  list[0] = list[id];
+  return id;
+}
+
 static PMDL
 AllocatePages(int Pages)
 {
@@ -134,18 +169,85 @@ AllocatePage()
   return AllocatePages(1);
 }
 
+static NDIS_STATUS
+XenNet_TxBufGC(struct xennet_info *xi)
+{
+  RING_IDX cons, prod;
+#if 0
+  unsigned short id;
+  struct sk_buff *skb;
+
+  BUG_ON(!netfront_carrier_ok(np));
+
+  do {
+    prod = np->tx.sring->rsp_prod;
+    rmb(); /* Ensure we see responses up to 'rp'. */
+
+    for (cons = np->tx.rsp_cons; cons != prod; cons++) {
+      struct netif_tx_response *txrsp;
+
+      txrsp = RING_GET_RESPONSE(&np->tx, cons);
+      if (txrsp->status == NETIF_RSP_NULL)
+        continue;
+
+      id  = txrsp->id;
+      skb = np->tx_skbs[id];
+      if (unlikely(gnttab_query_foreign_access(
+        np->grant_tx_ref[id]) != 0)) {
+        printk(KERN_ALERT "network_tx_buf_gc: warning "
+               "-- grant still in use by backend "
+               "domain.\n");
+        BUG();
+      }
+      gnttab_end_foreign_access_ref(
+        np->grant_tx_ref[id], GNTMAP_readonly);
+      gnttab_release_grant_reference(
+        &np->gref_tx_head, np->grant_tx_ref[id]);
+      np->grant_tx_ref[id] = GRANT_INVALID_REF;
+      add_id_to_freelist(np->tx_skbs, id);
+      dev_kfree_skb_irq(skb);
+    }
+
+    np->tx.rsp_cons = prod;
+
+    /*
+     * Set a new event, then check for race with update of tx_cons.
+     * Note that it is essential to schedule a callback, no matter
+     * how few buffers are pending. Even if there is space in the
+     * transmit ring, higher layers may be blocked because too much
+     * data is outstanding: in such cases notification from Xen is
+     * likely to be the only kick that we'll get.
+     */
+    np->tx.sring->rsp_event =
+      prod + ((np->tx.sring->req_prod - prod) >> 1) + 1;
+    mb();
+  } while ((cons == prod) && (prod != np->tx.sring->rsp_prod));
+
+  network_maybe_wake_tx(dev);
+
+
+
+#endif
+
+
+  return NDIS_STATUS_SUCCESS;
+}
+
 static BOOLEAN
 XenNet_Interrupt(
   PKINTERRUPT Interrupt,
   PVOID ServiceContext
   )
 {
-  // struct xennet_info *xennet_info = ServiceContext;
+  struct xennet_info *xi = ServiceContext;
   // KIRQL KIrql;
 
   UNREFERENCED_PARAMETER(Interrupt);
-  UNREFERENCED_PARAMETER(ServiceContext);
 
+  if (xi->connected)
+  {
+    XenNet_TxBufGC(xi);
+  }
   // KeAcquireSpinLock(&ChildDeviceData->Lock, &KIrql);
   // KdPrint((__DRIVER_NAME " --> Setting Dpc Event\n"));
   // KeSetEvent(&ChildDeviceData->DpcThreadEvent, 1, FALSE);
@@ -380,6 +482,17 @@ XenNet_Init(
   NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
     &xi->lower_do, NULL, NULL);
 
+  /* Initialise {tx,rx}_pkts as a free chain containing every entry. */
+  for (i = 0; i <= NET_TX_RING_SIZE; i++) {
+    xi->tx_pkts[i] = (void *)((unsigned long) i+1);
+    xi->grant_tx_ref[i] = GRANT_INVALID_REF;
+  }
+
+  for (i = 0; i < NET_RX_RING_SIZE; i++) {
+    xi->rx_pkts[i] = NULL;
+    xi->grant_rx_ref[i] = GRANT_INVALID_REF;
+  }
+
   status = IoGetDeviceProperty(xi->pdo, DevicePropertyDeviceDescription,
     NAME_SIZE, xi->name, &length);
   if (!NT_SUCCESS(status))
@@ -402,7 +515,10 @@ XenNet_Init(
     status = NDIS_STATUS_FAILURE;
     goto err;
   }
-  
+
+  /* TODO: NdisMInitializeScatterGatherDma? */
+  // NDIS_PER_PACKET_INFO_FROM_PACKET(ndis_packet, ScatterGatherListPacketInfo)
+
   GetWdfDeviceInfo(xi->wdf_device)->xennet_info = xi;
 
   /* get lower (Xen) interfaces */
@@ -740,17 +856,47 @@ XenNet_SendPackets(
     */
   struct xennet_info *xi = MiniportAdapterContext;
   PNDIS_PACKET curr_packet;
+  PNDIS_BUFFER curr_buff;
+  PVOID curr_buff_vaddr;
+  UINT curr_buff_len;
+  UINT tot_buff_len;
   UINT i;
-  UINT table_entry;
+  struct netif_tx_request *tx;
+  unsigned short id;
+  grant_ref_t ref;
 
-  KdPrint((__FUNCTION__ " called\n"));
+  KdPrint((__FUNCTION__ " called, sending %d pkts\n", NumberOfPackets));
 
   for (i = 0; i < NumberOfPackets; i++)
   {
     curr_packet = PacketArray[i];
     ASSERT(curr_packet);
 
-    table_entry = xi->tx.req_prod_pvt;
+    NdisGetFirstBufferFromPacketSafe(curr_packet, &curr_buff, &curr_buff_vaddr,
+      &curr_buff_len, &tot_buff_len, NormalPagePriority);
+
+    while (curr_buff)
+    {
+      NdisQueryBufferSafe(curr_buff, &curr_buff_vaddr, &curr_buff_len,
+        NormalPagePriority);
+
+      id = get_id_from_freelist(xi->tx_pkts);
+      xi->tx_pkts[id] = curr_packet;
+
+      // TODO: get pfn/offset for buffer
+      // buffers attached to packets with NdisChainBufferAtBack
+
+      tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+      tx->id = id;
+      tx->gref = xi->GntTblInterface.GrantAccess(
+        xi->GntTblInterface.InterfaceHeader.Context,
+        0,
+        0, //FIXME
+        FALSE);
+
+
+      NdisGetNextBuffer(curr_buff, &curr_buff);
+    }
   }
 
 }
