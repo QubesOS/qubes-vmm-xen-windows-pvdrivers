@@ -162,8 +162,6 @@ EvtChn_AllocUnbound(PVOID Context, domid_t Domain)
 {
   evtchn_alloc_unbound_t op;
 
-  UNREFERENCED_PARAMETER(Context);
-
   //KdPrint((__DRIVER_NAME " --> AllocUnbound\n"));
 
   op.dom = DOMID_SELF;
