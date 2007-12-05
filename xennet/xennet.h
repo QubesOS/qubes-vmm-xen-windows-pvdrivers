@@ -1,7 +1,7 @@
 /*
 PV Drivers for Windows Xen HVM Domains
 Copyright (C) 2007 James Harper
-Copyright (C) 2007 Andrew Grover
+Copyright (C) 2007 Andrew Grover <andy.grover@oracle.com>
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License

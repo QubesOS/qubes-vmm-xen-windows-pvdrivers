@@ -1,7 +1,7 @@
 /*
 PV Net Driver for Windows Xen HVM Domains
 Copyright (C) 2007 James Harper
-Copyright (C) 2007 Andrew Grover
+Copyright (C) 2007 Andrew Grover <andy.grover@oracle.com>
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -22,6 +22,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <io/xenbus.h>
 #include "xennet.h"
 
+#define wmb() KeMemoryBarrier()
+#define mb() KeMemoryBarrier()
+
 #if !defined (NDIS51_MINIPORT)
 #error requires NDIS 5.1 compilation environment
 #endif
@@ -37,7 +40,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NET_TX_RING_SIZE __NET_RING_SIZE(netif_tx, PAGE_SIZE)
 #define NET_RX_RING_SIZE __NET_RING_SIZE(netif_rx, PAGE_SIZE)
 
-#pragma warning(disable: 4127)
+#pragma warning(disable: 4127) // conditional expression is constant
 
 struct xennet_info
 {
@@ -172,7 +175,8 @@ AllocatePage()
 static NDIS_STATUS
 XenNet_TxBufGC(struct xennet_info *xi)
 {
-  RING_IDX cons, prod;
+//  RING_IDX cons, prod;
+  UNREFERENCED_PARAMETER(xi);
 #if 0
   unsigned short id;
   struct sk_buff *skb;
@@ -244,6 +248,8 @@ XenNet_Interrupt(
 
   UNREFERENCED_PARAMETER(Interrupt);
 
+  KdPrint((__DRIVER_NAME "     ***XenNet Interrupt***\n"));  
+
   if (xi->connected)
   {
     XenNet_TxBufGC(xi);
@@ -269,6 +275,22 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
   xenbus_transaction_t xbt = 0;
   int retry = 0;
   char *err;
+  int i;
+
+  struct set_params {
+    char *name;
+    int value;
+  } params[] = {
+    {"tx-ring-ref", 0},
+    {"rx-ring-ref", 0},
+    {"event-channel", 0},
+    {"request-rx-copy", 1},
+    {"feature-rx-notify", 1},
+    {"feature-no-csum-offload", 1},
+    {"feature-sg", 1},
+    {"feature-gso-tcpv4", 0},
+    {NULL, 0},
+  };
 
   xi->XenBusInterface.Read(xi->XenBusInterface.InterfaceHeader.Context,
     XBT_NIL, Path, &Value);
@@ -313,60 +335,26 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
       xi->GntTblInterface.InterfaceHeader.Context, 0,
       *MmGetMdlPfnArray(xi->rx_mdl), FALSE);
 
-    xi->XenBusInterface.StartTransaction(xi->XenBusInterface.InterfaceHeader.Context,
-      &xbt);
+    /* fixup array for dynamic values */
+    params[0].value = xi->tx_ring_ref;
+    params[1].value = xi->rx_ring_ref;
+    params[2].value = xi->event_channel;
 
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/tx-ring-ref", xi->Path);
-    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", xi->tx_ring_ref);
-    if (err)
-      goto trouble;
+    xi->XenBusInterface.StartTransaction(
+      xi->XenBusInterface.InterfaceHeader.Context, &xbt);
 
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/rx-ring-ref", xi->Path);
-    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", xi->rx_ring_ref);
-    if (err)
-      goto trouble;
-
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/event-channel", xi->Path);
-    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", xi->event_channel);
-    if (err)
-      goto trouble;
-
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/request-rx-copy", xi->Path);
-    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", 1);
-    if (err)
-      goto trouble;
-
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/feature-rx-notify",
-      xi->Path);
-    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", 1);
-    if (err)
-      goto trouble;
-
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
-      "%s/feature-no-csum-offload", xi->Path);
-    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", 1);
-    if (err)
-      goto trouble;
-
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
-      "%s/feature-sg", xi->Path);
-    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", 0);
-    if (err)
-      goto trouble;
-
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
-      "%s/feature-gso-tcpv4", xi->Path);
-    err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", 0);
-    if (err)
-      goto trouble;
+    for (i = 0; params[i].name; i++)
+    {
+      RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/%s",
+        xi->Path, params[i].name);
+      err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+        XBT_NIL, TmpPath, "%d", params[i].value);
+      if (err)
+      {
+        KdPrint(("setting %s failed, err = %s\n", params[i].name, err));
+        goto trouble;
+      }
+    }
 
     /* commit transaction */
     xi->XenBusInterface.EndTransaction(xi->XenBusInterface.InterfaceHeader.Context,
@@ -410,6 +398,8 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d\n", be_state));
     break;
   }
+
+  return;
 
 trouble:
   KdPrint((__DRIVER_NAME __FUNCTION__ ": Should never happen!\n"));
@@ -503,7 +493,17 @@ XenNet_Init(
   }
 
   NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi,
-      0, NDIS_ATTRIBUTE_DESERIALIZE, NdisInterfaceInternal);
+    0, (NDIS_ATTRIBUTE_DESERIALIZE /*| NDIS_ATTRIBUTE_BUS_MASTER*/),
+    NdisInterfaceInternal);
+
+  // status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE,
+    // XN_MAX_PKT_SIZE);
+  // if (!NT_SUCCESS(status))
+  // {
+    // KdPrint(("NdisMInitializeScatterGatherDma failed with 0x%x\n", status));
+    // status = NDIS_STATUS_FAILURE;
+    // goto err;
+  // }
 
   WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&wdf_attrs, wdf_device_info);
 
@@ -515,9 +515,6 @@ XenNet_Init(
     status = NDIS_STATUS_FAILURE;
     goto err;
   }
-
-  /* TODO: NdisMInitializeScatterGatherDma? */
-  // NDIS_PER_PACKET_INFO_FROM_PACKET(ndis_packet, ScatterGatherListPacketInfo)
 
   GetWdfDeviceInfo(xi->wdf_device)->xennet_info = xi;
 
@@ -834,6 +831,39 @@ XenNet_ReturnPacket(
   KdPrint((__FUNCTION__ " called\n"));
 }
 
+PMDL
+XenNet_Linearize(PNDIS_PACKET Packet)
+{
+  PMDL pmdl;
+  char *start;
+  PNDIS_BUFFER buffer;
+  PVOID buff_va;
+  UINT buff_len;
+  UINT tot_buff_len;
+
+  pmdl = AllocatePage();
+
+  start = MmGetSystemAddressForMdlSafe(pmdl, NormalPagePriority);
+  if (!start)
+  {
+    return NULL;
+  }
+
+  NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
+    &tot_buff_len, NormalPagePriority);
+  ASSERT(tot_buff_len <= PAGE_SIZE);
+
+  while (buffer)
+  {
+    NdisQueryBufferSafe(buffer, &buff_va, &buff_len, NormalPagePriority);
+    RtlCopyMemory(start, buff_va, buff_len);
+    start += buff_len;
+    NdisGetNextBuffer(buffer, &buffer);
+  }
+
+  return pmdl;
+}
+
 VOID
 XenNet_SendPackets(
   IN NDIS_HANDLE MiniportAdapterContext,
@@ -856,14 +886,13 @@ XenNet_SendPackets(
     */
   struct xennet_info *xi = MiniportAdapterContext;
   PNDIS_PACKET curr_packet;
-  PNDIS_BUFFER curr_buff;
-  PVOID curr_buff_vaddr;
-  UINT curr_buff_len;
-  UINT tot_buff_len;
   UINT i;
   struct netif_tx_request *tx;
   unsigned short id;
-  grant_ref_t ref;
+  PFN_NUMBER pfn;
+  int notify;
+  PMDL pmdl;
+  UINT pkt_size;
 
   KdPrint((__FUNCTION__ " called, sending %d pkts\n", NumberOfPackets));
 
@@ -872,33 +901,44 @@ XenNet_SendPackets(
     curr_packet = PacketArray[i];
     ASSERT(curr_packet);
 
-    NdisGetFirstBufferFromPacketSafe(curr_packet, &curr_buff, &curr_buff_vaddr,
-      &curr_buff_len, &tot_buff_len, NormalPagePriority);
+    NdisQueryPacket(curr_packet, NULL, NULL, NULL, &pkt_size);
 
-    while (curr_buff)
+    pmdl = XenNet_Linearize(curr_packet);
+    if (!pmdl)
     {
-      NdisQueryBufferSafe(curr_buff, &curr_buff_vaddr, &curr_buff_len,
-        NormalPagePriority);
-
-      id = get_id_from_freelist(xi->tx_pkts);
-      xi->tx_pkts[id] = curr_packet;
-
-      // TODO: get pfn/offset for buffer
-      // buffers attached to packets with NdisChainBufferAtBack
-
-      tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
-      tx->id = id;
-      tx->gref = xi->GntTblInterface.GrantAccess(
-        xi->GntTblInterface.InterfaceHeader.Context,
-        0,
-        0, //FIXME
-        FALSE);
-
-
-      NdisGetNextBuffer(curr_buff, &curr_buff);
+      KdPrint((__DRIVER_NAME "Couldn't linearize packet!\n"));
+      NdisMSendComplete(xi, curr_packet, NDIS_STATUS_FAILURE);
+      break;
     }
+    pfn = *MmGetMdlPfnArray(pmdl);
+
+    id = get_id_from_freelist(xi->tx_pkts);
+    *((PMDL *)curr_packet->MiniportReservedEx) = pmdl;
+    xi->tx_pkts[id] = curr_packet;
+
+    tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+    tx->id = id;
+    tx->gref = xi->GntTblInterface.GrantAccess(
+      xi->GntTblInterface.InterfaceHeader.Context,
+      0,
+      pfn,
+      TRUE);
+    tx->offset = 0;
+    tx->size = (UINT16)pkt_size;
+    tx->flags = NETTXF_csum_blank;
+
+    xi->tx.req_prod_pvt++;
+
+    // NDIS_SET_PACKET_STATUS(curr_packet, NDIS_STATUS_SUCCESS);
+    // NdisMSendComplete(xi, curr_packet, NDIS_STATUS_SUCCESS);
   }
 
+  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->tx, notify);
+  if (notify)
+  {
+    xi->EvtChnInterface.Notify(xi->EvtChnInterface.InterfaceHeader.Context,
+      xi->event_channel);
+  }
 }
 
 VOID
