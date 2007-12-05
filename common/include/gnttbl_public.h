@@ -21,9 +21,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 DEFINE_GUID(GUID_XEN_IFACE_GNTTBL, 0x6a71acf8, 0xf6d, 0x4022, 0xba, 0x60, 0x19, 0x98, 0x6e, 0xbe, 0xea, 0x73);
 
 typedef grant_ref_t
-(*PXEN_GNTTBL_GRANTACCESS)(domid_t domid, unsigned long frame, int readonly);
+(*PXEN_GNTTBL_GRANTACCESS)(WDFDEVICE Device, domid_t domid, unsigned long frame, int readonly);
 typedef BOOLEAN
-(*PXEN_GNTTBL_ENDACCESS)(grant_ref_t ref);
+(*PXEN_GNTTBL_ENDACCESS)(WDFDEVICE Device, grant_ref_t ref);
 
 typedef struct _XEN_IFACE_GNTTBL {
   INTERFACE InterfaceHeader;

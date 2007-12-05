@@ -20,23 +20,23 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 DEFINE_GUID( GUID_XEN_IFACE_EVTCHN, 0xD2D20756, 0xDE69, 0x4447, 0x8A, 0x7D, 0x98, 0x37, 0x19, 0x7D, 0x61, 0x66);
 //{D2D20756-DE69-4447-8A7D-9837197D6166}
 
+typedef NTSTATUS
+(*PXEN_EVTCHN_BIND)(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
+
+typedef NTSTATUS
+(*PXEN_EVTCHN_UNBIND)(PVOID Context, evtchn_port_t Port);
+
+typedef NTSTATUS
+(*PXEN_EVTCHN_MASK)(PVOID Context, evtchn_port_t Port);
+
+typedef NTSTATUS
+(*PXEN_EVTCHN_UNMASK)(PVOID Context, evtchn_port_t Port);
+
+typedef NTSTATUS
+(*PXEN_EVTCHN_NOTIFY)(PVOID Context, evtchn_port_t Port);
+
 typedef evtchn_port_t
-(*PXEN_EVTCHN_ALLOCUNBOUND)(domid_t Domain);
-
-typedef NTSTATUS
-(*PXEN_EVTCHN_BIND)(evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
-
-typedef NTSTATUS
-(*PXEN_EVTCHN_UNBIND)(evtchn_port_t Port);
-
-typedef NTSTATUS
-(*PXEN_EVTCHN_MASK)(evtchn_port_t Port);
-
-typedef NTSTATUS
-(*PXEN_EVTCHN_UNMASK)(evtchn_port_t Port);
-
-typedef NTSTATUS
-(*PXEN_EVTCHN_NOTIFY)(evtchn_port_t Port);
+(*PXEN_EVTCHN_ALLOCUNBOUND)(PVOID Context, domid_t Domain);
 
 typedef struct _XENBUS_IFACE_EVTCHN {
   INTERFACE InterfaceHeader;

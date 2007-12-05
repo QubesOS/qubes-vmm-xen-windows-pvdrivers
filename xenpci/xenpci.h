@@ -34,37 +34,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <ntstrsafe.h>
 
 #include <xen_windows.h>
-/*
-#define __XEN_INTERFACE_VERSION__ 0x00030205
-#define __i386__
-typedef signed char int8_t;
-typedef unsigned char uint8_t;
-typedef SHORT int16_t;
-typedef USHORT uint16_t;
-typedef LONG int32_t;
-typedef ULONG uint32_t;
-typedef ULONGLONG uint64_t;
-typedef unsigned long pgentry_t;
-
-#define _PAGE_PRESENT  0x001UL
-#define _PAGE_RW       0x002UL
-#define _PAGE_USER     0x004UL
-#define _PAGE_PWT      0x008UL
-#define _PAGE_PCD      0x010UL
-#define _PAGE_ACCESSED 0x020UL
-#define _PAGE_DIRTY    0x040UL
-#define _PAGE_PAT      0x080UL
-#define _PAGE_PSE      0x080UL
-#define _PAGE_GLOBAL   0x100UL
-
-#define L1_PROT (_PAGE_PRESENT|_PAGE_RW|_PAGE_ACCESSED)
-*/
-
 #include <memory.h>
 #include <grant_table.h>
 #include <event_channel.h>
 #include <hvm/params.h>
 #include <hvm/hvm_op.h>
+
+#include <evtchn_public.h>
+#include <xenbus_public.h>
+#include <xen_public.h>
+#include <gnttbl_public.h>
 
 //{C828ABE9-14CA-4445-BAA6-82C2376C6518}
 DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82, 0xC2, 0x37, 0x6C, 0x65, 0x18);
@@ -79,8 +58,6 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
-extern char *hypercall_stubs;
-
 typedef struct _XENPCI_IDENTIFICATION_DESCRIPTION
 {
   WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Header;
@@ -89,127 +66,146 @@ typedef struct _XENPCI_IDENTIFICATION_DESCRIPTION
   char Path[128];
 } XENPCI_IDENTIFICATION_DESCRIPTION, *PXENPCI_IDENTIFICATION_DESCRIPTION;
 
+typedef struct _ev_action_t {
+  PKSERVICE_ROUTINE ServiceRoutine;
+  PVOID ServiceContext;
+  ULONG Count;
+} ev_action_t;
 
+typedef struct _XENBUS_WATCH_RING
+{
+  char Path[128];
+  char Token[10];
+} XENBUS_WATCH_RING;
+
+typedef struct _XENBUS_REQ_INFO
+{
+  int In_Use:1;
+  KEVENT WaitEvent;
+  void *Reply;
+} XENBUS_REQ_INFO;
+
+typedef struct _XENBUS_WATCH_ENTRY {
+  char Path[128];
+  PXENBUS_WATCH_CALLBACK ServiceRoutine;
+  PVOID ServiceContext;
+  int Count;
+  int Active;
+} XENBUS_WATCH_ENTRY, *PXENBUS_WATCH_ENTRY;
+
+#define NR_EVENTS 1024
+#define WATCH_RING_SIZE 128
+#define NR_XB_REQS 32
+#define MAX_WATCH_ENTRIES 128
+
+// TODO: tidy up & organize this struct
 typedef struct {
-  WDFQUEUE          IoDefaultQueue;
 
-  // Resources
-  //WDFINTERRUPT      Interrupt;
-  //PULONG            PhysAddress;
+  WDFDEVICE Device;
 
-  //ULONG platform_mmio_addr;
-  //ULONG platform_mmio_len;
-  //ULONG platform_mmio_alloc;
+  WDFINTERRUPT XenInterrupt;
+  ULONG irqNumber;
 
-  //ULONG shared_info_frame;
-  //char *hypercall_stubs;
+  shared_info_t *shared_info_area;
 
-  //PULONG            IoBaseAddress;
-  //ULONG             IoRange;
+  PHYSICAL_ADDRESS platform_mmio_addr;
+  ULONG platform_mmio_orig_len;
+  ULONG platform_mmio_len;
+  ULONG platform_mmio_alloc;
 
-  // Grant Table stuff
+  char *hypercall_stubs;
 
-  //grant_entry_t *gnttab_table;
-  //grant_ref_t gnttab_list[NR_GRANT_ENTRIES];
+  evtchn_port_t xen_store_evtchn;
+
+  grant_entry_t *gnttab_table;
+  PHYSICAL_ADDRESS gnttab_table_physical;
+  grant_ref_t gnttab_list[NR_GRANT_ENTRIES];
+
+  ev_action_t ev_actions[NR_EVENTS];
+  unsigned long bound_ports[NR_EVENTS/(8*sizeof(unsigned long))];
+
+  HANDLE XenBus_ReadThreadHandle;
+  KEVENT XenBus_ReadThreadEvent;
+  HANDLE XenBus_WatchThreadHandle;
+  KEVENT XenBus_WatchThreadEvent;
+
+  XENBUS_WATCH_RING XenBus_WatchRing[WATCH_RING_SIZE];
+  int XenBus_WatchRingReadIndex;
+  int XenBus_WatchRingWriteIndex;
+
+  struct xenstore_domain_interface *xen_store_interface;
+
+  XENBUS_REQ_INFO req_info[NR_XB_REQS];
+  int nr_live_reqs;
+  XENBUS_WATCH_ENTRY XenBus_WatchEntries[MAX_WATCH_ENTRIES];
 
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_DATA, GetDeviceData);
 
-VOID
-GntTbl_Init();
-
-
-
 typedef unsigned long xenbus_transaction_t;
 typedef uint32_t XENSTORE_RING_IDX;
 
-//struct __xsd_sockmsg
-//{
-//    uint32_t type;  /* XS_??? */
-//    uint32_t req_id;/* Request identifier, echoed in daemon's response.  */
-//    uint32_t tx_id; /* Transaction id (0 if not related to a transaction). */
-//    uint32_t len;   /* Length of data following this. */
-//
-//    /* Generally followed by nul-terminated string(s). */
-//};
-
 #define XBT_NIL ((xenbus_transaction_t)0)
 
-#include <evtchn_public.h>
-#include <xenbus_public.h>
-#include <xen_public.h>
-#include <gnttbl_public.h>
-
 char *
-XenBus_Read(xenbus_transaction_t xbt, const char *path, char **value);
+XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value);
 char *
-XenBus_Write(xenbus_transaction_t xbt, const char *path, const char *value);
+XenBus_Write(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *value);
 char *
-XenBus_Printf(xenbus_transaction_t xbt, const char *path, const char *fmt, ...);
+XenBus_Printf(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *fmt, ...);
 char *
-XenBus_StartTransaction(xenbus_transaction_t *xbt);
+XenBus_StartTransaction(PVOID Context, xenbus_transaction_t *xbt);
 char *
-XenBus_EndTransaction(xenbus_transaction_t t, int abort, int *retry);
+XenBus_EndTransaction(PVOID Context, xenbus_transaction_t t, int abort, int *retry);
 char *
-XenBus_List(xenbus_transaction_t xbt, const char *prefix, char ***contents);
+XenBus_List(PVOID Context, xenbus_transaction_t xbt, const char *prefix, char ***contents);
 NTSTATUS
-XenBus_Init();
+XenBus_Init(WDFDEVICE Device);
 NTSTATUS
-XenBus_Close();
+XenBus_Close(WDFDEVICE Device);
 NTSTATUS
-XenBus_Start();
+XenBus_Start(WDFDEVICE Device);
 NTSTATUS
-XenBus_Stop();
-
-//typedef VOID
-//(*PXENBUS_WATCH_CALLBACK)(char *Path, PVOID ServiceContext);
-
+XenBus_Stop(WDFDEVICE Device);
 char *
-XenBus_AddWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
+XenBus_AddWatch(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 char *
-XenBus_RemWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
-
-
+XenBus_RemWatch(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 VOID
 XenBus_ThreadProc(PVOID StartContext);
 
 PHYSICAL_ADDRESS
-XenPCI_AllocMMIO(ULONG len);
+XenPCI_AllocMMIO(WDFDEVICE Device, ULONG len);
 
-//PVOID
-//map_frames(PULONG f, ULONG n);
-
-
-extern shared_info_t *shared_info_area;
-
+NTSTATUS
+EvtChn_Init(WDFDEVICE Device);
 BOOLEAN
 EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID);
 BOOLEAN
 EvtChn_InterruptDpc(WDFINTERRUPT Interrupt, WDFOBJECT AssociatedObject);
 NTSTATUS
-EvtChn_Mask(evtchn_port_t Port);
+EvtChn_Mask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
-EvtChn_Unmask(evtchn_port_t Port);
+EvtChn_Unmask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
-EvtChn_Bind(evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
+EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 NTSTATUS
-EvtChn_Unbind(evtchn_port_t Port);
+EvtChn_Unbind(PVOID Context, evtchn_port_t Port);
 NTSTATUS
-EvtChn_Notify(evtchn_port_t Port);
+EvtChn_Notify(PVOID Context, evtchn_port_t Port);
 evtchn_port_t
-EvtChn_AllocUnbound(domid_t Domain);
-NTSTATUS
-EvtChn_Init();
-
-grant_ref_t
-GntTbl_GrantAccess(domid_t domid, unsigned long frame, int readonly);
-BOOLEAN
-GntTbl_EndAccess(grant_ref_t ref);
-
+EvtChn_AllocUnbound(PVOID Context, domid_t Domain);
 evtchn_port_t
-EvtChn_GetXenStorePort();
+EvtChn_GetXenStorePort(WDFDEVICE Device);
 PVOID
-EvtChn_GetXenStoreRingAddr();
+EvtChn_GetXenStoreRingAddr(WDFDEVICE Device);
+
+VOID
+GntTbl_Init(WDFDEVICE Device);
+grant_ref_t
+GntTbl_GrantAccess(WDFDEVICE Device, domid_t domid, unsigned long frame, int readonly);
+BOOLEAN
+GntTbl_EndAccess(WDFDEVICE Device, grant_ref_t ref);
 
 #endif
