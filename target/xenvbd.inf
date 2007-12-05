@@ -3,7 +3,7 @@ Signature="$WINDOWS NT$"
 Class=SCSIAdapter
 ClassGuid={4D36E97B-E325-11CE-BFC1-08002BE10318}
 Provider=%JAMESHARPER%
-DriverVer=12/02/2007,0.3.0.52
+DriverVer=12/05/2007,0.4.0.0
 
 [DestinationDirs]
 DefaultDestDir = 12

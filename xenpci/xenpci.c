@@ -585,7 +585,27 @@ XenPCI_D0ExitPreInterruptsDisabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Targ
   UNREFERENCED_PARAMETER(Device);
   UNREFERENCED_PARAMETER(TargetState);
 
+  KdPrint((__DRIVER_NAME " --> D0ExitPreInterruptsDisabled\n"));
+
+  switch (KeGetCurrentIrql())
+  {
+  case PASSIVE_LEVEL:
+    KdPrint((__DRIVER_NAME "     PASSIVE_LEVEL\n"));
+    break;
+  case APC_LEVEL:
+    KdPrint((__DRIVER_NAME "     APC_LEVEL\n"));
+    break;
+  case DISPATCH_LEVEL:
+    KdPrint((__DRIVER_NAME "     DISPATCH_LEVEL\n"));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     %d\n", KeGetCurrentIrql()));
+    break;
+  }
+
   XenBus_Stop();
+
+  KdPrint((__DRIVER_NAME " <-- D0ExitPreInterruptsDisabled\n"));
 
   return status;
 }
@@ -598,9 +618,27 @@ XenPCI_D0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
   UNREFERENCED_PARAMETER(Device);
   UNREFERENCED_PARAMETER(TargetState);
 
-  KdPrint((__DRIVER_NAME " --> EvtDeviceD0Exit\n"));
+  KdPrint((__DRIVER_NAME " --> DeviceD0Exit\n"));
 
-  KdPrint((__DRIVER_NAME " <-- EvtDeviceD0Exit\n"));
+  switch (KeGetCurrentIrql())
+  {
+  case PASSIVE_LEVEL:
+    KdPrint((__DRIVER_NAME "     PASSIVE_LEVEL\n"));
+    break;
+  case APC_LEVEL:
+    KdPrint((__DRIVER_NAME "     APC_LEVEL\n"));
+    break;
+  case DISPATCH_LEVEL:
+    KdPrint((__DRIVER_NAME "     DISPATCH_LEVEL\n"));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     %d\n", KeGetCurrentIrql()));
+    break;
+  }
+
+  XenBus_Close();
+
+  KdPrint((__DRIVER_NAME " <-- DeviceD0Exit\n"));
 
   return status;
 }

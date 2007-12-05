@@ -156,6 +156,8 @@ XenBus_List(xenbus_transaction_t xbt, const char *prefix, char ***contents);
 NTSTATUS
 XenBus_Init();
 NTSTATUS
+XenBus_Close();
+NTSTATUS
 XenBus_Start();
 NTSTATUS
 XenBus_Stop();

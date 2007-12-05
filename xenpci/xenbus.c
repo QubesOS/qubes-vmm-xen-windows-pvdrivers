@@ -73,6 +73,8 @@ static KEVENT XenBus_ReadThreadEvent;
 static HANDLE XenBus_WatchThreadHandle;
 static KEVENT XenBus_WatchThreadEvent;
 
+static BOOLEAN XenBus_ShuttingDown;
+
 static void
 XenBus_ReadThreadProc(PVOID StartContext);
 static void
@@ -266,7 +268,7 @@ xenbus_msg_reply(int type, xenbus_transaction_t trans, struct write_req *io, int
 //  DEFINE_WAIT(w);
   struct xsd_sockmsg *rep;
 
-  KdPrint((__DRIVER_NAME " --> xenbus_msg_reply\n"));
+//  KdPrint((__DRIVER_NAME " --> xenbus_msg_reply\n"));
 
   id = allocate_xenbus_id();
 //  add_waiter(w, req_info[id].waitq);
@@ -277,7 +279,7 @@ xenbus_msg_reply(int type, xenbus_transaction_t trans, struct write_req *io, int
 //  remove_waiter(w);
 //  wake(current);
 //
-  KdPrint((__DRIVER_NAME "     starting wait\n"));
+//  KdPrint((__DRIVER_NAME "     starting wait\n"));
 
   KeWaitForSingleObject(&req_info[id].WaitEvent, Executive, KernelMode, FALSE, NULL);
 
@@ -286,7 +288,7 @@ xenbus_msg_reply(int type, xenbus_transaction_t trans, struct write_req *io, int
   rep = req_info[id].Reply;
 //  BUG_ON(rep->req_id != id);
   release_xenbus_id(id);
-  KdPrint((__DRIVER_NAME " <-- xenbus_msg_reply\n"));
+//  KdPrint((__DRIVER_NAME " <-- xenbus_msg_reply\n"));
   return rep;
 }
 
@@ -356,18 +358,31 @@ char* xenbus_wait_for_value(const char* path,const char* value)
 NTSTATUS
 XenBus_Init()
 {
-  //KdPrint((__DRIVER_NAME " --> XenBus_Init\n"));
+  NTSTATUS Status;
+  OBJECT_ATTRIBUTES oa;
+  int i;
+
+  KdPrint((__DRIVER_NAME " --> XenBus_Init\n"));
 
   xen_store_evtchn = EvtChn_GetXenStorePort();
   xen_store_interface = EvtChn_GetXenStoreRingAddr();
 
-  //KdPrint((__DRIVER_NAME "     xen_store_evtchn = %08x\n", xen_store_evtchn));
-  //KdPrint((__DRIVER_NAME "     xen_store_interface = %08x\n", xen_store_interface));
+  for (i = 0; i < MAX_WATCH_ENTRIES; i++)
+    XenBus_WatchEntries[i].Active = 0;
 
   KeInitializeEvent(&XenBus_ReadThreadEvent, SynchronizationEvent, FALSE);
   KeInitializeEvent(&XenBus_WatchThreadEvent, SynchronizationEvent, FALSE);
+  XenBus_ShuttingDown = FALSE;
 
-  //KdPrint((__DRIVER_NAME " <-- XenBus_Init\n"));
+  //InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+  //Status = PsCreateSystemThread(&XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_ReadThreadProc, NULL);
+  Status = PsCreateSystemThread(&XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_ReadThreadProc, NULL);
+
+  //InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+  //Status = PsCreateSystemThread(&XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_WatchThreadProc, NULL);
+  Status = PsCreateSystemThread(&XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_WatchThreadProc, NULL);
+
+  KdPrint((__DRIVER_NAME " <-- XenBus_Init\n"));
 
   return STATUS_SUCCESS;
 }
@@ -375,22 +390,7 @@ XenBus_Init()
 NTSTATUS
 XenBus_Start()
 {
-  OBJECT_ATTRIBUTES oa;
-  NTSTATUS status;
-  int i;
-
   KdPrint((__DRIVER_NAME " --> XenBus_Start\n"));
-
-  InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
-  status = PsCreateSystemThread(&XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_ReadThreadProc, NULL);
-
-  // remove all existing watches already in Xen too...
-
-  for (i = 0; i < MAX_WATCH_ENTRIES; i++)
-    XenBus_WatchEntries[i].Active = 0;
-
-  InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
-  status = PsCreateSystemThread(&XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_WatchThreadProc, NULL);
 
   EvtChn_Bind(xen_store_evtchn, XenBus_Interrupt, NULL);
 
@@ -404,18 +404,47 @@ XenBus_Stop()
 {
   int i;
 
+  KdPrint((__DRIVER_NAME " --> XenBus_Stop\n"));
+
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
   {
-    if (!XenBus_WatchEntries[i].Active)
-      continue;
-    XenBus_RemWatch(XBT_NIL, XenBus_WatchEntries[i].Path, XenBus_WatchEntries[i].ServiceRoutine, XenBus_WatchEntries[i].ServiceContext);
+    if (XenBus_WatchEntries[i].Active)
+      XenBus_RemWatch(XBT_NIL, XenBus_WatchEntries[i].Path, XenBus_WatchEntries[i].ServiceRoutine, XenBus_WatchEntries[i].ServiceContext);
   }
 
   EvtChn_Unbind(xen_store_evtchn);
 
-  // Does this actually stop the threads???
+  KdPrint((__DRIVER_NAME " <-- XenBus_Stop\n"));
+
+  return STATUS_SUCCESS;
+}
+
+NTSTATUS
+XenBus_Close()
+{
+  PKWAIT_BLOCK WaitBlockArray[2];
+  PVOID WaitArray[2];
+
+  XenBus_ShuttingDown = TRUE;
+
+  KdPrint((__DRIVER_NAME "     Signalling Threads\n"));
+  KeSetEvent(&XenBus_ReadThreadEvent, 1, FALSE);
+  KeSetEvent(&XenBus_WatchThreadEvent, 1, FALSE);
+  KdPrint((__DRIVER_NAME "     Waiting for threads to die\n"));
+  ObReferenceObjectByHandle(XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, NULL, KernelMode, &WaitArray[0], NULL);
+  ObReferenceObjectByHandle(XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, NULL, KernelMode, &WaitArray[1], NULL);
+  KeWaitForMultipleObjects(2, WaitArray, WaitAll, Executive, KernelMode, FALSE, NULL, WaitBlockArray);
+  KdPrint((__DRIVER_NAME "     Threads are dead\n"));
+
+  XenBus_ShuttingDown = FALSE;
+
+  ObDereferenceObject(WaitArray[0]);
+  ObDereferenceObject(WaitArray[1]);
+
   ZwClose(XenBus_WatchThreadHandle);
   ZwClose(XenBus_ReadThreadHandle);
+
+  KdPrint((__DRIVER_NAME " <-- XenBus_Close\n"));
 
   return STATUS_SUCCESS;
 }
@@ -480,9 +509,6 @@ do_ls_test(const char *pre)
   //KdPrint((__DRIVER_NAME " --> do_ls_test\n"));
 }
 
-int ReadThreadSetCount;
-int ReadThreadWaitCount;
-
 static void
 XenBus_ReadThreadProc(PVOID StartContext) {
   int NewWriteIndex;
@@ -495,6 +521,11 @@ XenBus_ReadThreadProc(PVOID StartContext) {
   for(;;)
   {
     KeWaitForSingleObject(&XenBus_ReadThreadEvent, Executive, KernelMode, FALSE, NULL);
+    if (XenBus_ShuttingDown)
+    {
+      KdPrint((__DRIVER_NAME "     Shutdown detected in ReadThreadProc\n"));
+      PsTerminateSystemThread(0);
+    }
     //KdPrint((__DRIVER_NAME "     ReadThread Woken (Count = %d)\n", ReadThreadWaitCount++));
     while (xen_store_interface->rsp_prod != xen_store_interface->rsp_cons)
     {
@@ -567,6 +598,11 @@ XenBus_WatchThreadProc(PVOID StartContext)
   for(;;)
   {
     KeWaitForSingleObject(&XenBus_WatchThreadEvent, Executive, KernelMode, FALSE, NULL);
+    if (XenBus_ShuttingDown)
+    {
+      KdPrint((__DRIVER_NAME "     Shutdown detected in WatchThreadProc\n"));
+      PsTerminateSystemThread(0);
+    }
     while (XenBus_WatchRingReadIndex != XenBus_WatchRingWriteIndex)
     {
       XenBus_WatchRingReadIndex = (XenBus_WatchRingReadIndex + 1) & 127;
@@ -601,7 +637,7 @@ XenBus_AddWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBA
   char Token[20];
   struct write_req req[2];
 
-  KdPrint((__DRIVER_NAME " --> XenBus_AddWatch\n"));
+//  KdPrint((__DRIVER_NAME " --> XenBus_AddWatch\n"));
 
   // check that Path < 128 chars
 
@@ -636,7 +672,7 @@ XenBus_AddWatch(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBA
   XenBus_WatchEntries[i].Count = 0;
   XenBus_WatchEntries[i].Active = 1;
 
-  KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
+//  KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
 
   return NULL;
 }
