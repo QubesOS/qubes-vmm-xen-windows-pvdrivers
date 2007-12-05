@@ -904,7 +904,6 @@ XenVbd_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_D
   WDF_OBJECT_ATTRIBUTES PdoAttributes;
   DECLARE_CONST_UNICODE_STRING(DeviceLocation, L"Xen Bus");
   PXENVBD_CHILD_DEVICE_DATA ChildDeviceData;
-  WDF_IO_QUEUE_CONFIG IoQueueConfig;
   unsigned int i;
   WDF_DPC_CONFIG DpcConfig;
   WDF_OBJECT_ATTRIBUTES DpcObjectAttributes;
@@ -1193,7 +1192,7 @@ XenVBD_FillModePage(PXENVBD_CHILD_DEVICE_DATA ChildDeviceData, UCHAR PageCode, P
 static NTSTATUS
 XenVbd_Child_PreprocessWdmIrpDEVICE_CONTROL(WDFDEVICE Device, PIRP Irp)
 {
-  NTSTATUS Status;
+  NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
   PIO_STACK_LOCATION IrpStack;
   PSCSI_ADDRESS ScsiAddress;
   PXENVBD_CHILD_DEVICE_DATA ChildDeviceData;  
@@ -1445,7 +1444,7 @@ XenVbd_Child_PreprocessWdmIrpSomethingSomething(WDFDEVICE Device, PIRP Irp)
 static NTSTATUS
 XenVbd_Child_PreprocessWdmIrpSCSI(WDFDEVICE Device, PIRP Irp)
 {
-  char *DataBuffer;
+  PUCHAR DataBuffer;
   NTSTATUS status = STATUS_SUCCESS;
   PSCSI_REQUEST_BLOCK Srb;
   PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(Irp);
