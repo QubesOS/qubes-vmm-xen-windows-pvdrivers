@@ -316,11 +316,11 @@ XenBus_Init(WDFDEVICE Device)
 
   //InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
   //Status = PsCreateSystemThread(&XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_ReadThreadProc, NULL);
-  Status = PsCreateSystemThread(&xpdd->XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_ReadThreadProc, NULL);
+  Status = PsCreateSystemThread(&xpdd->XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_ReadThreadProc, Device);
 
   //InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
   //Status = PsCreateSystemThread(&XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_WatchThreadProc, NULL);
-  Status = PsCreateSystemThread(&xpdd->XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_WatchThreadProc, NULL);
+  Status = PsCreateSystemThread(&xpdd->XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_WatchThreadProc, Device);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_Init\n"));
 
@@ -334,7 +334,7 @@ XenBus_Start(WDFDEVICE Device)
 
   KdPrint((__DRIVER_NAME " --> XenBus_Start\n"));
 
-  EvtChn_Bind(Device, xpdd->xen_store_evtchn, XenBus_Interrupt, NULL);
+  EvtChn_Bind(Device, xpdd->xen_store_evtchn, XenBus_Interrupt, Device);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_Start\n"));
 
