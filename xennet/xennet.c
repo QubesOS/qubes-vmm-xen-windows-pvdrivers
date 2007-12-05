@@ -175,44 +175,41 @@ AllocatePage()
 static NDIS_STATUS
 XenNet_TxBufGC(struct xennet_info *xi)
 {
-//  RING_IDX cons, prod;
-  UNREFERENCED_PARAMETER(xi);
-#if 0
-  unsigned short id;
-  struct sk_buff *skb;
+  RING_IDX cons, prod;
 
-  BUG_ON(!netfront_carrier_ok(np));
+  unsigned short id;
+  PNDIS_PACKET pkt;
+  PMDL pmdl;
+
+  ASSERT(xi->connected);
 
   do {
-    prod = np->tx.sring->rsp_prod;
-    rmb(); /* Ensure we see responses up to 'rp'. */
+    prod = xi->tx.sring->rsp_prod;
+    KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
-    for (cons = np->tx.rsp_cons; cons != prod; cons++) {
+    for (cons = xi->tx.rsp_cons; cons != prod; cons++) {
       struct netif_tx_response *txrsp;
 
-      txrsp = RING_GET_RESPONSE(&np->tx, cons);
+      txrsp = RING_GET_RESPONSE(&xi->tx, cons);
       if (txrsp->status == NETIF_RSP_NULL)
         continue;
 
       id  = txrsp->id;
-      skb = np->tx_skbs[id];
-      if (unlikely(gnttab_query_foreign_access(
-        np->grant_tx_ref[id]) != 0)) {
-        printk(KERN_ALERT "network_tx_buf_gc: warning "
-               "-- grant still in use by backend "
-               "domain.\n");
-        BUG();
-      }
-      gnttab_end_foreign_access_ref(
-        np->grant_tx_ref[id], GNTMAP_readonly);
-      gnttab_release_grant_reference(
-        &np->gref_tx_head, np->grant_tx_ref[id]);
-      np->grant_tx_ref[id] = GRANT_INVALID_REF;
-      add_id_to_freelist(np->tx_skbs, id);
-      dev_kfree_skb_irq(skb);
+      pkt = xi->tx_pkts[id];
+      xi->GntTblInterface.EndAccess(xi->GntTblInterface.InterfaceHeader.Context,
+        xi->grant_tx_ref[id]);
+      xi->grant_tx_ref[id] = GRANT_INVALID_REF;
+      add_id_to_freelist(xi->tx_pkts, id);
+
+      /* free page for linearized data */
+      pmdl = *(PMDL *)pkt->MiniportReservedEx;
+      MmFreePagesFromMdl(pmdl);
+      IoFreeMdl(pmdl);
+
+      NdisMSendComplete(xi->adapter_handle, pkt, NDIS_STATUS_SUCCESS);
     }
 
-    np->tx.rsp_cons = prod;
+    xi->tx.rsp_cons = prod;
 
     /*
      * Set a new event, then check for race with update of tx_cons.
@@ -222,17 +219,13 @@ XenNet_TxBufGC(struct xennet_info *xi)
      * data is outstanding: in such cases notification from Xen is
      * likely to be the only kick that we'll get.
      */
-    np->tx.sring->rsp_event =
-      prod + ((np->tx.sring->req_prod - prod) >> 1) + 1;
+    xi->tx.sring->rsp_event =
+      prod + ((xi->tx.sring->req_prod - prod) >> 1) + 1;
     mb();
-  } while ((cons == prod) && (prod != np->tx.sring->rsp_prod));
+  } while ((cons == prod) && (prod != xi->tx.sring->rsp_prod));
 
-  network_maybe_wake_tx(dev);
-
-
-
-#endif
-
+  /* if queued packets, send them now?
+  network_maybe_wake_tx(dev); */
 
   return NDIS_STATUS_SUCCESS;
 }
@@ -260,7 +253,7 @@ XenNet_Interrupt(
   // KeReleaseSpinLock(&ChildDeviceData->Lock, KIrql);
   // KdPrint((__DRIVER_NAME " --> Dpc Event Set\n"));
 
-  /* do something */
+  /* handle RX packets */
 
   return TRUE;
 }
@@ -923,6 +916,7 @@ XenNet_SendPackets(
       0,
       pfn,
       TRUE);
+    xi->grant_tx_ref[id] = tx->gref;
     tx->offset = 0;
     tx->size = (UINT16)pkt_size;
     tx->flags = NETTXF_csum_blank;
