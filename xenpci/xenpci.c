@@ -579,7 +579,7 @@ XenPCI_D0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     break;
   }
 
-  XenBus_Close();
+  XenBus_Close(Device);
 
   KdPrint((__DRIVER_NAME " <-- DeviceD0Exit\n"));
 

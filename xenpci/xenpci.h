@@ -102,6 +102,7 @@ typedef struct _XENBUS_WATCH_ENTRY {
 typedef struct {
 
   WDFDEVICE Device;
+  BOOLEAN XenBus_ShuttingDown;
 
   WDFINTERRUPT XenInterrupt;
   ULONG irqNumber;

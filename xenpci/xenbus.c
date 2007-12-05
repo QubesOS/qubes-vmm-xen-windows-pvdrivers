@@ -300,7 +300,6 @@ XenBus_Init(WDFDEVICE Device)
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   NTSTATUS Status;
-  OBJECT_ATTRIBUTES oa;
   int i;
     
   //KdPrint((__DRIVER_NAME " --> XenBus_Init\n"));
@@ -309,11 +308,11 @@ XenBus_Init(WDFDEVICE Device)
   xpdd->xen_store_interface = EvtChn_GetXenStoreRingAddr(Device);
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
-    XenBus_WatchEntries[i].Active = 0;
+    xpdd->XenBus_WatchEntries[i].Active = 0;
 
   KeInitializeEvent(&xpdd->XenBus_ReadThreadEvent, SynchronizationEvent, FALSE);
   KeInitializeEvent(&xpdd->XenBus_WatchThreadEvent, SynchronizationEvent, FALSE);
-  XenBus_ShuttingDown = FALSE;
+  xpdd->XenBus_ShuttingDown = FALSE;
 
   //InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
   //Status = PsCreateSystemThread(&XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_ReadThreadProc, NULL);
@@ -331,9 +330,11 @@ XenBus_Init(WDFDEVICE Device)
 NTSTATUS
 XenBus_Start(WDFDEVICE Device)
 {
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+
   KdPrint((__DRIVER_NAME " --> XenBus_Start\n"));
 
-  EvtChn_Bind(xen_store_evtchn, XenBus_Interrupt, NULL);
+  EvtChn_Bind(Device, xpdd->xen_store_evtchn, XenBus_Interrupt, NULL);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_Start\n"));
 
@@ -350,8 +351,10 @@ XenBus_Stop(WDFDEVICE Device)
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
   {
-    if (XenBus_WatchEntries[i].Active)
-      XenBus_RemWatch(XBT_NIL, XenBus_WatchEntries[i].Path, XenBus_WatchEntries[i].ServiceRoutine, XenBus_WatchEntries[i].ServiceContext);
+    if (xpdd->XenBus_WatchEntries[i].Active)
+      XenBus_RemWatch(Device, XBT_NIL, xpdd->XenBus_WatchEntries[i].Path,
+        xpdd->XenBus_WatchEntries[i].ServiceRoutine,
+        xpdd->XenBus_WatchEntries[i].ServiceContext);
   }
 
   EvtChn_Unbind(Device, xpdd->xen_store_evtchn);
@@ -364,21 +367,22 @@ XenBus_Stop(WDFDEVICE Device)
 NTSTATUS
 XenBus_Close(WDFDEVICE Device)
 {
-  PKWAIT_BLOCK WaitBlockArray[2];
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  KWAIT_BLOCK WaitBlockArray[2];
   PVOID WaitArray[2];
 
-  XenBus_ShuttingDown = TRUE;
+  xpdd->XenBus_ShuttingDown = TRUE;
 
   KdPrint((__DRIVER_NAME "     Signalling Threads\n"));
-  KeSetEvent(&XenBus_ReadThreadEvent, 1, FALSE);
-  KeSetEvent(&XenBus_WatchThreadEvent, 1, FALSE);
+  KeSetEvent(&xpdd->XenBus_ReadThreadEvent, 1, FALSE);
+  KeSetEvent(&xpdd->XenBus_WatchThreadEvent, 1, FALSE);
   KdPrint((__DRIVER_NAME "     Waiting for threads to die\n"));
-  ObReferenceObjectByHandle(XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, NULL, KernelMode, &WaitArray[0], NULL);
-  ObReferenceObjectByHandle(XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, NULL, KernelMode, &WaitArray[1], NULL);
+  ObReferenceObjectByHandle(xpdd->XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, NULL, KernelMode, &WaitArray[0], NULL);
+  ObReferenceObjectByHandle(xpdd->XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, NULL, KernelMode, &WaitArray[1], NULL);
   KeWaitForMultipleObjects(2, WaitArray, WaitAll, Executive, KernelMode, FALSE, NULL, WaitBlockArray);
   KdPrint((__DRIVER_NAME "     Threads are dead\n"));
 
-  XenBus_ShuttingDown = FALSE;
+  xpdd->XenBus_ShuttingDown = FALSE;
 
   ObDereferenceObject(WaitArray[0]);
   ObDereferenceObject(WaitArray[1]);
@@ -449,7 +453,7 @@ XenBus_ReadThreadProc(PVOID StartContext)
   for(;;)
   {
     KeWaitForSingleObject(&xpdd->XenBus_ReadThreadEvent, Executive, KernelMode, FALSE, NULL);
-    if (XenBus_ShuttingDown)
+    if (xpdd->XenBus_ShuttingDown)
     {
       KdPrint((__DRIVER_NAME "     Shutdown detected in ReadThreadProc\n"));
       PsTerminateSystemThread(0);
@@ -525,12 +529,12 @@ XenBus_WatchThreadProc(PVOID StartContext)
   for(;;)
   {
     KeWaitForSingleObject(&xpdd->XenBus_WatchThreadEvent, Executive, KernelMode, FALSE, NULL);
-    if (XenBus_ShuttingDown)
+    if (xpdd->XenBus_ShuttingDown)
     {
       KdPrint((__DRIVER_NAME "     Shutdown detected in WatchThreadProc\n"));
       PsTerminateSystemThread(0);
     }
-    while (xpdd->XenBus_WatchRingReadIndex != XenBus_WatchRingWriteIndex)
+    while (xpdd->XenBus_WatchRingReadIndex != xpdd->XenBus_WatchRingWriteIndex)
     {
       xpdd->XenBus_WatchRingReadIndex = 
         (xpdd->XenBus_WatchRingReadIndex + 1) % WATCH_RING_SIZE;
