@@ -362,10 +362,10 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
     /* TODO: prepare tx and rx rings */
 
-    KdPrint((__DRIVER_NAME "     Set Frontend state to Initialised\n"));
+    KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
     RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->Path);
     xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", XenbusStateInitialised);
+      XBT_NIL, TmpPath, "%d", XenbusStateConnected);
 
     /* send fake arp? */
 
@@ -772,7 +772,7 @@ XenNet_QueryInformation(
       temp_data = 0; /* no mcast support */
       break;
     default:
-      KdPrint(("Unknown OID 0x%x\n", Oid));
+      //KdPrint(("Unknown OID 0x%x\n", Oid));
       status = NDIS_STATUS_NOT_SUPPORTED;
   }
 
