@@ -1,13 +1,12 @@
 TARGETNAME=XENVBD
 TARGETTYPE=DRIVER
-TARGETPATH=..\Target
-
-MSC_WARNING_LEVEL=/W4
-
-INCLUDES = ..\common\include;..\common\include\public
-
-NO_BINPLACE=1
+TARGETPATH=..\Target\$(DDK_TARGET_OS)
+VERSION=0.4.0.20
 KMDF_VERSION=1
-TARGETLIBS=$(DDK_LIB_PATH)\ntstrsafe.lib $(DDK_LIB_PATH)\scsiport.lib
-
+MSC_WARNING_LEVEL=/W4
+INF_NAME=xenvbd
+INCLUDES = ..\common\include;..\common\include\public
+TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\ntstrsafe.lib $(DDK_LIB_PATH)\scsiport.lib
+MISCFILES=..\Target\$(DDK_TARGET_OS)\$(INF_NAME).inf
+NTTARGETFILES=
 SOURCES=xenvbd.c
