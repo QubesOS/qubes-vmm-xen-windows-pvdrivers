@@ -90,6 +90,17 @@ struct xennet_info
 
   grant_ref_t tx_ring_ref;
   grant_ref_t rx_ring_ref;
+
+	/* Receive-ring batched refills. */
+#define RX_MIN_TARGET 8
+#define RX_DFL_MIN_TARGET 64
+#define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
+  ULONG rx_target;
+  ULONG rx_max_target;
+  ULONG rx_min_target;
+
+  NDIS_HANDLE packet_pool;
+  NDIS_HANDLE buffer_pool;
 };
 
 /* need to do typedef so the DECLARE below works */
@@ -173,7 +184,7 @@ AllocatePage()
 }
 
 static NDIS_STATUS
-XenNet_TxBufGC(struct xennet_info *xi)
+XenNet_TxBufferGC(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
 
@@ -201,7 +212,7 @@ XenNet_TxBufGC(struct xennet_info *xi)
       xi->grant_tx_ref[id] = GRANT_INVALID_REF;
       add_id_to_freelist(xi->tx_pkts, id);
 
-      /* free page for linearized data */
+      /* free linearized data page */
       pmdl = *(PMDL *)pkt->MiniportReservedEx;
       MmFreePagesFromMdl(pmdl);
       IoFreeMdl(pmdl);
@@ -230,6 +241,140 @@ XenNet_TxBufGC(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
+static NDIS_STATUS
+XenNet_AllocRXBuffers(struct xennet_info *xi)
+{
+  unsigned short id;
+  PNDIS_PACKET packet;
+  PNDIS_BUFFER buffer;
+  int i, batch_target, notify;
+  RING_IDX req_prod = xi->rx.req_prod_pvt;
+  grant_ref_t ref;
+  netif_rx_request_t *req;
+  NDIS_STATUS status;
+  PMDL pmdl;
+  PVOID start;
+
+  if (!xi->connected)
+    return NDIS_STATUS_FAILURE;
+
+  batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
+  for (i = 0; i < batch_target; i++)
+  {
+    /*
+     * Allocate a packet, page, and buffer. Hook them up.
+     */
+    NdisAllocatePacket(&status, &packet, xi->packet_pool);
+    if (status != NDIS_STATUS_SUCCESS)
+    {
+      KdPrint(("NdisAllocatePacket Failed! status = 0x%x\n", status));
+      break;
+    }
+    pmdl = AllocatePage();
+    start = MmGetSystemAddressForMdlSafe(pmdl, NormalPagePriority);
+    NdisAllocateBuffer(&status, &buffer, xi->buffer_pool, start, PAGE_SIZE);
+    if (status != NDIS_STATUS_SUCCESS)
+    {
+      KdPrint(("NdisAllocateBuffer Failed! status = 0x%x\n", status));
+      /* TODO: free mdl, page, packet here */
+      break;
+    }
+    NdisChainBufferAtBack(packet, buffer);
+
+    /* Give to netback */
+    id = (unsigned short)(req_prod + i) & (NET_RX_RING_SIZE - 1);
+    ASSERT(!xi->rx_pkts[id]);
+    xi->rx_pkts[id] = packet;
+    req = RING_GET_REQUEST(&xi->rx, req_prod + i);
+    ref = xi->GntTblInterface.GrantAccess(
+      xi->GntTblInterface.InterfaceHeader.Context, 0,
+      *MmGetMdlPfnArray(pmdl), FALSE);
+    ASSERT((signed short)ref >= 0);
+    xi->grant_rx_ref[id] = ref;
+
+    req->id = id;
+    req->gref = ref;
+  }
+
+  xi->rx.req_prod_pvt = req_prod + i;
+  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->rx, notify);
+  if (notify)
+  {
+    xi->EvtChnInterface.Notify(xi->EvtChnInterface.InterfaceHeader.Context,
+      xi->event_channel);
+  }
+
+  return NDIS_STATUS_SUCCESS;
+}
+
+static NDIS_STATUS
+XenNet_RxBufferCheck(struct xennet_info *xi)
+{
+  RING_IDX cons, prod;
+
+  unsigned short id;
+  PNDIS_PACKET pkt;
+  PNDIS_PACKET packets[1];
+  PNDIS_BUFFER buffer;
+  PVOID buff_va;
+  UINT buff_len;
+  UINT tot_buff_len;
+
+  ASSERT(xi->connected);
+
+  do {
+    prod = xi->rx.sring->rsp_prod;
+    KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
+
+    for (cons = xi->rx.rsp_cons; cons != prod; cons++) {
+      struct netif_rx_response *rxrsp;
+
+      rxrsp = RING_GET_RESPONSE(&xi->rx, cons);
+      if (rxrsp->status == NETIF_RSP_NULL)
+        continue;
+
+      id  = rxrsp->id;
+      pkt = xi->rx_pkts[id];
+      xi->GntTblInterface.EndAccess(xi->GntTblInterface.InterfaceHeader.Context,
+        xi->grant_rx_ref[id]);
+      xi->grant_rx_ref[id] = GRANT_INVALID_REF;
+      //add_id_to_freelist(xi->rx_pkts, id);
+
+      NdisGetFirstBufferFromPacketSafe(pkt, &buffer, &buff_va, &buff_len,
+        &tot_buff_len, NormalPagePriority);
+      ASSERT(rxrsp->offset == 0);
+      ASSERT(rxrsp->status > 0);
+      NdisAdjustBufferLength(buffer, rxrsp->status);
+      /* just indicate 1 packet for now */
+      packets[0] = pkt;
+
+      NdisMIndicateReceivePacket(xi->adapter_handle, packets, 1);
+    }
+
+    xi->rx.rsp_cons = prod;
+
+    /*
+     * Set a new event, then check for race with update of rx_cons.
+     * Note that it is essential to schedule a callback, no matter
+     * how few buffers are pending. Even if there is space in the
+     * transmit ring, higher layers may be blocked because too much
+     * data is outstanding: in such cases notification from Xen is
+     * likely to be the only kick that we'll get.
+     */
+    xi->rx.sring->rsp_event =
+      prod + ((xi->rx.sring->req_prod - prod) >> 1) + 1;
+    mb();
+  } while ((cons == prod) && (prod != xi->rx.sring->rsp_prod));
+
+  /* if queued packets, send them now?
+  network_maybe_wake_tx(dev); */
+
+  /* Give netback more buffers */
+  XenNet_AllocRXBuffers(xi);
+
+  return NDIS_STATUS_SUCCESS;
+}
+
 static BOOLEAN
 XenNet_Interrupt(
   PKINTERRUPT Interrupt,
@@ -245,7 +390,8 @@ XenNet_Interrupt(
 
   if (xi->connected)
   {
-    XenNet_TxBufGC(xi);
+    XenNet_TxBufferGC(xi);
+    XenNet_RxBufferCheck(xi);
   }
   // KeAcquireSpinLock(&ChildDeviceData->Lock, &KIrql);
   // KdPrint((__DRIVER_NAME " --> Setting Dpc Event\n"));
@@ -354,6 +500,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
       xbt, 0, &retry);
 
     /* TODO: prepare tx and rx rings */
+    XenNet_AllocRXBuffers(xi);
 
     KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
     RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->Path);
@@ -400,7 +547,6 @@ trouble:
     xbt, 1, &retry);
 
 }
-
 
 VOID
 XenNet_Halt(
@@ -462,6 +608,27 @@ XenNet_Init(
 
   /* init xennet_info */
   xi->adapter_handle = MiniportAdapterHandle;
+  xi->rx_target     = RX_DFL_MIN_TARGET;
+  xi->rx_min_target = RX_DFL_MIN_TARGET;
+  xi->rx_max_target = RX_MAX_TARGET;
+
+  NdisAllocatePacketPool(&status, &xi->packet_pool, NET_RX_RING_SIZE,
+    PROTOCOL_RESERVED_SIZE_IN_PACKET);
+  if (status != NDIS_STATUS_SUCCESS)
+  {
+    KdPrint(("NdisAllocatePacketPool failed with 0x%x\n", status));
+    status = NDIS_STATUS_RESOURCES;
+    goto err;
+  }
+
+  NdisAllocateBufferPool(&status, &xi->buffer_pool, NET_RX_RING_SIZE);
+  if (status != NDIS_STATUS_SUCCESS)
+  {
+    KdPrint(("NdisAllocateBufferPool failed with 0x%x\n", status));
+    status = NDIS_STATUS_RESOURCES;
+    goto err;
+  }
+
   NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
     &xi->lower_do, NULL, NULL);
 
@@ -818,8 +985,13 @@ XenNet_ReturnPacket(
   IN PNDIS_PACKET Packet
   )
 {
-  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+  struct xennet_info *xi = MiniportAdapterContext;
+
+  xi;
   UNREFERENCED_PARAMETER(Packet);
+  /* free memory page */
+  /* free buffer */
+  /* free packet */
 
   KdPrint((__FUNCTION__ " called\n"));
 }
