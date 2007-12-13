@@ -164,7 +164,7 @@ AllocatePages(int Pages)
   PHYSICAL_ADDRESS Align;
   PMDL Mdl;
 
-  KdPrint((__DRIVER_NAME " --> Allocate Pages\n"));
+  // KdPrint((__DRIVER_NAME " --> Allocate Pages\n"));
 
   Min.QuadPart = 0;
   Max.QuadPart = 0xFFFFFFFF;
@@ -172,7 +172,7 @@ AllocatePages(int Pages)
 
   Mdl = MmAllocatePagesForMdl(Min, Max, Align, Pages * PAGE_SIZE);
 
-  KdPrint((__DRIVER_NAME " <-- Allocate Pages (mdl = %08x)\n", Mdl));
+  // KdPrint((__DRIVER_NAME " <-- Allocate Pages (mdl = %08x)\n", Mdl));
 
   return Mdl;
 }
@@ -252,11 +252,7 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
   grant_ref_t ref;
   netif_rx_request_t *req;
   NDIS_STATUS status;
-  PMDL pmdl;
   PVOID start;
-
-  if (!xi->connected)
-    return NDIS_STATUS_FAILURE;
 
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
   for (i = 0; i < batch_target; i++)
@@ -264,19 +260,25 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
     /*
      * Allocate a packet, page, and buffer. Hook them up.
      */
-    NdisAllocatePacket(&status, &packet, xi->packet_pool);
+    status = NdisAllocateMemoryWithTag(&start, PAGE_SIZE, XENNET_POOL_TAG);
     if (status != NDIS_STATUS_SUCCESS)
     {
-      KdPrint(("NdisAllocatePacket Failed! status = 0x%x\n", status));
+      KdPrint(("NdisAllocateMemoryWithTag Failed! status = 0x%x\n", status));
       break;
     }
-    pmdl = AllocatePage();
-    start = MmGetSystemAddressForMdlSafe(pmdl, NormalPagePriority);
     NdisAllocateBuffer(&status, &buffer, xi->buffer_pool, start, PAGE_SIZE);
     if (status != NDIS_STATUS_SUCCESS)
     {
       KdPrint(("NdisAllocateBuffer Failed! status = 0x%x\n", status));
-      /* TODO: free mdl, page, packet here */
+      NdisFreeMemory(start, 0, 0);
+      break;
+    }
+    NdisAllocatePacket(&status, &packet, xi->packet_pool);
+    if (status != NDIS_STATUS_SUCCESS)
+    {
+      KdPrint(("NdisAllocatePacket Failed! status = 0x%x\n", status));
+      NdisFreeMemory(start, 0, 0);
+      NdisFreeBuffer(buffer);
       break;
     }
     NdisChainBufferAtBack(packet, buffer);
@@ -286,9 +288,10 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
     ASSERT(!xi->rx_pkts[id]);
     xi->rx_pkts[id] = packet;
     req = RING_GET_REQUEST(&xi->rx, req_prod + i);
+    /* an NDIS_BUFFER is just a MDL, so we can get its pfn array */
     ref = xi->GntTblInterface.GrantAccess(
       xi->GntTblInterface.InterfaceHeader.Context, 0,
-      *MmGetMdlPfnArray(pmdl), FALSE);
+      *MmGetMdlPfnArray(buffer), FALSE);
     ASSERT((signed short)ref >= 0);
     xi->grant_rx_ref[id] = ref;
 
@@ -499,7 +502,6 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     xi->XenBusInterface.EndTransaction(xi->XenBusInterface.InterfaceHeader.Context,
       xbt, 0, &retry);
 
-    /* TODO: prepare tx and rx rings */
     XenNet_AllocRXBuffers(xi);
 
     KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
@@ -985,13 +987,20 @@ XenNet_ReturnPacket(
   IN PNDIS_PACKET Packet
   )
 {
-  struct xennet_info *xi = MiniportAdapterContext;
+  PNDIS_BUFFER buffer;
+  PVOID buff_va;
+  UINT buff_len;
+  UINT tot_buff_len;
 
-  xi;
-  UNREFERENCED_PARAMETER(Packet);
-  /* free memory page */
-  /* free buffer */
-  /* free packet */
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+
+  NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
+    &tot_buff_len, NormalPagePriority);
+  ASSERT(buff_len == tot_buff_len);
+
+  NdisFreeMemory(buff_va, 0, 0);
+  NdisFreeBuffer(buffer);
+  NdisFreePacket(Packet);
 
   KdPrint((__FUNCTION__ " called\n"));
 }
@@ -1054,7 +1063,6 @@ XenNet_SendPackets(
   UINT i;
   struct netif_tx_request *tx;
   unsigned short id;
-  PFN_NUMBER pfn;
   int notify;
   PMDL pmdl;
   UINT pkt_size;
@@ -1075,10 +1083,9 @@ XenNet_SendPackets(
       NdisMSendComplete(xi, curr_packet, NDIS_STATUS_FAILURE);
       break;
     }
-    pfn = *MmGetMdlPfnArray(pmdl);
+    *((PMDL *)curr_packet->MiniportReservedEx) = pmdl;
 
     id = get_id_from_freelist(xi->tx_pkts);
-    *((PMDL *)curr_packet->MiniportReservedEx) = pmdl;
     xi->tx_pkts[id] = curr_packet;
 
     tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
@@ -1086,7 +1093,7 @@ XenNet_SendPackets(
     tx->gref = xi->GntTblInterface.GrantAccess(
       xi->GntTblInterface.InterfaceHeader.Context,
       0,
-      pfn,
+      *MmGetMdlPfnArray(pmdl),
       TRUE);
     xi->grant_tx_ref[id] = tx->gref;
     tx->offset = 0;
