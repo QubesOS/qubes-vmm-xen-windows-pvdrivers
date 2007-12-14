@@ -367,9 +367,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     mb();
   } while ((cons == prod) && (prod != xi->rx.sring->rsp_prod));
 
-  /* if queued packets, send them now?
-  network_maybe_wake_tx(dev); */
-
   /* Give netback more buffers */
   XenNet_AllocRXBuffers(xi);
 
@@ -399,8 +396,6 @@ XenNet_Interrupt(
   // KeSetEvent(&ChildDeviceData->DpcThreadEvent, 1, FALSE);
   // KeReleaseSpinLock(&ChildDeviceData->Lock, KIrql);
   // KdPrint((__DRIVER_NAME " --> Dpc Event Set\n"));
-
-  /* handle RX packets */
 
   return TRUE;
 }
@@ -1043,19 +1038,6 @@ XenNet_SendPackets(
   IN UINT NumberOfPackets
   )
 {
-  /* for each packet:
-    req_prod_pvt is the next entry in the cmd ring to use
-    add pkt to array of saved packets
-    fill out tx request for the first part of skb
-    add to grant table
-    do flags for csum etc
-    gso (later)
-    inc req_prod_pvt
-    frags
-    possibly notify
-    network_tx)buf_gc
-    stop netif if no more room
-    */
   struct xennet_info *xi = MiniportAdapterContext;
   PNDIS_PACKET curr_packet;
   UINT i;
