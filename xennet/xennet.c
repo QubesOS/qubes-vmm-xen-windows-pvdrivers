@@ -103,14 +103,6 @@ struct xennet_info
   NDIS_HANDLE buffer_pool;
 };
 
-/* need to do typedef so the DECLARE below works */
-typedef struct _wdf_device_info
-{
-  struct xennet_info *xennet_info;
-} wdf_device_info;
-
-WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(wdf_device_info, GetWdfDeviceInfo)
-
 /* This function copied from linux's lib/vsprintf.c, see it for attribution */
 static unsigned long
 simple_strtoul(const char *cp,char **endp,unsigned int base)
@@ -651,16 +643,7 @@ XenNet_Init(
     0, (NDIS_ATTRIBUTE_DESERIALIZE /*| NDIS_ATTRIBUTE_BUS_MASTER*/),
     NdisInterfaceInternal);
 
-  // status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE,
-    // XN_MAX_PKT_SIZE);
-  // if (!NT_SUCCESS(status))
-  // {
-    // KdPrint(("NdisMInitializeScatterGatherDma failed with 0x%x\n", status));
-    // status = NDIS_STATUS_FAILURE;
-    // goto err;
-  // }
-
-  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&wdf_attrs, wdf_device_info);
+  WDF_OBJECT_ATTRIBUTES_INIT(&wdf_attrs);
 
   status = WdfDeviceMiniportCreate(WdfGetDriver(), &wdf_attrs, xi->fdo,
     xi->lower_do, xi->pdo, &xi->wdf_device);
@@ -670,8 +653,6 @@ XenNet_Init(
     status = NDIS_STATUS_FAILURE;
     goto err;
   }
-
-  GetWdfDeviceInfo(xi->wdf_device)->xennet_info = xi;
 
   /* get lower (Xen) interfaces */
 
@@ -847,7 +828,10 @@ XenNet_QueryInformation(
       len = sizeof(supported_oids);
       break;
     case OID_GEN_HARDWARE_STATUS:
-      temp_data = NdisHardwareStatusReady;
+      if (!xi->connected)
+        temp_data = NdisHardwareStatusInitializing;
+      else
+        temp_data = NdisHardwareStatusReady;
       break;
     case OID_GEN_MEDIA_SUPPORTED:
       temp_data = NdisMedium802_3;
@@ -1152,8 +1136,8 @@ DriverEntry(
   }
 
   /* NDIS 5.1 driver */
-  mini_chars.MajorNdisVersion = 5;
-  mini_chars.MinorNdisVersion = 1;
+  mini_chars.MajorNdisVersion = NDIS_MAJOR_VER;
+  mini_chars.MinorNdisVersion = NDIS_MINOR_VER;
 
   mini_chars.HaltHandler = XenNet_Halt;
   mini_chars.InitializeHandler = XenNet_Init;
