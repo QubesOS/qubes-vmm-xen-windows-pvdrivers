@@ -315,7 +315,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
 
-  unsigned short id;
   PNDIS_PACKET pkt;
   PNDIS_PACKET packets[1];
   PNDIS_BUFFER buffer;
@@ -336,12 +335,11 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       if (rxrsp->status == NETIF_RSP_NULL)
         continue;
 
-      id  = rxrsp->id;
-      pkt = xi->rx_pkts[id];
+      pkt = xi->rx_pkts[rxrsp->id];
+      xi->rx_pkts[rxrsp->id] = NULL;
       xi->GntTblInterface.EndAccess(xi->GntTblInterface.InterfaceHeader.Context,
-        xi->grant_rx_ref[id]);
-      xi->grant_rx_ref[id] = GRANT_INVALID_REF;
-      //add_id_to_freelist(xi->rx_pkts, id);
+        xi->grant_rx_ref[rxrsp->id]);
+      xi->grant_rx_ref[rxrsp->id] = GRANT_INVALID_REF;
 
       NdisGetFirstBufferFromPacketSafe(pkt, &buffer, &buff_va, &buff_len,
         &tot_buff_len, NormalPagePriority);
