@@ -1,11 +1,13 @@
-#if !defined(_XENBUS_H_)
-#define _XENBUS_H_
+#if !defined(_XENVBD_H_)
+#define _XENVBD_H_
 
+#include <ntifs.h>
 #include <ntddk.h>
 #include <wdm.h>
 #include <wdf.h>
 #include <initguid.h>
 #include <ntdddisk.h>
+#include <srb.h>
 
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
@@ -16,100 +18,78 @@
 #include <event_channel.h>
 #include <hvm/params.h>
 #include <hvm/hvm_op.h>
+#include <xen_public.h>
 #include <evtchn_public.h>
 #include <xenbus_public.h>
+#include <gnttbl_public.h>
 #include <io/ring.h>
 #include <io/blkif.h>
 #define __DRIVER_NAME "XenVbd"
-#define XENVBD_POOL_TAG (ULONG) 'XenP'
+#define XENVBD_POOL_TAG (ULONG) 'XVBD'
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define BLK_RING_SIZE __RING_SIZE((blkif_sring_t *)0, PAGE_SIZE)
 
 typedef struct {
   blkif_request_t req;
-  //int Id;
-  PIRP Irp;
+  PSCSI_REQUEST_BLOCK Srb;
   PMDL Mdl;
   VOID *Buf;
-  //int nr_segments;
-  //unsigned long gref[BLKIF_MAX_SEGMENTS_PER_REQUEST];
 } blkif_shadow_t;
 
-typedef struct {
-  LIST_ENTRY Entry;
-  PIRP Irp;
-} XenVbd_ListEntry;
+//#include "scsidata.h"
 
-/*
-typedef struct _XENVBD_QUEUE_DATA {
-    XENVBD_CHILD_DEVICE_DATA DeviceData;
-} XENVBD_QUEUE_DATA, *PXENVBD_QUEUE_DATA;
 
-WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENVBD_QUEUE_DATA, GetQueueData)
-*/
-
-//typedef unsigned long xenbus_transaction_t;
-//typedef uint32_t XENSTORE_RING_IDX;
-
-extern XEN_IFACE_EVTCHN EvtChnInterface;
-extern XEN_IFACE_XENBUS XenBusInterface;
+#define SCSI_BUSES 4
+#define SCSI_TARGETS_PER_BUS 16
 
 typedef enum {
   XENVBD_DEVICETYPE_UNKNOWN,
   XENVBD_DEVICETYPE_DISK,
-  XENVBD_DEVICETYPE_CDROM
+  XENVBD_DEVICETYPE_CDROM,
+  XENVBD_DEVICETYPE_CONTROLLER // Not yet used
 } XENVBD_DEVICETYPE;
 
-struct {
-  LIST_ENTRY Entry;
-  KSPIN_LOCK Lock;
-  WDFQUEUE IoDefaultQueue;
-  WDFDEVICE Device;
-  char Path[128];
-  char BackendPath[128];
-  ULONG DeviceIndex;
+struct
+{
+  int Present;
+  BOOLEAN PendingInterrupt;
+  PVOID DeviceData; // how can we create a forward definition for this???
   evtchn_port_t EventChannel;
   //blkif_sring_t *SharedRing;
+  blkif_shadow_t *shadow;
+  uint64_t shadow_free;
   ULONG RingBufPFN;
   int BackendState;
   int FrontendState;
+  char Path[128];
+  int DeviceIndex;
+  char BackendPath[128];
   blkif_front_ring_t Ring;
-  blkif_shadow_t *shadow;
-  uint64_t shadow_free;
-
-  LIST_ENTRY IrpListHead;
-  KSPIN_LOCK IrpListLock;
-
-  WDFDPC Dpc;
-
-  ULONG BytesPerSector;
-  ULONGLONG TotalSectors;
-  DISK_GEOMETRY Geometry;
   XENVBD_DEVICETYPE DeviceType;
+  DISK_GEOMETRY Geometry;
+  ULONG BytesPerSector;
+  ULONGLONG TotalSectors; 
+} typedef XENVBD_TARGET_DATA, *PXENVBD_TARGET_DATA;
 
-  int IrpAddedToList;
-  int IrpRemovedFromList;
-  int IrpAddedToRing;
-  int IrpAddedToRingAtLastNotify;
-  int IrpAddedToRingAtLastInterrupt;
-  int IrpAddedToRingAtLastDpc;
-  int IrpRemovedFromRing;
-  int IrpCompleted;
+struct
+{
+  XENVBD_TARGET_DATA TargetData[SCSI_TARGETS_PER_BUS];
+} typedef XENVBD_BUS_DATA, *PXENVBD_BUS_DATA;
+
+struct
+{
+  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
+  XENVBD_BUS_DATA BusData[SCSI_BUSES];
 
   int FastPathUsed;
   int SlowPathUsed;
 
-} typedef XENVBD_CHILD_DEVICE_DATA, *PXENVBD_CHILD_DEVICE_DATA, **PPXENVBD_CHILD_DEVICE_DATA;
+  int BusChangePending;
 
-WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(PXENVBD_CHILD_DEVICE_DATA, GetChildDeviceData);
+  int EnumeratedDevices;
+  KEVENT WaitDevicesEvent;
 
-typedef struct _XENVBD_DEVICE_IDENTIFICATION_DESCRIPTION
-{
-  WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Header;
-  PXENVBD_CHILD_DEVICE_DATA DeviceData;
-  //ULONG DeviceIndex;
-  //char Path[128];
-} XENVBD_DEVICE_IDENTIFICATION_DESCRIPTION, *PXENVBD_DEVICE_IDENTIFICATION_DESCRIPTION;
+} typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 
 #endif

@@ -79,7 +79,8 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
 
   //KdPrint((__DRIVER_NAME "     I-\n"));
 
-  return TRUE;
+//  return TRUE;
+  return FALSE;
 }
 
 evtchn_port_t
@@ -102,7 +103,7 @@ EvtChn_AllocUnbound(domid_t Domain)
 NTSTATUS
 EvtChn_Bind(evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
-  KdPrint((__DRIVER_NAME " --> EvtChn_Bind\n"));
+  KdPrint((__DRIVER_NAME " --> EvtChn_Bind (ServiceRoutine = %08X, ServiceContext = %08x)\n", ServiceRoutine, ServiceContext));
 
   if(ev_actions[Port].ServiceRoutine != NULL)
   {

@@ -17,6 +17,9 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
+#if !defined(_XENBUS_PUBLIC_H_)
+#define _XENBUS_PUBLIC_H_
+
 DEFINE_GUID( GUID_XEN_IFACE_XENBUS, 0x9CA4D816, 0x0E5E, 0x4f9a, 0x8F, 0x59, 0x94, 0x4C, 0xED, 0x82, 0x78, 0x11);
 //{9CA4D816-0E5E-4f9a-8F59-944CED827811}
 
@@ -52,3 +55,5 @@ typedef struct _XEN_IFACE_XENBUS {
   PXEN_XENBUS_ADDWATCH AddWatch;
   PXEN_XENBUS_REMWATCH RemWatch;
 } XEN_IFACE_XENBUS, *PXEN_IFACE_XENBUS;
+
+#endif

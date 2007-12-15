@@ -433,15 +433,25 @@ XenBus_Close()
   KdPrint((__DRIVER_NAME "     Waiting for threads to die\n"));
   ObReferenceObjectByHandle(XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, NULL, KernelMode, &WaitArray[0], NULL);
   ObReferenceObjectByHandle(XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, NULL, KernelMode, &WaitArray[1], NULL);
-  KeWaitForMultipleObjects(2, WaitArray, WaitAll, Executive, KernelMode, FALSE, NULL, WaitBlockArray);
+  //KeWaitForMultipleObjects(1, &WaitArray[0], WaitAny, Executive, KernelMode, FALSE, NULL, WaitBlockArray);
+  KdPrint((__DRIVER_NAME "     Waiting for ReadThread\n"));
+  KeWaitForSingleObject(WaitArray[0], Executive, KernelMode, FALSE, NULL);
+  KdPrint((__DRIVER_NAME "     Waiting for WatchThread\n"));
+  //KeWaitForMultipleObjects(1, &WaitArray[1], WaitAny, Executive, KernelMode, FALSE, NULL, WaitBlockArray);
+  KeWaitForSingleObject(WaitArray[1], Executive, KernelMode, FALSE, NULL);
   KdPrint((__DRIVER_NAME "     Threads are dead\n"));
 
   XenBus_ShuttingDown = FALSE;
 
-  ObDereferenceObject(WaitArray[0]);
-  ObDereferenceObject(WaitArray[1]);
+//  ObDereferenceObject(WaitArray[0]);
+//  ObDereferenceObject(WaitArray[1]);
+
+  KdPrint((__DRIVER_NAME "     A\n"));
 
   ZwClose(XenBus_WatchThreadHandle);
+
+  KdPrint((__DRIVER_NAME "     B\n"));
+
   ZwClose(XenBus_ReadThreadHandle);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_Close\n"));
