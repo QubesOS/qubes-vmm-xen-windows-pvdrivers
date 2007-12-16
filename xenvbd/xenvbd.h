@@ -82,8 +82,7 @@ struct
   PXENPCI_XEN_DEVICE_DATA XenDeviceData;
   XENVBD_BUS_DATA BusData[SCSI_BUSES];
 
-  int FastPathUsed;
-  int SlowPathUsed;
+  KSPIN_LOCK Lock;
 
   int BusChangePending;
 
