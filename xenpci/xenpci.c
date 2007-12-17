@@ -348,12 +348,12 @@ XenPCI_AddDevice(
   }
 
   busInfo.BusTypeGuid = GUID_XENPCI_DEVCLASS;
-  busInfo.LegacyBusType = PNPBus;
+  busInfo.LegacyBusType = Internal; //PNPBus;
   busInfo.BusNumber = 0;
 
   WdfDeviceSetBusInformationForChildren(Device, &busInfo);
 
-  WDF_INTERRUPT_CONFIG_INIT(&interruptConfig, EvtChn_Interrupt, NULL);
+  WDF_INTERRUPT_CONFIG_INIT(&interruptConfig, EvtChn_Interrupt, NULL); //EvtChn_InterruptDpc);
   interruptConfig.EvtInterruptEnable = XenPCI_InterruptEnable;
   interruptConfig.EvtInterruptDisable = XenPCI_InterruptDisable;
   status = WdfInterruptCreate(Device, &interruptConfig, WDF_NO_OBJECT_ATTRIBUTES, &xpdd->XenInterrupt);
@@ -407,8 +407,6 @@ XenPCI_PrepareHardware(
     switch (descriptor->Type) {
     case CmResourceTypePort:
       //KdPrint((__DRIVER_NAME "     I/O mapped CSR: (%x) Length: (%d)\n", descriptor->u.Port.Start.LowPart, descriptor->u.Port.Length));
-//      xpdd->IoBaseAddress = ULongToPtr(descriptor->u.Port.Start.LowPart);
-//      xpdd->IoRange = descriptor->u.Port.Length;
       break;
     case CmResourceTypeMemory:
       KdPrint((__DRIVER_NAME "     Memory mapped CSR:(%x:%x) Length:(%d)\n", descriptor->u.Memory.Start.LowPart, descriptor->u.Memory.Start.HighPart, descriptor->u.Memory.Length));
@@ -418,6 +416,8 @@ XenPCI_PrepareHardware(
       break;
     case CmResourceTypeInterrupt:
       //KdPrint((__DRIVER_NAME "     Interrupt level: 0x%0x, Vector: 0x%0x\n", descriptor->u.Interrupt.Level, descriptor->u.Interrupt.Vector));
+      memcpy(&InterruptRaw, WdfCmResourceListGetDescriptor(ResourceList, i), sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+      memcpy(&InterruptTranslated, WdfCmResourceListGetDescriptor(ResourceListTranslated, i), sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
       break;
     case CmResourceTypeDevicePrivate:
       //KdPrint((__DRIVER_NAME "     Private Data: 0x%02x 0x%02x 0x%02x\n", descriptor->u.DevicePrivate.Data[0], descriptor->u.DevicePrivate.Data[1], descriptor->u.DevicePrivate.Data[2] ));
@@ -641,10 +641,6 @@ XenPCI_ChildListCreateDevice(
   NTSTATUS status;
   WDFDEVICE ChildDevice = NULL;
   PXENPCI_IDENTIFICATION_DESCRIPTION XenIdentificationDesc;
-  XEN_IFACE_EVTCHN EvtChnInterface;
-  XEN_IFACE_XENBUS XenBusInterface;
-  //XEN_IFACE_XEN XenInterface;
-  XEN_IFACE_GNTTBL GntTblInterface;
   DECLARE_UNICODE_STRING_SIZE(buffer, 20);
   WDF_OBJECT_ATTRIBUTES PdoAttributes;
   DECLARE_CONST_UNICODE_STRING(DeviceLocation, L"Xen Bus");
@@ -692,73 +688,72 @@ XenPCI_ChildListCreateDevice(
   WdfDeviceSetSpecialFileSupport(ChildDevice, WdfSpecialFileDump, TRUE);
 
   ChildDeviceData = GetXenDeviceData(ChildDevice);
+  ChildDeviceData->Magic = XEN_DATA_MAGIC;
+  ChildDeviceData->AutoEnumerate = AutoEnumerate;
+  ChildDeviceData->WatchHandler = NULL;
   strncpy(ChildDeviceData->BasePath, XenIdentificationDesc->Path, 128);
-
-  RtlZeroMemory(&EvtChnInterface, sizeof(EvtChnInterface));
-  EvtChnInterface.InterfaceHeader.Size = sizeof(EvtChnInterface);
-  EvtChnInterface.InterfaceHeader.Version = 1;
-  EvtChnInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
-  EvtChnInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
-  EvtChnInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
-  EvtChnInterface.Bind = EvtChn_Bind;
-  EvtChnInterface.Unbind = EvtChn_Unbind;
-  EvtChnInterface.Mask = EvtChn_Mask;
-  EvtChnInterface.Unmask = EvtChn_Unmask;
-  EvtChnInterface.Notify = EvtChn_Notify;
-  EvtChnInterface.AllocUnbound = EvtChn_AllocUnbound;
-  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&EvtChnInterface, &GUID_XEN_IFACE_EVTCHN, NULL);
+  memcpy(&ChildDeviceData->InterruptRaw, &InterruptRaw, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+  memcpy(&ChildDeviceData->InterruptTranslated, &InterruptTranslated, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+  
+  ChildDeviceData->EvtChnInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->EvtChnInterface);
+  ChildDeviceData->EvtChnInterface.InterfaceHeader.Version = 1;
+  ChildDeviceData->EvtChnInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
+  ChildDeviceData->EvtChnInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
+  ChildDeviceData->EvtChnInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
+  ChildDeviceData->EvtChnInterface.Bind = EvtChn_Bind;
+  ChildDeviceData->EvtChnInterface.Unbind = EvtChn_Unbind;
+  ChildDeviceData->EvtChnInterface.Mask = EvtChn_Mask;
+  ChildDeviceData->EvtChnInterface.Unmask = EvtChn_Unmask;
+  ChildDeviceData->EvtChnInterface.Notify = EvtChn_Notify;
+  ChildDeviceData->EvtChnInterface.AllocUnbound = EvtChn_AllocUnbound;
+  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->EvtChnInterface, &GUID_XEN_IFACE_EVTCHN, NULL);
   status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
   if (!NT_SUCCESS(status))
   {
     return status;
   }
 
-  /* nobody uses this yet, maybe it isn't needed? */
-#if 0
-  RtlZeroMemory(&XenInterface, sizeof(XenInterface));
-  XenInterface.InterfaceHeader.Size = sizeof(XenInterface);
-  XenInterface.InterfaceHeader.Version = 1;
-  XenInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
-  XenInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
-  XenInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
-  XenInterface.AllocMMIO = XenPCI_AllocMMIO;
-  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&XenInterface, &GUID_XEN_IFACE_XEN, NULL);
+/*
+  ChildDeviceData->XenInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->XenInterface);
+  ChildDeviceData->XenInterface.InterfaceHeader.Version = 1;
+  ChildDeviceData->XenInterface.InterfaceHeader.Context = NULL;
+  ChildDeviceData->XenInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
+  ChildDeviceData->XenInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
+  ChildDeviceData->XenInterface.AllocMMIO = XenPCI_AllocMMIO;
+  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->XenInterface, &GUID_XEN_IFACE_XEN, NULL);
   status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
   if (!NT_SUCCESS(status)) {
     return status;
   }
-#endif
+*/
 
-  RtlZeroMemory(&GntTblInterface, sizeof(GntTblInterface));
-  GntTblInterface.InterfaceHeader.Size = sizeof(GntTblInterface);
-  GntTblInterface.InterfaceHeader.Version = 1;
-  GntTblInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
-  GntTblInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
-  GntTblInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
-  GntTblInterface.GrantAccess = GntTbl_GrantAccess;
-  GntTblInterface.EndAccess = GntTbl_EndAccess;
-  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&GntTblInterface, &GUID_XEN_IFACE_GNTTBL, NULL);
+  ChildDeviceData->GntTblInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->GntTblInterface);
+  ChildDeviceData->GntTblInterface.InterfaceHeader.Version = 1;
+  ChildDeviceData->GntTblInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
+  ChildDeviceData->GntTblInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
+  ChildDeviceData->GntTblInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
+  ChildDeviceData->GntTblInterface.GrantAccess = GntTbl_GrantAccess;
+  ChildDeviceData->GntTblInterface.EndAccess = GntTbl_EndAccess;
+  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->GntTblInterface, &GUID_XEN_IFACE_GNTTBL, NULL);
   status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
   if (!NT_SUCCESS(status)) {
     return status;
   }
 
-  RtlZeroMemory(&XenBusInterface, sizeof(XenBusInterface));
-
-  XenBusInterface.InterfaceHeader.Size = sizeof(XenBusInterface);
-  XenBusInterface.InterfaceHeader.Version = 1;
-  XenBusInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
+  ChildDeviceData->XenBusInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->XenBusInterface);
+  ChildDeviceData->XenBusInterface.InterfaceHeader.Version = 1;
+  ChildDeviceData->XenBusInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
   //XenBusInterface.InterfaceHeader.Context = ExAllocatePoolWithTag(NonPagedPool, (strlen(XenIdentificationDesc->Path) + 1), XENPCI_POOL_TAG);
   //strcpy(XenBusInterface.InterfaceHeader.Context, XenIdentificationDesc->Path);
-  XenBusInterface.Read = XenBus_Read;
-  XenBusInterface.Write = XenBus_Write;
-  XenBusInterface.Printf = XenBus_Printf;
-  XenBusInterface.StartTransaction = XenBus_StartTransaction;
-  XenBusInterface.EndTransaction = XenBus_EndTransaction;
-  XenBusInterface.List = XenBus_List;
-  XenBusInterface.AddWatch = XenBus_AddWatch;
-  XenBusInterface.RemWatch = XenBus_RemWatch;
-  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&XenBusInterface, &GUID_XEN_IFACE_XENBUS, NULL);
+  ChildDeviceData->XenBusInterface.Read = XenBus_Read;
+  ChildDeviceData->XenBusInterface.Write = XenBus_Write;
+  ChildDeviceData->XenBusInterface.Printf = XenBus_Printf;
+  ChildDeviceData->XenBusInterface.StartTransaction = XenBus_StartTransaction;
+  ChildDeviceData->XenBusInterface.EndTransaction = XenBus_EndTransaction;
+  ChildDeviceData->XenBusInterface.List = XenBus_List;
+  ChildDeviceData->XenBusInterface.AddWatch = XenBus_AddWatch;
+  ChildDeviceData->XenBusInterface.RemWatch = XenBus_RemWatch;
+  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->XenBusInterface, &GUID_XEN_IFACE_XENBUS, NULL);
   status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
   if (!NT_SUCCESS(status)) {
     return status;
@@ -822,7 +817,7 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
         {
           //KdPrint((__DRIVER_NAME "     Child Path = %s (Match - WatchHandler = %08x)\n", ChildDeviceData->BasePath, ChildDeviceData->WatchHandler));
           if (ChildDeviceData->WatchHandler != NULL)
-            ChildDeviceData->WatchHandler(Path, NULL);
+            ChildDeviceData->WatchHandler(Path, ChildDeviceData->WatchContext);
         }
         else
         {

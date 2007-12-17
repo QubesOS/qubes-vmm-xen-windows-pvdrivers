@@ -68,7 +68,8 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
 
   //KdPrint((__DRIVER_NAME "     I-\n"));
 
-  return TRUE;
+//  return TRUE;
+  return FALSE;
 }
 
 NTSTATUS
@@ -77,7 +78,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
   WDFDEVICE Device = Context;
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
 
-  KdPrint((__DRIVER_NAME " --> EvtChn_Bind\n"));
+  KdPrint((__DRIVER_NAME " --> EvtChn_Bind (ServiceRoutine = %08X, ServiceContext = %08x)\n", ServiceRoutine, ServiceContext));
 
   if(xpdd->ev_actions[Port].ServiceRoutine != NULL)
   {

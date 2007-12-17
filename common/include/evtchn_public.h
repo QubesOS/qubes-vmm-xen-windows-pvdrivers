@@ -17,6 +17,9 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
+#if !defined(_EVTCHN_PUBLIC_H_)
+#define _EVTCHN_PUBLIC_H_
+
 DEFINE_GUID( GUID_XEN_IFACE_EVTCHN, 0xD2D20756, 0xDE69, 0x4447, 0x8A, 0x7D, 0x98, 0x37, 0x19, 0x7D, 0x61, 0x66);
 //{D2D20756-DE69-4447-8A7D-9837197D6166}
 
@@ -49,3 +52,5 @@ typedef struct _XENBUS_IFACE_EVTCHN {
   PXEN_EVTCHN_ALLOCUNBOUND AllocUnbound;
 
 } XEN_IFACE_EVTCHN, *PXEN_IFACE_EVTCHN;
+
+#endif
