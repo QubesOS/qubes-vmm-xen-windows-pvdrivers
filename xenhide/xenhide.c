@@ -213,10 +213,10 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
 
   for (i = 0; i < Relations->Count; i++)
   {
-    Length = 1000;
+    Length = sizeof(Buffer);
     IoGetDeviceProperty(Relations->Objects[i], DevicePropertyDeviceDescription, Length, Buffer, &Length);
     KdPrint((__DRIVER_NAME "     %3d - %ws\n", i, Buffer));
-    Length = 1000;
+    Length = sizeof(Buffer);
     IoGetDeviceProperty(Relations->Objects[i], DevicePropertyHardwareID, Length, Buffer, &Length);
     Match = 0;
     StrLen = 0;
