@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <io/xenbus.h>
 #include "xennet.h"
 
+/* Xen macros use these, so they need to be redefined to Win equivs */
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
 
@@ -101,6 +102,13 @@ struct xennet_info
 
   NDIS_HANDLE packet_pool;
   NDIS_HANDLE buffer_pool;
+
+  /* stats */
+  ULONG64 stat_tx_ok;
+  ULONG64 stat_rx_ok;
+  ULONG64 stat_tx_error;
+  ULONG64 stat_rx_error;
+  ULONG64 stat_rx_no_buffer;
 };
 
 /* This function copied from linux's lib/vsprintf.c, see it for attribution */
@@ -209,6 +217,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       MmFreePagesFromMdl(pmdl);
       IoFreeMdl(pmdl);
 
+      xi->stat_tx_ok++;
       NdisMSendComplete(xi->adapter_handle, pkt, NDIS_STATUS_SUCCESS);
     }
 
@@ -224,7 +233,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
      */
     xi->tx.sring->rsp_event =
       prod + ((xi->tx.sring->req_prod - prod) >> 1) + 1;
-    mb();
+    KeMemoryBarrier();
   } while ((cons == prod) && (prod != xi->tx.sring->rsp_prod));
 
   /* if queued packets, send them now?
@@ -341,6 +350,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       /* just indicate 1 packet for now */
       packets[0] = pkt;
 
+      xi->stat_rx_ok++;
       NdisMIndicateReceivePacket(xi->adapter_handle, packets, 1);
     }
 
@@ -356,7 +366,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
      */
     xi->rx.sring->rsp_event =
       prod + ((xi->rx.sring->req_prod - prod) >> 1) + 1;
-    mb();
+    KeMemoryBarrier();
   } while ((cons == prod) && (prod != xi->rx.sring->rsp_prod));
 
   /* Give netback more buffers */
@@ -502,15 +512,10 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
   case XenbusStateInitialised:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Initialised\n"));
-    // create the device
     break;
 
   case XenbusStateConnected:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Connected\n"));  
-
-    /* do more stuff here */
-
-    KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
     break;
 
   case XenbusStateClosing:
@@ -619,7 +624,7 @@ XenNet_Init(
   NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
     &xi->lower_do, NULL, NULL);
 
-  /* Initialise {tx,rx}_pkts as a free chain containing every entry. */
+  /* Initialize tx_pkts as a free chain containing every entry. */
   for (i = 0; i <= NET_TX_RING_SIZE; i++) {
     xi->tx_pkts[i] = (void *)((unsigned long) i+1);
     xi->grant_tx_ref[i] = GRANT_INVALID_REF;
@@ -779,6 +784,7 @@ err:
 
 NDIS_OID supported_oids[] =
 {
+  /* general OIDs */
   OID_GEN_SUPPORTED_LIST,
   OID_GEN_HARDWARE_STATUS,
   OID_GEN_MEDIA_SUPPORTED,
@@ -799,6 +805,13 @@ NDIS_OID supported_oids[] =
   OID_GEN_MAC_OPTIONS,
   OID_GEN_MEDIA_CONNECT_STATUS,
   OID_GEN_MAXIMUM_SEND_PACKETS,
+  /* stats */
+  OID_GEN_XMIT_OK,
+  OID_GEN_RCV_OK,
+  OID_GEN_XMIT_ERROR,
+  OID_GEN_RCV_ERROR,
+  OID_GEN_RCV_NO_BUFFER, 
+  /* media-specific OIDs */
   OID_802_3_PERMANENT_ADDRESS,
   OID_802_3_CURRENT_ADDRESS,
   OID_802_3_MULTICAST_LIST,
@@ -816,9 +829,9 @@ XenNet_QueryInformation(
 {
   struct xennet_info *xi = MiniportAdapterContext;
   UCHAR vendor_desc[] = XN_VENDOR_DESC;
-  ULONG temp_data;
+  ULONG64 temp_data;
   PVOID data = &temp_data;
-  UINT len = sizeof(temp_data);
+  UINT len = 4;
   NDIS_STATUS status = NDIS_STATUS_SUCCESS;
 
   switch(Oid)
@@ -896,6 +909,26 @@ XenNet_QueryInformation(
     case OID_GEN_MAXIMUM_SEND_PACKETS:
       temp_data = XN_MAX_SEND_PKTS;
       break;
+    case OID_GEN_XMIT_OK:
+      temp_data = xi->stat_tx_ok;
+      len = sizeof(ULONG64);
+      break;
+    case OID_GEN_RCV_OK:
+      temp_data = xi->stat_rx_ok;
+      len = sizeof(ULONG64);
+      break;
+    case OID_GEN_XMIT_ERROR:
+      temp_data = xi->stat_tx_error;
+      len = sizeof(ULONG64);
+      break;
+    case OID_GEN_RCV_ERROR:
+      temp_data = xi->stat_rx_error;
+      len = sizeof(ULONG64);
+      break;
+    case OID_GEN_RCV_NO_BUFFER:
+      temp_data = xi->stat_rx_no_buffer;
+      len = sizeof(ULONG64);
+      break;
     case OID_802_3_PERMANENT_ADDRESS:
       data = xi->perm_mac_addr;
       len = ETH_ALEN;
@@ -932,7 +965,7 @@ XenNet_QueryInformation(
     NdisMoveMemory(InformationBuffer, data, len);
   }
 
-  KdPrint(("Got OID 0x%x\n", Oid));
+  //KdPrint(("Got OID 0x%x\n", Oid));
 
   return status;
 }
@@ -1031,14 +1064,14 @@ XenNet_SendPackets(
   PMDL pmdl;
   UINT pkt_size;
 
-  KdPrint((__FUNCTION__ " called, sending %d pkts\n", NumberOfPackets));
-
   for (i = 0; i < NumberOfPackets; i++)
   {
     curr_packet = PacketArray[i];
     ASSERT(curr_packet);
 
     NdisQueryPacket(curr_packet, NULL, NULL, NULL, &pkt_size);
+
+    KdPrint(("sending pkt, len %d\n", pkt_size));
 
     pmdl = XenNet_Linearize(curr_packet);
     if (!pmdl)
