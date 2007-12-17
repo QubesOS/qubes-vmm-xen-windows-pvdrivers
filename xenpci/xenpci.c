@@ -70,6 +70,8 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data);
 
 /* Global (driver-wide) variables */
 static BOOLEAN AutoEnumerate;
+CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptRaw;
+CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptTranslated;
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)

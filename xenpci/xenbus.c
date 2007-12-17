@@ -368,7 +368,7 @@ NTSTATUS
 XenBus_Close(WDFDEVICE Device)
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-  KWAIT_BLOCK WaitBlockArray[2];
+  //KWAIT_BLOCK WaitBlockArray[2];
   PVOID WaitArray[2];
 
   xpdd->XenBus_ShuttingDown = TRUE;
