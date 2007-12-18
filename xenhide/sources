@@ -7,7 +7,7 @@ MSC_WARNING_LEVEL=/W4
 INF_NAME=xenhide
 INCLUDES = ..\common\include;..\common\include\public
 TARGETLIBS=$(DDK_LIB_PATH)\ntstrsafe.lib
-MISCFILES=$(TARGETPATH)\$(INF_NAME).inf
-NTTARGETFILES=
+#MISCFILES=$(TARGETPATH)\$(INF_NAME).inf
+#NTTARGETFILES=
 SOURCES=xenhide.c
 

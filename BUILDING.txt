@@ -4,11 +4,10 @@
 
 3. Use Mercurial (get it from http://www.selenic.com/mercurial/wiki/index.cgi/BinaryPackages) to get the latest sources from http://xenbits.xensource.com/ext/win-pvdrivers.hg.
 
-4. Copy the whole xen/include/public folder and put it in common/include/public in the Windows PV drivers tree.
+4. Go into each of xenpci, xenvbd, xennet, and xenhide and do a 'BLD'.
 
-5. Go into each of xenpci, xenvbd, and xenhide and do a 'build'.
-
-6. Assuming all went well, your drivers should be in the target subfolder of each of those directories.
+5. Assuming all went well, your drivers should be in toplevel target/i386
+directory.
 
 I've probably omitted some vitally important step from the above, so please let me know if you need any assistance compiling.
 

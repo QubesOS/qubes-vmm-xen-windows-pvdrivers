@@ -1,0 +1,100 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=Net
+ClassGuid={4D36E972-E325-11CE-BFC1-08002BE10318}
+Provider=%JAMESHARPER%
+DriverVer=11/11/2007,1.0.1.290
+
+[DestinationDirs]
+DefaultDestDir = 12
+ClassInstall32_CopyFiles=11
+CoInstaller_CopyFiles = 11
+
+; ================= Class section =====================
+
+[ClassInstall32]
+Addreg=ClassInstall32_AddReg
+CopyFiles=ClassInstall32_CopyFiles
+
+[ClassInstall32_AddReg]
+HKR,,,0,%ClassName%
+HKR,,Icon,,-5
+HKR,,DeviceCharacteristics,0x10001,0x100
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+
+[ClassInstall32_CopyFiles]
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+
+[Manufacturer]
+%JAMESHARPER%=JAMESHARPER,NTx86
+
+[JAMESHARPER]
+%XenNet.DRVDESC%=XenNet_Inst, XEN\VIF
+
+[JAMESHARPER.NTx86]
+%XenNet.DRVDESC%=XenNet_Inst, XEN\VIF
+
+[XenNet_Inst.NT]
+CopyFiles=XenNet.CopyFiles
+Characteristics = 0x1 ; NCF_VIRTUAL
+AddReg = XenNet_Reg
+
+[XenNet_Reg]
+HKR, Ndi, Service, 0, "XenNet"
+HKR, Ndi\Interfaces, UpperRange, 0, "ndis5"
+HKR, Ndi\Interfaces, LowerRange, 0, "ethernet"
+
+[XenNet.CopyFiles]
+xennet.sys
+
+[SourceDisksFiles]
+xennet.sys=1
+WdfCoinstaller01005.dll=1,,
+
+[SourceDisksNames.x86]
+1 = %DISK_NAME%,,,\i386
+
+[XenNet_Inst.Services]
+AddService=XenNet,2,XenNet_Service 
+
+[XenNet_Inst.NT.Services]
+AddService=XenNet,2,XenNet_Service 
+
+[XenNet_Service]
+DisplayName    = %XenNet.SVCDESC%                            
+ServiceType    = 1
+StartType      = 3
+ErrorControl   = 1
+LoadOrderGroup = NDIS
+ServiceBinary  = %12%\xennet.sys                            
+AddReg = XenNet_Service_AddReg
+
+[XenNet_Service_AddReg]
+; 5 = PciBus, 0 = Internal, 15 = PnpBus
+HKR,"Parameters\PnpInterface", "15", 0x00010001, 0x00000001
+
+[XenNet_Inst.NT.CoInstallers]
+AddReg=CoInstaller_AddReg
+CopyFiles=CoInstaller_CopyFiles
+
+[CoInstaller_CopyFiles]
+WdfCoinstaller01005.dll,,,2
+
+[CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoinstaller01005.dll,WdfCoInstaller"
+
+[XenNet_Inst.NT.Wdf]
+KmdfService = xennet, xennet_wdfsect
+
+[xennet_wdfsect]
+KmdfLibraryVersion = 1.0
+
+[Strings]
+JAMESHARPER = "James Harper"
+ClassName = "Network Adapters"
+XenNet.SVCDESC = "Xen Net Device Driver"
+XenNet.DRVDESC = "Xen Net Device Driver"
+DISK_NAME = "Xen Net Device Driver Install Disk"

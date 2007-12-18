@@ -27,21 +27,21 @@ typedef VOID
 (*PXENBUS_WATCH_CALLBACK)(char *Path, PVOID ServiceContext);
 
 typedef char *
-(*PXEN_XENBUS_READ)(xenbus_transaction_t xbt, const char *path, char **value);
+(*PXEN_XENBUS_READ)(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value);
 typedef char *
-(*PXEN_XENBUS_WRITE)(xenbus_transaction_t xbt, const char *path, const char *value);
+(*PXEN_XENBUS_WRITE)(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *value);
 typedef char *
-(*PXEN_XENBUS_PRINTF)(xenbus_transaction_t xbt, const char *path, const char *fmt, ...);
+(*PXEN_XENBUS_PRINTF)(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *fmt, ...);
 typedef char *
-(*PXEN_XENBUS_STARTTRANSACTION)(xenbus_transaction_t *xbt);
+(*PXEN_XENBUS_STARTTRANSACTION)(PVOID Context, xenbus_transaction_t *xbt);
 typedef char *
-(*PXEN_XENBUS_ENDTRANSACTION)(xenbus_transaction_t t, int abort, int *retry);
+(*PXEN_XENBUS_ENDTRANSACTION)(PVOID Context, xenbus_transaction_t t, int abort, int *retry);
 typedef char *
-(*PXEN_XENBUS_LIST)(xenbus_transaction_t xbt, const char *prefix, char ***contents);
+(*PXEN_XENBUS_LIST)(PVOID Context, xenbus_transaction_t xbt, const char *prefix, char ***contents);
 typedef char *
-(*PXEN_XENBUS_ADDWATCH)(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
+(*PXEN_XENBUS_ADDWATCH)(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 typedef char *
-(*PXEN_XENBUS_REMWATCH)(xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
+(*PXEN_XENBUS_REMWATCH)(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 
 typedef struct _XEN_IFACE_XENBUS {
   INTERFACE InterfaceHeader;

@@ -257,7 +257,9 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
         Srb->SrbStatus = SRB_STATUS_ERROR;
       }
       for (j = 0; j < TargetData->shadow[rep->id].req.nr_segments; j++)
-        DeviceData->XenDeviceData->GntTblInterface.EndAccess(TargetData->shadow[rep->id].req.seg[j].gref);
+        DeviceData->XenDeviceData->GntTblInterface.EndAccess(
+        DeviceData->XenDeviceData->GntTblInterface.InterfaceHeader.Context,
+        TargetData->shadow[rep->id].req.seg[j].gref);
       if (Srb->Cdb[0] == SCSIOP_READ)
         memcpy(Srb->DataBuffer, TargetData->shadow[rep->id].Buf, BlockCount * TargetData->BytesPerSector);
 
@@ -307,6 +309,8 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     }
   }
 //  KdPrint((__DRIVER_NAME " <-- HwScsiInterrupt\n"));
+
+  return TRUE;
 }
 
 static VOID
@@ -332,7 +336,9 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
   TargetData = (PXENVBD_TARGET_DATA)Data;
   DeviceData = (PXENVBD_DEVICE_DATA)TargetData->DeviceData;
 
-  DeviceData->XenDeviceData->XenBusInterface.Read(XBT_NIL, Path, &Value);
+  DeviceData->XenDeviceData->XenBusInterface.Read(
+    DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context,
+    XBT_NIL, Path, &Value);
 
   NewState = atoi(Value);
   switch (NewState)
@@ -348,14 +354,19 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
   case XenbusStateInitWait:
     KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait\n"));  
 
-    TargetData->EventChannel = DeviceData->XenDeviceData->EvtChnInterface.AllocUnbound(0);
-    DeviceData->XenDeviceData->EvtChnInterface.Bind(TargetData->EventChannel, XenVbd_Interrupt, TargetData);
+    TargetData->EventChannel = DeviceData->XenDeviceData->EvtChnInterface.AllocUnbound(
+      DeviceData->XenDeviceData->EvtChnInterface.InterfaceHeader.Context, 0);
+    DeviceData->XenDeviceData->EvtChnInterface.Bind(
+      DeviceData->XenDeviceData->EvtChnInterface.InterfaceHeader.Context,
+      TargetData->EventChannel, XenVbd_Interrupt, TargetData);
     Mdl = AllocatePage();
     PFN = *MmGetMdlPfnArray(Mdl);
     SharedRing = (blkif_sring_t *)MmGetMdlVirtualAddress(Mdl);
     SHARED_RING_INIT(SharedRing);
     FRONT_RING_INIT(&TargetData->Ring, SharedRing, PAGE_SIZE);
-    ref = DeviceData->XenDeviceData->GntTblInterface.GrantAccess(0, PFN, FALSE);
+    ref = DeviceData->XenDeviceData->GntTblInterface.GrantAccess(
+      DeviceData->XenDeviceData->GntTblInterface.InterfaceHeader.Context,
+      0, PFN, FALSE);
 
     TargetData->shadow = ExAllocatePoolWithTag(NonPagedPool, sizeof(blkif_shadow_t) * BLK_RING_SIZE, XENVBD_POOL_TAG);
 
@@ -393,7 +404,9 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
 
     RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
     RtlStringCbCatA(TmpPath, 128, "/device-type");
-    DeviceData->XenDeviceData->XenBusInterface.Read(XBT_NIL, TmpPath, &Value);
+    DeviceData->XenDeviceData->XenBusInterface.Read(
+      DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, &Value);
     if (strcmp(Value, "disk") == 0)
     {
       KdPrint((__DRIVER_NAME "     DeviceType = Disk\n"));    
@@ -412,17 +425,25 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
 
     RtlStringCbCopyA(TmpPath, 128, TargetData->BackendPath);
     RtlStringCbCatA(TmpPath, 128, "/type"); // should probably check that this is 'phy' or 'file' or at least not ''
-    DeviceData->XenDeviceData->XenBusInterface.Read(XBT_NIL, TmpPath, &Value);
+    DeviceData->XenDeviceData->XenBusInterface.Read(
+      DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, &Value);
     KdPrint((__DRIVER_NAME "     Backend Type = %s\n", Value));
+    ExFreePool(Value);
 
     RtlStringCbCopyA(TmpPath, 128, TargetData->BackendPath);
     RtlStringCbCatA(TmpPath, 128, "/mode"); // should store this...
-    DeviceData->XenDeviceData->XenBusInterface.Read(XBT_NIL, TmpPath, &Value);
+    DeviceData->XenDeviceData->XenBusInterface.Read(
+      DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, &Value);
     KdPrint((__DRIVER_NAME "     Backend Mode = %s\n", Value));
+    ExFreePool(Value);
 
     RtlStringCbCopyA(TmpPath, 128, TargetData->BackendPath);
     RtlStringCbCatA(TmpPath, 128, "/sector-size");
-    DeviceData->XenDeviceData->XenBusInterface.Read(XBT_NIL, TmpPath, &Value);
+    DeviceData->XenDeviceData->XenBusInterface.Read(
+      DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, &Value);
     // should complain if Value == NULL
     TargetData->BytesPerSector = atoi(Value);
 
@@ -430,7 +451,9 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
 
     RtlStringCbCopyA(TmpPath, 128, TargetData->BackendPath);
     RtlStringCbCatA(TmpPath, 128, "/sectors");
-    DeviceData->XenDeviceData->XenBusInterface.Read(XBT_NIL, TmpPath, &Value);
+    DeviceData->XenDeviceData->XenBusInterface.Read(
+      DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, &Value);
     // should complain if Value == NULL
     TargetData->TotalSectors = (ULONGLONG)atol(Value);
 
@@ -533,7 +556,9 @@ XenVbd_WatchHandler(char *Path, PVOID DeviceExtension)
 
       RtlStringCbCopyA(TmpPath, 128, VacantTarget->Path);
       RtlStringCbCatA(TmpPath, 128, "/backend");
-      DeviceData->XenDeviceData->XenBusInterface.Read(XBT_NIL, TmpPath, &Value);
+      DeviceData->XenDeviceData->XenBusInterface.Read(
+        DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context,
+        XBT_NIL, TmpPath, &Value);
       if (Value == NULL)
         KdPrint((__DRIVER_NAME "     Read Failed\n"));
       else
@@ -541,7 +566,9 @@ XenVbd_WatchHandler(char *Path, PVOID DeviceExtension)
       RtlStringCbCopyA(TmpPath, 128, VacantTarget->BackendPath);
       RtlStringCbCatA(TmpPath, 128, "/state");
 
-      DeviceData->XenDeviceData->XenBusInterface.AddWatch(XBT_NIL, TmpPath, XenVbd_BackEndStateHandler, VacantTarget);
+      DeviceData->XenDeviceData->XenBusInterface.AddWatch(
+        DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context,
+        XBT_NIL, TmpPath, XenVbd_BackEndStateHandler, VacantTarget);
     }
     else
       KeReleaseSpinLock(&DeviceData->Lock, OldIrql);
@@ -599,7 +626,9 @@ XenVbd_HwScsiInitialize(PVOID DeviceExtension)
   DeviceData->EnumeratedDevices = 0;
   if (DeviceData->XenDeviceData->AutoEnumerate)
   {
-    msg = DeviceData->XenDeviceData->XenBusInterface.List(XBT_NIL, "device/vbd", &VbdDevices);
+    msg = DeviceData->XenDeviceData->XenBusInterface.List(
+      DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context,
+      XBT_NIL, "device/vbd", &VbdDevices);
     if (!msg) {
       for (i = 0; VbdDevices[i]; i++)
       {
@@ -731,7 +760,9 @@ XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
 
   for (i = 0; i < req->nr_segments; i++)
   {
-    req->seg[i].gref = DeviceData->XenDeviceData->GntTblInterface.GrantAccess(0, MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i], FALSE);
+    req->seg[i].gref = DeviceData->XenDeviceData->GntTblInterface.GrantAccess(
+      DeviceData->XenDeviceData->GntTblInterface.InterfaceHeader.Context,
+      0, MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i], FALSE);
     req->seg[i].first_sect = 0;
     if (i == req->nr_segments - 1)
       req->seg[i].last_sect = (BlockCount - 1) % (PAGE_SIZE / TargetData->BytesPerSector);
@@ -956,7 +987,9 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
       XenVbd_PutSrbOnRing(TargetData, Srb);
       RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&TargetData->Ring, notify);
       if (notify)
-        DeviceData->XenDeviceData->EvtChnInterface.Notify(TargetData->EventChannel);
+        DeviceData->XenDeviceData->EvtChnInterface.Notify(
+          DeviceData->XenDeviceData->EvtChnInterface.InterfaceHeader.Context,
+          TargetData->EventChannel);
       if (!RING_FULL(&TargetData->Ring))
         ScsiPortNotification(NextLuRequest, DeviceExtension, Srb->PathId, Srb->TargetId, Srb->Lun);
       else
