@@ -1,0 +1,84 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%JAMESHARPER%
+DriverVer=11/20/2007,0.4.0.0
+
+[ControlFlags]
+ExcludeFromSelect = *
+
+[DestinationDirs]
+DefaultDestDir = 12
+CoInstaller_CopyFiles = 11
+
+[Manufacturer]
+%JAMESHARPER%=JAMESHARPER,NT$ARCH$
+
+; For Win2K
+[JAMESHARPER]
+%XenHide.DRVDESC%=XenHide_Inst, *PNP0A03
+
+; For XP and later
+[JAMESHARPER.NT$ARCH$]
+%XenHide.DRVDESC%=XenHide_Inst, *PNP0A03
+
+[XenHide_Inst.NT]
+Include=machine.inf
+Needs=PCI_DRV_ROOT.NT
+CopyFiles=XenHide.CopyFiles
+;AddReg=
+
+[XenHide_Inst.NT.HW]
+AddReg = XenHide_Inst_HW_AddReg
+Include=machine.inf
+Needs=PCI_DRV_ROOT.HW
+
+[XenHide_Inst_HW_AddReg]
+HKR,,"LowerFilters",0x00010000,"XenHide"
+HKLM,SYSTEM\CurrentControlSet\Services\Wdf01000,Group,0x00000000,Boot Bus Extender
+
+[XenHide.CopyFiles]
+xenhide.sys
+
+[SourceDisksFiles]
+xenhide.sys=1
+WdfCoinstaller01005.dll=1,,
+
+[SourceDisksNames]
+1 = %DISK_NAME%,,,\i386
+
+[XenHide_Inst.NT.Services]
+AddService=XenHide,,XenHide_Service_Inst
+Include=Machine.inf
+;Needs=PCI_DRV_ROOT.NT.Services
+Needs=PCI_DRV_ROOT.Services
+
+[XenHide_Service_Inst]
+DisplayName    = %XenHide.SVCDESC%                            
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+ServiceBinary  = %12%\xenhide.sys                          
+
+[XenHide_Inst.NT.CoInstallers]
+AddReg=CoInstaller_AddReg
+CopyFiles=CoInstaller_CopyFiles
+
+[CoInstaller_CopyFiles]
+WdfCoinstaller01005.dll,,,2
+
+[CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoinstaller01005.dll,WdfCoInstaller"
+
+[XenHide_Inst.NT.Wdf]
+KmdfService = xenhide, XenHide_WDFSect
+
+[XenHide_WDFSect]
+KmdfLibraryVersion = 1.0
+
+[Strings]
+JAMESHARPER = "James Harper"
+XenHide.SVCDESC = "Xen PCI Device Hider Driver"
+XenHide.DRVDESC = "Xen PCI Device Hider Driver"
+DISK_NAME = "Xen PCI Device Driver Hider Install Disk"

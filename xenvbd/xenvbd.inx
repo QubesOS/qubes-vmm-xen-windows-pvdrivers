@@ -1,0 +1,123 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=SCSIAdapter
+ClassGuid={4D36E97B-E325-11CE-BFC1-08002BE10318}
+Provider=%JAMESHARPER%
+DriverVer=12/10/2007,0.4.0.1
+
+[DestinationDirs]
+DefaultDestDir = 12
+ClassInstall32_CopyFiles=11
+CoInstaller_CopyFiles = 11
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Manufacturer]
+%JAMESHARPER%=JAMESHARPER,NT$ARCH$
+
+[JAMESHARPER.NT$ARCH$]
+%XenVbd.DRVDESC%=XenVbd_Inst, XEN\VBD
+;%XenAddResource.DRVDESC%=XenAddResource_INST, XEN\VBD
+
+[XenVbd_Inst.NT]
+CopyFiles=XenVbd.CopyFiles
+
+[XenVbd.CopyFiles]
+xenvbd.sys
+xenaddresource.sys
+
+[XenVbd_Inst.NT.Services]
+AddService=XenVbd,2,XenVbd_Service 
+AddService=XenAddResource,,XenAddResource_Service 
+
+[XenVbd_Service]
+DisplayName    = %XenVbd.SVCDESC%                            
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+LoadOrderGroup = WdfLoadGroup
+ServiceBinary  = %12%\xenvbd.sys                            
+AddReg = XenVbd_Service_AddReg
+
+[XenVbd_Service_AddReg]
+HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+;HKR,,"LowerFilters",0x00010000,"XenAddResource"
+HKR,"w00t"", "XXX", 0x00010001, 0x00000001
+
+[XenVbd_Inst.NT.CoInstallers]
+AddReg=CoInstaller_AddReg
+CopyFiles=CoInstaller_CopyFiles
+
+[XenVbd_Inst.NT.Wdf]
+KmdfService = xenvbd, xenvbd_wdfsect
+
+[XenVbd_Inst.NT.HW]
+AddReg = XenVbd_Inst_HW_AddReg
+
+[XenVbd_Inst_HW_AddReg]
+HKR,,"UpperFilters",0x00010000,"xenaddresource"
+
+[XenAddResource_Inst.NT]
+CopyFiles=XenAddResource.CopyFiles
+
+[XenAddResource_Inst.NT.Services]
+AddService=XenAddResource,,XenAddResource_Service 
+
+[XenAddResource_Inst.NT.HW]
+AddReg = XenAddResource_Inst_HW_AddReg
+
+[XenAddResource_Inst_HW_AddReg]
+HKR,,"LowerFilters",0x00010000,"xenaddresource"
+
+[XenAddResource.CopyFiles]
+xenaddresource.sys
+
+[XenAddResource_Service]
+DisplayName    = "Xen Resource Adder"
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+LoadOrderGroup = WdfLoadGroup
+ServiceBinary  = %12%\xenaddresource.sys
+AddReg = XenAddResource_Service_AddReg
+
+[XenAddResource.CopyFiles]
+xenaddresource.sys
+
+[XenAddResource_Service_AddReg]
+HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+
+[XenAddResource_Inst.NT.CoInstallers]
+AddReg=CoInstaller_AddReg
+CopyFiles=CoInstaller_CopyFiles
+
+[XenAddResource_Inst.NT.Wdf]
+KmdfService = xenaddresource, xenaddresource_wdfsect
+
+[xenvbd_wdfsect]
+KmdfLibraryVersion = 1.0
+
+[xenaddresource_wdfsect]
+KmdfLibraryVersion = 1.0
+
+[SourceDisksFiles]
+xenvbd.sys=1
+xenaddresource.sys=1
+WdfCoinstaller01005.dll=1,,
+
+[SourceDisksNames]
+1 = %DISK_NAME%,,,\i386
+
+[CoInstaller_CopyFiles]
+WdfCoinstaller01005.dll,,,2
+
+[CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoinstaller01005.dll,WdfCoInstaller"
+
+[Strings]
+JAMESHARPER = "James Harper"
+XenVbd.SVCDESC = "Xen Block Device Driver"
+XenVbd.DRVDESC = "Xen Block Device Driver"
+XenAddResource.DRVDESC = "Xen Resource Adder"
+DISK_NAME = "Xen Block Device Driver Install Disk"

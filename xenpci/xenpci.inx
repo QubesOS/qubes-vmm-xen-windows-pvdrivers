@@ -1,0 +1,74 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%JAMESHARPER%
+DriverVer=12/05/2007,0.4.0.1
+
+[DestinationDirs]
+DefaultDestDir = 12
+ClassInstall32_CopyFiles=11
+CoInstaller_CopyFiles = 11
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Manufacturer]
+%JAMESHARPER%=JAMESHARPER,NT$ARCH$
+
+; For Win2K
+;[JAMESHARPER]
+; DisplayName            Section           DeviceId
+; -----------       	 -------           --------
+;%XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
+
+[JAMESHARPER.NT$ARCH$]
+%XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
+
+[XenPCI_Inst.NT]
+CopyFiles=XenPCI.CopyFiles
+
+[XenPCI.CopyFiles]
+xenpci.sys
+
+[SourceDisksFiles]
+xenpci.sys=1
+WdfCoinstaller01005.dll=1,,
+
+[SourceDisksNames]
+1 = %DISK_NAME%,,,\i386
+;1 = %DISK_NAME%,,,\i386
+
+[XenPCI_Inst.NT.Services]
+AddService=XenPCI,2,XenPCI_Service 
+
+[XenPCI_Service]
+DisplayName    = %XenPCI.SVCDESC%                            
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+LoadOrderGroup = WdfLoadGroup
+ServiceBinary  = %12%\xenpci.sys                            
+
+[XenPCI_Inst.NT.CoInstallers]
+AddReg=CoInstaller_AddReg
+CopyFiles=CoInstaller_CopyFiles
+
+[CoInstaller_CopyFiles]
+WdfCoinstaller01005.dll,,,2
+
+[CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoinstaller01005.dll,WdfCoInstaller"
+
+[XenPCI_Inst.NT.Wdf]
+KmdfService = xenpci, xenpci_wdfsect
+
+[xenpci_wdfsect]
+KmdfLibraryVersion = 1.0
+
+[Strings]
+JAMESHARPER = "James Harper"
+XenPCI.SVCDESC = "Xen PCI Device Driver"
+XenPCI.DRVDESC = "Xen PCI Device Driver"
+DISK_NAME = "Xen PCI Device Driver Install Disk"
+
