@@ -317,7 +317,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   RING_IDX cons, prod;
 
   PNDIS_PACKET pkt;
-  PNDIS_PACKET packets[1];
   PNDIS_BUFFER buffer;
   PVOID buff_va;
   UINT buff_len;
@@ -347,11 +346,12 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       ASSERT(rxrsp->offset == 0);
       ASSERT(rxrsp->status > 0);
       NdisAdjustBufferLength(buffer, rxrsp->status);
-      /* just indicate 1 packet for now */
-      packets[0] = pkt;
 
       xi->stat_rx_ok++;
-      NdisMIndicateReceivePacket(xi->adapter_handle, packets, 1);
+      NDIS_SET_PACKET_STATUS(pkt, NDIS_STATUS_SUCCESS);
+
+      /* just indicate 1 packet for now */
+      NdisMIndicateReceivePacket(xi->adapter_handle, &pkt, 1);
     }
 
     xi->rx.rsp_cons = prod;
