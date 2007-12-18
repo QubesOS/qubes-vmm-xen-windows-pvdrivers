@@ -262,6 +262,7 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
         memcpy(Srb->DataBuffer, TargetData->shadow[rep->id].Buf, BlockCount * TargetData->BytesPerSector);
 
       ScsiPortNotification(RequestComplete, DeviceData, Srb);
+      ScsiPortNotification(NextLuRequest, DeviceData, Srb->PathId, Srb->TargetId, Srb->Lun);
 
       ADD_ID_TO_FREELIST(TargetData, rep->id);
     }
@@ -952,23 +953,14 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
     case SCSIOP_READ:
     case SCSIOP_WRITE:
 //      KdPrint((__DRIVER_NAME "     Command = READ/WRITE\n"));
-/*
-      for (i = 0; i < 10; i++)
-      {
-        KdPrint((__DRIVER_NAME "     %02x: %02x\n", i, Srb->Cdb[i]));
-      }
-*/
-      //KeAcquireSpinLock(&DeviceData->Lock, &KIrql);
-
       XenVbd_PutSrbOnRing(TargetData, Srb);
       RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&TargetData->Ring, notify);
       if (notify)
         DeviceData->XenDeviceData->EvtChnInterface.Notify(TargetData->EventChannel);
-      //KeReleaseSpinLock(&DeviceData->Lock, KIrql);
-//      Srb->SrbStatus = SRB_STATUS_SUCCESS;
-//      ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
       if (!RING_FULL(&TargetData->Ring))
-        ScsiPortNotification(NextRequest, DeviceExtension, NULL);
+        ScsiPortNotification(NextLuRequest, DeviceExtension, Srb->PathId, Srb->TargetId, Srb->Lun);
+      else
+        ScsiPortNotification(NextRequest, DeviceExtension);
       break;
     case SCSIOP_REPORT_LUNS:
       KdPrint((__DRIVER_NAME "     Command = REPORT_LUNS\n"));

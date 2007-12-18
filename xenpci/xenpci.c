@@ -41,6 +41,8 @@ static NTSTATUS
 XenPCI_D0ExitPreInterruptsDisabled(WDFDEVICE  Device, WDF_POWER_DEVICE_STATE TargetState);
 static VOID
 XenPCI_IoDefault(WDFQUEUE Queue, WDFREQUEST Request);
+static VOID 
+XenPCI_IoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length);
 static NTSTATUS
 XenPCI_InterruptEnable(WDFINTERRUPT Interrupt, WDFDEVICE AssociatedDevice);
 static NTSTATUS
@@ -75,6 +77,18 @@ static BOOLEAN AutoEnumerate;
 
 static WDFDEVICE Device;
 
+static LIST_ENTRY ShutdownMsgList;
+
+typedef struct {
+  LIST_ENTRY Entry;
+  ULONG Ptr;
+//  ULONG Len;
+  UCHAR Buf[0];
+} SHUTDOWN_MSG_ENTRY, *PSHUTDOWN_MSG_ENTRY;
+
+static KSPIN_LOCK ShutdownMsgLock;
+//static KEVENT ShutdownMsgEvent;
+
 CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptRaw;
 CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptTranslated;
 
@@ -97,6 +111,9 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   size_t i;
 
   KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
+
+  InitializeListHead(&ShutdownMsgList);
+  KeInitializeSpinLock(&ShutdownMsgLock);
 
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
   InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
@@ -192,19 +209,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   return status;
 }
 
-static void WRMSR(unsigned int msr, ULONGLONG val)
-{
-  ULONG lo, hi;
-  lo = (ULONG)val;
-  hi = (ULONG)(val >> 32);
-  __asm  {
-    mov ecx, msr
-    mov eax, lo
-    mov edx, hi
-    wrmsr
-  }
-}
-
 static int
 get_hypercall_stubs()
 {
@@ -236,7 +240,7 @@ get_hypercall_stubs()
     //pfn = vmalloc_to_pfn((char *)hypercall_stubs + i * PAGE_SIZE);
     pfn = (ULONG)(MmGetPhysicalAddress(hypercall_stubs + i * PAGE_SIZE).QuadPart >> PAGE_SHIFT);
     //KdPrint((__DRIVER_NAME " pfn = %08X\n", pfn));
-    WRMSR(msr, ((ULONGLONG)pfn << PAGE_SHIFT) + i);
+    __writemsr(msr, ((ULONGLONG)pfn << PAGE_SHIFT) + i);
   }
   return STATUS_SUCCESS;
 }
@@ -305,43 +309,33 @@ set_callback_irq(ULONGLONG irq)
   return retval;
 }
 
+WDFQUEUE ReadQueue;
+
 static NTSTATUS
 XenPCI_AddDevice(
     IN WDFDRIVER Driver,
     IN PWDFDEVICE_INIT DeviceInit
     )
 {
-  NTSTATUS status;
+  NTSTATUS Status;
   WDF_CHILD_LIST_CONFIG config;
   //PXENPCI_DEVICE_DATA devData = NULL;
   WDF_OBJECT_ATTRIBUTES attributes;
   WDF_PNPPOWER_EVENT_CALLBACKS pnpPowerCallbacks;
-  //WDF_IO_QUEUE_CONFIG ioQConfig;
-  WDF_INTERRUPT_CONFIG interruptConfig;
+  WDF_IO_QUEUE_CONFIG IoQConfig;
+  WDF_INTERRUPT_CONFIG InterruptConfig;
   PNP_BUS_INFORMATION busInfo;
   BUS_INTERFACE_STANDARD BusInterface;
-  //WDFDEVICE Parent;
-
-  //PDEVICE_OBJECT pdo;
-  //ULONG propertyAddress, length;
+  DECLARE_CONST_UNICODE_STRING(DeviceName, L"\\Device\\XenShutdown");
+  DECLARE_CONST_UNICODE_STRING(SymbolicName, L"\\DosDevices\\XenShutdown");
 
   UNREFERENCED_PARAMETER(Driver);
 
   KdPrint((__DRIVER_NAME " --> DeviceAdd\n"));
 
-  // get PDO
-  // get parent (should be PCI bus) (WdfPdoGetParent)
-  // 
-
   WdfDeviceInitSetDeviceType(DeviceInit, FILE_DEVICE_BUS_EXTENDER);
   WDF_CHILD_LIST_CONFIG_INIT(&config, sizeof(XENPCI_IDENTIFICATION_DESCRIPTION), XenPCI_ChildListCreateDevice);
   WdfFdoInitSetDefaultChildListConfig(DeviceInit, &config, WDF_NO_OBJECT_ATTRIBUTES);
-
-//  WDF_FDO_EVENT_CALLBACKS_INIT(&FdoCallbacks);
-//  FdoCallbacks.EvtDeviceFilterRemoveResourceRequirements = XenPCI_FilterRemoveResourceRequirements;
-//  FdoCallbacks.EvtDeviceFilterAddResourceRequirements = XenPCI_FilterAddResourceRequirements;
-//  FdoCallbacks.EvtDeviceRemoveAddedResources = XenPCI_RemoveAddedResources;
-//  WdfFdoInitSetEventCallbacks(DeviceInit, &FdoCallbacks);
 
   WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnpPowerCallbacks);
   pnpPowerCallbacks.EvtDevicePrepareHardware = XenPCI_PrepareHardware;
@@ -354,48 +348,114 @@ XenPCI_AddDevice(
 
   WdfDeviceInitSetIoType(DeviceInit, WdfDeviceIoBuffered);
 
+  Status = WdfDeviceInitAssignName(DeviceInit, &DeviceName);
+  if (!NT_SUCCESS(Status))
+  {
+    KdPrint((__DRIVER_NAME "     WdfDeviceInitAssignName failed 0x%08x\n", Status));
+    return Status;
+  }
+
   /*initialize storage for the device context*/
   WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, XENPCI_DEVICE_DATA);
 
   /*create a device instance.*/
-  status = WdfDeviceCreate(&DeviceInit, &attributes, &Device);  
-  if(!NT_SUCCESS(status))
+  Status = WdfDeviceCreate(&DeviceInit, &attributes, &Device);  
+  if(!NT_SUCCESS(Status))
   {
-    KdPrint((__DRIVER_NAME "     WdfDeviceCreate failed with status 0x%08x\n", status));
-    return status;
+    KdPrint((__DRIVER_NAME "     WdfDeviceCreate failed with Status 0x%08x\n", Status));
+    return Status;
   }
 
   WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFilePaging, TRUE);
   WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileHibernation, TRUE);
   WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileDump, TRUE);
 
-  status = WdfFdoQueryForInterface(Device, &GUID_BUS_INTERFACE_STANDARD, (PINTERFACE) &BusInterface, sizeof(BUS_INTERFACE_STANDARD), 1, NULL);
-  if(!NT_SUCCESS(status))
+  Status = WdfFdoQueryForInterface(Device, &GUID_BUS_INTERFACE_STANDARD, (PINTERFACE) &BusInterface, sizeof(BUS_INTERFACE_STANDARD), 1, NULL);
+  if(!NT_SUCCESS(Status))
   {
-    KdPrint((__DRIVER_NAME "     WdfFdoQueryForInterface (BusInterface) failed with status 0x%08x\n", status));
+    KdPrint((__DRIVER_NAME "     WdfFdoQueryForInterface (BusInterface) failed with Status 0x%08x\n", Status));
   }
 
-  //BusInterface.GetBusData(NULL, PCI_WHICHSPACE_CONFIG, buf, 
-
-  
   busInfo.BusTypeGuid = GUID_XENPCI_DEVCLASS;
-  busInfo.LegacyBusType = Internal; //PNPBus;
+  busInfo.LegacyBusType = Internal;
   busInfo.BusNumber = 0;
 
   WdfDeviceSetBusInformationForChildren(Device, &busInfo);
 
-  WDF_INTERRUPT_CONFIG_INIT(&interruptConfig, EvtChn_Interrupt, NULL); //EvtChn_InterruptDpc);
-  interruptConfig.EvtInterruptEnable = XenPCI_InterruptEnable;
-  interruptConfig.EvtInterruptDisable = XenPCI_InterruptDisable;
-  status = WdfInterruptCreate(Device, &interruptConfig, WDF_NO_OBJECT_ATTRIBUTES, &XenInterrupt);
-  if (!NT_SUCCESS (status))
+  WDF_INTERRUPT_CONFIG_INIT(&InterruptConfig, EvtChn_Interrupt, NULL);
+  InterruptConfig.EvtInterruptEnable = XenPCI_InterruptEnable;
+  InterruptConfig.EvtInterruptDisable = XenPCI_InterruptDisable;
+  Status = WdfInterruptCreate(Device, &InterruptConfig, WDF_NO_OBJECT_ATTRIBUTES, &XenInterrupt);
+  if (!NT_SUCCESS (Status))
   {
-    KdPrint((__DRIVER_NAME "WdfInterruptCreate failed 0x%08x\n", status));
-    return status;
+    KdPrint((__DRIVER_NAME "     WdfInterruptCreate failed 0x%08x\n", Status));
+    return Status;
+  }
+
+  Status = WdfDeviceCreateDeviceInterface(Device, (LPGUID)&GUID_XEN_IFACE_XEN, NULL);
+  if (!NT_SUCCESS(Status))
+  {
+    KdPrint((__DRIVER_NAME "     WdfDeviceCreateDeviceInterface failed 0x%08x\n", Status));
+    return Status;
+  }
+  WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&IoQConfig, WdfIoQueueDispatchSequential);
+  IoQConfig.EvtIoDefault = XenPCI_IoDefault;
+  //IoQConfig.EvtIoRead = XenPCI_IoRead;
+  //IoQConfig.EvtIoWrite = XenPCI_IoWrite;
+  //IoQConfig.EvtIoDeviceControl = XenPCI_IoDeviceControl;
+
+  Status = WdfIoQueueCreate(Device, &IoQConfig, WDF_NO_OBJECT_ATTRIBUTES, NULL);
+  if (!NT_SUCCESS(Status))
+  {
+    KdPrint((__DRIVER_NAME "     WdfIoQueueCreate failed 0x%08x\n", Status));
+    return Status;
+  }
+
+  WDF_IO_QUEUE_CONFIG_INIT(&IoQConfig, WdfIoQueueDispatchSequential);
+  //IoQConfig.EvtIoDefault = XenPCI_IoDefault;
+  IoQConfig.EvtIoRead = XenPCI_IoRead;
+  //IoQConfig.EvtIoWrite = XenPCI_IoWrite;
+  //IoQConfig.EvtIoDeviceControl = XenPCI_IoDeviceControl;
+
+  Status = WdfIoQueueCreate(Device, &IoQConfig, WDF_NO_OBJECT_ATTRIBUTES, &ReadQueue);
+  if (!NT_SUCCESS(Status))
+  {
+    KdPrint((__DRIVER_NAME "     WdfIoQueueCreate (ReadQueue) failed 0x%08x\n", Status));
+    switch (Status)
+    {
+    case STATUS_INVALID_PARAMETER:
+      KdPrint((__DRIVER_NAME "     STATUS_INVALID_PARAMETER\n"));
+      break;
+    case STATUS_INFO_LENGTH_MISMATCH:
+      KdPrint((__DRIVER_NAME "     STATUS_INFO_LENGTH_MISMATCH\n"));
+      break;
+    case STATUS_POWER_STATE_INVALID:
+      KdPrint((__DRIVER_NAME "     STATUS_POWER_STATE_INVALID\n"));
+      break;
+    case STATUS_INSUFFICIENT_RESOURCES:
+      KdPrint((__DRIVER_NAME "     STATUS_INSUFFICIENT_RESOURCES\n"));
+      break;
+    case STATUS_WDF_NO_CALLBACK:
+      KdPrint((__DRIVER_NAME "     STATUS_WDF_NO_CALLBACK\n"));
+      break;
+    case STATUS_UNSUCCESSFUL:
+      KdPrint((__DRIVER_NAME "     STATUS_UNSUCCESSFUL\n"));
+      break;
+    }
+    return Status;
+  }
+  WdfIoQueueStopSynchronously(ReadQueue);
+  WdfDeviceConfigureRequestDispatching(Device, ReadQueue, WdfRequestTypeRead);
+
+  Status = WdfDeviceCreateSymbolicLink(Device, &SymbolicName);
+  if (!NT_SUCCESS(Status))
+  {
+    KdPrint((__DRIVER_NAME "     WdfDeviceCreateSymbolicLink failed 0x%08x\n", Status));
+    return Status;
   }
 
   KdPrint((__DRIVER_NAME " <-- DeviceAdd\n"));
-  return status;
+  return Status;
 }
 
 static NTSTATUS
@@ -566,22 +626,6 @@ XenPCI_D0ExitPreInterruptsDisabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Targ
 
   KdPrint((__DRIVER_NAME " --> D0ExitPreInterruptsDisabled\n"));
 
-  switch (KeGetCurrentIrql())
-  {
-  case PASSIVE_LEVEL:
-    KdPrint((__DRIVER_NAME "     PASSIVE_LEVEL\n"));
-    break;
-  case APC_LEVEL:
-    KdPrint((__DRIVER_NAME "     APC_LEVEL\n"));
-    break;
-  case DISPATCH_LEVEL:
-    KdPrint((__DRIVER_NAME "     DISPATCH_LEVEL\n"));
-    break;
-  default:
-    KdPrint((__DRIVER_NAME "     %d\n", KeGetCurrentIrql()));
-    break;
-  }
-
   XenBus_Stop();
 
   KdPrint((__DRIVER_NAME " <-- D0ExitPreInterruptsDisabled\n"));
@@ -598,22 +642,6 @@ XenPCI_D0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
   UNREFERENCED_PARAMETER(TargetState);
 
   KdPrint((__DRIVER_NAME " --> DeviceD0Exit\n"));
-
-  switch (KeGetCurrentIrql())
-  {
-  case PASSIVE_LEVEL:
-    KdPrint((__DRIVER_NAME "     PASSIVE_LEVEL\n"));
-    break;
-  case APC_LEVEL:
-    KdPrint((__DRIVER_NAME "     APC_LEVEL\n"));
-    break;
-  case DISPATCH_LEVEL:
-    KdPrint((__DRIVER_NAME "     DISPATCH_LEVEL\n"));
-    break;
-  default:
-    KdPrint((__DRIVER_NAME "     %d\n", KeGetCurrentIrql()));
-    break;
-  }
 
   XenBus_Close();
 
@@ -636,6 +664,57 @@ XenPCI_IoDefault(
 
   KdPrint((__DRIVER_NAME " <-- EvtDeviceIoDefault\n"));
 }
+
+
+static VOID 
+XenPCI_IoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
+{
+  PSHUTDOWN_MSG_ENTRY Entry;
+  ULONG Remaining;
+  ULONG CopyLen;
+  PCHAR Buffer;
+  ULONG BufLen;
+  KIRQL OldIrql;
+
+  UNREFERENCED_PARAMETER(Queue);
+
+  KdPrint((__DRIVER_NAME " --> IoRead\n"));
+
+  WdfRequestRetrieveOutputBuffer(Request, 1, &Buffer, &BufLen);
+
+  KeAcquireSpinLock(&ShutdownMsgLock, &OldIrql);
+
+  Entry = (PSHUTDOWN_MSG_ENTRY)RemoveHeadList(&ShutdownMsgList);
+
+  if ((PLIST_ENTRY)Entry == &ShutdownMsgList)
+  {
+    KdPrint((__DRIVER_NAME " <-- IoRead (Nothing in queue... xenpci is now broken)\n"));
+    return;
+  }
+
+  Remaining = strlen(Entry->Buf + Entry->Ptr);
+  CopyLen = min(Remaining, BufLen);
+
+  memcpy(Buffer, Entry->Buf + Entry->Ptr, CopyLen);
+
+  if (Entry->Buf[Entry->Ptr] == 0)
+  {
+    if (IsListEmpty(&ShutdownMsgList))
+      WdfIoQueueStop(ReadQueue, NULL, NULL);
+  }
+  else
+  {    
+    Entry->Ptr += CopyLen;
+    InsertHeadList(&ShutdownMsgList, Entry);
+  }
+
+  KeReleaseSpinLock(&ShutdownMsgLock, OldIrql);
+
+  WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, CopyLen);
+
+  KdPrint((__DRIVER_NAME " <-- IoRead\n"));
+}
+
 
 static NTSTATUS
 XenPCI_InterruptEnable(WDFINTERRUPT Interrupt, WDFDEVICE AssociatedDevice)
@@ -868,9 +947,15 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
 static void
 XenBus_ShutdownHandler(char *Path, PVOID Data)
 {
-  char *value;
+  NTSTATUS Status;
+  char *Value;
   xenbus_transaction_t xbt;
   int retry;
+  WDFREQUEST Request;
+  PCHAR Buffer;
+  size_t BufLen;
+  PCHAR Ptr;
+  PSHUTDOWN_MSG_ENTRY Entry;
 
   UNREFERENCED_PARAMETER(Path);
   UNREFERENCED_PARAMETER(Data);
@@ -879,16 +964,24 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
 
   XenBus_StartTransaction(&xbt);
 
-  XenBus_Read(XBT_NIL, SHUTDOWN_PATH, &value);
+  XenBus_Read(XBT_NIL, SHUTDOWN_PATH, &Value);
 
-  KdPrint((__DRIVER_NAME "     Shutdown Value = %s\n", value));
+  KdPrint((__DRIVER_NAME "     Shutdown Value = %s\n", Value));
 
   // should check for error here... but why have we been called at all???
-  if (value != NULL && strlen(value) != 0)
+  if (Value != NULL && strlen(Value) != 0)
     XenBus_Write(XBT_NIL, SHUTDOWN_PATH, "");
 
   XenBus_EndTransaction(xbt, 0, &retry);
-  
+
+  if (Value != NULL && strlen(Value) != 0)
+  {
+    Entry = (PSHUTDOWN_MSG_ENTRY)ExAllocatePoolWithTag(NonPagedPool, sizeof(SHUTDOWN_MSG_ENTRY) + strlen(Value) + 1 + 1, XENPCI_POOL_TAG);
+    Entry->Ptr = 0;
+    RtlStringCbPrintfA(Entry->Buf, sizeof(SHUTDOWN_MSG_ENTRY) + strlen(Value) + 1 + 1, "%s\n", Value);
+    InsertTailList(&ShutdownMsgList, Entry);
+    WdfIoQueueStart(ReadQueue);
+  }
   KdPrint((__DRIVER_NAME " <-- XenBus_ShutdownHandler\n"));
 }
 
