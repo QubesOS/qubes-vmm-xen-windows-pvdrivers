@@ -187,7 +187,6 @@ static NDIS_STATUS
 XenNet_TxBufferGC(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
-
   unsigned short id;
   PNDIS_PACKET pkt;
   PMDL pmdl;
@@ -214,7 +213,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
       /* free linearized data page */
       pmdl = *(PMDL *)pkt->MiniportReservedEx;
-      MmFreePagesFromMdl(pmdl);
+      NdisFreeMemory(MmGetMdlVirtualAddress(pmdl), 0, 0);
       IoFreeMdl(pmdl);
 
       xi->stat_tx_ok++;
@@ -1019,6 +1018,7 @@ XenNet_ReturnPacket(
 PMDL
 XenNet_Linearize(PNDIS_PACKET Packet)
 {
+  NDIS_STATUS status;
   PMDL pmdl;
   char *start;
   PNDIS_BUFFER buffer;
@@ -1026,17 +1026,24 @@ XenNet_Linearize(PNDIS_PACKET Packet)
   UINT buff_len;
   UINT tot_buff_len;
 
-  pmdl = AllocatePage();
-
-  start = MmGetSystemAddressForMdlSafe(pmdl, NormalPagePriority);
-  if (!start)
-  {
-    return NULL;
-  }
-
   NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
     &tot_buff_len, NormalPagePriority);
-  ASSERT(tot_buff_len <= PAGE_SIZE);
+  ASSERT(tot_buff_len <= XN_MAX_PKT_SIZE);
+
+  status = NdisAllocateMemoryWithTag(&start, tot_buff_len, XENNET_POOL_TAG);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Could not allocate memory for linearization\n"));
+    return NULL;
+  }
+  pmdl = IoAllocateMdl(start, tot_buff_len, FALSE, FALSE, FALSE);
+  if (!pmdl)
+  {
+    KdPrint(("Could not allocate MDL for linearization\n"));
+    NdisFreeMemory(start, 0, 0);
+    return NULL;
+  }
+  MmBuildMdlForNonPagedPool(pmdl);
 
   while (buffer)
   {
@@ -1094,7 +1101,7 @@ XenNet_SendPackets(
       *MmGetMdlPfnArray(pmdl),
       TRUE);
     xi->grant_tx_ref[id] = tx->gref;
-    tx->offset = 0;
+    tx->offset = (uint16_t)MmGetMdlByteOffset(pmdl);
     tx->size = (UINT16)pkt_size;
     tx->flags = NETTXF_csum_blank;
 
