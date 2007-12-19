@@ -82,7 +82,6 @@ typedef struct {
 } SHUTDOWN_MSG_ENTRY, *PSHUTDOWN_MSG_ENTRY;
 
 static KSPIN_LOCK ShutdownMsgLock;
-//static KEVENT ShutdownMsgEvent;
 
 CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptRaw;
 CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptTranslated;
@@ -680,11 +679,13 @@ XenPCI_IoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 
   if (Entry->Buf[Entry->Ptr] == 0)
   {
+    KdPrint((__DRIVER_NAME "     All done... stopping queue\n"));
     if (IsListEmpty(&ShutdownMsgList))
       WdfIoQueueStop(ReadQueue, NULL, NULL);
   }
   else
   {    
+    KdPrint((__DRIVER_NAME "     More to do...\n"));
     Entry->Ptr += CopyLen;
     InsertHeadList(&ShutdownMsgList, Entry);
   }
@@ -879,7 +880,7 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
 
   UNREFERENCED_PARAMETER(Data);
 
-  KdPrint((__DRIVER_NAME " --> XenBusWatchHandle\n"));
+  KdPrint((__DRIVER_NAME " --> XenBusWatchHandler\n"));
 
   //KdPrint((__DRIVER_NAME "     %s\n", Path));
 
@@ -931,7 +932,7 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
 
   FreeSplitString(Bits, Count);
   
-  KdPrint((__DRIVER_NAME " <-- XenBusWatchHandle\n"));  
+  KdPrint((__DRIVER_NAME " <-- XenBusWatchHandler\n"));
 }
 
 static void
@@ -958,7 +959,15 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
   if (Value != NULL && strlen(Value) != 0)
     XenBus_Write(Device, XBT_NIL, SHUTDOWN_PATH, "");
 
-  KdPrint((__DRIVER_NAME "     Shutdown Value = %s\n", Value));
+  if (Value != NULL)
+  {
+    KdPrint((__DRIVER_NAME "     Shutdown Value = %s\n", Value));
+    KdPrint((__DRIVER_NAME "     strlen(...) = %d\n", strlen(Value)));
+  }
+  else
+  {
+    KdPrint((__DRIVER_NAME "     Shutdown Value = <null>\n"));
+  }
 
   XenBus_EndTransaction(Device, xbt, 0, &retry);
 
