@@ -283,6 +283,7 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
       break;
     }
     NdisChainBufferAtBack(packet, buffer);
+    NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
 
     /* Give to netback */
     id = (unsigned short)(req_prod + i) & (NET_RX_RING_SIZE - 1);
@@ -386,7 +387,7 @@ XenNet_Interrupt(
 
   UNREFERENCED_PARAMETER(Interrupt);
 
-  KdPrint((__DRIVER_NAME "     ***XenNet Interrupt***\n"));  
+  //KdPrint((__DRIVER_NAME "     ***XenNet Interrupt***\n"));  
 
   if (xi->connected)
   {
@@ -1012,7 +1013,7 @@ XenNet_ReturnPacket(
   NdisFreeBuffer(buffer);
   NdisFreePacket(Packet);
 
-  KdPrint((__FUNCTION__ " called\n"));
+  //KdPrint((__FUNCTION__ " called\n"));
 }
 
 PMDL
@@ -1071,7 +1072,7 @@ XenNet_SendPackets(
 
     NdisQueryPacket(curr_packet, NULL, NULL, NULL, &pkt_size);
 
-    KdPrint(("sending pkt, len %d\n", pkt_size));
+    //KdPrint(("sending pkt, len %d\n", pkt_size));
 
     pmdl = XenNet_Linearize(curr_packet);
     if (!pmdl)
