@@ -29,9 +29,6 @@ XenVbd_HwScsiAdapterState(PVOID DeviceExtension, PVOID Context, BOOLEAN SaveStat
 static SCSI_ADAPTER_CONTROL_STATUS
 XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE ControlType, PVOID Parameters);
 
-//static XEN_IFACE_EVTCHN EvtChnInterface;
-//static XEN_IFACE_XENBUS XenBusInterface;
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (INIT, DriverEntry)
 #endif
@@ -382,15 +379,15 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
 
     RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
     RtlStringCbCatA(TmpPath, 128, "/ring-ref");
-    DeviceData->XenDeviceData->XenBusInterface.Printf(XBT_NIL, TmpPath, "%d", ref);
+    DeviceData->XenDeviceData->XenBusInterface.Printf(DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", ref);
 
     RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
     RtlStringCbCatA(TmpPath, 128, "/event-channel");
-    DeviceData->XenDeviceData->XenBusInterface.Printf(XBT_NIL, TmpPath, "%d", TargetData->EventChannel);
+    DeviceData->XenDeviceData->XenBusInterface.Printf(DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", TargetData->EventChannel);
   
     RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
     RtlStringCbCatA(TmpPath, 128, "/state");
-    DeviceData->XenDeviceData->XenBusInterface.Printf(XBT_NIL, TmpPath, "%d", XenbusStateInitialised);
+    DeviceData->XenDeviceData->XenBusInterface.Printf(DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", XenbusStateInitialised);
 
     KdPrint((__DRIVER_NAME "     Set Frontend state to Initialised\n"));
     break;
@@ -472,7 +469,7 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
 
     RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
     RtlStringCbCatA(TmpPath, 128, "/state");
-    DeviceData->XenDeviceData->XenBusInterface.Printf(XBT_NIL, TmpPath, "%d", XenbusStateConnected);
+    DeviceData->XenDeviceData->XenBusInterface.Printf(DeviceData->XenDeviceData->XenBusInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", XenbusStateConnected);
 
     KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
     InterlockedIncrement(&DeviceData->EnumeratedDevices);
