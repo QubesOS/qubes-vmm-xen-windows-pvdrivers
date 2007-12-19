@@ -183,7 +183,7 @@ NTSTATUS
 EvtChn_Init(WDFDEVICE Device);
 BOOLEAN
 EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID);
-BOOLEAN
+VOID
 EvtChn_InterruptDpc(WDFINTERRUPT Interrupt, WDFOBJECT AssociatedObject);
 NTSTATUS
 EvtChn_Mask(PVOID Context, evtchn_port_t Port);

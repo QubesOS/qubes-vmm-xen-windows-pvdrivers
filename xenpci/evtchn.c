@@ -25,6 +25,25 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
 {
   int cpu = 0;
   vcpu_info_t *vcpu_info;
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(WdfInterruptGetDevice(Interrupt));
+  shared_info_t *shared_info_area = xpdd->shared_info_area;
+
+  UNREFERENCED_PARAMETER(MessageID);
+
+  vcpu_info = &shared_info_area->vcpu_info[cpu];
+
+  vcpu_info->evtchn_upcall_pending = 0;
+
+  WdfInterruptQueueDpcForIsr(Interrupt);
+
+  return TRUE;
+}
+
+VOID
+EvtChn_InterruptDpc(WDFINTERRUPT Interrupt, WDFOBJECT AssociatedObject)
+{
+  int cpu = 0;
+  vcpu_info_t *vcpu_info;
   unsigned long evt_words, evt_word;
   unsigned long evt_bit;
   unsigned long port;
@@ -33,14 +52,9 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
   shared_info_t *shared_info_area = xpdd->shared_info_area;
 
   UNREFERENCED_PARAMETER(Interrupt);
-  UNREFERENCED_PARAMETER(MessageID);
-
-  //KdPrint((__DRIVER_NAME "     I+\n"));
-  //KdPrint((__DRIVER_NAME " --> XenPCI_ISR\n"));
+  UNREFERENCED_PARAMETER(AssociatedObject);
 
   vcpu_info = &shared_info_area->vcpu_info[cpu];
-
-  vcpu_info->evtchn_upcall_pending = 0;
 
   evt_words = _InterlockedExchange((volatile LONG *)&vcpu_info->evtchn_pending_sel, 0);
   
@@ -63,13 +77,6 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
       _interlockedbittestandreset((volatile LONG *)&shared_info_area->evtchn_pending[0], port);
     }
   }
-
-  //KdPrint((__DRIVER_NAME " <-- XenPCI_ISR\n"));
-
-  //KdPrint((__DRIVER_NAME "     I-\n"));
-
-//  return TRUE;
-  return FALSE;
 }
 
 NTSTATUS
