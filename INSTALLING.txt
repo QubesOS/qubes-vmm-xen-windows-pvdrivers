@@ -1,15 +1,17 @@
 Please follow the steps here exactly. If you don't, you may be left with an unbootable machine (although 'Last known good configuration' should make it bootable again).
 
-1. Copy the driver files that you built by following the BUILDING.txt steps, so that on your testing machine the tree looks like this:
+1. Copy the driver files that you built by following the BUILDING.txt steps (or that you got from a binary dist), so that on your testing machine the tree looks like this:
 
-Xen\xenhide.inf
-Xen\xenpci.inf
-Xen\xenvbd.inf
-Xen\i386\xenhide.sys
-Xen\i386\xenpci.sys
-Xen\i386\xenvbd.sys
-Xen\i386\WdfCoInstaller01005.dll
+Xen\<arch>\xenhide.inf
+Xen\<arch>\xenpci.inf
+Xen\<arch>\xenvbd.inf
+Xen\<arch>\i386\xenaddresource.sys
+Xen\<arch>\i386\xenhide.sys
+Xen\<arch>\i386\xenpci.sys
+Xen\<arch>\i386\xenvbd.sys
+Xen\<arch>\i386\WdfCoInstaller01005.dll
 (you'll need to copy WdfCoInstaller01005.dll from the redist folder in the DDK)
+(<arch> is winxp for XP, or winnet for 2K3)
 
 2. Go to the device manager (Right click on My Computer, then select the Hardware tab, then click Device Manager)
 
@@ -47,7 +49,7 @@ timeout=30
 default=multi(0)disk(0)rdisk(0)partition(1)\WINDOWS
 [operating systems]
 multi(0)disk(0)rdisk(0)partition(1)\WINDOWS="Windows Server 2003, Enterprise" /noexecute=optout /fastdetect
-multi(0)disk(0)rdisk(0)partition(1)\WINDOWS="Windows Server 2003, Enterprise, PV" /noexecute=optout /fastdetect /gplpv
+multi(0)disk(0)rdisk(0)partition(1)\WINDOWS="Windows Server 2003, Enterprise, GPLPV" /noexecute=optout /fastdetect /gplpv
 "
 
 17. The main thing in the above step is that you have a line with /gplpv on the end. This tells the PV drivers to activate, otherwise they will pretty much sit silent.
@@ -63,3 +65,5 @@ xm block-attach mywindowsdomain phy:/dev/someblockdevice /dev/hdc w
 I'm pretty sure that you need to specify the 'phy:' otherwise the backend doesn't seem to publish the block and sector sizes correctly.
 
 If you do the block-attach, then your block device should show up under windows, and you can partition it etc.
+
+19. If you have built ShutdownMon, run "ShutdownMon -i" which will install it as a service. You will need to change the service to 'Automatic' and start it (or reboot). 'xm shutdown' and 'xm reboot' should then do the right thing.

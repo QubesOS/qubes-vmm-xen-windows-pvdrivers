@@ -373,7 +373,7 @@ XenPCI_AddDevice(
 
   WdfDeviceSetBusInformationForChildren(Device, &busInfo);
 
-  WDF_INTERRUPT_CONFIG_INIT(&InterruptConfig, EvtChn_Interrupt, EvtChn_InterruptDpc);
+  WDF_INTERRUPT_CONFIG_INIT(&InterruptConfig, EvtChn_Interrupt, NULL); //EvtChn_InterruptDpc);
   InterruptConfig.EvtInterruptEnable = XenPCI_InterruptEnable;
   InterruptConfig.EvtInterruptDisable = XenPCI_InterruptDisable;
   Status = WdfInterruptCreate(Device, &InterruptConfig, WDF_NO_OBJECT_ATTRIBUTES, &xpdd->XenInterrupt);
@@ -806,6 +806,7 @@ XenPCI_ChildListCreateDevice(
   ChildDeviceData->EvtChnInterface.Unmask = EvtChn_Unmask;
   ChildDeviceData->EvtChnInterface.Notify = EvtChn_Notify;
   ChildDeviceData->EvtChnInterface.AllocUnbound = EvtChn_AllocUnbound;
+  ChildDeviceData->EvtChnInterface.BindDpc = EvtChn_BindDpc;
   WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->EvtChnInterface, &GUID_XEN_IFACE_EVTCHN, NULL);
   status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
   if (!NT_SUCCESS(status))

@@ -20,6 +20,15 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xenpci.h"
 #include "hypercall.h"
 
+static VOID
+EvtChn_DpcBounce(WDFDPC Dpc)
+{
+  ev_action_t *Action;
+
+  Action = GetEvtChnDeviceData(Dpc)->Action;
+  Action->ServiceRoutine(NULL, Action->ServiceContext);
+}
+
 BOOLEAN
 EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
 {
@@ -27,34 +36,16 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
   vcpu_info_t *vcpu_info;
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(WdfInterruptGetDevice(Interrupt));
   shared_info_t *shared_info_area = xpdd->shared_info_area;
+  unsigned long evt_words, evt_word;
+  unsigned long evt_bit;
+  unsigned long port;
+  ev_action_t *ev_action;
 
   UNREFERENCED_PARAMETER(MessageID);
 
   vcpu_info = &shared_info_area->vcpu_info[cpu];
 
   vcpu_info->evtchn_upcall_pending = 0;
-
-  WdfInterruptQueueDpcForIsr(Interrupt);
-
-  return TRUE;
-}
-
-VOID
-EvtChn_InterruptDpc(WDFINTERRUPT Interrupt, WDFOBJECT AssociatedObject)
-{
-  int cpu = 0;
-  vcpu_info_t *vcpu_info;
-  unsigned long evt_words, evt_word;
-  unsigned long evt_bit;
-  unsigned long port;
-  ev_action_t *ev_action;
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(WdfInterruptGetDevice(Interrupt));
-  shared_info_t *shared_info_area = xpdd->shared_info_area;
-
-  UNREFERENCED_PARAMETER(Interrupt);
-  UNREFERENCED_PARAMETER(AssociatedObject);
-
-  vcpu_info = &shared_info_area->vcpu_info[cpu];
 
   evt_words = _InterlockedExchange((volatile LONG *)&vcpu_info->evtchn_pending_sel, 0);
   
@@ -71,12 +62,20 @@ EvtChn_InterruptDpc(WDFINTERRUPT Interrupt, WDFOBJECT AssociatedObject)
       }
       else
       {
-        //KdPrint((__DRIVER_NAME "     Calling Handler for port %d\n", port));
-        ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
+        if (ev_action->DpcFlag)
+        {
+          WdfDpcEnqueue(ev_action->Dpc);
+        }
+        else
+        {
+          ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
+        }
       }
       _interlockedbittestandreset((volatile LONG *)&shared_info_area->evtchn_pending[0], port);
     }
   }
+
+  return FALSE; // This needs to be FALSE so it can fall through to the scsiport ISR.
 }
 
 NTSTATUS
@@ -89,9 +88,12 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
 
   if(xpdd->ev_actions[Port].ServiceRoutine != NULL)
   {
+    xpdd->ev_actions[Port].ServiceRoutine = NULL;
+    KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
     KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
   }
 
+  xpdd->ev_actions[Port].DpcFlag = FALSE;
   xpdd->ev_actions[Port].ServiceContext = ServiceContext;
   KeMemoryBarrier();
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
@@ -99,6 +101,41 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
   EvtChn_Unmask(Device, Port);
 
   KdPrint((__DRIVER_NAME " <-- EvtChn_Bind\n"));
+
+  return STATUS_SUCCESS;
+}
+
+EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
+{
+  WDFDEVICE Device = Context;
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  WDF_DPC_CONFIG DpcConfig;
+  WDF_OBJECT_ATTRIBUTES DpcObjectAttributes;
+
+  KdPrint((__DRIVER_NAME " --> EvtChn_BindDpc\n"));
+
+  if(xpdd->ev_actions[Port].ServiceRoutine != NULL)
+  {
+    KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
+    xpdd->ev_actions[Port].ServiceRoutine = NULL;
+    KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
+  }
+
+  xpdd->ev_actions[Port].ServiceContext = ServiceContext;
+  xpdd->ev_actions[Port].DpcFlag = TRUE;
+
+  WDF_DPC_CONFIG_INIT(&DpcConfig, EvtChn_DpcBounce);
+  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DpcObjectAttributes, EVTCHN_DEVICE_DATA);
+  DpcObjectAttributes.ParentObject = Device;
+  WdfDpcCreate(&DpcConfig, &DpcObjectAttributes, &xpdd->ev_actions[Port].Dpc);
+  GetEvtChnDeviceData(xpdd->ev_actions[Port].Dpc)->Action = &xpdd->ev_actions[Port];
+
+  KeMemoryBarrier(); // make sure that the new service routine is only called once the context is set up
+  xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
+
+  EvtChn_Unmask(Device, Port);
+
+  KdPrint((__DRIVER_NAME " <-- EvtChn_BindDpc\n"));
 
   return STATUS_SUCCESS;
 }

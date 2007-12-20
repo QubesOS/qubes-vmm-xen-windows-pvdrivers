@@ -62,15 +62,21 @@ typedef struct _XENPCI_IDENTIFICATION_DESCRIPTION
 {
   WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Header;
   UNICODE_STRING DeviceType;
-//  ULONG DeviceIndex;
   char Path[128];
 } XENPCI_IDENTIFICATION_DESCRIPTION, *PXENPCI_IDENTIFICATION_DESCRIPTION;
 
 typedef struct _ev_action_t {
   PKSERVICE_ROUTINE ServiceRoutine;
   PVOID ServiceContext;
+  BOOLEAN DpcFlag;
+  WDFDPC Dpc;
   ULONG Count;
 } ev_action_t;
+
+typedef struct {
+  ev_action_t *Action;
+} EVTCHN_DEVICE_DATA, *PEVTCHN_DEVICE_DATA;
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(EVTCHN_DEVICE_DATA, GetEvtChnDeviceData);
 
 typedef struct _XENBUS_WATCH_RING
 {
@@ -191,6 +197,8 @@ NTSTATUS
 EvtChn_Unmask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
 EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
+NTSTATUS
+EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 NTSTATUS
 EvtChn_Unbind(PVOID Context, evtchn_port_t Port);
 NTSTATUS

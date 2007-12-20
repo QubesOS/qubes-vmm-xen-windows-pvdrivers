@@ -6,9 +6,10 @@
 
 4. Go into each of xenpci, xenvbd, xennet, and xenhide and do a 'BLD'.
 
-5. Assuming all went well, your drivers should be in toplevel target/i386
-directory.
+5. Assuming all went well, your drivers should be in target/<sys>/i386 directory. (<sys> is winnet or winxp)
 
 I've probably omitted some vitally important step from the above, so please let me know if you need any assistance compiling.
 
 See the INSTALLING.txt file for information on how to install.
+
+There is also a simple C# app which will enable 'graceful' shutdown (eg 'xm shutdown' and 'xm reboot' will do the right thing). Open Xen.sln in Visual Studio to build it.

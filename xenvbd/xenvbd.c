@@ -205,7 +205,11 @@ XenVbd_Interrupt(PKINTERRUPT Interrupt, PVOID DeviceExtension)
 {
   PXENVBD_TARGET_DATA TargetData = (PXENVBD_TARGET_DATA)DeviceExtension;
 
+//  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
+
   TargetData->PendingInterrupt = TRUE;
+
+//  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
   return;
 }
 
