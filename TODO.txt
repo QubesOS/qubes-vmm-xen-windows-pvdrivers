@@ -3,20 +3,15 @@ get to that as soon as I figure out what coding style to use and where.
 
 Known problems or things that need doing to make it properly useful:
 . Test under envirnments other than 32-bit PAE Windows 2003. Almost certainly won't work under 64 bit
-. Doesn't unload properly
 . No power management
 . Almost certainly won't support migration or suspend/resume.
-. Probably really poor performance - no optimisation done at all yet.
 . Reports of problems on Intel systems
-. No CDROM Support
 . Lockups under SMP
 . Probably lots of other things too.
 
 TODO:
 . Do some performance testing
-. Implement a nice shutdown so that 'xm shutdown domain' works (need a user space driver to do this)
 . network adapters (vif) (Andy Grover is looking at this)
 . virtual scsi (eg a front end for the scsi passthrough stuff)
 . balloon drivers (this should actually be pretty easy)
 . Write an installer for the above binaries to automate everything
-. Put up a binary release so it can get some further testing

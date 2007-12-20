@@ -156,33 +156,6 @@ get_id_from_freelist(NDIS_PACKET **list)
   return id;
 }
 
-static PMDL
-AllocatePages(int Pages)
-{
-  PHYSICAL_ADDRESS Min;
-  PHYSICAL_ADDRESS Max;
-  PHYSICAL_ADDRESS Align;
-  PMDL Mdl;
-
-  // KdPrint((__DRIVER_NAME " --> Allocate Pages\n"));
-
-  Min.QuadPart = 0;
-  Max.QuadPart = 0xFFFFFFFF;
-  Align.QuadPart = PAGE_SIZE;
-
-  Mdl = MmAllocatePagesForMdl(Min, Max, Align, Pages * PAGE_SIZE);
-
-  // KdPrint((__DRIVER_NAME " <-- Allocate Pages (mdl = %08x)\n", Mdl));
-
-  return Mdl;
-}
-  
-static PMDL
-AllocatePage()
-{
-  return AllocatePages(1);
-}
-
 static NDIS_STATUS
 XenNet_TxBufferGC(struct xennet_info *xi)
 {

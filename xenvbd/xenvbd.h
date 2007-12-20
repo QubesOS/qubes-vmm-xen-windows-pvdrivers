@@ -12,6 +12,8 @@
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
 
+#define __DRIVER_NAME "XenVbd"
+
 #include <xen_windows.h>
 #include <memory.h>
 #include <grant_table.h>
@@ -24,7 +26,7 @@
 #include <gnttbl_public.h>
 #include <io/ring.h>
 #include <io/blkif.h>
-#define __DRIVER_NAME "XenVbd"
+
 #define XENVBD_POOL_TAG (ULONG) 'XVBD'
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))

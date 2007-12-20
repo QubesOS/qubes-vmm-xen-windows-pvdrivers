@@ -33,6 +33,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
 
+#define __DRIVER_NAME "XenPCI"
+
 #include <xen_windows.h>
 #include <memory.h>
 #include <grant_table.h>
@@ -48,7 +50,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //{C828ABE9-14CA-4445-BAA6-82C2376C6518}
 DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82, 0xC2, 0x37, 0x6C, 0x65, 0x18);
 
-#define __DRIVER_NAME "XenPCI"
 #define XENPCI_POOL_TAG (ULONG) 'XenP'
 //#define XENPCI_FDO_INSTANCE_SIGNATURE (ULONG) 'XENP'
 

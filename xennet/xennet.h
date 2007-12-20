@@ -34,6 +34,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
 
+#define __DRIVER_NAME "XenNet"
+
 #include <xen_windows.h>
 #include <memory.h>
 #include <grant_table.h>
@@ -46,7 +48,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <gnttbl_public.h>
 #include <io/ring.h>
 #include <io/netif.h>
-#define __DRIVER_NAME "XenNet"
 #define XENNET_POOL_TAG (ULONG) 'XenN'
 
 #define NAME_SIZE 64

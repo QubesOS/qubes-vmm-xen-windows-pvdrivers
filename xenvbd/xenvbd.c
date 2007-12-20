@@ -87,45 +87,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   return Status;
 }
 
-static PMDL
-AllocatePages(int Pages)
-{
-  PMDL Mdl;
-  PVOID Buf;
-
-  //KdPrint((__DRIVER_NAME " --- AllocatePages IRQL = %d\n", KeGetCurrentIrql()));
-  Buf = ExAllocatePoolWithTag(NonPagedPool, Pages * PAGE_SIZE, XENVBD_POOL_TAG);
-  if (Buf == NULL)
-  {
-    KdPrint((__DRIVER_NAME "     AllocatePages Failed at ExAllocatePoolWithTag\n"));
-  }
-  Mdl = IoAllocateMdl(Buf, Pages * PAGE_SIZE, FALSE, FALSE, NULL);
-  if (Mdl == NULL)
-  {
-    KdPrint((__DRIVER_NAME "     AllocatePages Failed at IoAllocateMdl\n"));
-  }
-  MmBuildMdlForNonPagedPool(Mdl);
-  
-  return Mdl;
-}
-
-static PMDL
-AllocatePage()
-{
-  return AllocatePages(1);
-}
-
-static VOID
-FreePages(PMDL Mdl)
-{
-  PVOID Buf = MmGetMdlVirtualAddress(Mdl);
-  //KdPrint((__DRIVER_NAME " --- FreePages IRQL = %d\n", KeGetCurrentIrql()));
-  //KdPrint((__DRIVER_NAME "     FreePages Failed at IoAllocateMdl\n"));
-  //KdPrint((__DRIVER_NAME "     FreePages Buf = %08x\n", Buf));
-  IoFreeMdl(Mdl);
-  ExFreePoolWithTag(Buf, XENVBD_POOL_TAG);
-}
-
 static ULONG
 XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
 {
