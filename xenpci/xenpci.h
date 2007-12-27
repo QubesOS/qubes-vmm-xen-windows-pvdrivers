@@ -42,10 +42,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <hvm/params.h>
 #include <hvm/hvm_op.h>
 
-#include <evtchn_public.h>
-#include <xenbus_public.h>
 #include <xen_public.h>
-#include <gnttbl_public.h>
 
 //{C828ABE9-14CA-4445-BAA6-82C2376C6518}
 DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82, 0xC2, 0x37, 0x6C, 0x65, 0x18);
@@ -58,13 +55,6 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define NR_GRANT_ENTRIES (NR_GRANT_FRAMES * PAGE_SIZE / sizeof(grant_entry_t))
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-
-typedef struct _XENPCI_IDENTIFICATION_DESCRIPTION
-{
-  WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Header;
-  UNICODE_STRING DeviceType;
-  char Path[128];
-} XENPCI_IDENTIFICATION_DESCRIPTION, *PXENPCI_IDENTIFICATION_DESCRIPTION;
 
 typedef struct _ev_action_t {
   PKSERVICE_ROUTINE ServiceRoutine;

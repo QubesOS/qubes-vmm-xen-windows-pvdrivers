@@ -32,6 +32,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
 
+#define __DRIVER_NAME "XenAddResource"
 #include <xen_windows.h>
 
 #include <memory.h>
@@ -39,12 +40,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <event_channel.h>
 #include <hvm/params.h>
 #include <hvm/hvm_op.h>
-#include <evtchn_public.h>
-#include <xenbus_public.h>
 #include <xen_public.h>
-#include <gnttbl_public.h>
 
-#define __DRIVER_NAME "XenAddResource"
 #define XENADDRESOURCE_POOL_TAG (ULONG) 'XenR'
 
 #define NR_RESERVED_ENTRIES 8

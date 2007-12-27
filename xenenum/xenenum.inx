@@ -1,0 +1,69 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%JAMESHARPER%
+
+[DestinationDirs]
+DefaultDestDir = 12
+ClassInstall32_CopyFiles=11
+CoInstaller_CopyFiles = 11
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Manufacturer]
+%JAMESHARPER%=JAMESHARPER,NT$ARCH$
+
+[JAMESHARPER.NT$ARCH$]
+%XenEnum.DRVDESC%=XenEnum_Inst, XEN\VIF
+
+[XenEnum_Inst.NT]
+CopyFiles=XenEnum.CopyFiles
+
+[XenEnum.CopyFiles]
+xenEnum.sys
+
+[XenEnum_Inst.NT.Services]
+AddService=XenEnum,2,XenEnum_Service 
+
+[XenEnum_Service]
+DisplayName    = %XenEnum.SVCDESC%                            
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+LoadOrderGroup = WdfLoadGroup
+ServiceBinary  = %12%\xenenum.sys                            
+AddReg = XenEnum_Service_AddReg
+
+[XenEnum_Service_AddReg]
+HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+
+[XenEnum_Inst.NT.CoInstallers]
+AddReg=CoInstaller_AddReg
+CopyFiles=CoInstaller_CopyFiles
+
+[XenEnum_Inst.NT.Wdf]
+KmdfService = xenenum, xenenum_wdfsect
+
+[xenenum_wdfsect]
+KmdfLibraryVersion = 1.0
+
+[SourceDisksFiles]
+xenenum.sys=1
+WdfCoinstaller01005.dll=1,,
+
+[SourceDisksNames]
+1 = %DISK_NAME%,,,\i386
+
+[CoInstaller_CopyFiles]
+WdfCoinstaller01005.dll,,,2
+
+[CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoinstaller01005.dll,WdfCoInstaller"
+
+[Strings]
+JAMESHARPER = "James Harper"
+XenEnum.SVCDESC = "Xen Enum Device Driver"
+XenEnum.DRVDESC = "Xen Enum Device Driver"
+DISK_NAME = "Xen Enum Device Driver Install Disk"

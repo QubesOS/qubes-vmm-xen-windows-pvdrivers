@@ -428,8 +428,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     /* TODO: must free pages in MDL as well as MDL using MmFreePagesFromMdl and ExFreePool */
     // or, allocate mem and then get mdl, then free mdl
     xi->tx_mdl = AllocatePage();
-    xi->tx_pgs = MmMapLockedPagesSpecifyCache(xi->tx_mdl, KernelMode, MmNonCached,
-      NULL, FALSE, NormalPagePriority);
+    xi->tx_pgs = MmGetMdlVirtualAddress(xi->tx_mdl); //MmMapLockedPagesSpecifyCache(xi->tx_mdl, KernelMode, MmNonCached, NULL, FALSE, NormalPagePriority);
     SHARED_RING_INIT(xi->tx_pgs);
     FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
     xi->tx_ring_ref = xi->GntTblInterface.GrantAccess(
@@ -437,8 +436,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
       *MmGetMdlPfnArray(xi->tx_mdl), FALSE);
 
     xi->rx_mdl = AllocatePage();
-    xi->rx_pgs = MmMapLockedPagesSpecifyCache(xi->rx_mdl, KernelMode, MmNonCached,
-      NULL, FALSE, NormalPagePriority);
+    xi->rx_pgs = MmGetMdlVirtualAddress(xi->rx_mdl); //MmMapLockedPagesSpecifyCache(xi->rx_mdl, KernelMode, MmNonCached, NULL, FALSE, NormalPagePriority);
     SHARED_RING_INIT(xi->rx_pgs);
     FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
     xi->rx_ring_ref = xi->GntTblInterface.GrantAccess(

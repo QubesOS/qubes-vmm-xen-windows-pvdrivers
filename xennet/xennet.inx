@@ -32,10 +32,10 @@ ExcludeFromSelect=*
 %JAMESHARPER%=JAMESHARPER,NTx86
 
 [JAMESHARPER]
-%XenNet.DRVDESC%=XenNet_Inst, XEN\VIF
+%XenNet.DRVDESC%=XenNet_Inst, XEN\VIFDEV
 
 [JAMESHARPER.NTx86]
-%XenNet.DRVDESC%=XenNet_Inst, XEN\VIF
+%XenNet.DRVDESC%=XenNet_Inst, XEN\VIFDEV
 
 [XenNet_Inst.NT]
 CopyFiles=XenNet.CopyFiles

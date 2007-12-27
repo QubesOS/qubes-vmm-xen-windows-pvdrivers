@@ -383,7 +383,7 @@ XenPCI_AddDevice(
     return Status;
   }
 
-  Status = WdfDeviceCreateDeviceInterface(Device, (LPGUID)&GUID_XEN_IFACE_XEN, NULL);
+  Status = WdfDeviceCreateDeviceInterface(Device, (LPGUID)&GUID_XEN_IFACE, NULL);
   if (!NT_SUCCESS(Status))
   {
     KdPrint((__DRIVER_NAME "     WdfDeviceCreateDeviceInterface failed 0x%08x\n", Status));
@@ -795,66 +795,35 @@ XenPCI_ChildListCreateDevice(
   memcpy(&ChildDeviceData->InterruptRaw, &InterruptRaw, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
   memcpy(&ChildDeviceData->InterruptTranslated, &InterruptTranslated, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
   
-  ChildDeviceData->EvtChnInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->EvtChnInterface);
-  ChildDeviceData->EvtChnInterface.InterfaceHeader.Version = 1;
-  ChildDeviceData->EvtChnInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
-  ChildDeviceData->EvtChnInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
-  ChildDeviceData->EvtChnInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
-  ChildDeviceData->EvtChnInterface.Bind = EvtChn_Bind;
-  ChildDeviceData->EvtChnInterface.Unbind = EvtChn_Unbind;
-  ChildDeviceData->EvtChnInterface.Mask = EvtChn_Mask;
-  ChildDeviceData->EvtChnInterface.Unmask = EvtChn_Unmask;
-  ChildDeviceData->EvtChnInterface.Notify = EvtChn_Notify;
-  ChildDeviceData->EvtChnInterface.AllocUnbound = EvtChn_AllocUnbound;
-  ChildDeviceData->EvtChnInterface.BindDpc = EvtChn_BindDpc;
-  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->EvtChnInterface, &GUID_XEN_IFACE_EVTCHN, NULL);
-  status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
-  if (!NT_SUCCESS(status))
-  {
-    return status;
-  }
-
-/*
   ChildDeviceData->XenInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->XenInterface);
   ChildDeviceData->XenInterface.InterfaceHeader.Version = 1;
-  ChildDeviceData->XenInterface.InterfaceHeader.Context = NULL;
+  ChildDeviceData->XenInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
+
   ChildDeviceData->XenInterface.AllocMMIO = XenPCI_AllocMMIO;
-  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->XenInterface, &GUID_XEN_IFACE_XEN, NULL);
-  status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
-  if (!NT_SUCCESS(status)) {
-    return status;
-  }
-*/
 
-  ChildDeviceData->GntTblInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->GntTblInterface);
-  ChildDeviceData->GntTblInterface.InterfaceHeader.Version = 1;
-  ChildDeviceData->GntTblInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
-  ChildDeviceData->GntTblInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
-  ChildDeviceData->GntTblInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
-  ChildDeviceData->GntTblInterface.GrantAccess = GntTbl_GrantAccess;
-  ChildDeviceData->GntTblInterface.EndAccess = GntTbl_EndAccess;
-  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->GntTblInterface, &GUID_XEN_IFACE_GNTTBL, NULL);
-  status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
-  if (!NT_SUCCESS(status)) {
-    return status;
-  }
+  ChildDeviceData->XenInterface.EvtChn_Bind = EvtChn_Bind;
+  ChildDeviceData->XenInterface.EvtChn_Unbind = EvtChn_Unbind;
+  ChildDeviceData->XenInterface.EvtChn_Mask = EvtChn_Mask;
+  ChildDeviceData->XenInterface.EvtChn_Unmask = EvtChn_Unmask;
+  ChildDeviceData->XenInterface.EvtChn_Notify = EvtChn_Notify;
+  ChildDeviceData->XenInterface.EvtChn_AllocUnbound = EvtChn_AllocUnbound;
+  ChildDeviceData->XenInterface.EvtChn_BindDpc = EvtChn_BindDpc;
 
-  ChildDeviceData->XenBusInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->XenBusInterface);
-  ChildDeviceData->XenBusInterface.InterfaceHeader.Version = 1;
-  ChildDeviceData->XenBusInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
-  //XenBusInterface.InterfaceHeader.Context = ExAllocatePoolWithTag(NonPagedPool, (strlen(XenIdentificationDesc->Path) + 1), XENPCI_POOL_TAG);
-  //strcpy(XenBusInterface.InterfaceHeader.Context, XenIdentificationDesc->Path);
-  ChildDeviceData->XenBusInterface.Read = XenBus_Read;
-  ChildDeviceData->XenBusInterface.Write = XenBus_Write;
-  ChildDeviceData->XenBusInterface.Printf = XenBus_Printf;
-  ChildDeviceData->XenBusInterface.StartTransaction = XenBus_StartTransaction;
-  ChildDeviceData->XenBusInterface.EndTransaction = XenBus_EndTransaction;
-  ChildDeviceData->XenBusInterface.List = XenBus_List;
-  ChildDeviceData->XenBusInterface.AddWatch = XenBus_AddWatch;
-  ChildDeviceData->XenBusInterface.RemWatch = XenBus_RemWatch;
-  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->XenBusInterface, &GUID_XEN_IFACE_XENBUS, NULL);
+  ChildDeviceData->XenInterface.GntTbl_GrantAccess = GntTbl_GrantAccess;
+  ChildDeviceData->XenInterface.GntTbl_EndAccess = GntTbl_EndAccess;
+
+  ChildDeviceData->XenInterface.XenBus_Read = XenBus_Read;
+  ChildDeviceData->XenInterface.XenBus_Write = XenBus_Write;
+  ChildDeviceData->XenInterface.XenBus_Printf = XenBus_Printf;
+  ChildDeviceData->XenInterface.XenBus_StartTransaction = XenBus_StartTransaction;
+  ChildDeviceData->XenInterface.XenBus_EndTransaction = XenBus_EndTransaction;
+  ChildDeviceData->XenInterface.XenBus_List = XenBus_List;
+  ChildDeviceData->XenInterface.XenBus_AddWatch = XenBus_AddWatch;
+  ChildDeviceData->XenInterface.XenBus_RemWatch = XenBus_RemWatch;
+
+  WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->XenInterface, &GUID_XEN_IFACE, NULL);
   status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
   if (!NT_SUCCESS(status)) {
     return status;

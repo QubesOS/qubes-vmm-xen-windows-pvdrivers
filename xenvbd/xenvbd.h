@@ -21,9 +21,6 @@
 #include <hvm/params.h>
 #include <hvm/hvm_op.h>
 #include <xen_public.h>
-#include <evtchn_public.h>
-#include <xenbus_public.h>
-#include <gnttbl_public.h>
 #include <io/ring.h>
 #include <io/blkif.h>
 

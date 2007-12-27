@@ -33,6 +33,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
 
+#define __DRIVER_NAME "XenHide"
+
 #include <xen_windows.h>
 
 #include <memory.h>
@@ -44,7 +46,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //{C828ABE9-14CA-4445-BAA6-82C2376C6518}
 //DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82, 0xC2, 0x37, 0x6C, 0x65, 0x18);
 
-#define __DRIVER_NAME "XenHide"
 #define XENHIDE_POOL_TAG (ULONG) 'XenH'
 //#define XENHIDE_FDO_INSTANCE_SIGNATURE (ULONG) 'XENP'
 
@@ -95,11 +96,5 @@ typedef unsigned long xenbus_transaction_t;
 typedef uint32_t XENSTORE_RING_IDX;
 
 #define XBT_NIL ((xenbus_transaction_t)0)
-
-#include <evtchn_public.h>
-#include <xenbus_public.h>
-#include <xen_public.h>
-#include <gnttbl_public.h>
-
 
 #endif
