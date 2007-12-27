@@ -49,6 +49,7 @@ struct xennet_info
   PDEVICE_OBJECT fdo;
   PDEVICE_OBJECT lower_do;
   WDFDEVICE wdf_device;
+  PXENPCI_XEN_DEVICE_DATA pdoData;
 
   WCHAR name[NAME_SIZE];
   NDIS_HANDLE adapter_handle;
@@ -59,10 +60,7 @@ struct xennet_info
 
   char Path[128];
   char BackendPath[128];
-  XEN_IFACE_EVTCHN EvtChnInterface;
-  XEN_IFACE_XENBUS XenBusInterface;
-  XEN_IFACE_XEN XenInterface;
-  XEN_IFACE_GNTTBL GntTblInterface;
+  XEN_IFACE XenInterface;
 
   /* ring control structures */
   struct netif_tx_front_ring tx;
@@ -92,7 +90,7 @@ struct xennet_info
   grant_ref_t tx_ring_ref;
   grant_ref_t rx_ring_ref;
 
-	/* Receive-ring batched refills. */
+  /* Receive-ring batched refills. */
 #define RX_MIN_TARGET 8
 #define RX_DFL_MIN_TARGET 64
 #define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
@@ -179,7 +177,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
       id  = txrsp->id;
       pkt = xi->tx_pkts[id];
-      xi->GntTblInterface.EndAccess(xi->GntTblInterface.InterfaceHeader.Context,
+      xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
         xi->grant_tx_ref[id]);
       xi->grant_tx_ref[id] = GRANT_INVALID_REF;
       add_id_to_freelist(xi->tx_pkts, id);
@@ -263,8 +261,8 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
     xi->rx_pkts[id] = packet;
     req = RING_GET_REQUEST(&xi->rx, req_prod + i);
     /* an NDIS_BUFFER is just a MDL, so we can get its pfn array */
-    ref = xi->GntTblInterface.GrantAccess(
-      xi->GntTblInterface.InterfaceHeader.Context, 0,
+    ref = xi->XenInterface.GntTbl_GrantAccess(
+      xi->XenInterface.InterfaceHeader.Context, 0,
       *MmGetMdlPfnArray(buffer), FALSE);
     ASSERT((signed short)ref >= 0);
     xi->grant_rx_ref[id] = ref;
@@ -277,7 +275,7 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->rx, notify);
   if (notify)
   {
-    xi->EvtChnInterface.Notify(xi->EvtChnInterface.InterfaceHeader.Context,
+    xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel);
   }
 
@@ -310,7 +308,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
       pkt = xi->rx_pkts[rxrsp->id];
       xi->rx_pkts[rxrsp->id] = NULL;
-      xi->GntTblInterface.EndAccess(xi->GntTblInterface.InterfaceHeader.Context,
+      xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
         xi->grant_rx_ref[rxrsp->id]);
       xi->grant_rx_ref[rxrsp->id] = GRANT_INVALID_REF;
 
@@ -402,7 +400,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     {NULL, 0},
   };
 
-  xi->XenBusInterface.Read(xi->XenBusInterface.InterfaceHeader.Context,
+  xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
     XBT_NIL, Path, &Value);
   be_state = atoi(Value);
   ExFreePool(Value);
@@ -420,9 +418,9 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
   case XenbusStateInitWait:
     KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait\n"));  
 
-    xi->event_channel = xi->EvtChnInterface.AllocUnbound(
-      xi->EvtChnInterface.InterfaceHeader.Context, 0);  
-    xi->EvtChnInterface.Bind(xi->EvtChnInterface.InterfaceHeader.Context,
+    xi->event_channel = xi->XenInterface.EvtChn_AllocUnbound(
+      xi->XenInterface.InterfaceHeader.Context, 0);  
+    xi->XenInterface.EvtChn_Bind(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel, XenNet_Interrupt, xi);
 
     /* TODO: must free pages in MDL as well as MDL using MmFreePagesFromMdl and ExFreePool */
@@ -431,16 +429,16 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     xi->tx_pgs = MmGetMdlVirtualAddress(xi->tx_mdl); //MmMapLockedPagesSpecifyCache(xi->tx_mdl, KernelMode, MmNonCached, NULL, FALSE, NormalPagePriority);
     SHARED_RING_INIT(xi->tx_pgs);
     FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
-    xi->tx_ring_ref = xi->GntTblInterface.GrantAccess(
-      xi->GntTblInterface.InterfaceHeader.Context, 0,
+    xi->tx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
+      xi->XenInterface.InterfaceHeader.Context, 0,
       *MmGetMdlPfnArray(xi->tx_mdl), FALSE);
 
     xi->rx_mdl = AllocatePage();
     xi->rx_pgs = MmGetMdlVirtualAddress(xi->rx_mdl); //MmMapLockedPagesSpecifyCache(xi->rx_mdl, KernelMode, MmNonCached, NULL, FALSE, NormalPagePriority);
     SHARED_RING_INIT(xi->rx_pgs);
     FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
-    xi->rx_ring_ref = xi->GntTblInterface.GrantAccess(
-      xi->GntTblInterface.InterfaceHeader.Context, 0,
+    xi->rx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
+      xi->XenInterface.InterfaceHeader.Context, 0,
       *MmGetMdlPfnArray(xi->rx_mdl), FALSE);
 
     /* fixup array for dynamic values */
@@ -448,14 +446,14 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     params[1].value = xi->rx_ring_ref;
     params[2].value = xi->event_channel;
 
-    xi->XenBusInterface.StartTransaction(
-      xi->XenBusInterface.InterfaceHeader.Context, &xbt);
+    xi->XenInterface.XenBus_StartTransaction(
+      xi->XenInterface.InterfaceHeader.Context, &xbt);
 
     for (i = 0; params[i].name; i++)
     {
       RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/%s",
         xi->Path, params[i].name);
-      err = xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+      err = xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
         XBT_NIL, TmpPath, "%d", params[i].value);
       if (err)
       {
@@ -465,14 +463,14 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     }
 
     /* commit transaction */
-    xi->XenBusInterface.EndTransaction(xi->XenBusInterface.InterfaceHeader.Context,
+    xi->XenInterface.XenBus_EndTransaction(xi->XenInterface.InterfaceHeader.Context,
       xbt, 0, &retry);
 
     XenNet_AllocRXBuffers(xi);
 
     KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
     RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->Path);
-    xi->XenBusInterface.Printf(xi->XenBusInterface.InterfaceHeader.Context,
+    xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, "%d", XenbusStateConnected);
 
     /* send fake arp? */
@@ -506,7 +504,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
 trouble:
   KdPrint((__DRIVER_NAME __FUNCTION__ ": Should never happen!\n"));
-  xi->XenBusInterface.EndTransaction(xi->XenBusInterface.InterfaceHeader.Context,
+  xi->XenInterface.XenBus_EndTransaction(xi->XenInterface.InterfaceHeader.Context,
     xbt, 1, &retry);
 
 }
@@ -594,6 +592,7 @@ XenNet_Init(
 
   NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
     &xi->lower_do, NULL, NULL);
+  xi->pdoData = (PXENPCI_XEN_DEVICE_DATA)xi->pdo->DeviceExtension;
 
   /* Initialize tx_pkts as a free chain containing every entry. */
   for (i = 0; i <= NET_TX_RING_SIZE; i++) {
@@ -632,45 +631,20 @@ XenNet_Init(
 
   /* get lower (Xen) interfaces */
 
-  status = WdfFdoQueryForInterface(xi->wdf_device, &GUID_XEN_IFACE_EVTCHN,
-    (PINTERFACE) &xi->EvtChnInterface, sizeof(XEN_IFACE_EVTCHN), 1, NULL);
+  status = WdfFdoQueryForInterface(xi->wdf_device, &GUID_XEN_IFACE,
+    (PINTERFACE) &xi->XenInterface, sizeof(XEN_IFACE), 1, NULL);
   if(!NT_SUCCESS(status))
   {
-    KdPrint(("WdfFdoQueryForInterface (EvtChn) failed with status 0x%08x\n", status));
+    KdPrint(("WdfFdoQueryForInterface failed with status 0x%08x\n", status));
     status = NDIS_STATUS_FAILURE;
     goto err;
   }
 
-  status = WdfFdoQueryForInterface(xi->wdf_device, &GUID_XEN_IFACE_XENBUS,
-    (PINTERFACE) &xi->XenBusInterface, sizeof(XEN_IFACE_XENBUS), 1, NULL);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint(("WdfFdoQueryForInterface (XenBus) failed with status 0x%08x\n", status));
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  }
 
-#if 0
-  status = WdfFdoQueryForInterface(xi->wdf_device, &GUID_XEN_IFACE_XEN,
-    (PINTERFACE) &xi->XenInterface, sizeof(XEN_IFACE_XEN), 1, NULL);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint(("WdfFdoQueryForInterface (Xen) failed with status 0x%08x\n", status));
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  }
-#endif
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
+      "%s/%d/state", xi->pdoData->Path, xi->pdoData->DeviceIndex);
 
-  status = WdfFdoQueryForInterface(xi->wdf_device, &GUID_XEN_IFACE_GNTTBL,
-    (PINTERFACE) &xi->GntTblInterface, sizeof(XEN_IFACE_GNTTBL), 1, NULL);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint(("WdfFdoQueryForInterface (GntTbl) failed with status 0x%08x\n", status));
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  }
-
-  msg = xi->XenBusInterface.List(xi->EvtChnInterface.InterfaceHeader.Context,
+  msg = xi->XenInterface.XenBus_List(xi->XenInterface.InterfaceHeader.Context,
     XBT_NIL, "device/vif", &vif_devs);
   if (msg)
   {
@@ -693,7 +667,7 @@ XenNet_Init(
     KdPrint(("%s\n", TmpPath));
 
     RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/backend", xi->Path);
-    xi->XenBusInterface.Read(xi->XenBusInterface.InterfaceHeader.Context,
+    xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, &Value);
     if (!Value)
     {
@@ -708,12 +682,12 @@ XenNet_Init(
 
     /* Add watch on backend state */
     RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->BackendPath);
-    xi->XenBusInterface.AddWatch(xi->XenBusInterface.InterfaceHeader.Context,
+    xi->XenInterface.XenBus_AddWatch(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
 
     /* get mac address */
     RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->Path);
-    xi->XenBusInterface.Read(xi->XenBusInterface.InterfaceHeader.Context,
+    xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, &Value);
     if (!Value)
     {
@@ -1066,8 +1040,8 @@ XenNet_SendPackets(
 
     tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
     tx->id = id;
-    tx->gref = xi->GntTblInterface.GrantAccess(
-      xi->GntTblInterface.InterfaceHeader.Context,
+    tx->gref = xi->XenInterface.GntTbl_GrantAccess(
+      xi->XenInterface.InterfaceHeader.Context,
       0,
       *MmGetMdlPfnArray(pmdl),
       TRUE);
@@ -1085,7 +1059,7 @@ XenNet_SendPackets(
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->tx, notify);
   if (notify)
   {
-    xi->EvtChnInterface.Notify(xi->EvtChnInterface.InterfaceHeader.Context,
+    xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel);
   }
 }

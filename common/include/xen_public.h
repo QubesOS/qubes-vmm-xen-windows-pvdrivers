@@ -113,19 +113,17 @@ typedef struct _XENPCI_IDENTIFICATION_DESCRIPTION
 {
   WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Header;
   UNICODE_STRING DeviceType;
-  ULONG DeviceIndex;
   char Path[128];
+  ULONG DeviceIndex;
 } XENPCI_IDENTIFICATION_DESCRIPTION, *PXENPCI_IDENTIFICATION_DESCRIPTION;
 
 typedef struct {
   ULONG Magic;
-  char BasePath[128];
+  char Path[128];
+  ULONG DeviceIndex;
   PXENBUS_WATCH_CALLBACK WatchHandler;
   PVOID WatchContext;
-  //XEN_IFACE_EVTCHN EvtChnInterface;
-//  XEN_IFACE_XENBUS XenBusInterface;
   XEN_IFACE XenInterface;
-//  XEN_IFACE_GNTTBL GntTblInterface;
   BOOLEAN AutoEnumerate;
   CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptRaw;
   CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptTranslated;

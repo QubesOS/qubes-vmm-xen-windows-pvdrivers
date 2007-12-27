@@ -297,7 +297,7 @@ XenEnum_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pr
 
   PdoDeviceData = (PXENPCI_XEN_DEVICE_DATA)Pdo->DeviceExtension; //GetXenDeviceData(Device);
 
-  //KdPrint((__DRIVER_NAME "     BasePath = %s\n", PdoDeviceData->BasePath));
+  //KdPrint((__DRIVER_NAME "     Path = %s\n", PdoDeviceData->Path));
   PdoDeviceData->WatchHandler = XenEnum_WatchHandler;
   PdoDeviceData->WatchContext = Device;
 
@@ -308,14 +308,14 @@ XenEnum_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pr
   if (AutoEnumerate)
   {
     // TODO: Get the correct path from parent here...
-    msg = XenInterface.XenBus_List(XenInterface.InterfaceHeader.Context, XBT_NIL, PdoDeviceData->BasePath, &Devices);
+    msg = XenInterface.XenBus_List(XenInterface.InterfaceHeader.Context, XBT_NIL, PdoDeviceData->Path, &Devices);
     if (!msg)
     {
       for (i = 0; Devices[i]; i++)
       {
         KdPrint((__DRIVER_NAME "     found existing device %s\n", Devices[i]));
-        KdPrint((__DRIVER_NAME "     faking watch event for %s/%s", PdoDeviceData->BasePath, Devices[i]));
-        RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "%s/%s", PdoDeviceData->BasePath, Devices[i]);
+        KdPrint((__DRIVER_NAME "     faking watch event for %s/%s", PdoDeviceData->Path, Devices[i]));
+        RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "%s/%s", PdoDeviceData->Path, Devices[i]);
         XenEnum_WatchHandler(buffer, Device);
         //ExFreePoolWithTag(Devices[i], XENPCI_POOL_TAG);
       }
@@ -448,15 +448,15 @@ XenEnum_WatchHandler(char *Path, PVOID Data)
         KdPrint((__FUNCTION__ " No child device data, should never happen\n"));
         continue;
       }
-      if (strncmp(ChildDeviceData->BasePath, Path, strlen(ChildDeviceData->BasePath)) == 0 && Path[strlen(ChildDeviceData->BasePath)] == '/')
+      if (strncmp(ChildDeviceData->Path, Path, strlen(ChildDeviceData->Path)) == 0 && Path[strlen(ChildDeviceData->Path)] == '/')
       {
-        KdPrint((__DRIVER_NAME "     Child Path = %s (Match - WatchHandler = %08x)\n", ChildDeviceData->BasePath, ChildDeviceData->WatchHandler));
+        KdPrint((__DRIVER_NAME "     Child Path = %s (Match - WatchHandler = %08x)\n", ChildDeviceData->Path, ChildDeviceData->WatchHandler));
         if (ChildDeviceData->WatchHandler != NULL)
           ChildDeviceData->WatchHandler(Path, ChildDeviceData->WatchContext);
       }
       else
       {
-        //KdPrint((__DRIVER_NAME "     Child Path = %s (No Match)\n", ChildDeviceData->BasePath));
+        //KdPrint((__DRIVER_NAME "     Child Path = %s (No Match)\n", ChildDeviceData->Path));
       }
     }
     WdfChildListEndIteration(ChildList, &ChildIterator);
@@ -523,7 +523,7 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
   ChildDeviceData->Magic = XEN_DATA_MAGIC;
   ChildDeviceData->AutoEnumerate = AutoEnumerate;
   ChildDeviceData->WatchHandler = NULL;
-  strncpy(ChildDeviceData->BasePath, XenIdentificationDesc->Path, 128);
+  strncpy(ChildDeviceData->Path, XenIdentificationDesc->Path, 128);
 //  memcpy(&ChildDeviceData->InterruptRaw, &InterruptRaw, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
 //  memcpy(&ChildDeviceData->InterruptTranslated, &InterruptTranslated, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
   

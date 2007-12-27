@@ -3,7 +3,7 @@ Signature="$WINDOWS NT$"
 Class=Net
 ClassGuid={4D36E972-E325-11CE-BFC1-08002BE10318}
 Provider=%JAMESHARPER%
-DriverVer=11/11/2007,1.0.1.290
+;DriverVer=11/11/2007,1.0.1.290
 
 [DestinationDirs]
 DefaultDestDir = 12
@@ -29,12 +29,9 @@ ExcludeFromSelect=*
 
 
 [Manufacturer]
-%JAMESHARPER%=JAMESHARPER,NTx86
+%JAMESHARPER%=JAMESHARPER,NT$ARCH$
 
-[JAMESHARPER]
-%XenNet.DRVDESC%=XenNet_Inst, XEN\VIFDEV
-
-[JAMESHARPER.NTx86]
+[JAMESHARPER.NT$ARCH$]
 %XenNet.DRVDESC%=XenNet_Inst, XEN\VIFDEV
 
 [XenNet_Inst.NT]
@@ -54,7 +51,7 @@ xennet.sys
 xennet.sys=1
 WdfCoinstaller01005.dll=1,,
 
-[SourceDisksNames.x86]
+[SourceDisksNames]
 1 = %DISK_NAME%,,,\i386
 
 [XenNet_Inst.Services]

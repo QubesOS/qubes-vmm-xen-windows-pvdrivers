@@ -791,7 +791,8 @@ XenPCI_ChildListCreateDevice(
   ChildDeviceData->Magic = XEN_DATA_MAGIC;
   ChildDeviceData->AutoEnumerate = AutoEnumerate;
   ChildDeviceData->WatchHandler = NULL;
-  strncpy(ChildDeviceData->BasePath, XenIdentificationDesc->Path, 128);
+  strncpy(ChildDeviceData->Path, XenIdentificationDesc->Path, 128);
+  ChildDeviceData->DeviceIndex = XenIdentificationDesc->DeviceIndex;
   memcpy(&ChildDeviceData->InterruptRaw, &InterruptRaw, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
   memcpy(&ChildDeviceData->InterruptTranslated, &InterruptTranslated, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
   
@@ -883,15 +884,15 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
           KdPrint((__FUNCTION__ " No child device data, should never happen\n"));
           continue;
         }
-        if (strncmp(ChildDeviceData->BasePath, Path, strlen(ChildDeviceData->BasePath)) == 0 && Path[strlen(ChildDeviceData->BasePath)] == '/')
+        if (strncmp(ChildDeviceData->Path, Path, strlen(ChildDeviceData->Path)) == 0 && Path[strlen(ChildDeviceData->Path)] == '/')
         {
-          //KdPrint((__DRIVER_NAME "     Child Path = %s (Match - WatchHandler = %08x)\n", ChildDeviceData->BasePath, ChildDeviceData->WatchHandler));
+          //KdPrint((__DRIVER_NAME "     Child Path = %s (Match - WatchHandler = %08x)\n", ChildDeviceData->Path, ChildDeviceData->WatchHandler));
           if (ChildDeviceData->WatchHandler != NULL)
             ChildDeviceData->WatchHandler(Path, ChildDeviceData->WatchContext);
         }
         else
         {
-          //KdPrint((__DRIVER_NAME "     Child Path = %s (No Match)\n", ChildDeviceData->BasePath));
+          //KdPrint((__DRIVER_NAME "     Child Path = %s (No Match)\n", ChildDeviceData->Path));
         }
       }
       WdfChildListEndIteration(ChildList, &ChildIterator);
