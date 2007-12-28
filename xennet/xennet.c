@@ -58,7 +58,7 @@ struct xennet_info
   UINT8 perm_mac_addr[ETH_ALEN];
   UINT8 curr_mac_addr[ETH_ALEN];
 
-  char Path[128];
+//  char Path[128];
   char BackendPath[128];
   XEN_IFACE XenInterface;
 
@@ -107,6 +107,8 @@ struct xennet_info
   ULONG64 stat_tx_error;
   ULONG64 stat_rx_error;
   ULONG64 stat_rx_no_buffer;
+
+  KEVENT backend_ready_event;
 };
 
 /* This function copied from linux's lib/vsprintf.c, see it for attribution */
@@ -403,7 +405,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
   xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
     XBT_NIL, Path, &Value);
   be_state = atoi(Value);
-  ExFreePool(Value);
+  xi->XenInterface.FreeMem(Value);
 
   switch (be_state)
   {
@@ -452,7 +454,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     for (i = 0; params[i].name; i++)
     {
       RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/%s",
-        xi->Path, params[i].name);
+        xi->pdoData->Path, params[i].name);
       err = xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
         XBT_NIL, TmpPath, "%d", params[i].value);
       if (err)
@@ -469,7 +471,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     XenNet_AllocRXBuffers(xi);
 
     KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->Path);
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
     xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, "%d", XenbusStateConnected);
 
@@ -485,6 +487,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
   case XenbusStateConnected:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Connected\n"));  
+    KeSetEvent(&xi->backend_ready_event, 1, FALSE);
     break;
 
   case XenbusStateClosing:
@@ -535,7 +538,6 @@ XenNet_Init(
   WDF_OBJECT_ATTRIBUTES wdf_attrs;
   char *msg;
   char *Value;
-  char **vif_devs;
   char TmpPath[128];
 
   UNREFERENCED_PARAMETER(OpenErrorStatus);
@@ -640,85 +642,59 @@ XenNet_Init(
     goto err;
   }
 
-
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
-      "%s/%d/state", xi->pdoData->Path, xi->pdoData->DeviceIndex);
-
-  msg = xi->XenInterface.XenBus_List(xi->XenInterface.InterfaceHeader.Context,
-    XBT_NIL, "device/vif", &vif_devs);
-  if (msg)
+      "%s/backend", xi->pdoData->Path);
+  KdPrint(("About to read %s to get backend path\n", TmpPath));
+  xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, &Value);
+  if (!Value)
   {
-    KdPrint((__DRIVER_NAME ": " __FUNCTION__ ": List retval is nonzero!\n"));
+    KdPrint((__DRIVER_NAME "    Failed to read backend path\n"));
     status = NDIS_STATUS_FAILURE;
     goto err;
   }
+  // Check for Value == NULL here
+  RtlStringCbCopyA(xi->BackendPath, ARRAY_SIZE(xi->BackendPath), Value);
+  KdPrint((__DRIVER_NAME "backend path = %s\n", xi->BackendPath));
 
-  for (i = 0; vif_devs[i]; i++)
-  {
-    if (i > 0)
-    {
-      KdPrint((__DRIVER_NAME "Can only handle 1 vif so far, ignoring vif %s\n", vif_devs[i]));
-      continue;
-    }
-    RtlStringCbPrintfA(xi->Path, ARRAY_SIZE(xi->Path), "device/vif/%s", vif_devs[i]);
+  KeInitializeEvent(&xi->backend_ready_event, SynchronizationEvent, FALSE);  
 
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
-      "device/vif/%s/state", vif_devs[i]);
-    KdPrint(("%s\n", TmpPath));
-
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/backend", xi->Path);
-    xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, &Value);
-    if (!Value)
-    {
-      KdPrint((__DRIVER_NAME "    backend Read Failed\n"));
-    }
-    else
-    {
-      RtlStringCbCopyA(xi->BackendPath, ARRAY_SIZE(xi->BackendPath), Value);
-      KdPrint((__DRIVER_NAME "backend path = %s\n", xi->BackendPath));
-    }
-    ExFreePool(Value);
-
-    /* Add watch on backend state */
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->BackendPath);
-    xi->XenInterface.XenBus_AddWatch(xi->XenInterface.InterfaceHeader.Context,
+  /* Add watch on backend state */
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->BackendPath);
+  xi->XenInterface.XenBus_AddWatch(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
 
-    /* get mac address */
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->Path);
-    xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
+  // wait here for signal that we are all set up
+  KeWaitForSingleObject(&xi->backend_ready_event, Executive, KernelMode, FALSE, NULL);
+
+  /* get mac address */
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->BackendPath);
+  xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, &Value);
-    if (!Value)
-    {
-      KdPrint((__DRIVER_NAME "    mac Read Failed\n"));
-    }
-    else
-    {
-      char *s, *e;
-      int i;
-
-      s = Value;
-
-      for (i = 0; i < ETH_ALEN; i++) {
-        xi->perm_mac_addr[i] = (UINT8)simple_strtoul(s, &e, 16);
-        if ((s == e) || (*e != ((i == ETH_ALEN-1) ? '\0' : ':'))) {
-          KdPrint((__DRIVER_NAME "Error parsing MAC address\n"));
-          ExFreePool(Value);
-          ExFreePool(vif_devs);
-          status = NDIS_STATUS_FAILURE;
-          goto err;
-        }
-        s = e + 1;
-      }
-      memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
-    }
-    ExFreePool(Value);
-
-    //XenVbd_HotPlugHandler(buffer, NULL);
-    //ExFreePoolWithTag(bdDevices[i], XENPCI_POOL_TAG);
+  if (!Value)
+  {
+    KdPrint((__DRIVER_NAME "    mac Read Failed\n"));
+    status = NDIS_STATUS_FAILURE;
+    goto err;
   }
-  ExFreePool(vif_devs);
+  else
+  {
+    char *s, *e;
+    int i;
+    s = Value;
+    for (i = 0; i < ETH_ALEN; i++) {
+      xi->perm_mac_addr[i] = (UINT8)simple_strtoul(s, &e, 16);
+      if ((s == e) || (*e != ((i == ETH_ALEN-1) ? '\0' : ':'))) {
+        KdPrint((__DRIVER_NAME "Error parsing MAC address\n"));
+        xi->XenInterface.FreeMem(Value);
+        status = NDIS_STATUS_FAILURE;
+        goto err;
+      }
+      s = e + 1;
+    }
+    memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
+    xi->XenInterface.FreeMem(Value);
+  }
 
   return NDIS_STATUS_SUCCESS;
 

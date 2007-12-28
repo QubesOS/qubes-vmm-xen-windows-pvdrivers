@@ -203,6 +203,11 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   return status;
 }
 
+static XenPCI_FreeMem(PVOID Ptr)
+{
+  ExFreePoolWithTag(Ptr, XENPCI_POOL_TAG);
+}
+
 static NTSTATUS
 get_hypercall_stubs(WDFDEVICE Device)
 {
@@ -803,6 +808,7 @@ XenPCI_ChildListCreateDevice(
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
 
   ChildDeviceData->XenInterface.AllocMMIO = XenPCI_AllocMMIO;
+  ChildDeviceData->XenInterface.FreeMem = XenPCI_FreeMem;
 
   ChildDeviceData->XenInterface.EvtChn_Bind = EvtChn_Bind;
   ChildDeviceData->XenInterface.EvtChn_Unbind = EvtChn_Unbind;

@@ -42,8 +42,6 @@ AddReg = XenVbd_Service_AddReg
 
 [XenVbd_Service_AddReg]
 HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
-;HKR,,"LowerFilters",0x00010000,"XenAddResource"
-HKR,"w00t"", "XXX", 0x00010001, 0x00000001
 
 [XenVbd_Inst.NT.CoInstallers]
 AddReg=CoInstaller_AddReg

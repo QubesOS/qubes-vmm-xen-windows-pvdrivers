@@ -433,7 +433,10 @@ XenEnum_WatchHandler(char *Path, PVOID Data)
     RtlInitAnsiString(&AnsiBuf, Bits[1]);
     RtlAnsiStringToUnicodeString(&IdentificationDescription.DeviceType, &AnsiBuf, TRUE);
     IdentificationDescription.DeviceIndex = atoi(Bits[2]);
-    Status = WdfChildListAddOrUpdateChildDescriptionAsPresent(ChildList, &IdentificationDescription.Header, NULL);
+    if (IdentificationDescription.DeviceIndex > 0)
+    {
+      Status = WdfChildListAddOrUpdateChildDescriptionAsPresent(ChildList, &IdentificationDescription.Header, NULL);
+    }
   }
   else if (Count > 3)
   {
@@ -534,6 +537,7 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
 
   ChildDeviceData->XenInterface.AllocMMIO = XenInterface.AllocMMIO;
+  ChildDeviceData->XenInterface.FreeMem = XenInterface.FreeMem;
 
   ChildDeviceData->XenInterface.EvtChn_Bind = XenInterface.EvtChn_Bind;
   ChildDeviceData->XenInterface.EvtChn_Unbind = XenInterface.EvtChn_Unbind;

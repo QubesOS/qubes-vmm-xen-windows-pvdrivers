@@ -30,6 +30,9 @@ DEFINE_GUID( GUID_XEN_IFACE, 0x5C568AC5, 0x9DDF, 0x4FA5, 0xA9, 0x4A, 0x39, 0xD6,
 typedef PHYSICAL_ADDRESS
 (*PXEN_ALLOCMMIO)(ULONG Length);
 
+typedef PHYSICAL_ADDRESS
+(*PXEN_FREEMEM)(PVOID Ptr);
+
 typedef NTSTATUS
 (*PXEN_EVTCHN_BIND)(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 
@@ -84,6 +87,7 @@ typedef struct _XEN_IFACE {
   INTERFACE InterfaceHeader;
 
   PXEN_ALLOCMMIO AllocMMIO;
+  PXEN_FREEMEM FreeMem;
 
   PXEN_EVTCHN_BIND EvtChn_Bind;
   PXEN_EVTCHN_UNBIND EvtChn_Unbind;
