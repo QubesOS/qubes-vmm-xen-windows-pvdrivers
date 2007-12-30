@@ -213,17 +213,31 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
 
   for (i = 0; i < Relations->Count; i++)
   {
+    if (Offset != 0)
+      Relations->Objects[i - Offset] = Relations->Objects[i];
+
     Length = sizeof(Buffer);
-    IoGetDeviceProperty(Relations->Objects[i], DevicePropertyDeviceDescription, Length, Buffer, &Length);
+    IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyDeviceDescription, Length, Buffer, &Length);
     KdPrint((__DRIVER_NAME "     %3d - %ws\n", i, Buffer));
+
     Length = sizeof(Buffer);
-    IoGetDeviceProperty(Relations->Objects[i], DevicePropertyHardwareID, Length, Buffer, &Length);
+    IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyPhysicalDeviceObjectName, Length, Buffer, &Length);
+    KdPrint((__DRIVER_NAME "     %3d - %ws\n", i, Buffer));
+
+    Length = sizeof(Buffer);
+    IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyHardwareID, Length, Buffer, &Length);
     Match = 0;
     StrLen = 0;
     for (Ptr = Buffer; *Ptr != 0; Ptr += StrLen + 1)
     {
       KdPrint((__DRIVER_NAME "         - %ws\n", Ptr));
+      // Qemu PCI
       if (XenHide_StringMatches(Ptr, L"PCI\\VEN_8086&DEV_7010&SUBSYS_00015853")) {
+        Match = 1;
+        break;
+      }
+      // Qemu Network
+      if (XenHide_StringMatches(Ptr, L"PCI\\VEN_10EC&DEV_8139&SUBSYS_00015853")) {
         Match = 1;
         break;
       }
@@ -234,8 +248,6 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
       KdPrint((__DRIVER_NAME "           (Match)\n"));
       Offset++;
     }
-    if (Offset != 0)
-      Relations->Objects[i] = Relations->Objects[i + Offset];
   }
   Relations->Count -= Offset;
   
@@ -243,8 +255,6 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
 
   return Irp->IoStatus.Status;
 }
-
-
 
 static NTSTATUS
 XenHide_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp)

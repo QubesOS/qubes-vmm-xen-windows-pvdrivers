@@ -65,7 +65,7 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
       {
         if (ev_action->DpcFlag)
         {
-          KdPrint((__DRIVER_NAME " --- Scheduling Dpc\n"));
+//          KdPrint((__DRIVER_NAME " --- Scheduling Dpc\n"));
           WdfDpcEnqueue(ev_action->Dpc);
         }
         else

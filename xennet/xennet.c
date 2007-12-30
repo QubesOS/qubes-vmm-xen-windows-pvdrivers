@@ -167,7 +167,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
   ASSERT(xi->connected);
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   do {
     prod = xi->tx.sring->rsp_prod;
@@ -221,7 +221,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   /* if queued packets, send them now?
   network_maybe_wake_tx(dev); */
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NDIS_STATUS_SUCCESS;
 }
@@ -239,7 +239,7 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
   NDIS_STATUS status;
   PVOID start;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
   for (i = 0; i < batch_target; i++)
@@ -295,7 +295,7 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
       xi->event_channel);
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NDIS_STATUS_SUCCESS;
 }
@@ -313,7 +313,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   UINT tot_buff_len;
   int moretodo;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   ASSERT(xi->connected);
 
@@ -328,7 +328,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       if (rxrsp->status == NETIF_RSP_NULL)
         continue;
 
-      KdPrint((__DRIVER_NAME "     Got a packet\n"));
+//      KdPrint((__DRIVER_NAME "     Got a packet\n"));
 
       pkt = xi->rx_pkts[rxrsp->id];
       xi->rx_pkts[rxrsp->id] = NULL;
@@ -346,9 +346,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       NDIS_SET_PACKET_STATUS(pkt, NDIS_STATUS_SUCCESS);
 
       /* just indicate 1 packet for now */
-      KdPrint((__DRIVER_NAME "     Indicating Received\n"));
+//      KdPrint((__DRIVER_NAME "     Indicating Received\n"));
       NdisMIndicateReceivePacket(xi->adapter_handle, &pkt, 1);
-      KdPrint((__DRIVER_NAME "     Done Indicating Received\n"));
+//      KdPrint((__DRIVER_NAME "     Done Indicating Received\n"));
     }
 
     xi->rx.rsp_cons = prod;
@@ -375,7 +375,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   //xi->rx.sring->rsp_event = xi->rx.rsp_cons + 1;
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NDIS_STATUS_SUCCESS;
 }
@@ -392,7 +392,7 @@ XenNet_Interrupt(
 
   UNREFERENCED_PARAMETER(Interrupt);
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   //KdPrint((__DRIVER_NAME "     ***XenNet Interrupt***\n"));  
 
@@ -402,7 +402,7 @@ XenNet_Interrupt(
     XenNet_RxBufferCheck(xi);
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return TRUE;
 }
@@ -949,7 +949,7 @@ XenNet_SetInformation(
   struct xennet_info *xi = MiniportAdapterContext;
   PULONG64 data = InformationBuffer;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
   UNREFERENCED_PARAMETER(InformationBufferLength);
@@ -1086,7 +1086,7 @@ XenNet_SetInformation(
       status = NDIS_STATUS_NOT_SUPPORTED;
       break;
   }
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
 }
 
@@ -1101,7 +1101,7 @@ XenNet_ReturnPacket(
   UINT buff_len;
   UINT tot_buff_len;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
 
@@ -1114,7 +1114,7 @@ XenNet_ReturnPacket(
   NdisFreePacket(Packet);
 
   //KdPrint((__FUNCTION__ " called\n"));
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 PMDL
@@ -1128,7 +1128,7 @@ XenNet_Linearize(PNDIS_PACKET Packet)
   UINT buff_len;
   UINT tot_buff_len;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
     &tot_buff_len, NormalPagePriority);
@@ -1157,7 +1157,7 @@ XenNet_Linearize(PNDIS_PACKET Packet)
     NdisGetNextBuffer(buffer, &buffer);
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return pmdl;
 }
 
@@ -1177,7 +1177,7 @@ XenNet_SendPackets(
   PMDL pmdl;
   UINT pkt_size;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   for (i = 0; i < NumberOfPackets; i++)
   {
@@ -1226,7 +1226,7 @@ XenNet_SendPackets(
       xi->event_channel);
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 VOID
