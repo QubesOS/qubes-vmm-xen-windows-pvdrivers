@@ -163,8 +163,11 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   unsigned short id;
   PNDIS_PACKET pkt;
   PMDL pmdl;
+  int notify;
 
   ASSERT(xi->connected);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   do {
     prod = xi->tx.sring->rsp_prod;
@@ -186,7 +189,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
       /* free linearized data page */
       pmdl = *(PMDL *)pkt->MiniportReservedEx;
-      NdisFreeMemory(MmGetMdlVirtualAddress(pmdl), 0, 0);
+      NdisFreeMemory(MmGetMdlVirtualAddress(pmdl), 0, 0); // <= DISPATCH_LEVEL
       IoFreeMdl(pmdl);
 
       xi->stat_tx_ok++;
@@ -207,9 +210,18 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       prod + ((xi->tx.sring->req_prod - prod) >> 1) + 1;
     KeMemoryBarrier();
   } while ((cons == prod) && (prod != xi->tx.sring->rsp_prod));
-
+/*
+  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->tx, notify);
+  if (notify)
+  {
+    xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
+      xi->event_channel);
+  }
+*/
   /* if queued packets, send them now?
   network_maybe_wake_tx(dev); */
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NDIS_STATUS_SUCCESS;
 }
@@ -226,6 +238,8 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
   netif_rx_request_t *req;
   NDIS_STATUS status;
   PVOID start;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
   for (i = 0; i < batch_target; i++)
@@ -281,9 +295,12 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
       xi->event_channel);
   }
 
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
   return NDIS_STATUS_SUCCESS;
 }
 
+// Called at DIRQL
 static NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi)
 {
@@ -294,6 +311,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   PVOID buff_va;
   UINT buff_len;
   UINT tot_buff_len;
+  int moretodo;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   ASSERT(xi->connected);
 
@@ -307,6 +327,8 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       rxrsp = RING_GET_RESPONSE(&xi->rx, cons);
       if (rxrsp->status == NETIF_RSP_NULL)
         continue;
+
+      KdPrint((__DRIVER_NAME "     Got a packet\n"));
 
       pkt = xi->rx_pkts[rxrsp->id];
       xi->rx_pkts[rxrsp->id] = NULL;
@@ -324,11 +346,15 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       NDIS_SET_PACKET_STATUS(pkt, NDIS_STATUS_SUCCESS);
 
       /* just indicate 1 packet for now */
+      KdPrint((__DRIVER_NAME "     Indicating Received\n"));
       NdisMIndicateReceivePacket(xi->adapter_handle, &pkt, 1);
+      KdPrint((__DRIVER_NAME "     Done Indicating Received\n"));
     }
 
     xi->rx.rsp_cons = prod;
 
+    RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, moretodo);
+#if 0
     /*
      * Set a new event, then check for race with update of rx_cons.
      * Note that it is essential to schedule a callback, no matter
@@ -341,13 +367,20 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       prod + ((xi->rx.sring->req_prod - prod) >> 1) + 1;
     KeMemoryBarrier();
   } while ((cons == prod) && (prod != xi->rx.sring->rsp_prod));
+#endif
+  } while (moretodo);
 
   /* Give netback more buffers */
   XenNet_AllocRXBuffers(xi);
 
+  //xi->rx.sring->rsp_event = xi->rx.rsp_cons + 1;
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
   return NDIS_STATUS_SUCCESS;
 }
 
+// Called at DIRQL
 static BOOLEAN
 XenNet_Interrupt(
   PKINTERRUPT Interrupt,
@@ -359,6 +392,8 @@ XenNet_Interrupt(
 
   UNREFERENCED_PARAMETER(Interrupt);
 
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
   //KdPrint((__DRIVER_NAME "     ***XenNet Interrupt***\n"));  
 
   if (xi->connected)
@@ -366,11 +401,8 @@ XenNet_Interrupt(
     XenNet_TxBufferGC(xi);
     XenNet_RxBufferCheck(xi);
   }
-  // KeAcquireSpinLock(&ChildDeviceData->Lock, &KIrql);
-  // KdPrint((__DRIVER_NAME " --> Setting Dpc Event\n"));
-  // KeSetEvent(&ChildDeviceData->DpcThreadEvent, 1, FALSE);
-  // KeReleaseSpinLock(&ChildDeviceData->Lock, KIrql);
-  // KdPrint((__DRIVER_NAME " --> Dpc Event Set\n"));
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return TRUE;
 }
@@ -395,10 +427,12 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     {"rx-ring-ref", 0},
     {"event-channel", 0},
     {"request-rx-copy", 1},
+#if 0 // these seemed to cause kernel messages about checksums
     {"feature-rx-notify", 1},
     {"feature-no-csum-offload", 1},
     {"feature-sg", 1},
     {"feature-gso-tcpv4", 0},
+#endif
     {NULL, 0},
   };
 
@@ -422,7 +456,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
     xi->event_channel = xi->XenInterface.EvtChn_AllocUnbound(
       xi->XenInterface.InterfaceHeader.Context, 0);  
-    xi->XenInterface.EvtChn_Bind(xi->XenInterface.InterfaceHeader.Context,
+    xi->XenInterface.EvtChn_BindDpc(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel, XenNet_Interrupt, xi);
 
     /* TODO: must free pages in MDL as well as MDL using MmFreePagesFromMdl and ExFreePool */
@@ -607,6 +641,8 @@ XenNet_Init(
     xi->grant_rx_ref[i] = GRANT_INVALID_REF;
   }
 
+  xi->packet_filter = NDIS_PACKET_TYPE_PROMISCUOUS;
+
   status = IoGetDeviceProperty(xi->pdo, DevicePropertyDeviceDescription,
     NAME_SIZE, xi->name, &length);
   if (!NT_SUCCESS(status))
@@ -703,35 +739,37 @@ err:
   return status;
 }
 
+// Q = Query Mandatory, S = Set Mandatory
 NDIS_OID supported_oids[] =
 {
   /* general OIDs */
-  OID_GEN_SUPPORTED_LIST,
-  OID_GEN_HARDWARE_STATUS,
-  OID_GEN_MEDIA_SUPPORTED,
-  OID_GEN_MEDIA_IN_USE,
-  OID_GEN_MAXIMUM_LOOKAHEAD,
-  OID_GEN_MAXIMUM_FRAME_SIZE,
-  OID_GEN_LINK_SPEED,
-  OID_GEN_TRANSMIT_BUFFER_SPACE,
-  OID_GEN_RECEIVE_BUFFER_SPACE,
-  OID_GEN_TRANSMIT_BLOCK_SIZE,
-  OID_GEN_RECEIVE_BLOCK_SIZE,
-  OID_GEN_VENDOR_ID,
-  OID_GEN_VENDOR_DESCRIPTION,
-  OID_GEN_CURRENT_PACKET_FILTER,
-  OID_GEN_CURRENT_LOOKAHEAD,
-  OID_GEN_DRIVER_VERSION,
-  OID_GEN_MAXIMUM_TOTAL_SIZE,
-  OID_GEN_MAC_OPTIONS,
-  OID_GEN_MEDIA_CONNECT_STATUS,
-  OID_GEN_MAXIMUM_SEND_PACKETS,
+  OID_GEN_SUPPORTED_LIST,        // Q
+  OID_GEN_HARDWARE_STATUS,       // Q
+  OID_GEN_MEDIA_SUPPORTED,       // Q
+  OID_GEN_MEDIA_IN_USE,          // Q
+  OID_GEN_MAXIMUM_LOOKAHEAD,     // Q
+  OID_GEN_MAXIMUM_FRAME_SIZE,    // Q
+  OID_GEN_LINK_SPEED,            // Q
+  OID_GEN_TRANSMIT_BUFFER_SPACE, // Q
+  OID_GEN_RECEIVE_BUFFER_SPACE,  // Q
+  OID_GEN_TRANSMIT_BLOCK_SIZE,   // Q
+  OID_GEN_RECEIVE_BLOCK_SIZE,    // Q
+  OID_GEN_VENDOR_ID,             // Q
+  OID_GEN_VENDOR_DESCRIPTION,    // Q
+  OID_GEN_CURRENT_PACKET_FILTER, // QS
+  OID_GEN_CURRENT_LOOKAHEAD,     // QS
+  OID_GEN_DRIVER_VERSION,        // Q
+  OID_GEN_MAXIMUM_TOTAL_SIZE,    // Q
+  OID_GEN_PROTOCOL_OPTIONS,      // S
+  OID_GEN_MAC_OPTIONS,           // Q
+  OID_GEN_MEDIA_CONNECT_STATUS,  // Q
+  OID_GEN_MAXIMUM_SEND_PACKETS,  // Q
   /* stats */
-  OID_GEN_XMIT_OK,
-  OID_GEN_RCV_OK,
-  OID_GEN_XMIT_ERROR,
-  OID_GEN_RCV_ERROR,
-  OID_GEN_RCV_NO_BUFFER, 
+  OID_GEN_XMIT_OK,               // Q
+  OID_GEN_RCV_OK,                // Q
+  OID_GEN_XMIT_ERROR,            // Q
+  OID_GEN_RCV_ERROR,             // Q
+  OID_GEN_RCV_NO_BUFFER,         // Q
   /* media-specific OIDs */
   OID_802_3_PERMANENT_ADDRESS,
   OID_802_3_CURRENT_ADDRESS,
@@ -754,6 +792,8 @@ XenNet_QueryInformation(
   PVOID data = &temp_data;
   UINT len = 4;
   NDIS_STATUS status = NDIS_STATUS_SUCCESS;
+
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   switch(Oid)
   {
@@ -797,7 +837,7 @@ XenNet_QueryInformation(
       temp_data = XN_MAX_PKT_SIZE;
       break;
     case OID_GEN_VENDOR_ID:
-      temp_data = XENSOURCE_MAC_HDR;
+      temp_data = 0xFFFFFF; // Not guaranteed to be XENSOURCE_MAC_HDR;
       break;
     case OID_GEN_VENDOR_DESCRIPTION:
       data = vendor_desc;
@@ -807,6 +847,7 @@ XenNet_QueryInformation(
       temp_data = xi->packet_filter;
       break;
     case OID_GEN_CURRENT_LOOKAHEAD:
+      // TODO: we should store this...
       temp_data = XN_MAX_PKT_SIZE;
       break;
     case OID_GEN_DRIVER_VERSION:
@@ -865,18 +906,20 @@ XenNet_QueryInformation(
       temp_data = 0; /* no mcast support */
       break;
     default:
-      //KdPrint(("Unknown OID 0x%x\n", Oid));
+      KdPrint(("Get Unknown OID 0x%x\n", Oid));
       status = NDIS_STATUS_NOT_SUPPORTED;
   }
 
   if (!NT_SUCCESS(status))
   {
+//    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returned error)\n"));
     return status;
   }
 
   if (len > InformationBufferLength)
   {
     *BytesNeeded = len;
+//    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returned error)\n"));
     return NDIS_STATUS_BUFFER_TOO_SHORT;
   }
 
@@ -887,6 +930,7 @@ XenNet_QueryInformation(
   }
 
   //KdPrint(("Got OID 0x%x\n", Oid));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return status;
 }
@@ -901,15 +945,149 @@ XenNet_SetInformation(
   OUT PULONG BytesNeeded
   )
 {
+  NTSTATUS status;
+  struct xennet_info *xi = MiniportAdapterContext;
+  PULONG64 data = InformationBuffer;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
-  UNREFERENCED_PARAMETER(Oid);
-  UNREFERENCED_PARAMETER(InformationBuffer);
   UNREFERENCED_PARAMETER(InformationBufferLength);
   UNREFERENCED_PARAMETER(BytesRead);
   UNREFERENCED_PARAMETER(BytesNeeded);
 
-  KdPrint((__FUNCTION__ " called with OID=0x%x\n", Oid));
-  return NDIS_STATUS_SUCCESS;
+  switch(Oid)
+  {
+    case OID_GEN_SUPPORTED_LIST:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_SUPPORTED_LIST\n"));
+      break;
+    case OID_GEN_HARDWARE_STATUS:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_HARDWARE_STATUS\n"));
+      break;
+    case OID_GEN_MEDIA_SUPPORTED:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_MEDIA_SUPPORTED\n"));
+      break;
+    case OID_GEN_MEDIA_IN_USE:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_MEDIA_IN_USE\n"));
+      break;
+    case OID_GEN_MAXIMUM_LOOKAHEAD:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_MAXIMUM_LOOKAHEAD\n"));
+      break;
+    case OID_GEN_MAXIMUM_FRAME_SIZE:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_MAXIMUM_FRAME_SIZE\n"));
+      break;
+    case OID_GEN_LINK_SPEED:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_LINK_SPEED\n"));
+      break;
+    case OID_GEN_TRANSMIT_BUFFER_SPACE:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_TRANSMIT_BUFFER_SPACE\n"));
+      break;
+    case OID_GEN_RECEIVE_BUFFER_SPACE:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_RECEIVE_BUFFER_SPACE\n"));
+      break;
+    case OID_GEN_TRANSMIT_BLOCK_SIZE:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_TRANSMIT_BLOCK_SIZE\n"));
+      break;
+    case OID_GEN_RECEIVE_BLOCK_SIZE:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_RECEIVE_BLOCK_SIZE\n"));
+      break;
+    case OID_GEN_VENDOR_ID:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_VENDOR_ID\n"));
+      break;
+    case OID_GEN_VENDOR_DESCRIPTION:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_VENDOR_DESCRIPTION\n"));
+      break;
+    case OID_GEN_CURRENT_PACKET_FILTER:
+      KdPrint(("Set OID_GEN_CURRENT_PACKET_FILTER\n"));
+      xi->packet_filter = *(ULONG *)data;
+      status = NDIS_STATUS_SUCCESS;
+      break;
+    case OID_GEN_CURRENT_LOOKAHEAD:
+      KdPrint(("Set OID_GEN_CURRENT_LOOKAHEAD %d\n", *(int *)data));
+      // TODO: We should do this...
+      status = NDIS_STATUS_SUCCESS;
+      break;
+    case OID_GEN_DRIVER_VERSION:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_DRIVER_VERSION\n"));
+      break;
+    case OID_GEN_MAXIMUM_TOTAL_SIZE:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_MAXIMUM_TOTAL_SIZE\n"));
+      break;
+    case OID_GEN_PROTOCOL_OPTIONS:
+      KdPrint(("Unsupported set OID_GEN_PROTOCOL_OPTIONS\n"));
+      // TODO - actually do this...
+      status = NDIS_STATUS_SUCCESS;
+      break;
+    case OID_GEN_MAC_OPTIONS:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_MAC_OPTIONS\n"));
+      break;
+    case OID_GEN_MEDIA_CONNECT_STATUS:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_MEDIA_CONNECT_STATUS\n"));
+      break;
+    case OID_GEN_MAXIMUM_SEND_PACKETS:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_MAXIMUM_SEND_PACKETS\n"));
+      break;
+    case OID_GEN_XMIT_OK:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_XMIT_OK\n"));
+      break;
+    case OID_GEN_RCV_OK:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_RCV_OK\n"));
+      break;
+    case OID_GEN_XMIT_ERROR:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_XMIT_ERROR\n"));
+      break;
+    case OID_GEN_RCV_ERROR:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_RCV_ERROR\n"));
+      break;
+    case OID_GEN_RCV_NO_BUFFER:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_GEN_RCV_NO_BUFFER\n"));
+      break;
+    case OID_802_3_PERMANENT_ADDRESS:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_802_3_PERMANENT_ADDRESS\n"));
+      break;
+    case OID_802_3_CURRENT_ADDRESS:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_802_3_CURRENT_ADDRESS\n"));
+      break;
+    case OID_802_3_MULTICAST_LIST:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_802_3_MULTICAST_LIST\n"));
+      break;
+    case OID_802_3_MAXIMUM_LIST_SIZE:
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      KdPrint(("Unsupported set OID_802_3_MAXIMUM_LIST_SIZE\n"));
+      break;
+    default:
+      KdPrint(("Set Unknown OID 0x%x\n", Oid));
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      break;
+  }
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  return status;
 }
 
 VOID
@@ -923,6 +1101,8 @@ XenNet_ReturnPacket(
   UINT buff_len;
   UINT tot_buff_len;
 
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
 
   NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
@@ -934,6 +1114,7 @@ XenNet_ReturnPacket(
   NdisFreePacket(Packet);
 
   //KdPrint((__FUNCTION__ " called\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 PMDL
@@ -946,6 +1127,8 @@ XenNet_Linearize(PNDIS_PACKET Packet)
   PVOID buff_va;
   UINT buff_len;
   UINT tot_buff_len;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
     &tot_buff_len, NormalPagePriority);
@@ -974,6 +1157,7 @@ XenNet_Linearize(PNDIS_PACKET Packet)
     NdisGetNextBuffer(buffer, &buffer);
   }
 
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return pmdl;
 }
 
@@ -992,6 +1176,8 @@ XenNet_SendPackets(
   int notify;
   PMDL pmdl;
   UINT pkt_size;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   for (i = 0; i < NumberOfPackets; i++)
   {
@@ -1024,7 +1210,8 @@ XenNet_SendPackets(
     xi->grant_tx_ref[id] = tx->gref;
     tx->offset = (uint16_t)MmGetMdlByteOffset(pmdl);
     tx->size = (UINT16)pkt_size;
-    tx->flags = NETTXF_csum_blank;
+    // NETTXF_csum_blank should only be used for tcp and udp packets...
+    tx->flags = 0; //NETTXF_csum_blank;
 
     xi->tx.req_prod_pvt++;
 
@@ -1038,6 +1225,8 @@ XenNet_SendPackets(
     xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel);
   }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 VOID

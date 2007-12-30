@@ -27,6 +27,7 @@ EvtChn_DpcBounce(WDFDPC Dpc)
 
   Action = GetEvtChnDeviceData(Dpc)->Action;
   Action->ServiceRoutine(NULL, Action->ServiceContext);
+//  _interlockedbittestandreset((volatile LONG *)&GetEvtChnDeviceData(Dpc)->shared_info_area->evtchn_pending[0], GetEvtChnDeviceData(Dpc)->port);
 }
 
 BOOLEAN
@@ -64,6 +65,7 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
       {
         if (ev_action->DpcFlag)
         {
+          KdPrint((__DRIVER_NAME " --- Scheduling Dpc\n"));
           WdfDpcEnqueue(ev_action->Dpc);
         }
         else
@@ -129,6 +131,8 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRouti
   DpcObjectAttributes.ParentObject = Device;
   WdfDpcCreate(&DpcConfig, &DpcObjectAttributes, &xpdd->ev_actions[Port].Dpc);
   GetEvtChnDeviceData(xpdd->ev_actions[Port].Dpc)->Action = &xpdd->ev_actions[Port];
+//  GetEvtChnDeviceData(xpdd->ev_actions[Port].Dpc)->shared_info_area = xpdd->shared_info_area;
+//  GetEvtChnDeviceData(xpdd->ev_actions[Port].Dpc)->port = Port;
 
   KeMemoryBarrier(); // make sure that the new service routine is only called once the context is set up
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
