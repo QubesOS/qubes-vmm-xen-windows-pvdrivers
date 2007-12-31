@@ -86,8 +86,7 @@ struct
   int BusChangePending;
 
   int EnumeratedDevices;
-  KEVENT WaitDevicesEvent;
-
+  int TotalInitialDevices;
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 
 #endif
