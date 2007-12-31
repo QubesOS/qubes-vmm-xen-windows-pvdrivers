@@ -305,8 +305,10 @@ XenEnum_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pr
   KeInitializeEvent(&WaitDevicesEvent, SynchronizationEvent, FALSE);  
 
   // TODO: Should probably do this in an EvtChildListScanForChildren
+/*
   if (AutoEnumerate)
   {
+*/
     // TODO: Get the correct path from parent here...
     msg = XenInterface.XenBus_List(XenInterface.InterfaceHeader.Context, XBT_NIL, PdoDeviceData->Path, &Devices);
     if (!msg)
@@ -333,7 +335,7 @@ XenEnum_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pr
       }  
 */
     }
-  }
+//  }
 
   KdPrint((__DRIVER_NAME " <-- EvtDeviceD0EntryPostInterruptsEnabled\n"));
 

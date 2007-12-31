@@ -109,6 +109,7 @@ struct xennet_info
   ULONG64 stat_rx_no_buffer;
 
   KEVENT backend_ready_event;
+  KSPIN_LOCK Lock;
 };
 
 /* This function copied from linux's lib/vsprintf.c, see it for attribution */
@@ -156,6 +157,7 @@ get_id_from_freelist(NDIS_PACKET **list)
   return id;
 }
 
+// Called at DISPATCH_LEVEL with spinlock held
 static NDIS_STATUS
 XenNet_TxBufferGC(struct xennet_info *xi)
 {
@@ -300,7 +302,7 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
-// Called at DIRQL
+// Called at DISPATCH_LEVEL with spinlock held
 static NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi)
 {
@@ -328,7 +330,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       if (rxrsp->status == NETIF_RSP_NULL)
         continue;
 
-//      KdPrint((__DRIVER_NAME "     Got a packet\n"));
+    //  KdPrint((__DRIVER_NAME "     Got a packet\n"));
 
       pkt = xi->rx_pkts[rxrsp->id];
       xi->rx_pkts[rxrsp->id] = NULL;
@@ -346,9 +348,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       NDIS_SET_PACKET_STATUS(pkt, NDIS_STATUS_SUCCESS);
 
       /* just indicate 1 packet for now */
-//      KdPrint((__DRIVER_NAME "     Indicating Received\n"));
+    //  KdPrint((__DRIVER_NAME "     Indicating Received\n"));
       NdisMIndicateReceivePacket(xi->adapter_handle, &pkt, 1);
-//      KdPrint((__DRIVER_NAME "     Done Indicating Received\n"));
+    //  KdPrint((__DRIVER_NAME "     Done Indicating Received\n"));
     }
 
     xi->rx.rsp_cons = prod;
@@ -380,7 +382,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
-// Called at DIRQL
+// Called at DISPATCH_LEVEL
 static BOOLEAN
 XenNet_Interrupt(
   PKINTERRUPT Interrupt,
@@ -388,11 +390,13 @@ XenNet_Interrupt(
   )
 {
   struct xennet_info *xi = ServiceContext;
-  // KIRQL KIrql;
+  KIRQL OldIrql;
 
   UNREFERENCED_PARAMETER(Interrupt);
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeAcquireSpinLock(xi->Lock, &OldIrql);
 
   //KdPrint((__DRIVER_NAME "     ***XenNet Interrupt***\n"));  
 
@@ -401,6 +405,8 @@ XenNet_Interrupt(
     XenNet_TxBufferGC(xi);
     XenNet_RxBufferCheck(xi);
   }
+
+  KeReleaseSpinLock(xi->Lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -608,6 +614,8 @@ XenNet_Init(
   xi->rx_target     = RX_DFL_MIN_TARGET;
   xi->rx_min_target = RX_DFL_MIN_TARGET;
   xi->rx_max_target = RX_MAX_TARGET;
+
+  KeInitializeSpinLock(&xi->Lock);
 
   NdisAllocatePacketPool(&status, &xi->packet_pool, NET_RX_RING_SIZE,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
@@ -912,14 +920,14 @@ XenNet_QueryInformation(
 
   if (!NT_SUCCESS(status))
   {
-//    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returned error)\n"));
+  //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returned error)\n"));
     return status;
   }
 
   if (len > InformationBufferLength)
   {
     *BytesNeeded = len;
-//    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returned error)\n"));
+  //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returned error)\n"));
     return NDIS_STATUS_BUFFER_TOO_SHORT;
   }
 
@@ -1176,8 +1184,11 @@ XenNet_SendPackets(
   int notify;
   PMDL pmdl;
   UINT pkt_size;
+  PKIRQL OldIrql;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeAcquireSpinLock(xi->Lock, &OldIrql);
 
   for (i = 0; i < NumberOfPackets; i++)
   {
@@ -1225,6 +1236,8 @@ XenNet_SendPackets(
     xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel);
   }
+
+  KeReleaseSpinLock(xi->Lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
