@@ -825,7 +825,9 @@ XenNet_QueryInformation(
       temp_data = XN_DATA_SIZE;
       break;
     case OID_GEN_MAXIMUM_FRAME_SIZE:
-      temp_data = XN_MAX_PKT_SIZE;
+      // According to the specs, OID_GEN_MAXIMUM_FRAME_SIZE does not include the header, so
+      // it is XN_DATA_SIZE not XN_MAX_PKT_SIZE
+      temp_data = XN_DATA_SIZE; // XN_MAX_PKT_SIZE;
       break;
     case OID_GEN_LINK_SPEED:
       temp_data = 10000000; /* 1Gb */
@@ -836,7 +838,7 @@ XenNet_QueryInformation(
       break;
     case OID_GEN_RECEIVE_BUFFER_SPACE:
       /* pkts times sizeof ring, maybe? */
-      temp_data = XN_MAX_PKT_SIZE * NET_TX_RING_SIZE;
+      temp_data = XN_MAX_PKT_SIZE * NET_RX_RING_SIZE;
       break;
     case OID_GEN_TRANSMIT_BLOCK_SIZE:
       temp_data = XN_MAX_PKT_SIZE;
