@@ -108,7 +108,12 @@ struct xennet_info
   ULONG64 stat_rx_error;
   ULONG64 stat_rx_no_buffer;
 
-  KEVENT backend_ready_event;
+//  KEVENT backend_ready_event;
+  KEVENT backend_state_change_event;
+
+  ULONG state;
+  ULONG backend_state;
+
   KSPIN_LOCK Lock;
 };
 
@@ -165,6 +170,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   unsigned short id;
   PNDIS_PACKET pkt;
   PMDL pmdl;
+  int notify;
 
   ASSERT(xi->connected);
 
@@ -211,7 +217,14 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       prod + ((xi->tx.sring->req_prod - prod) >> 1) + 1;
     KeMemoryBarrier();
   } while ((cons == prod) && (prod != xi->tx.sring->rsp_prod));
-
+/*
+  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->tx, notify);
+  if (notify)
+  {
+    xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
+      xi->event_channel);
+  }
+*/
   /* if queued packets, send them now?
   network_maybe_wake_tx(dev); */
 
@@ -388,7 +401,7 @@ XenNet_Interrupt(
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KeAcquireSpinLock(&xi->Lock, &OldIrql);
+  KeAcquireSpinLock(xi->Lock, &OldIrql);
 
   //KdPrint((__DRIVER_NAME "     ***XenNet Interrupt***\n"));  
 
@@ -398,7 +411,7 @@ XenNet_Interrupt(
     XenNet_RxBufferCheck(xi);
   }
 
-  KeReleaseSpinLock(&xi->Lock, OldIrql);
+  KeReleaseSpinLock(xi->Lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -410,7 +423,6 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 {
   struct xennet_info *xi = Data;
   char *Value;
-  int be_state;
   char TmpPath[128];
   xenbus_transaction_t xbt = 0;
   int retry = 0;
@@ -436,10 +448,10 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
   xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
     XBT_NIL, Path, &Value);
-  be_state = atoi(Value);
+  xi->backend_state = atoi(Value);
   xi->XenInterface.FreeMem(Value);
 
-  switch (be_state)
+  switch (xi->backend_state)
   {
   case XenbusStateUnknown:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Unknown\n"));  
@@ -502,10 +514,11 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
     XenNet_AllocRXBuffers(xi);
 
+    xi->state = XenbusStateConnected;
     KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
     RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
     xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", XenbusStateConnected);
+      XBT_NIL, TmpPath, "%d", xi->state);
 
     /* send fake arp? */
 
@@ -519,7 +532,6 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
   case XenbusStateConnected:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Connected\n"));  
-    KeSetEvent(&xi->backend_ready_event, 1, FALSE);
     break;
 
   case XenbusStateClosing:
@@ -531,9 +543,11 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     break;
 
   default:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d\n", be_state));
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d\n", xi->backend_state));
     break;
   }
+
+  KeSetEvent(&xi->backend_state_change_event, 1, FALSE);
 
   return;
 
@@ -549,7 +563,39 @@ XenNet_Halt(
   IN NDIS_HANDLE MiniportAdapterContext
   )
 {
-  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+  struct xennet_info *xi = MiniportAdapterContext;
+  CHAR TmpPath[128];
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
+  // set frontend state to 'closing'
+  xi->state = XenbusStateClosing;
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
+  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
+    XBT_NIL, TmpPath, "%d", xi->state);
+
+  // wait for backend to set 'Closing' state
+  while (xi->backend_state != XenbusStateClosing)
+    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
+
+  // set frontend state to 'closed'
+  xi->state = XenbusStateClosed;
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
+  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
+    XBT_NIL, TmpPath, "%d", xi->state);
+
+  // wait for backend to set 'Closed' state
+  while (xi->backend_state != XenbusStateClosed)
+    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
+
+  // remove event channel xenbus entry
+  // unbind event channel
+  // remove tx/rx ring entries
+  // clean up all grant table entries
+  // free all memory
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static NDIS_STATUS
@@ -568,6 +614,7 @@ XenNet_Init(
   struct xennet_info *xi = NULL;
   ULONG length;
   WDF_OBJECT_ATTRIBUTES wdf_attrs;
+  char *msg;
   char *Value;
   char TmpPath[128];
 
@@ -605,6 +652,9 @@ XenNet_Init(
   xi->rx_target     = RX_DFL_MIN_TARGET;
   xi->rx_min_target = RX_DFL_MIN_TARGET;
   xi->rx_max_target = RX_MAX_TARGET;
+
+  xi->state = XenbusStateUnknown;
+  xi->backend_state = XenbusStateUnknown;
 
   KeInitializeSpinLock(&xi->Lock);
 
@@ -692,7 +742,7 @@ XenNet_Init(
   RtlStringCbCopyA(xi->BackendPath, ARRAY_SIZE(xi->BackendPath), Value);
   KdPrint((__DRIVER_NAME "backend path = %s\n", xi->BackendPath));
 
-  KeInitializeEvent(&xi->backend_ready_event, SynchronizationEvent, FALSE);  
+  KeInitializeEvent(&xi->backend_state_change_event, SynchronizationEvent, FALSE);  
 
   /* Add watch on backend state */
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->BackendPath);
@@ -700,7 +750,8 @@ XenNet_Init(
       XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
 
   // wait here for signal that we are all set up
-  KeWaitForSingleObject(&xi->backend_ready_event, Executive, KernelMode, FALSE, NULL);
+  while (xi->backend_state != XenbusStateConnected)
+    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
 
   /* get mac address */
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->BackendPath);
@@ -950,7 +1001,7 @@ XenNet_SetInformation(
   struct xennet_info *xi = MiniportAdapterContext;
   PULONG64 data = InformationBuffer;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
   UNREFERENCED_PARAMETER(InformationBufferLength);
@@ -1087,7 +1138,7 @@ XenNet_SetInformation(
       status = NDIS_STATUS_NOT_SUPPORTED;
       break;
   }
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
 }
 
@@ -1177,11 +1228,11 @@ XenNet_SendPackets(
   int notify;
   PMDL pmdl;
   UINT pkt_size;
-  KIRQL OldIrql;
+  PKIRQL OldIrql;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KeAcquireSpinLock(&xi->Lock, &OldIrql);
+  KeAcquireSpinLock(xi->Lock, &OldIrql);
 
   for (i = 0; i < NumberOfPackets; i++)
   {
@@ -1230,7 +1281,7 @@ XenNet_SendPackets(
       xi->event_channel);
   }
 
-  KeReleaseSpinLock(&xi->Lock, OldIrql);
+  KeReleaseSpinLock(xi->Lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -1256,7 +1307,9 @@ XenNet_Shutdown(
   IN NDIS_HANDLE MiniportAdapterContext
   )
 {
-  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+  struct xennet_info *xi = MiniportAdapterContext;
+
+  // I think all we are supposed to do here is reset the adapter, which for us might be nothing...
 
   KdPrint((__FUNCTION__ " called\n"));
 }
