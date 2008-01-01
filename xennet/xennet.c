@@ -165,7 +165,6 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   unsigned short id;
   PNDIS_PACKET pkt;
   PMDL pmdl;
-  int notify;
 
   ASSERT(xi->connected);
 
@@ -212,14 +211,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       prod + ((xi->tx.sring->req_prod - prod) >> 1) + 1;
     KeMemoryBarrier();
   } while ((cons == prod) && (prod != xi->tx.sring->rsp_prod));
-/*
-  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->tx, notify);
-  if (notify)
-  {
-    xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
-      xi->event_channel);
-  }
-*/
+
   /* if queued packets, send them now?
   network_maybe_wake_tx(dev); */
 
@@ -396,7 +388,7 @@ XenNet_Interrupt(
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KeAcquireSpinLock(xi->Lock, &OldIrql);
+  KeAcquireSpinLock(&xi->Lock, &OldIrql);
 
   //KdPrint((__DRIVER_NAME "     ***XenNet Interrupt***\n"));  
 
@@ -406,7 +398,7 @@ XenNet_Interrupt(
     XenNet_RxBufferCheck(xi);
   }
 
-  KeReleaseSpinLock(xi->Lock, OldIrql);
+  KeReleaseSpinLock(&xi->Lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -576,7 +568,6 @@ XenNet_Init(
   struct xennet_info *xi = NULL;
   ULONG length;
   WDF_OBJECT_ATTRIBUTES wdf_attrs;
-  char *msg;
   char *Value;
   char TmpPath[128];
 
@@ -1184,11 +1175,11 @@ XenNet_SendPackets(
   int notify;
   PMDL pmdl;
   UINT pkt_size;
-  PKIRQL OldIrql;
+  KIRQL OldIrql;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KeAcquireSpinLock(xi->Lock, &OldIrql);
+  KeAcquireSpinLock(&xi->Lock, &OldIrql);
 
   for (i = 0; i < NumberOfPackets; i++)
   {
@@ -1237,7 +1228,7 @@ XenNet_SendPackets(
       xi->event_channel);
   }
 
-  KeReleaseSpinLock(xi->Lock, OldIrql);
+  KeReleaseSpinLock(&xi->Lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
