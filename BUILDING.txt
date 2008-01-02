@@ -1,4 +1,4 @@
-1. Download and install the Windows Driver Framework SDK (6000, not 6001 which is Longhorn only) from Microsoft. You have to jump through a few hoops to get it, but it is free (as in beer of course. Microsoft don't do the 'as in speech' variety of free). It's also huge. http://www.microsoft.com/whdc/driver/wdf/default.mspx is a good place to start.
+1. Download and install the Windows Driver Framework SDK (6000, not 6001 which is Longhorn only) from Microsoft. You have to jump through a few hoops to get it, but it is free (as in beer of course. Microsoft don't do the 'as in speech' variety of free). It's also huge. http://www.microsoft.com/whdc/driver/wdf/default.mspx is a good place to start. http://www.microsoft.com/whdc/DevTools/WDK/WDKpkg.mspx is probably a better place to start.
 
 2. Start the WDF Build Environment that best suits your needs. I've only ever used 2003 32 Bit Checked.
 
