@@ -334,7 +334,7 @@ XenBus_Start(WDFDEVICE Device)
 
   KdPrint((__DRIVER_NAME " --> XenBus_Start\n"));
 
-  EvtChn_Bind(Device, xpdd->xen_store_evtchn, XenBus_Interrupt, Device);
+  EvtChn_BindDpc(Device, xpdd->xen_store_evtchn, XenBus_Interrupt, Device);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_Start\n"));
 
