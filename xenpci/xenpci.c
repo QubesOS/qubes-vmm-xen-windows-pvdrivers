@@ -74,6 +74,8 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data);
 static BOOLEAN AutoEnumerate;
 static LIST_ENTRY ShutdownMsgList;
 
+#pragma warning(disable : 4200) // zero-sized array
+
 typedef struct {
   LIST_ENTRY ListEntry;
   ULONG Ptr;
@@ -203,7 +205,12 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   return status;
 }
 
-static XenPCI_FreeMem(PVOID Ptr)
+/*
+ * Many XEN_IFACE functions allocate memory. Clients must use this to free it.
+ * (Xenbus_Read, XenBus_List, XenBus_AddWatch, XenBus_RemWatch)
+ */
+static void
+XenPCI_FreeMem(PVOID Ptr)
 {
   ExFreePoolWithTag(Ptr, XENPCI_POOL_TAG);
 }
@@ -245,6 +252,9 @@ get_hypercall_stubs(WDFDEVICE Device)
   return STATUS_SUCCESS;
 }
 
+/*
+ * Alloc MMIO from the device's MMIO region. There is no corresponding free() fn
+ */
 PHYSICAL_ADDRESS
 XenPCI_AllocMMIO(WDFDEVICE Device, ULONG len)
 {
@@ -255,6 +265,8 @@ XenPCI_AllocMMIO(WDFDEVICE Device, ULONG len)
   addr = xpdd->platform_mmio_addr;
   addr.QuadPart += xpdd->platform_mmio_alloc;
   xpdd->platform_mmio_alloc += len;
+
+  ASSERT(xpdd->platform_mmio_alloc <= xpdd->platform_mmio_len);
 
   return addr;
 }
