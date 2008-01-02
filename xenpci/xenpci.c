@@ -252,6 +252,16 @@ get_hypercall_stubs(WDFDEVICE Device)
   return STATUS_SUCCESS;
 }
 
+static NTSTATUS
+free_hypercall_stubs(WDFDEVICE Device)
+{
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+
+  ExFreePoolWithTag(xpdd->hypercall_stubs, XENPCI_POOL_TAG);
+
+  return STATUS_SUCCESS;
+}
+
 /*
  * Alloc MMIO from the device's MMIO region. There is no corresponding free() fn
  */
@@ -547,8 +557,9 @@ XenPCI_PrepareHardware(
 static NTSTATUS
 XenPCI_ReleaseHardware(WDFDEVICE Device, WDFCMRESLIST ResourcesTranslated)
 {
-  UNREFERENCED_PARAMETER(Device);
   UNREFERENCED_PARAMETER(ResourcesTranslated);
+
+  free_hypercall_stubs(Device);
 
   return STATUS_SUCCESS;
 }
@@ -610,6 +621,8 @@ XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pre
     }
   }
   KdPrint((__DRIVER_NAME " <-- EvtDeviceD0EntryPostInterruptsEnabled\n"));
+
+  XenPCI_FreeMem(Types);
 
   return status;
 }
@@ -928,7 +941,8 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
 static void
 XenBus_ShutdownHandler(char *Path, PVOID Data)
 {
-  WDFDEVICE Device = Data;
+  WDFDEVICE Device = Data;  
+  char *res;
   char *Value;
   xenbus_transaction_t xbt;
   int retry;
@@ -938,12 +952,34 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
 
   KdPrint((__DRIVER_NAME " --> XenBus_ShutdownHandler\n"));
 
-  XenBus_StartTransaction(Device, &xbt);
+  res = XenBus_StartTransaction(Device, &xbt);
+  if (res)
+  {
+    KdPrint(("Error starting transaction\n"));
+    XenPCI_FreeMem(res);
+    return;
+  }
 
-  XenBus_Read(Device, XBT_NIL, SHUTDOWN_PATH, &Value);
+  res = XenBus_Read(Device, XBT_NIL, SHUTDOWN_PATH, &Value);
+  if (res)
+  {
+    KdPrint(("Error reading shutdown path\n"));
+    XenPCI_FreeMem(res);
+    XenBus_EndTransaction(Device, xbt, 1, &retry);
+    return;
+  }
 
   if (Value != NULL && strlen(Value) != 0)
-    XenBus_Write(Device, XBT_NIL, SHUTDOWN_PATH, "");
+  {
+    res = XenBus_Write(Device, XBT_NIL, SHUTDOWN_PATH, "");
+    if (res)
+    {
+      KdPrint(("Error writing shutdown path\n"));
+      XenPCI_FreeMem(res);
+      // end trans?
+      return;
+    }
+  } 
 
   if (Value != NULL)
   {
@@ -955,7 +991,13 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
     KdPrint((__DRIVER_NAME "     Shutdown Value = <null>\n"));
   }
 
-  XenBus_EndTransaction(Device, xbt, 0, &retry);
+  res = XenBus_EndTransaction(Device, xbt, 0, &retry);
+  if (res)
+  {
+    KdPrint(("Error ending transaction\n"));
+    XenPCI_FreeMem(res);
+    return;
+  }
 
   if (Value != NULL && strlen(Value) != 0)
   {
@@ -965,6 +1007,9 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
     InsertTailList(&ShutdownMsgList, &Entry->ListEntry);
     WdfIoQueueStart(ReadQueue);
   }
+
+  XenPCI_FreeMem(Value);
+
   KdPrint((__DRIVER_NAME " <-- XenBus_ShutdownHandler\n"));
 }
 
@@ -990,7 +1035,9 @@ XenBus_BalloonHandler(char *Path, PVOID Data)
   // use XENMEM_increase_reservation and XENMEM_decrease_reservation
 
   XenBus_EndTransaction(Device, xbt, 0, &retry);
-  
+
+  XenPCI_FreeMem(value);
+
   KdPrint((__DRIVER_NAME " <-- XenBus_BalloonHandler\n"));
 }
 

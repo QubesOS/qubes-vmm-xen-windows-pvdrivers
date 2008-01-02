@@ -606,6 +606,7 @@ XenNet_Init(
   struct xennet_info *xi = NULL;
   ULONG length;
   WDF_OBJECT_ATTRIBUTES wdf_attrs;
+  char *res;
   char *Value;
   char TmpPath[128];
 
@@ -721,15 +722,15 @@ XenNet_Init(
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
       "%s/backend", xi->pdoData->Path);
   KdPrint(("About to read %s to get backend path\n", TmpPath));
-  xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
+  res = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, &Value);
-  if (!Value)
+  if (res)
   {
     KdPrint((__DRIVER_NAME "    Failed to read backend path\n"));
+    xi->XenInterface.FreeMem(res);
     status = NDIS_STATUS_FAILURE;
     goto err;
   }
-  // Check for Value == NULL here
   RtlStringCbCopyA(xi->BackendPath, ARRAY_SIZE(xi->BackendPath), Value);
   KdPrint((__DRIVER_NAME "backend path = %s\n", xi->BackendPath));
 
