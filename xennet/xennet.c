@@ -114,7 +114,8 @@ struct xennet_info
   ULONG state;
   ULONG backend_state;
 
-  KSPIN_LOCK Lock;
+  KSPIN_LOCK RxLock;
+  KSPIN_LOCK TxLock;
 };
 
 /* This function copied from linux's lib/vsprintf.c, see it for attribution */
@@ -170,10 +171,13 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   unsigned short id;
   PNDIS_PACKET pkt;
   PMDL pmdl;
+  KIRQL OldIrql;
 
   ASSERT(xi->connected);
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeAcquireSpinLock(&xi->TxLock, &OldIrql);
 
   do {
     prod = xi->tx.sring->rsp_prod;
@@ -219,6 +223,8 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
   /* if queued packets, send them now?
   network_maybe_wake_tx(dev); */
+
+  KeReleaseSpinLock(&xi->TxLock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -311,10 +317,13 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   UINT buff_len;
   UINT tot_buff_len;
   int moretodo;
+  KIRQL OldIrql;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   ASSERT(xi->connected);
+
+  KeAcquireSpinLock(&xi->RxLock, &OldIrql);
 
   do {
     prod = xi->rx.sring->rsp_prod;
@@ -353,24 +362,12 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     xi->rx.rsp_cons = prod;
 
     RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, moretodo);
-#if 0
-    /*
-     * Set a new event, then check for race with update of rx_cons.
-     * Note that it is essential to schedule a callback, no matter
-     * how few buffers are pending. Even if there is space in the
-     * transmit ring, higher layers may be blocked because too much
-     * data is outstanding: in such cases notification from Xen is
-     * likely to be the only kick that we'll get.
-     */
-    xi->rx.sring->rsp_event =
-      prod + ((xi->rx.sring->req_prod - prod) >> 1) + 1;
-    KeMemoryBarrier();
-  } while ((cons == prod) && (prod != xi->rx.sring->rsp_prod));
-#endif
   } while (moretodo);
 
   /* Give netback more buffers */
   XenNet_AllocRXBuffers(xi);
+
+  KeReleaseSpinLock(&xi->RxLock, OldIrql);
 
   //xi->rx.sring->rsp_event = xi->rx.rsp_cons + 1;
 
@@ -387,23 +384,16 @@ XenNet_Interrupt(
   )
 {
   struct xennet_info *xi = ServiceContext;
-  KIRQL OldIrql;
 
   UNREFERENCED_PARAMETER(Interrupt);
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  KeAcquireSpinLock(&xi->Lock, &OldIrql);
-
-  //KdPrint((__DRIVER_NAME "     ***XenNet Interrupt***\n"));  
 
   if (xi->connected)
   {
     XenNet_TxBufferGC(xi);
     XenNet_RxBufferCheck(xi);
   }
-
-  KeReleaseSpinLock(&xi->Lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -648,7 +638,8 @@ XenNet_Init(
   xi->state = XenbusStateUnknown;
   xi->backend_state = XenbusStateUnknown;
 
-  KeInitializeSpinLock(&xi->Lock);
+  KeInitializeSpinLock(&xi->TxLock);
+  KeInitializeSpinLock(&xi->RxLock);
 
   NdisAllocatePacketPool(&status, &xi->packet_pool, NET_RX_RING_SIZE,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
@@ -1224,7 +1215,7 @@ XenNet_SendPackets(
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KeAcquireSpinLock(&xi->Lock, &OldIrql);
+  KeAcquireSpinLock(&xi->TxLock, &OldIrql);
 
   for (i = 0; i < NumberOfPackets; i++)
   {
@@ -1273,7 +1264,7 @@ XenNet_SendPackets(
       xi->event_channel);
   }
 
-  KeReleaseSpinLock(&xi->Lock, OldIrql);
+  KeReleaseSpinLock(&xi->TxLock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
