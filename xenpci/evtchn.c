@@ -27,13 +27,12 @@ EvtChn_DpcBounce(WDFDPC Dpc)
 
   Action = GetEvtChnDeviceData(Dpc)->Action;
   Action->ServiceRoutine(NULL, Action->ServiceContext);
-//  _interlockedbittestandreset((volatile LONG *)&GetEvtChnDeviceData(Dpc)->shared_info_area->evtchn_pending[0], GetEvtChnDeviceData(Dpc)->port);
 }
 
 BOOLEAN
 EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
 {
-  int cpu = 0;
+  int cpu = KeGetCurrentProcessorNumber();
   vcpu_info_t *vcpu_info;
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(WdfInterruptGetDevice(Interrupt));
   shared_info_t *shared_info_area = xpdd->shared_info_area;
@@ -280,8 +279,12 @@ EvtChn_Init(WDFDEVICE Device)
   {
     xpdd->shared_info_area->evtchn_pending[i] = 0;
   }
-  xpdd->shared_info_area->vcpu_info[0].evtchn_upcall_pending = 0;
-  xpdd->shared_info_area->vcpu_info[0].evtchn_pending_sel = 0;
+
+  for (i = 0; i < MAX_VIRT_CPUS; i++)
+  {
+    xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_pending = 0;
+    xpdd->shared_info_area->vcpu_info[i].evtchn_pending_sel = 0;
+  }
 
   return STATUS_SUCCESS;
 }
