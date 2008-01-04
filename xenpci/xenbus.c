@@ -611,19 +611,22 @@ XenBus_AddWatch(
   req[1].data = Token;
   req[1].len = strlen(Token) + 1;
 
-  rep = xenbus_msg_reply(Device, XS_WATCH, xbt, req, ARRAY_SIZE(req));
-
-  msg = errmsg(rep);
-  if (msg)
-    return msg;
-
-  ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
-
+  /* must init watchentry before starting watch */
   strncpy(xpdd->XenBus_WatchEntries[i].Path, Path, 128);
   xpdd->XenBus_WatchEntries[i].ServiceRoutine = ServiceRoutine;
   xpdd->XenBus_WatchEntries[i].ServiceContext = ServiceContext;
   xpdd->XenBus_WatchEntries[i].Count = 0;
   xpdd->XenBus_WatchEntries[i].Active = 1;
+
+  rep = xenbus_msg_reply(Device, XS_WATCH, xbt, req, ARRAY_SIZE(req));
+
+  msg = errmsg(rep);
+  ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
+  if (msg)
+  {
+    xpdd->XenBus_WatchEntries[i].Active = 0;
+    return msg;
+  }
 
 //  KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
 
