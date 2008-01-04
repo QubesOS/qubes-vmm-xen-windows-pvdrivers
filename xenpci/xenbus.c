@@ -218,31 +218,19 @@ xenbus_msg_reply(
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   int id;
-//  DEFINE_WAIT(w);
-  struct xsd_sockmsg *rep;
 
 //  KdPrint((__DRIVER_NAME " --> xenbus_msg_reply\n"));
 
   id = allocate_xenbus_id(Device);
-//  add_waiter(w, req_info[id].waitq);
-
   xb_write(Device, type, id, trans, io, nr_reqs);
-//
-//  schedule();
-//  remove_waiter(w);
-//  wake(current);
-//
+
 //  KdPrint((__DRIVER_NAME "     starting wait\n"));
-
   KeWaitForSingleObject(&xpdd->req_info[id].WaitEvent, Executive, KernelMode, FALSE, NULL);
-
   //KdPrint((__DRIVER_NAME "     wait complete\n"));
 
-  rep = xpdd->req_info[id].Reply;
-//  BUG_ON(rep->req_id != id);
   release_xenbus_id(Device, id);
 //  KdPrint((__DRIVER_NAME " <-- xenbus_msg_reply\n"));
-  return rep;
+  return xpdd->req_info[id].Reply;
 }
 
 char *
@@ -589,10 +577,11 @@ XenBus_AddWatch(
   int i;
   char Token[20];
   struct write_req req[2];
+  PXENBUS_WATCH_ENTRY w_entry;
 
 //  KdPrint((__DRIVER_NAME " --> XenBus_AddWatch\n"));
 
-  // check that Path < 128 chars
+  ASSERT(strlen(Path) < ARRAY_SIZE(w_entry->Path));
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
     if (xpdd->XenBus_WatchEntries[i].Active == 0)
@@ -604,19 +593,20 @@ XenBus_AddWatch(
     return NULL;
   }
 
+  /* must init watchentry before starting watch */
+  w_entry = &xpdd->XenBus_WatchEntries[i];
+  strncpy(w_entry->Path, Path, ARRAY_SIZE(w_entry->Path));
+  w_entry->ServiceRoutine = ServiceRoutine;
+  w_entry->ServiceContext = ServiceContext;
+  w_entry->Count = 0;
+  w_entry->Active = 1;
+
   req[0].data = Path;
   req[0].len = strlen(Path) + 1;
 
   RtlStringCbPrintfA(Token, ARRAY_SIZE(Token), "%d", i);
   req[1].data = Token;
   req[1].len = strlen(Token) + 1;
-
-  /* must init watchentry before starting watch */
-  strncpy(xpdd->XenBus_WatchEntries[i].Path, Path, 128);
-  xpdd->XenBus_WatchEntries[i].ServiceRoutine = ServiceRoutine;
-  xpdd->XenBus_WatchEntries[i].ServiceContext = ServiceContext;
-  xpdd->XenBus_WatchEntries[i].Count = 0;
-  xpdd->XenBus_WatchEntries[i].Active = 1;
 
   rep = xenbus_msg_reply(Device, XS_WATCH, xbt, req, ARRAY_SIZE(req));
 
