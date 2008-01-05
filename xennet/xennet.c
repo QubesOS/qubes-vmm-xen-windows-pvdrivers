@@ -766,7 +766,7 @@ XenNet_Init(
       XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
 
   // Fire backend state handler here, as we may have missed it
-  XenNet_BackEndStateHandler(TmpPath, xi);
+//  XenNet_BackEndStateHandler(TmpPath, xi);
 
   KdPrint((__DRIVER_NAME "     Waiting for backend to connect\n"));
 

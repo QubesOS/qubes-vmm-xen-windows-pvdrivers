@@ -222,16 +222,15 @@ xenbus_msg_reply(
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   id = allocate_xenbus_id(Device);
-//  add_waiter(w, req_info[id].waitq);
 
-//  KdPrint((__DRIVER_NAME "     starting wait\n"));
+  xb_write(Device, type, id, trans, io, nr_reqs);
 
   KeWaitForSingleObject(&xpdd->req_info[id].WaitEvent, Executive, KernelMode, FALSE, NULL);
 
-  //KdPrint((__DRIVER_NAME "     wait complete\n"));
-
   release_xenbus_id(Device, id);
+
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
   return xpdd->req_info[id].Reply;
 }
 
@@ -627,6 +626,7 @@ XenBus_AddWatch(
   if (msg)
   {
     xpdd->XenBus_WatchEntries[i].Active = 0;
+    KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch (%s)\n", msg));
     return msg;
   }
 
