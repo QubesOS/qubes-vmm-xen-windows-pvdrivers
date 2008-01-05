@@ -54,6 +54,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   size_t i;
 
   KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
   InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
@@ -69,6 +70,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   {
     KdPrint((__DRIVER_NAME "     ZwQueryKeyValue returned %08x\n", status));
   }
+  else
+    ZwClose(RegHandle);
   KdPrint((__DRIVER_NAME "     BufLen = %d\n", BufLen));
   KeyPartialValue = (PKEY_VALUE_PARTIAL_INFORMATION)Buf;
   KdPrint((__DRIVER_NAME "     Buf = %ws\n", KeyPartialValue->Data));
@@ -166,6 +169,7 @@ XenHide_AddDevice(
   UNREFERENCED_PARAMETER(Driver);
 
   KdPrint((__DRIVER_NAME " --> DeviceAdd\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   WdfFdoInitSetFilter(DeviceInit);
 
@@ -208,6 +212,7 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
   UNREFERENCED_PARAMETER(Context);
 
   KdPrint((__DRIVER_NAME " --> IoCompletion\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   Relations = (PDEVICE_RELATIONS)Irp->IoStatus.Information;
 
@@ -265,6 +270,7 @@ XenHide_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp)
   PIO_STACK_LOCATION Stack;
 
   KdPrint((__DRIVER_NAME " --> WdmIrpPreprocessPNP\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   Stack = IoGetCurrentIrpStackLocation(Irp);
 

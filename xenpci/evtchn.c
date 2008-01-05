@@ -41,6 +41,8 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
   unsigned long port;
   ev_action_t *ev_action;
 
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
+
   UNREFERENCED_PARAMETER(MessageID);
 
   vcpu_info = &shared_info_area->vcpu_info[cpu];
@@ -75,6 +77,8 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
       _interlockedbittestandreset((volatile LONG *)&shared_info_area->evtchn_pending[0], port);
     }
   }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return FALSE; // This needs to be FALSE so it can fall through to the scsiport ISR.
 }

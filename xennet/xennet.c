@@ -163,7 +163,7 @@ get_id_from_freelist(NDIS_PACKET **list)
   return id;
 }
 
-// Called at DISPATCH_LEVEL with spinlock held
+// Called at DISPATCH_LEVEL
 static NDIS_STATUS
 XenNet_TxBufferGC(struct xennet_info *xi)
 {
@@ -231,6 +231,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
+// Called at DISPATCH_LEVEL with RxLock held
 static NDIS_STATUS
 XenNet_AllocRXBuffers(struct xennet_info *xi)
 {
@@ -305,7 +306,7 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
-// Called at DISPATCH_LEVEL with spinlock held
+// Called at DISPATCH_LEVEL
 static NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi)
 {
@@ -400,6 +401,8 @@ XenNet_Interrupt(
   return TRUE;
 }
 
+// Called at <= DISPATCH_LEVEL
+
 static VOID
 XenNet_BackEndStateHandler(char *Path, PVOID Data)
 {
@@ -410,6 +413,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
   int retry = 0;
   char *err;
   int i;
+  int new_backend_state;
 
   struct set_params {
     char *name;
@@ -428,10 +432,22 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     {NULL, 0},
   };
 
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
   xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
     XBT_NIL, Path, &Value);
-  xi->backend_state = atoi(Value);
+  new_backend_state = atoi(Value);
   xi->XenInterface.FreeMem(Value);
+
+  if (xi->backend_state == new_backend_state)
+  {
+    KdPrint((__DRIVER_NAME "     state unchanged\n"));
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+    return;
+  }    
+
+  xi->backend_state = new_backend_state;
 
   switch (xi->backend_state)
   {
@@ -531,13 +547,15 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
   KeSetEvent(&xi->backend_state_change_event, 1, FALSE);
 
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
   return;
 
 trouble:
   KdPrint((__DRIVER_NAME __FUNCTION__ ": Should never happen!\n"));
   xi->XenInterface.XenBus_EndTransaction(xi->XenInterface.InterfaceHeader.Context,
     xbt, 1, &retry);
-
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 VOID
@@ -558,6 +576,7 @@ XenNet_Halt(
     XBT_NIL, TmpPath, "%d", xi->state);
 
   // wait for backend to set 'Closing' state
+
   while (xi->backend_state != XenbusStateClosing)
     KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
 
@@ -602,6 +621,9 @@ XenNet_Init(
 
   UNREFERENCED_PARAMETER(OpenErrorStatus);
   UNREFERENCED_PARAMETER(WrapperConfigurationContext);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   /* deal with medium stuff */
   for (i = 0; i < MediumArraySize; i++)
@@ -725,6 +747,17 @@ XenNet_Init(
   RtlStringCbCopyA(xi->BackendPath, ARRAY_SIZE(xi->BackendPath), Value);
   KdPrint((__DRIVER_NAME "backend path = %s\n", xi->BackendPath));
 
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/type", xi->BackendPath);
+  res = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, &Value);
+  if (res || strcmp(Value, "netfront") != 0)
+  {
+    KdPrint((__DRIVER_NAME "    Backend type is not 'netfront'\n"));
+    status = NDIS_STATUS_FAILURE;
+    goto err;
+  }
+
+
   KeInitializeEvent(&xi->backend_state_change_event, SynchronizationEvent, FALSE);  
 
   /* Add watch on backend state */
@@ -732,9 +765,16 @@ XenNet_Init(
   xi->XenInterface.XenBus_AddWatch(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
 
+  // Fire backend state handler here, as we may have missed it
+  XenNet_BackEndStateHandler(TmpPath, xi);
+
+  KdPrint((__DRIVER_NAME "     Waiting for backend to connect\n"));
+
   // wait here for signal that we are all set up
   while (xi->backend_state != XenbusStateConnected)
     KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
+
+  KdPrint((__DRIVER_NAME "     Connected\n"));
 
   /* get mac address */
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->BackendPath);
@@ -765,10 +805,13 @@ XenNet_Init(
     xi->XenInterface.FreeMem(Value);
   }
 
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
   return NDIS_STATUS_SUCCESS;
 
 err:
   NdisFreeMemory(xi, 0, 0);
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
 }
 
