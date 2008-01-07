@@ -319,6 +319,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   UINT tot_buff_len;
   int moretodo;
   KIRQL OldIrql;
+  PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -350,6 +351,15 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       ASSERT(rxrsp->offset == 0);
       ASSERT(rxrsp->status > 0);
       NdisAdjustBufferLength(buffer, rxrsp->status);
+
+      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)NDIS_PER_PACKET_INFO_FROM_PACKET(pkt, TcpIpChecksumPacketInfo);
+      if (csum_info != NULL)
+      {
+        KdPrint((__DRIVER_NAME "     Got NDIS_PER_PACKET_INFO_FROM_PACKET(pkt, TcpIpChecksumPacketInfo)\n"));
+        csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
+      }
+      else
+        KdPrint((__DRIVER_NAME "     Could not get NDIS_PER_PACKET_INFO_FROM_PACKET(pkt, TcpIpChecksumPacketInfo)\n"));
 
       xi->stat_rx_ok++;
       NDIS_SET_PACKET_STATUS(pkt, NDIS_STATUS_SUCCESS);
@@ -423,12 +433,10 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     {"rx-ring-ref", 0},
     {"event-channel", 0},
     {"request-rx-copy", 1},
-#if 0 // these seemed to cause kernel messages about checksums
     {"feature-rx-notify", 1},
     {"feature-no-csum-offload", 1},
     {"feature-sg", 1},
     {"feature-gso-tcpv4", 0},
-#endif
     {NULL, 0},
   };
 
@@ -851,6 +859,8 @@ NDIS_OID supported_oids[] =
   OID_802_3_CURRENT_ADDRESS,
   OID_802_3_MULTICAST_LIST,
   OID_802_3_MAXIMUM_LIST_SIZE,
+  /* tcp offload */
+  OID_TCP_TASK_OFFLOAD,
 };
 
 NDIS_STATUS 
@@ -982,6 +992,9 @@ XenNet_QueryInformation(
       len = 0;
     case OID_802_3_MAXIMUM_LIST_SIZE:
       temp_data = 0; /* no mcast support */
+      break;
+    case OID_TCP_TASK_OFFLOAD:
+      KdPrint(("Get OID_TCP_TASK_OFFLOAD\n"));
       break;
     default:
       KdPrint(("Get Unknown OID 0x%x\n", Oid));
@@ -1291,7 +1304,7 @@ XenNet_SendPackets(
     xi->grant_tx_ref[id] = tx->gref;
     tx->offset = (uint16_t)MmGetMdlByteOffset(pmdl);
     tx->size = (UINT16)pkt_size;
-    // NETTXF_csum_blank should only be used for tcp and udp packets...
+    // NETTXF_csum_blank should only be used for tcp and udp packets...    
     tx->flags = 0; //NETTXF_csum_blank;
 
     xi->tx.req_prod_pvt++;
