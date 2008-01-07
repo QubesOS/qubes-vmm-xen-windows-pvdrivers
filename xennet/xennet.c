@@ -1221,6 +1221,11 @@ XenNet_SetInformation(
       status = NDIS_STATUS_NOT_SUPPORTED;
       KdPrint(("Unsupported set OID_802_3_MAXIMUM_LIST_SIZE\n"));
       break;
+    case OID_TCP_TASK_OFFLOAD:
+      // Just fake this for now... not sure if we will do anything different as a result...
+      KdPrint(("Set OID_TCP_TASK_OFFLOAD\n"));
+      status = NDIS_STATUS_SUCCESS;
+      break;
     default:
       KdPrint(("Set Unknown OID 0x%x\n", Oid));
       status = NDIS_STATUS_NOT_SUPPORTED;
