@@ -352,14 +352,19 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       ASSERT(rxrsp->status > 0);
       NdisAdjustBufferLength(buffer, rxrsp->status);
 
-      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)NDIS_PER_PACKET_INFO_FROM_PACKET(pkt, TcpIpChecksumPacketInfo);
-      if (csum_info != NULL)
-      {
-        KdPrint((__DRIVER_NAME "     Got NDIS_PER_PACKET_INFO_FROM_PACKET(pkt, TcpIpChecksumPacketInfo)\n"));
-        csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
-      }
-      else
-        KdPrint((__DRIVER_NAME "     Could not get NDIS_PER_PACKET_INFO_FROM_PACKET(pkt, TcpIpChecksumPacketInfo)\n"));
+#if 0
+      KdPrint((__DRIVER_NAME "     Flags = %sNETRXF_data_validated|%sNETRXF_csum_blank|%sNETRXF_more_data|%sNETRXF_extra_info\n",
+        (rxrsp->flags|NETRXF_data_validated)?"":"!",
+        (rxrsp->flags|NETRXF_csum_blank)?"":"!",
+        (rxrsp->flags|NETRXF_more_data)?"":"!",
+        (rxrsp->flags|NETRXF_extra_info)?"":"!"));
+#endif
+// maybe use NDIS_GET_PACKET_PROTOCOL_TYPE(Packet) here and check for == NDIS_PROTOCOL_ID_TCP_IP etc
+
+      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(pkt, TcpIpChecksumPacketInfo);
+      csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
+      csum_info->Receive.NdisPacketUdpChecksumSucceeded = 1;
+      csum_info->Receive.NdisPacketIpChecksumSucceeded = 1;
 
       xi->stat_rx_ok++;
       NDIS_SET_PACKET_STATUS(pkt, NDIS_STATUS_SUCCESS);
@@ -423,7 +428,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
   int retry = 0;
   char *err;
   int i;
-  int new_backend_state;
+  ULONG new_backend_state;
 
   struct set_params {
     char *name;
@@ -876,8 +881,12 @@ XenNet_QueryInformation(
   UCHAR vendor_desc[] = XN_VENDOR_DESC;
   ULONG64 temp_data;
   PVOID data = &temp_data;
+  ULONG offset = 0;
   UINT len = 4;
   NDIS_STATUS status = NDIS_STATUS_SUCCESS;
+  PNDIS_TASK_OFFLOAD_HEADER ntoh;
+  PNDIS_TASK_OFFLOAD nto;
+  PNDIS_TASK_TCP_IP_CHECKSUM nttic;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -995,6 +1004,46 @@ XenNet_QueryInformation(
       break;
     case OID_TCP_TASK_OFFLOAD:
       KdPrint(("Get OID_TCP_TASK_OFFLOAD\n"));
+      len = sizeof(NDIS_TASK_OFFLOAD_HEADER) + sizeof(NDIS_TASK_OFFLOAD) - 1 + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+      offset = sizeof(NDIS_TASK_OFFLOAD_HEADER);
+      NdisAllocateMemoryWithTag(&data, len - offset, XENNET_POOL_TAG);
+
+      ntoh = InformationBuffer;
+
+
+      // check that ntoh->Version == NDIS_TASK_OFFLOAD_VERSION
+      // check that ntoh->Size == sizeof(NDIS_TASK_OFFLOAD_HEADER) (maybe)
+      // check that ntoh->EncapsulationFormat.Encapsulation == IEEE_802_3_Encapsulation
+
+      ntoh->OffsetFirstTask = offset;
+
+      nto = data; //((char *)ntoh) + ntoh->OffsetFirstTask;
+
+      nto->Version = NDIS_TASK_OFFLOAD_VERSION;
+      nto->Size = sizeof(NDIS_TASK_OFFLOAD);
+      nto->Task = TcpIpChecksumNdisTask;
+      nto->OffsetNextTask = 0;
+      nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+
+      nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)nto->TaskBuffer;
+      nttic->V4Transmit.IpOptionsSupported = 0;
+      nttic->V4Transmit.TcpOptionsSupported = 0;
+      nttic->V4Transmit.TcpChecksum = 0;
+      nttic->V4Transmit.UdpChecksum = 0;
+      nttic->V4Transmit.IpChecksum = 0;
+      nttic->V4Receive.IpOptionsSupported = 1;
+      nttic->V4Receive.TcpOptionsSupported = 1;
+      nttic->V4Receive.TcpChecksum = 1;
+      nttic->V4Receive.UdpChecksum = 1;
+      nttic->V4Receive.IpChecksum = 1;
+      nttic->V6Transmit.IpOptionsSupported = 0;
+      nttic->V6Transmit.TcpOptionsSupported = 0;
+      nttic->V6Transmit.TcpChecksum = 0;
+      nttic->V6Transmit.UdpChecksum = 0;
+      nttic->V6Receive.IpOptionsSupported = 0;
+      nttic->V6Receive.TcpOptionsSupported = 0;
+      nttic->V6Receive.TcpChecksum = 0;
+      nttic->V6Receive.UdpChecksum = 0;
       break;
     default:
       KdPrint(("Get Unknown OID 0x%x\n", Oid));
@@ -1010,14 +1059,14 @@ XenNet_QueryInformation(
   if (len > InformationBufferLength)
   {
     *BytesNeeded = len;
-  //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returned error)\n"));
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (BUFFER_TOO_SHORT)\n"));
     return NDIS_STATUS_BUFFER_TOO_SHORT;
   }
 
   *BytesWritten = len;
   if (len)
   {
-    NdisMoveMemory(InformationBuffer, data, len);
+    NdisMoveMemory(((PUCHAR)InformationBuffer) + offset, data, len - offset);
   }
 
   //KdPrint(("Got OID 0x%x\n", Oid));
