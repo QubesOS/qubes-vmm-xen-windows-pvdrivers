@@ -76,7 +76,7 @@ struct xennet_info
 
   /* Outstanding packets. The first entry in tx_pkts
    * is an index into a chain of free entries. */
-  PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
+  PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE+1];
   PNDIS_PACKET rx_pkts[NET_RX_RING_SIZE];
 
   grant_ref_t gref_tx_head;
@@ -304,6 +304,40 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NDIS_STATUS_SUCCESS;
+}
+
+/* free rx buffers */
+static void
+XenNet_FreeRXBuffers(struct xennet_info *xi)
+{
+  int i;
+  PNDIS_PACKET packet;
+  PNDIS_BUFFER buffer;
+  PVOID buff_va;
+  UINT buff_len;
+  UINT tot_buff_len;
+  KIRQL OldIrql;
+
+  ASSERT(!xi->connected);
+
+  KeAcquireSpinLock(&xi->RxLock, &OldIrql);
+
+  for (i = 0; i < NET_RX_RING_SIZE; i++)
+  {
+    if (xi->rx_pkts[i])
+    {
+      packet = xi->rx_pkts[i];
+      NdisGetFirstBufferFromPacketSafe(packet, &buffer, &buff_va, &buff_len,
+        &tot_buff_len, NormalPagePriority);
+      ASSERT(buff_len == tot_buff_len);
+
+      NdisFreeMemory(buff_va, 0, 0);
+      NdisFreeBuffer(buffer);
+      NdisFreePacket(packet);
+    }
+  }
+
+  KeReleaseSpinLock(&xi->RxLock, OldIrql);
 }
 
 // Called at DISPATCH_LEVEL
@@ -698,8 +732,10 @@ XenNet_Init(
   xi->pdoData = (PXENPCI_XEN_DEVICE_DATA)xi->pdo->DeviceExtension;
 
   /* Initialize tx_pkts as a free chain containing every entry. */
-  for (i = 0; i <= NET_TX_RING_SIZE; i++) {
+  for (i = 0; i < NET_TX_RING_SIZE+1; i++) {
     xi->tx_pkts[i] = (void *)((unsigned long) i+1);
+  }
+  for (i = 0; i < NET_TX_RING_SIZE; i++) {
     xi->grant_tx_ref[i] = GRANT_INVALID_REF;
   }
 
@@ -760,17 +796,6 @@ XenNet_Init(
   RtlStringCbCopyA(xi->BackendPath, ARRAY_SIZE(xi->BackendPath), Value);
   KdPrint((__DRIVER_NAME "backend path = %s\n", xi->BackendPath));
 
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/type", xi->BackendPath);
-  res = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, &Value);
-  if (res || strcmp(Value, "netfront") != 0)
-  {
-    KdPrint((__DRIVER_NAME "    Backend type is not 'netfront'\n"));
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  }
-
-
   KeInitializeEvent(&xi->backend_state_change_event, SynchronizationEvent, FALSE);  
 
   /* Add watch on backend state */
@@ -802,7 +827,6 @@ XenNet_Init(
   else
   {
     char *s, *e;
-    int i;
     s = Value;
     for (i = 0; i < ETH_ALEN; i++) {
       xi->perm_mac_addr[i] = (UINT8)simple_strtoul(s, &e, 16);
@@ -868,6 +892,16 @@ NDIS_OID supported_oids[] =
   OID_TCP_TASK_OFFLOAD,
 };
 
+/* return 4 or 8 depending on size of buffer */
+#define HANDLE_STAT_RETURN \
+  {if (InformationBufferLength == 4) { \
+    len = 4; *BytesNeeded = 8; \
+    } else { \
+    len = 8; \
+    } }
+
+//#define LARGE_SEND
+
 NDIS_STATUS 
 XenNet_QueryInformation(
   IN NDIS_HANDLE MiniportAdapterContext,
@@ -883,10 +917,14 @@ XenNet_QueryInformation(
   PVOID data = &temp_data;
   ULONG offset = 0;
   UINT len = 4;
+  BOOLEAN used_temp_buffer = TRUE;
   NDIS_STATUS status = NDIS_STATUS_SUCCESS;
   PNDIS_TASK_OFFLOAD_HEADER ntoh;
   PNDIS_TASK_OFFLOAD nto;
   PNDIS_TASK_TCP_IP_CHECKSUM nttic;
+#ifdef LARGE_SEND
+  PNDIS_TASK_TCP_LARGE_SEND nttls;
+#endif
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -970,23 +1008,23 @@ XenNet_QueryInformation(
       break;
     case OID_GEN_XMIT_OK:
       temp_data = xi->stat_tx_ok;
-      len = sizeof(ULONG64);
+      HANDLE_STAT_RETURN;
       break;
     case OID_GEN_RCV_OK:
       temp_data = xi->stat_rx_ok;
-      len = sizeof(ULONG64);
+      HANDLE_STAT_RETURN;
       break;
     case OID_GEN_XMIT_ERROR:
       temp_data = xi->stat_tx_error;
-      len = sizeof(ULONG64);
+      HANDLE_STAT_RETURN;
       break;
     case OID_GEN_RCV_ERROR:
       temp_data = xi->stat_rx_error;
-      len = sizeof(ULONG64);
+      HANDLE_STAT_RETURN;
       break;
     case OID_GEN_RCV_NO_BUFFER:
       temp_data = xi->stat_rx_no_buffer;
-      len = sizeof(ULONG64);
+      HANDLE_STAT_RETURN;
       break;
     case OID_802_3_PERMANENT_ADDRESS:
       data = xi->perm_mac_addr;
@@ -1004,37 +1042,44 @@ XenNet_QueryInformation(
       break;
     case OID_TCP_TASK_OFFLOAD:
       KdPrint(("Get OID_TCP_TASK_OFFLOAD\n"));
-      len = sizeof(NDIS_TASK_OFFLOAD_HEADER) + sizeof(NDIS_TASK_OFFLOAD) - 1 + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
-      offset = sizeof(NDIS_TASK_OFFLOAD_HEADER);
-      NdisAllocateMemoryWithTag(&data, len - offset, XENNET_POOL_TAG);
+      /* it's times like this that C really sucks */
+      len = sizeof(NDIS_TASK_OFFLOAD_HEADER)
+        + FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+        + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+#ifdef LARGE_SEND
+      len += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+        + sizeof(NDIS_TASK_TCP_LARGE_SEND);
+#endif
+
+      if (len > InformationBufferLength)
+      {
+          break;
+      }
 
       ntoh = InformationBuffer;
+      ASSERT(ntoh->Version == NDIS_TASK_OFFLOAD_VERSION);
+      ASSERT(ntoh->Size == sizeof(*ntoh));
+      ASSERT(ntoh->EncapsulationFormat.Encapsulation == IEEE_802_3_Encapsulation);
+      ntoh->OffsetFirstTask = ntoh->Size;
 
-
-      // check that ntoh->Version == NDIS_TASK_OFFLOAD_VERSION
-      // check that ntoh->Size == sizeof(NDIS_TASK_OFFLOAD_HEADER) (maybe)
-      // check that ntoh->EncapsulationFormat.Encapsulation == IEEE_802_3_Encapsulation
-
-      ntoh->OffsetFirstTask = offset;
-
-      nto = data; //((char *)ntoh) + ntoh->OffsetFirstTask;
-
+      /* fill in first nto */
+      nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + ntoh->OffsetFirstTask);
       nto->Version = NDIS_TASK_OFFLOAD_VERSION;
       nto->Size = sizeof(NDIS_TASK_OFFLOAD);
       nto->Task = TcpIpChecksumNdisTask;
-      nto->OffsetNextTask = 0;
       nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
 
-      nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)nto->TaskBuffer;
+      /* fill in checksum offload struct */
+      nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)&nto->TaskBuffer;
       nttic->V4Transmit.IpOptionsSupported = 0;
       nttic->V4Transmit.TcpOptionsSupported = 0;
       nttic->V4Transmit.TcpChecksum = 0;
       nttic->V4Transmit.UdpChecksum = 0;
       nttic->V4Transmit.IpChecksum = 0;
-      nttic->V4Receive.IpOptionsSupported = 1;
-      nttic->V4Receive.TcpOptionsSupported = 1;
-      nttic->V4Receive.TcpChecksum = 1;
-      nttic->V4Receive.UdpChecksum = 1;
+      nttic->V4Receive.IpOptionsSupported = 0;
+      nttic->V4Receive.TcpOptionsSupported = 0;
+      nttic->V4Receive.TcpChecksum = 0;
+      nttic->V4Receive.UdpChecksum = 0;
       nttic->V4Receive.IpChecksum = 1;
       nttic->V6Transmit.IpOptionsSupported = 0;
       nttic->V6Transmit.TcpOptionsSupported = 0;
@@ -1044,6 +1089,29 @@ XenNet_QueryInformation(
       nttic->V6Receive.TcpOptionsSupported = 0;
       nttic->V6Receive.TcpChecksum = 0;
       nttic->V6Receive.UdpChecksum = 0;
+#ifdef LARGE_SEND
+      nto->OffsetNextTask = sizeof(NDIS_TASK_OFFLOAD_HEADER)
+        + FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+        + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+
+      /* fill in second nto */
+      nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + nto->OffsetNextTask);
+      nto->Version = NDIS_TASK_OFFLOAD_VERSION;
+      nto->Size = sizeof(NDIS_TASK_OFFLOAD);
+      nto->Task = TcpLargeSendNdisTask;
+      nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_LARGE_SEND);
+
+      /* fill in large send struct */
+      nttls = (PNDIS_TASK_TCP_LARGE_SEND)&nto->TaskBuffer;
+      nttls->Version = 0;
+      nttls->MaxOffLoadSize = 1024*64; /* made up, fixme */
+      nttls->MinSegmentCount = 4; /* also made up */
+      nttls->TcpOptions = FALSE;
+      nttls->IpOptions = FALSE;
+#endif
+      nto->OffsetNextTask = 0; /* last one */
+
+      used_temp_buffer = FALSE;
       break;
     default:
       KdPrint(("Get Unknown OID 0x%x\n", Oid));
@@ -1064,7 +1132,7 @@ XenNet_QueryInformation(
   }
 
   *BytesWritten = len;
-  if (len)
+  if (len && used_temp_buffer)
   {
     NdisMoveMemory(((PUCHAR)InformationBuffer) + offset, data, len - offset);
   }
@@ -1254,6 +1322,8 @@ XenNet_ReturnPacket(
     &tot_buff_len, NormalPagePriority);
   ASSERT(buff_len == tot_buff_len);
 
+  /* TODO: reuse returned packets */
+
   NdisFreeMemory(buff_va, 0, 0);
   NdisFreeBuffer(buffer);
   NdisFreePacket(Packet);
@@ -1400,10 +1470,16 @@ XenNet_Shutdown(
   IN NDIS_HANDLE MiniportAdapterContext
   )
 {
-  //struct xennet_info *xi = MiniportAdapterContext;
-  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+  struct xennet_info *xi = MiniportAdapterContext;
 
-  // I think all we are supposed to do here is reset the adapter, which for us might be nothing...
+  xi->connected = FALSE;
+
+  /* Free xen resources */
+  /* TODO: disconnect from backend */
+
+  /* Free ndis resources */
+  XenNet_FreeRXBuffers(MiniportAdapterContext);
+  /* TODO: clean TX ring */
 
   KdPrint((__FUNCTION__ " called\n"));
 }
