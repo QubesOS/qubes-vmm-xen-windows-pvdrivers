@@ -316,10 +316,20 @@ XenBus_Init(WDFDEVICE Device)
   //InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
   //Status = PsCreateSystemThread(&XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_ReadThreadProc, NULL);
   Status = PsCreateSystemThread(&xpdd->XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_ReadThreadProc, Device);
+  if (!NT_SUCCESS(Status))
+  {
+    KdPrint((__DRIVER_NAME " Could not start read thread\n"));
+    return STATUS_UNSUCCESSFUL;
+  }
 
   //InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
   //Status = PsCreateSystemThread(&XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_WatchThreadProc, NULL);
   Status = PsCreateSystemThread(&xpdd->XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_WatchThreadProc, Device);
+  if (!NT_SUCCESS(Status))
+  {
+    KdPrint((__DRIVER_NAME " Could not start watch thread\n"));
+    return STATUS_UNSUCCESSFUL;
+  }
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -780,7 +790,7 @@ XenBus_Printf(
 {
   WDFDEVICE Device = Context;
   va_list ap;
-  char buf[1024];
+  char buf[512];
   char *retval;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
