@@ -57,8 +57,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   UNICODE_STRING RegValueName;
   HANDLE RegHandle;
   OBJECT_ATTRIBUTES RegObjectAttributes;
-  char Buf[200];
-  ULONG BufLen = 200;
+  char Buf[300];
+  ULONG BufLen;
   PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
   int State = 0;
   int StartPos = 0;
@@ -89,7 +89,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   }
 
   RtlInitUnicodeString(&RegValueName, L"SystemStartOptions");
-  status = ZwQueryValueKey(RegHandle, &RegValueName, KeyValuePartialInformation, Buf, BufLen, &BufLen);
+  status = ZwQueryValueKey(RegHandle, &RegValueName, KeyValuePartialInformation,
+    Buf, ARRAY_SIZE(Buf), &BufLen);
   if(!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     ZwQueryKeyValue returned %08x\n", status));
