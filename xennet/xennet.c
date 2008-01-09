@@ -421,17 +421,21 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
 #if 0
       KdPrint((__DRIVER_NAME "     Flags = %sNETRXF_data_validated|%sNETRXF_csum_blank|%sNETRXF_more_data|%sNETRXF_extra_info\n",
-        (rxrsp->flags|NETRXF_data_validated)?"":"!",
-        (rxrsp->flags|NETRXF_csum_blank)?"":"!",
-        (rxrsp->flags|NETRXF_more_data)?"":"!",
-        (rxrsp->flags|NETRXF_extra_info)?"":"!"));
+        (rxrsp->flags&NETRXF_data_validated)?"":"!",
+        (rxrsp->flags&NETRXF_csum_blank)?"":"!",
+        (rxrsp->flags&NETRXF_more_data)?"":"!",
+        (rxrsp->flags&NETRXF_extra_info)?"":"!"));
 #endif
-// maybe use NDIS_GET_PACKET_PROTOCOL_TYPE(Packet) here and check for == NDIS_PROTOCOL_ID_TCP_IP etc
 
-      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo);
-      csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
-      csum_info->Receive.NdisPacketUdpChecksumSucceeded = 1;
-      csum_info->Receive.NdisPacketIpChecksumSucceeded = 1;
+      if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) == NDIS_PROTOCOL_ID_TCP_IP
+        && (rxrsp->flags & (NETRXF_csum_blank|NETRXF_data_validated)))
+      {
+        csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo);
+        csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
+        csum_info->Receive.NdisPacketUdpChecksumSucceeded = 0;
+        csum_info->Receive.NdisPacketIpChecksumSucceeded = 1;
+//        KdPrint((__DRIVER_NAME "     Offload = %08x\n", NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo)));
+      }
 
       xi->stat_rx_ok++;
       NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
@@ -506,7 +510,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     {"event-channel", 0},
     {"request-rx-copy", 1},
     {"feature-rx-notify", 1},
-    {"feature-no-csum-offload", 0},
+    {"feature-no-csum-offload", 1},
     {"feature-sg", 1},
     {"feature-gso-tcpv4", 0},
     {NULL, 0},
@@ -710,6 +714,7 @@ XenNet_Init(
     status = NDIS_STATUS_RESOURCES;
     goto err;
   }
+  NdisSetPacketPoolProtocolId(xi->packet_pool, NDIS_PROTOCOL_ID_TCP_IP);
 
   NdisAllocateBufferPool(&status, &xi->buffer_pool, NET_RX_RING_SIZE);
   if (status != NDIS_STATUS_SUCCESS)
@@ -785,6 +790,19 @@ XenNet_Init(
   }
   RtlStringCbCopyA(xi->BackendPath, ARRAY_SIZE(xi->BackendPath), Value);
   KdPrint((__DRIVER_NAME "backend path = %s\n", xi->BackendPath));
+
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/type", xi->BackendPath);
+  res = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, &Value);
+
+#if 0
+  if (res || strcmp(Value, "netfront") != 0)
+  {
+    KdPrint((__DRIVER_NAME "    Backend type is not 'netfront'\n"));
+    status = NDIS_STATUS_FAILURE;
+    goto err;
+  }
+#endif
 
   KeInitializeEvent(&xi->backend_state_change_event, SynchronizationEvent, FALSE);  
 
@@ -907,7 +925,6 @@ XenNet_QueryInformation(
   UCHAR vendor_desc[] = XN_VENDOR_DESC;
   ULONG64 temp_data;
   PVOID data = &temp_data;
-  ULONG offset = 0;
   UINT len = 4;
   BOOLEAN used_temp_buffer = TRUE;
   NDIS_STATUS status = NDIS_STATUS_SUCCESS;
@@ -1035,10 +1052,12 @@ XenNet_QueryInformation(
     case OID_TCP_TASK_OFFLOAD:
       KdPrint(("Get OID_TCP_TASK_OFFLOAD\n"));
       /* it's times like this that C really sucks */
-      len = sizeof(NDIS_TASK_OFFLOAD_HEADER)
-        + FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+
+      len = sizeof(NDIS_TASK_OFFLOAD_HEADER);
+
+      len += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
         + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
-#ifdef LARGE_SEND
+#ifdef OFFLOAD_LARGE_SEND
       len += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
         + sizeof(NDIS_TASK_TCP_LARGE_SEND);
 #endif
@@ -1048,7 +1067,7 @@ XenNet_QueryInformation(
           break;
       }
 
-      ntoh = InformationBuffer;
+      ntoh = (PNDIS_TASK_OFFLOAD_HEADER)InformationBuffer;
       ASSERT(ntoh->Version == NDIS_TASK_OFFLOAD_VERSION);
       ASSERT(ntoh->Size == sizeof(*ntoh));
       ASSERT(ntoh->EncapsulationFormat.Encapsulation == IEEE_802_3_Encapsulation);
@@ -1081,10 +1100,10 @@ XenNet_QueryInformation(
       nttic->V6Receive.TcpOptionsSupported = 0;
       nttic->V6Receive.TcpChecksum = 0;
       nttic->V6Receive.UdpChecksum = 0;
-#ifdef LARGE_SEND
-      nto->OffsetNextTask = sizeof(NDIS_TASK_OFFLOAD_HEADER)
-        + FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
-        + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+
+#ifdef OFFLOAD_LARGE_SEND
+      nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+        + pto->TaskBufferLength;
 
       /* fill in second nto */
       nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + nto->OffsetNextTask);
@@ -1126,7 +1145,7 @@ XenNet_QueryInformation(
   *BytesWritten = len;
   if (len && used_temp_buffer)
   {
-    NdisMoveMemory(((PUCHAR)InformationBuffer) + offset, data, len - offset);
+    NdisMoveMemory((PUCHAR)InformationBuffer, data, len);
   }
 
   //KdPrint(("Got OID 0x%x\n", Oid));
@@ -1148,6 +1167,10 @@ XenNet_SetInformation(
   NTSTATUS status;
   struct xennet_info *xi = MiniportAdapterContext;
   PULONG64 data = InformationBuffer;
+  PNDIS_TASK_OFFLOAD_HEADER ntoh;
+  PNDIS_TASK_OFFLOAD nto;
+  PNDIS_TASK_TCP_IP_CHECKSUM nttic;
+  int offset;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -1282,9 +1305,48 @@ XenNet_SetInformation(
       KdPrint(("Unsupported set OID_802_3_MAXIMUM_LIST_SIZE\n"));
       break;
     case OID_TCP_TASK_OFFLOAD:
-      // Just fake this for now... not sure if we will do anything different as a result...
-      KdPrint(("Set OID_TCP_TASK_OFFLOAD\n"));
+      // Just fake this for now... ultimately we need to manually calc rx checksum if offload is disabled by windows
       status = NDIS_STATUS_SUCCESS;
+      KdPrint(("Set OID_TCP_TASK_OFFLOAD\n"));
+      // we should disable everything here, then enable what has been set
+      ntoh = (PNDIS_TASK_OFFLOAD_HEADER)InformationBuffer;
+      *BytesRead = sizeof(NDIS_TASK_OFFLOAD_HEADER);
+      offset = ntoh->OffsetFirstTask;
+      nto = (PNDIS_TASK_OFFLOAD)ntoh; // not really, just to get the first offset right
+      while (offset != 0)
+      {
+        *BytesRead += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer);
+        nto = (PNDIS_TASK_OFFLOAD)(((PUCHAR)nto) + offset);
+        switch (nto->Task)
+        {
+        case TcpIpChecksumNdisTask:
+          *BytesRead += sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+          KdPrint(("TcpIpChecksumNdisTask\n"));
+          nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)nto->TaskBuffer;
+          KdPrint(("  V4Transmit.IpOptionsSupported  = %d\n", nttic->V4Transmit.IpOptionsSupported));
+          KdPrint(("  V4Transmit.TcpOptionsSupported = %d\n", nttic->V4Transmit.TcpOptionsSupported));
+          KdPrint(("  V4Transmit.TcpChecksum         = %d\n", nttic->V4Transmit.TcpChecksum));
+          KdPrint(("  V4Transmit.UdpChecksum         = %d\n", nttic->V4Transmit.UdpChecksum));
+          KdPrint(("  V4Transmit.IpChecksum          = %d\n", nttic->V4Transmit.IpChecksum));
+          KdPrint(("  V4Receive.IpOptionsSupported   = %d\n", nttic->V4Receive.IpOptionsSupported));
+          KdPrint(("  V4Receive.TcpOptionsSupported  = %d\n", nttic->V4Receive.TcpOptionsSupported));
+          KdPrint(("  V4Receive.TcpChecksum          = %d\n", nttic->V4Receive.TcpChecksum));
+          KdPrint(("  V4Receive.UdpChecksum          = %d\n", nttic->V4Receive.UdpChecksum));
+          KdPrint(("  V4Receive.IpChecksum           = %d\n", nttic->V4Receive.IpChecksum));
+          KdPrint(("  V6Transmit.IpOptionsSupported  = %d\n", nttic->V6Transmit.IpOptionsSupported));
+          KdPrint(("  V6Transmit.TcpOptionsSupported = %d\n", nttic->V6Transmit.TcpOptionsSupported));
+          KdPrint(("  V6Transmit.TcpChecksum         = %d\n", nttic->V6Transmit.TcpChecksum));
+          KdPrint(("  V6Transmit.UdpChecksum         = %d\n", nttic->V6Transmit.UdpChecksum));
+          KdPrint(("  V6Receive.IpOptionsSupported   = %d\n", nttic->V6Receive.IpOptionsSupported));
+          KdPrint(("  V6Receive.TcpOptionsSupported  = %d\n", nttic->V6Receive.TcpOptionsSupported));
+          KdPrint(("  V6Receive.TcpChecksum          = %d\n", nttic->V6Receive.TcpChecksum));
+          KdPrint(("  V6Receive.UdpChecksum          = %d\n", nttic->V6Receive.UdpChecksum));
+          break;
+        default:
+          KdPrint(("  Unknown Task %d\n", nto->Task));
+        }
+        offset = nto->OffsetNextTask;
+      }
       break;
     default:
       KdPrint(("Set Unknown OID 0x%x\n", Oid));
