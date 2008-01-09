@@ -910,7 +910,7 @@ NDIS_OID supported_oids[] =
     len = 8; \
     } }
 
-//#define LARGE_SEND
+//#define OFFLOAD_LARGE_SEND
 
 NDIS_STATUS 
 XenNet_QueryInformation(
@@ -931,7 +931,7 @@ XenNet_QueryInformation(
   PNDIS_TASK_OFFLOAD_HEADER ntoh;
   PNDIS_TASK_OFFLOAD nto;
   PNDIS_TASK_TCP_IP_CHECKSUM nttic;
-#ifdef LARGE_SEND
+#ifdef OFFLOAD_LARGE_SEND
   PNDIS_TASK_TCP_LARGE_SEND nttls;
 #endif
 
@@ -1102,8 +1102,9 @@ XenNet_QueryInformation(
       nttic->V6Receive.UdpChecksum = 0;
 
 #ifdef OFFLOAD_LARGE_SEND
+      /* offset from start of current NTO to start of next NTO */
       nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
-        + pto->TaskBufferLength;
+        + nto->TaskBufferLength;
 
       /* fill in second nto */
       nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + nto->OffsetNextTask);
