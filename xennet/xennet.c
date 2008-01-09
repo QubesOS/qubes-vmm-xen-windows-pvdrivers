@@ -793,8 +793,10 @@ XenNet_Init(
   xi->XenInterface.XenBus_AddWatch(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
 
-  // Fire backend state handler here, as we may have missed it
-//  XenNet_BackEndStateHandler(TmpPath, xi);
+  /* Tell backend we're coming up */
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
+  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
+    XBT_NIL, TmpPath, "%d", XenbusStateInitialising);
 
   KdPrint((__DRIVER_NAME "     Waiting for backend to connect\n"));
 
