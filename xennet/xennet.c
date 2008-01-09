@@ -80,7 +80,7 @@ struct xennet_info
   PNDIS_PACKET rx_pkts[NET_RX_RING_SIZE];
 
   grant_ref_t gref_tx_head;
-  grant_ref_t grant_tx_ref[NET_TX_RING_SIZE];
+  grant_ref_t grant_tx_ref[NET_TX_RING_SIZE+1];
   grant_ref_t gref_rx_head;
   grant_ref_t grant_rx_ref[NET_TX_RING_SIZE];
 
@@ -231,9 +231,37 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
+static void XenNet_TxBufferFree(struct xennet_info *xi)
+{
+  PNDIS_PACKET packet;
+  PMDL pmdl;
+  unsigned short id;
+
+  /* TODO: free packets in tx queue (once implemented) */
+
+  /* free sent-but-not-completed packets */
+  for (id = 1; id < NET_TX_RING_SIZE+1; id++) {
+    if (xi->grant_tx_ref[id] == GRANT_INVALID_REF)
+      continue;
+
+    packet = xi->tx_pkts[id];
+    xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
+      xi->grant_tx_ref[id]);
+    xi->grant_tx_ref[id] = GRANT_INVALID_REF;
+    add_id_to_freelist(xi->tx_pkts, id);
+
+    /* free linearized data page */
+    pmdl = *(PMDL *)packet->MiniportReservedEx;
+    NdisFreeMemory(MmGetMdlVirtualAddress(pmdl), 0, 0); // <= DISPATCH_LEVEL
+    IoFreeMdl(pmdl);
+
+    NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
+  }
+}
+
 // Called at DISPATCH_LEVEL with RxLock held
 static NDIS_STATUS
-XenNet_AllocRXBuffers(struct xennet_info *xi)
+XenNet_RxBufferAlloc(struct xennet_info *xi)
 {
   unsigned short id;
   PNDIS_PACKET packet;
@@ -306,11 +334,11 @@ XenNet_AllocRXBuffers(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
-/* free rx buffers */
 static void
-XenNet_FreeRXBuffers(struct xennet_info *xi)
+XenNet_RxBufferFree(struct xennet_info *xi)
 {
   int i;
+  grant_ref_t ref;
   PNDIS_PACKET packet;
   PNDIS_BUFFER buffer;
   PVOID buff_va;
@@ -324,17 +352,22 @@ XenNet_FreeRXBuffers(struct xennet_info *xi)
 
   for (i = 0; i < NET_RX_RING_SIZE; i++)
   {
-    if (xi->rx_pkts[i])
-    {
-      packet = xi->rx_pkts[i];
-      NdisGetFirstBufferFromPacketSafe(packet, &buffer, &buff_va, &buff_len,
-        &tot_buff_len, NormalPagePriority);
-      ASSERT(buff_len == tot_buff_len);
+    if (!xi->rx_pkts[i])
+      continue;
 
-      NdisFreeMemory(buff_va, 0, 0);
-      NdisFreeBuffer(buffer);
-      NdisFreePacket(packet);
-    }
+    packet = xi->rx_pkts[i];
+    ref = xi->grant_rx_ref[i];
+
+    /* don't check return, what can we do about it on failure? */
+    xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context, ref);
+
+    NdisGetFirstBufferFromPacketSafe(packet, &buffer, &buff_va, &buff_len,
+      &tot_buff_len, NormalPagePriority);
+    ASSERT(buff_len == tot_buff_len);
+
+    NdisFreeMemory(buff_va, 0, 0);
+    NdisFreeBuffer(buffer);
+    NdisFreePacket(packet);
   }
 
   KeReleaseSpinLock(&xi->RxLock, OldIrql);
@@ -346,7 +379,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
 
-  PNDIS_PACKET pkt;
+  PNDIS_PACKET packet;
   PNDIS_BUFFER buffer;
   PVOID buff_va;
   UINT buff_len;
@@ -374,13 +407,13 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
     //  KdPrint((__DRIVER_NAME "     Got a packet\n"));
 
-      pkt = xi->rx_pkts[rxrsp->id];
+      packet = xi->rx_pkts[rxrsp->id];
       xi->rx_pkts[rxrsp->id] = NULL;
       xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
         xi->grant_rx_ref[rxrsp->id]);
       xi->grant_rx_ref[rxrsp->id] = GRANT_INVALID_REF;
 
-      NdisGetFirstBufferFromPacketSafe(pkt, &buffer, &buff_va, &buff_len,
+      NdisGetFirstBufferFromPacketSafe(packet, &buffer, &buff_va, &buff_len,
         &tot_buff_len, NormalPagePriority);
       ASSERT(rxrsp->offset == 0);
       ASSERT(rxrsp->status > 0);
@@ -395,17 +428,17 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 #endif
 // maybe use NDIS_GET_PACKET_PROTOCOL_TYPE(Packet) here and check for == NDIS_PROTOCOL_ID_TCP_IP etc
 
-      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(pkt, TcpIpChecksumPacketInfo);
+      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo);
       csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
       csum_info->Receive.NdisPacketUdpChecksumSucceeded = 1;
       csum_info->Receive.NdisPacketIpChecksumSucceeded = 1;
 
       xi->stat_rx_ok++;
-      NDIS_SET_PACKET_STATUS(pkt, NDIS_STATUS_SUCCESS);
+      NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
 
       /* just indicate 1 packet for now */
     //  KdPrint((__DRIVER_NAME "     Indicating Received\n"));
-      NdisMIndicateReceivePacket(xi->adapter_handle, &pkt, 1);
+      NdisMIndicateReceivePacket(xi->adapter_handle, &packet, 1);
     //  KdPrint((__DRIVER_NAME "     Done Indicating Received\n"));
     }
 
@@ -415,7 +448,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   } while (moretodo);
 
   /* Give netback more buffers */
-  XenNet_AllocRXBuffers(xi);
+  XenNet_RxBufferAlloc(xi);
 
   KeReleaseSpinLock(&xi->RxLock, OldIrql);
 
@@ -473,7 +506,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     {"event-channel", 0},
     {"request-rx-copy", 1},
     {"feature-rx-notify", 1},
-    {"feature-no-csum-offload", 1},
+    {"feature-no-csum-offload", 0},
     {"feature-sg", 1},
     {"feature-gso-tcpv4", 0},
     {NULL, 0},
@@ -510,7 +543,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait\n"));  
 
     xi->event_channel = xi->XenInterface.EvtChn_AllocUnbound(
-      xi->XenInterface.InterfaceHeader.Context, 0);  
+      xi->XenInterface.InterfaceHeader.Context, 0);
     xi->XenInterface.EvtChn_BindDpc(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel, XenNet_Interrupt, xi);
 
@@ -557,7 +590,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     xi->XenInterface.XenBus_EndTransaction(xi->XenInterface.InterfaceHeader.Context,
       xbt, 0, &retry);
 
-    XenNet_AllocRXBuffers(xi);
+    XenNet_RxBufferAlloc(xi);
 
     xi->state = XenbusStateConnected;
     KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
@@ -602,47 +635,6 @@ trouble:
   KdPrint((__DRIVER_NAME __FUNCTION__ ": Should never happen!\n"));
   xi->XenInterface.XenBus_EndTransaction(xi->XenInterface.InterfaceHeader.Context,
     xbt, 1, &retry);
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-}
-
-VOID
-XenNet_Halt(
-  IN NDIS_HANDLE MiniportAdapterContext
-  )
-{
-  struct xennet_info *xi = MiniportAdapterContext;
-  CHAR TmpPath[128];
-
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-
-  // set frontend state to 'closing'
-  xi->state = XenbusStateClosing;
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
-  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
-    XBT_NIL, TmpPath, "%d", xi->state);
-
-  // wait for backend to set 'Closing' state
-
-  while (xi->backend_state != XenbusStateClosing)
-    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
-
-  // set frontend state to 'closed'
-  xi->state = XenbusStateClosed;
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
-  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
-    XBT_NIL, TmpPath, "%d", xi->state);
-
-  // wait for backend to set 'Closed' state
-  while (xi->backend_state != XenbusStateClosed)
-    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
-
-  // remove event channel xenbus entry
-  // unbind event channel
-  // remove tx/rx ring entries
-  // clean up all grant table entries
-  // free all memory
-
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
@@ -734,8 +726,6 @@ XenNet_Init(
   /* Initialize tx_pkts as a free chain containing every entry. */
   for (i = 0; i < NET_TX_RING_SIZE+1; i++) {
     xi->tx_pkts[i] = (void *)((unsigned long) i+1);
-  }
-  for (i = 0; i < NET_TX_RING_SIZE; i++) {
     xi->grant_tx_ref[i] = GRANT_INVALID_REF;
   }
 
@@ -1070,16 +1060,16 @@ XenNet_QueryInformation(
       nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
 
       /* fill in checksum offload struct */
-      nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)&nto->TaskBuffer;
+      nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)nto->TaskBuffer;
       nttic->V4Transmit.IpOptionsSupported = 0;
       nttic->V4Transmit.TcpOptionsSupported = 0;
       nttic->V4Transmit.TcpChecksum = 0;
       nttic->V4Transmit.UdpChecksum = 0;
       nttic->V4Transmit.IpChecksum = 0;
-      nttic->V4Receive.IpOptionsSupported = 0;
-      nttic->V4Receive.TcpOptionsSupported = 0;
-      nttic->V4Receive.TcpChecksum = 0;
-      nttic->V4Receive.UdpChecksum = 0;
+      nttic->V4Receive.IpOptionsSupported = 1;
+      nttic->V4Receive.TcpOptionsSupported = 1;
+      nttic->V4Receive.TcpChecksum = 1;
+      nttic->V4Receive.UdpChecksum = 1;
       nttic->V4Receive.IpChecksum = 1;
       nttic->V6Transmit.IpOptionsSupported = 0;
       nttic->V6Transmit.TcpOptionsSupported = 0;
@@ -1102,7 +1092,7 @@ XenNet_QueryInformation(
       nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_LARGE_SEND);
 
       /* fill in large send struct */
-      nttls = (PNDIS_TASK_TCP_LARGE_SEND)&nto->TaskBuffer;
+      nttls = (PNDIS_TASK_TCP_LARGE_SEND)nto->TaskBuffer;
       nttls->Version = 0;
       nttls->MaxOffLoadSize = 1024*64; /* made up, fixme */
       nttls->MinSegmentCount = 4; /* also made up */
@@ -1406,6 +1396,8 @@ XenNet_SendPackets(
 
     //KdPrint(("sending pkt, len %d\n", pkt_size));
 
+    /* TODO: check if freelist is full */
+
     pmdl = XenNet_Linearize(curr_packet);
     if (!pmdl)
     {
@@ -1465,6 +1457,7 @@ XenNet_PnPEventNotify(
   KdPrint((__FUNCTION__ " called\n"));
 }
 
+/* Called when machine is shutting down, so just quiesce the HW and be done fast. */
 VOID
 XenNet_Shutdown(
   IN NDIS_HANDLE MiniportAdapterContext
@@ -1472,16 +1465,81 @@ XenNet_Shutdown(
 {
   struct xennet_info *xi = MiniportAdapterContext;
 
-  xi->connected = FALSE;
-
-  /* Free xen resources */
-  /* TODO: disconnect from backend */
-
-  /* Free ndis resources */
-  XenNet_FreeRXBuffers(MiniportAdapterContext);
-  /* TODO: clean TX ring */
+  /* turn off interrupt */
+  xi->XenInterface.EvtChn_Unbind(xi->XenInterface.InterfaceHeader.Context,
+    xi->event_channel);  
 
   KdPrint((__FUNCTION__ " called\n"));
+}
+
+/* Opposite of XenNet_Init */
+XenNet_Halt(
+  IN NDIS_HANDLE MiniportAdapterContext
+  )
+{
+  struct xennet_info *xi = MiniportAdapterContext;
+  CHAR TmpPath[128];
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
+  XenNet_Shutdown(xi);
+
+  // set frontend state to 'closing'
+  xi->state = XenbusStateClosing;
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
+  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
+    XBT_NIL, TmpPath, "%d", xi->state);
+
+  // wait for backend to set 'Closing' state
+
+  while (xi->backend_state != XenbusStateClosing)
+    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
+
+  // set frontend state to 'closed'
+  xi->state = XenbusStateClosed;
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
+  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
+    XBT_NIL, TmpPath, "%d", xi->state);
+
+  // wait for backend to set 'Closed' state
+  while (xi->backend_state != XenbusStateClosed)
+    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
+
+  xi->connected = FALSE;
+
+  // TODO: remove event channel xenbus entry (how?)
+
+  /* free TX resources */
+  xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
+    xi->tx_ring_ref);
+  xi->tx_ring_ref = GRANT_INVALID_REF;
+  FreePages(xi->tx_mdl);
+  xi->tx_pgs = NULL;
+  XenNet_TxBufferFree(xi);
+
+  /* free RX resources */
+  xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
+    xi->rx_ring_ref);
+  xi->rx_ring_ref = GRANT_INVALID_REF;
+  FreePages(xi->rx_mdl);
+  xi->rx_pgs = NULL;
+  XenNet_RxBufferFree(MiniportAdapterContext);
+
+  /* Remove watch on backend state */
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->BackendPath);
+  xi->XenInterface.XenBus_RemWatch(xi->XenInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
+
+  xi->XenInterface.InterfaceHeader.InterfaceDereference(NULL);
+
+  WdfDriverMiniportUnload(WdfGetDriver());
+
+  NdisFreeBufferPool(xi->buffer_pool);
+  NdisFreePacketPool(xi->packet_pool);
+  NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 NTSTATUS
