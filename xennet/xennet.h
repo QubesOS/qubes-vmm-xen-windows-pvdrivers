@@ -61,3 +61,4 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define XENSOURCE_MAC_HDR 0x00163E
 #define XN_VENDOR_DESC "Xensource"
+#define MAX_XENBUS_STR_LEN 128

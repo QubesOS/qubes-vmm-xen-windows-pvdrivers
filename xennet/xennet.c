@@ -45,26 +45,41 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 struct xennet_info
 {
+  /* Base device vars */
   PDEVICE_OBJECT pdo;
   PDEVICE_OBJECT fdo;
   PDEVICE_OBJECT lower_do;
   WDFDEVICE wdf_device;
-  PXENPCI_XEN_DEVICE_DATA pdoData;
+  WCHAR dev_desc[NAME_SIZE];
 
-  WCHAR name[NAME_SIZE];
+  /* NDIS-related vars */
   NDIS_HANDLE adapter_handle;
+  NDIS_HANDLE packet_pool;
+  NDIS_HANDLE buffer_pool;
   ULONG packet_filter;
   int connected;
   UINT8 perm_mac_addr[ETH_ALEN];
   UINT8 curr_mac_addr[ETH_ALEN];
 
-//  char Path[128];
-  char BackendPath[128];
+  /* Misc. Xen vars */
   XEN_IFACE XenInterface;
+  PXENPCI_XEN_DEVICE_DATA pdo_data;
+  evtchn_port_t event_channel;
+  ULONG state;
+  KEVENT backend_state_change_event;
+  char backend_path[MAX_XENBUS_STR_LEN];
+  ULONG backend_state;
 
-  /* ring control structures */
+  /* Xen ring-related vars */
+  KSPIN_LOCK rx_lock;
+  KSPIN_LOCK tx_lock;
+
+  LIST_ENTRY rx_free_pkt_list;
+
   struct netif_tx_front_ring tx;
   struct netif_rx_front_ring rx;
+  grant_ref_t tx_ring_ref;
+  grant_ref_t rx_ring_ref;
 
   /* ptrs to the actual rings themselvves */
   struct netif_tx_sring *tx_pgs;
@@ -84,12 +99,6 @@ struct xennet_info
   grant_ref_t gref_rx_head;
   grant_ref_t grant_rx_ref[NET_TX_RING_SIZE];
 
-  UINT irq;
-  evtchn_port_t event_channel;
-
-  grant_ref_t tx_ring_ref;
-  grant_ref_t rx_ring_ref;
-
   /* Receive-ring batched refills. */
 #define RX_MIN_TARGET 8
 #define RX_DFL_MIN_TARGET 64
@@ -98,24 +107,12 @@ struct xennet_info
   ULONG rx_max_target;
   ULONG rx_min_target;
 
-  NDIS_HANDLE packet_pool;
-  NDIS_HANDLE buffer_pool;
-
   /* stats */
   ULONG64 stat_tx_ok;
   ULONG64 stat_rx_ok;
   ULONG64 stat_tx_error;
   ULONG64 stat_rx_error;
   ULONG64 stat_rx_no_buffer;
-
-//  KEVENT backend_ready_event;
-  KEVENT backend_state_change_event;
-
-  ULONG state;
-  ULONG backend_state;
-
-  KSPIN_LOCK RxLock;
-  KSPIN_LOCK TxLock;
 };
 
 /* This function copied from linux's lib/vsprintf.c, see it for attribution */
@@ -177,7 +174,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KeAcquireSpinLock(&xi->TxLock, &OldIrql);
+  KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
   do {
     prod = xi->tx.sring->rsp_prod;
@@ -224,7 +221,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   /* if queued packets, send them now?
   network_maybe_wake_tx(dev); */
 
-  KeReleaseSpinLock(&xi->TxLock, OldIrql);
+  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -348,7 +345,7 @@ XenNet_RxBufferFree(struct xennet_info *xi)
 
   ASSERT(!xi->connected);
 
-  KeAcquireSpinLock(&xi->RxLock, &OldIrql);
+  KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
   for (i = 0; i < NET_RX_RING_SIZE; i++)
   {
@@ -370,7 +367,7 @@ XenNet_RxBufferFree(struct xennet_info *xi)
     NdisFreePacket(packet);
   }
 
-  KeReleaseSpinLock(&xi->RxLock, OldIrql);
+  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 }
 
 // Called at DISPATCH_LEVEL
@@ -392,7 +389,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   ASSERT(xi->connected);
 
-  KeAcquireSpinLock(&xi->RxLock, &OldIrql);
+  KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
   do {
     prod = xi->rx.sring->rsp_prod;
@@ -454,7 +451,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   /* Give netback more buffers */
   XenNet_RxBufferAlloc(xi);
 
-  KeReleaseSpinLock(&xi->RxLock, OldIrql);
+  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
   //xi->rx.sring->rsp_event = xi->rx.rsp_cons + 1;
 
@@ -494,7 +491,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 {
   struct xennet_info *xi = Data;
   char *Value;
-  char TmpPath[128];
+  char TmpPath[MAX_XENBUS_STR_LEN];
   xenbus_transaction_t xbt = 0;
   int retry = 0;
   char *err;
@@ -580,7 +577,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     for (i = 0; params[i].name; i++)
     {
       RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/%s",
-        xi->pdoData->Path, params[i].name);
+        xi->pdo_data->Path, params[i].name);
       err = xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
         XBT_NIL, TmpPath, "%d", params[i].value);
       if (err)
@@ -598,7 +595,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
     xi->state = XenbusStateConnected;
     KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
     xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, "%d", xi->state);
 
@@ -660,7 +657,7 @@ XenNet_Init(
   WDF_OBJECT_ATTRIBUTES wdf_attrs;
   char *res;
   char *Value;
-  char TmpPath[128];
+  char TmpPath[MAX_XENBUS_STR_LEN];
 
   UNREFERENCED_PARAMETER(OpenErrorStatus);
   UNREFERENCED_PARAMETER(WrapperConfigurationContext);
@@ -703,8 +700,9 @@ XenNet_Init(
   xi->state = XenbusStateUnknown;
   xi->backend_state = XenbusStateUnknown;
 
-  KeInitializeSpinLock(&xi->TxLock);
-  KeInitializeSpinLock(&xi->RxLock);
+  KeInitializeSpinLock(&xi->tx_lock);
+  KeInitializeSpinLock(&xi->rx_lock);
+  NdisInitializeListHead(&xi->rx_free_pkt_list);
 
   NdisAllocatePacketPool(&status, &xi->packet_pool, NET_RX_RING_SIZE,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
@@ -726,7 +724,7 @@ XenNet_Init(
 
   NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
     &xi->lower_do, NULL, NULL);
-  xi->pdoData = (PXENPCI_XEN_DEVICE_DATA)xi->pdo->DeviceExtension;
+  xi->pdo_data = (PXENPCI_XEN_DEVICE_DATA)xi->pdo->DeviceExtension;
 
   /* Initialize tx_pkts as a free chain containing every entry. */
   for (i = 0; i < NET_TX_RING_SIZE+1; i++) {
@@ -742,7 +740,7 @@ XenNet_Init(
   xi->packet_filter = NDIS_PACKET_TYPE_PROMISCUOUS;
 
   status = IoGetDeviceProperty(xi->pdo, DevicePropertyDeviceDescription,
-    NAME_SIZE, xi->name, &length);
+    NAME_SIZE, xi->dev_desc, &length);
   if (!NT_SUCCESS(status))
   {
     KdPrint(("IoGetDeviceProperty failed with 0x%x\n", status));
@@ -777,7 +775,7 @@ XenNet_Init(
   }
 
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
-      "%s/backend", xi->pdoData->Path);
+      "%s/backend", xi->pdo_data->Path);
   KdPrint(("About to read %s to get backend path\n", TmpPath));
   res = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, &Value);
@@ -788,10 +786,10 @@ XenNet_Init(
     status = NDIS_STATUS_FAILURE;
     goto err;
   }
-  RtlStringCbCopyA(xi->BackendPath, ARRAY_SIZE(xi->BackendPath), Value);
-  KdPrint((__DRIVER_NAME "backend path = %s\n", xi->BackendPath));
+  RtlStringCbCopyA(xi->backend_path, ARRAY_SIZE(xi->backend_path), Value);
+  KdPrint((__DRIVER_NAME "backend path = %s\n", xi->backend_path));
 
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/type", xi->BackendPath);
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/type", xi->backend_path);
   res = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, &Value);
 
@@ -807,12 +805,12 @@ XenNet_Init(
   KeInitializeEvent(&xi->backend_state_change_event, SynchronizationEvent, FALSE);  
 
   /* Add watch on backend state */
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->BackendPath);
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->backend_path);
   xi->XenInterface.XenBus_AddWatch(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
 
   /* Tell backend we're coming up */
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
   xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
     XBT_NIL, TmpPath, "%d", XenbusStateInitialising);
 
@@ -825,7 +823,7 @@ XenNet_Init(
   KdPrint((__DRIVER_NAME "     Connected\n"));
 
   /* get mac address */
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->BackendPath);
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->backend_path);
   xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, &Value);
   if (!Value)
@@ -1450,7 +1448,7 @@ XenNet_SendPackets(
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KeAcquireSpinLock(&xi->TxLock, &OldIrql);
+  KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
   for (i = 0; i < NumberOfPackets; i++)
   {
@@ -1501,7 +1499,7 @@ XenNet_SendPackets(
       xi->event_channel);
   }
 
-  KeReleaseSpinLock(&xi->TxLock, OldIrql);
+  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -1543,7 +1541,7 @@ XenNet_Halt(
   )
 {
   struct xennet_info *xi = MiniportAdapterContext;
-  CHAR TmpPath[128];
+  CHAR TmpPath[MAX_XENBUS_STR_LEN];
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
@@ -1552,7 +1550,7 @@ XenNet_Halt(
 
   // set frontend state to 'closing'
   xi->state = XenbusStateClosing;
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
   xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
     XBT_NIL, TmpPath, "%d", xi->state);
 
@@ -1563,7 +1561,7 @@ XenNet_Halt(
 
   // set frontend state to 'closed'
   xi->state = XenbusStateClosed;
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdoData->Path);
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
   xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
     XBT_NIL, TmpPath, "%d", xi->state);
 
@@ -1592,7 +1590,7 @@ XenNet_Halt(
   XenNet_RxBufferFree(MiniportAdapterContext);
 
   /* Remove watch on backend state */
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->BackendPath);
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->backend_path);
   xi->XenInterface.XenBus_RemWatch(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
 
