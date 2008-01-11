@@ -296,12 +296,7 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
       break;
     }
     NdisAllocateBuffer(&status, &buffer, xi->buffer_pool, start, PAGE_SIZE);
-    if (status != NDIS_STATUS_SUCCESS)
-    {
-      KdPrint(("NdisAllocateBuffer Failed! status = 0x%x\n", status));
-      NdisFreeMemory(start, 0, 0);
-      break;
-    }
+    ASSERT(status == NDIS_STATUS_SUCCESS); // should never fail
 
     /* Give to netback */
     id = (unsigned short)(req_prod + i) & (NET_RX_RING_SIZE - 1);
