@@ -74,6 +74,7 @@ struct xennet_info
   KSPIN_LOCK rx_lock;
   KSPIN_LOCK tx_lock;
 
+  LIST_ENTRY tx_waiting_pkt_list;
   LIST_ENTRY rx_free_pkt_list;
 
   struct netif_tx_front_ring tx;
@@ -91,6 +92,7 @@ struct xennet_info
 
   /* Outstanding packets. The first entry in tx_pkts
    * is an index into a chain of free entries. */
+  int tx_pkt_ids_used;
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE+1];
   PNDIS_PACKET rx_pkts[NET_RX_RING_SIZE];
 
@@ -146,19 +148,26 @@ simple_strtoul(const char *cp,char **endp,unsigned int base)
  }
 
 static void
-add_id_to_freelist(NDIS_PACKET **list, unsigned short id)
+add_id_to_freelist(struct xennet_info *xi, unsigned short id)
 {
-  list[id] = list[0];
-  list[0]  = (void *)(unsigned long)id;
+  xi->tx_pkts[id] = xi->tx_pkts[0];
+  xi->tx_pkts[0]  = (void *)(unsigned long)id;
+  xi->tx_pkt_ids_used--;
 }
 
 static unsigned short
-get_id_from_freelist(NDIS_PACKET **list)
+get_id_from_freelist(struct xennet_info *xi)
 {
-  unsigned short id = (unsigned short)(unsigned long)list[0];
-  list[0] = list[id];
+  unsigned short id;
+  if (xi->tx_pkt_ids_used >= NET_TX_RING_SIZE)
+    return 0;
+  id = (unsigned short)(unsigned long)xi->tx_pkts[0];
+  xi->tx_pkts[0] = xi->tx_pkts[id];
+  xi->tx_pkt_ids_used++;
   return id;
 }
+
+VOID XenNet_SendQueuedPackets(struct xennet_info *xi);
 
 // Called at DISPATCH_LEVEL
 static NDIS_STATUS
@@ -192,7 +201,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
         xi->grant_tx_ref[id]);
       xi->grant_tx_ref[id] = GRANT_INVALID_REF;
-      add_id_to_freelist(xi->tx_pkts, id);
+      add_id_to_freelist(xi, id);
 
       /* free linearized data page */
       pmdl = *(PMDL *)pkt->MiniportReservedEx;
@@ -218,10 +227,10 @@ XenNet_TxBufferGC(struct xennet_info *xi)
     KeMemoryBarrier();
   } while ((cons == prod) && (prod != xi->tx.sring->rsp_prod));
 
-  /* if queued packets, send them now?
-  network_maybe_wake_tx(dev); */
-
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
+
+  /* if queued packets, send them now */
+  XenNet_SendQueuedPackets(xi);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -245,7 +254,7 @@ static void XenNet_TxBufferFree(struct xennet_info *xi)
     xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
       xi->grant_tx_ref[id]);
     xi->grant_tx_ref[id] = GRANT_INVALID_REF;
-    add_id_to_freelist(xi->tx_pkts, id);
+    add_id_to_freelist(xi, id);
 
     /* free linearized data page */
     pmdl = *(PMDL *)packet->MiniportReservedEx;
@@ -702,7 +711,9 @@ XenNet_Init(
 
   KeInitializeSpinLock(&xi->tx_lock);
   KeInitializeSpinLock(&xi->rx_lock);
-  NdisInitializeListHead(&xi->rx_free_pkt_list);
+  InitializeListHead(&xi->rx_free_pkt_list);
+  InitializeListHead(&xi->tx_waiting_pkt_list);
+  
 
   NdisAllocatePacketPool(&status, &xi->packet_pool, NET_RX_RING_SIZE,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
@@ -1430,48 +1441,36 @@ XenNet_Linearize(PNDIS_PACKET Packet)
 }
 
 VOID
-XenNet_SendPackets(
-  IN NDIS_HANDLE MiniportAdapterContext,
-  IN PPNDIS_PACKET PacketArray,
-  IN UINT NumberOfPackets
-  )
+XenNet_SendQueuedPackets(struct xennet_info *xi)
 {
-  struct xennet_info *xi = MiniportAdapterContext;
-  PNDIS_PACKET curr_packet;
-  UINT i;
+  PLIST_ENTRY entry;
+  PNDIS_PACKET packet;
+  KIRQL OldIrql;
   struct netif_tx_request *tx;
   unsigned short id;
   int notify;
   PMDL pmdl;
   UINT pkt_size;
-  KIRQL OldIrql;
-
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
-  for (i = 0; i < NumberOfPackets; i++)
+  entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
+  /* if empty, the above returns head*, not NULL */
+  while (entry != &xi->tx_waiting_pkt_list)
   {
-    curr_packet = PacketArray[i];
-    ASSERT(curr_packet);
+    packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[4]);
 
-    NdisQueryPacket(curr_packet, NULL, NULL, NULL, &pkt_size);
+    NdisQueryPacket(packet, NULL, NULL, NULL, &pkt_size);
+    pmdl = *(PMDL *)packet->MiniportReservedEx;
 
-    //KdPrint(("sending pkt, len %d\n", pkt_size));
-
-    /* TODO: check if freelist is full */
-
-    pmdl = XenNet_Linearize(curr_packet);
-    if (!pmdl)
+    id = get_id_from_freelist(xi);
+    if (!id)
     {
-      KdPrint((__DRIVER_NAME "Couldn't linearize packet!\n"));
-      NdisMSendComplete(xi, curr_packet, NDIS_STATUS_FAILURE);
+      /* whups, out of space on the ring. requeue and get out */
+      InsertHeadList(&xi->tx_waiting_pkt_list, entry);
       break;
     }
-    *((PMDL *)curr_packet->MiniportReservedEx) = pmdl;
-
-    id = get_id_from_freelist(xi->tx_pkts);
-    xi->tx_pkts[id] = curr_packet;
+    xi->tx_pkts[id] = packet;
 
     tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
     tx->id = id;
@@ -1488,9 +1487,10 @@ XenNet_SendPackets(
 
     xi->tx.req_prod_pvt++;
 
-    // NDIS_SET_PACKET_STATUS(curr_packet, NDIS_STATUS_SUCCESS);
-    // NdisMSendComplete(xi, curr_packet, NDIS_STATUS_SUCCESS);
+    entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   }
+
+  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->tx, notify);
   if (notify)
@@ -1498,8 +1498,50 @@ XenNet_SendPackets(
     xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel);
   }
+}
 
-  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
+VOID
+XenNet_SendPackets(
+  IN NDIS_HANDLE MiniportAdapterContext,
+  IN PPNDIS_PACKET PacketArray,
+  IN UINT NumberOfPackets
+  )
+{
+  struct xennet_info *xi = MiniportAdapterContext;
+  PNDIS_PACKET curr_packet;
+  UINT i;
+  PMDL pmdl;
+  PLIST_ENTRY entry;
+
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  for (i = 0; i < NumberOfPackets; i++)
+  {
+    curr_packet = PacketArray[i];
+    ASSERT(curr_packet);
+
+    //KdPrint(("sending pkt, len %d\n", pkt_size));
+
+    pmdl = XenNet_Linearize(curr_packet);
+    if (!pmdl)
+    {
+      KdPrint((__DRIVER_NAME "Couldn't linearize packet!\n"));
+      NdisMSendComplete(xi, curr_packet, NDIS_STATUS_FAILURE);
+      break;
+    }
+
+    /* NOTE: 
+     * We use the UCHAR[12] array in each packet's MiniportReservedEx thusly:
+     * 0-3: PMDL to linearized data
+     * 4-11: LIST_ENTRY for placing packet on the waiting pkt list
+     */
+    *(PMDL *)&curr_packet->MiniportReservedEx = pmdl;
+
+    entry = (PLIST_ENTRY)&curr_packet->MiniportReservedEx[4];
+    ExInterlockedInsertTailList(&xi->tx_waiting_pkt_list, entry, &xi->tx_lock);
+  }
+
+  XenNet_SendQueuedPackets(xi);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
