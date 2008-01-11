@@ -94,7 +94,7 @@ struct xennet_info
    * is an index into a chain of free entries. */
   int tx_pkt_ids_used;
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE+1];
-  PNDIS_PACKET rx_buffers[NET_RX_RING_SIZE];
+  PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
 
   grant_ref_t gref_tx_head;
   grant_ref_t grant_tx_ref[NET_TX_RING_SIZE+1];
@@ -265,7 +265,7 @@ static void XenNet_TxBufferFree(struct xennet_info *xi)
   }
 }
 
-// Called at DISPATCH_LEVEL with RxLock held
+// Called at DISPATCH_LEVEL with no locks held
 static NDIS_STATUS
 XenNet_RxBufferAlloc(struct xennet_info *xi)
 {
@@ -277,14 +277,17 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   netif_rx_request_t *req;
   NDIS_STATUS status;
   PVOID start;
+  KIRQL OldIrql;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
   for (i = 0; i < batch_target; i++)
   {
     /*
-     * Allocate a packet, page, and buffer. Hook them up.
+     * Allocate memory and an NDIS_BUFFER.
      */
     status = NdisAllocateMemoryWithTag(&start, PAGE_SIZE, XENNET_POOL_TAG);
     if (status != NDIS_STATUS_SUCCESS)
@@ -299,9 +302,10 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
       NdisFreeMemory(start, 0, 0);
       break;
     }
+
     /* Give to netback */
     id = (unsigned short)(req_prod + i) & (NET_RX_RING_SIZE - 1);
-//    ASSERT(!xi->rx_pkts[id]);
+    ASSERT(!xi->rx_buffers[id]);
     xi->rx_buffers[id] = buffer;
     req = RING_GET_REQUEST(&xi->rx, req_prod + i);
     /* an NDIS_BUFFER is just a MDL, so we can get its pfn array */
@@ -323,20 +327,20 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
       xi->event_channel);
   }
 
+  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
+
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NDIS_STATUS_SUCCESS;
 }
 
+/* Free all Rx buffers (on halt, for example) */
 static void
 XenNet_RxBufferFree(struct xennet_info *xi)
 {
   int i;
   grant_ref_t ref;
   PNDIS_BUFFER buffer;
-  PVOID buff_va;
-  UINT buff_len;
-  UINT tot_buff_len;
   KIRQL OldIrql;
 
   ASSERT(!xi->connected);
@@ -459,16 +463,12 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   PNDIS_PACKET packet = NULL;
   PNDIS_BUFFER buffer;
-  PVOID buff_va;
-  UINT buff_len;
-  UINT tot_buff_len;
   int moretodo;
   KIRQL OldIrql;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
   struct netif_rx_response *rxrsp = NULL;
-  int more_frags = 0;
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-  PNDIS_STATUS status;
+  NDIS_STATUS status;
 
   ASSERT(xi->connected);
 
@@ -480,25 +480,13 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
     for (cons = xi->rx.rsp_cons; cons != prod; cons++) {
       rxrsp = RING_GET_RESPONSE(&xi->rx, cons);
-      if (rxrsp->status == NETIF_RSP_NULL)
-        continue;
+      ASSERT(rxrsp->status > 0);
 
-    //  KdPrint((__DRIVER_NAME "     Got a packet\n"));
-
-      if (!more_frags) // !more_frags means this buffer is the first for the packet
+      if (!(rxrsp->flags & NETRXF_more_data)) // handling the packet's 1st buffer
       {
-        // we might be able to set up an IP and an Other pool and select as appropriate here...
+        //  KdPrint((__DRIVER_NAME "     Got a packet\n"));
         NdisAllocatePacket(&status, &packet, xi->packet_pool);
-        if (status != NDIS_STATUS_SUCCESS)
-        {
-          KdPrint(("NdisAllocatePacket Failed! status = 0x%x\n", status));
-/* we are going to fail horribly here right now!!! */
-/*
-          NdisFreeMemory(start, 0, 0);
-          NdisFreeBuffer(buffer);
-          break;
-*/
-        }
+        ASSERT(status == NDIS_STATUS_SUCCESS);
         NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
 /*
         if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) == NDIS_PROTOCOL_ID_TCP_IP
@@ -522,13 +510,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         xi->grant_rx_ref[rxrsp->id]);
       xi->grant_rx_ref[rxrsp->id] = GRANT_INVALID_REF;
 
-/*
-      NdisGetFirstBufferFromPacketSafe(packet, &buffer, &buff_va, &buff_len,
-        &tot_buff_len, NormalPagePriority);
-      ASSERT(rxrsp->offset == 0);
-      ASSERT(rxrsp->status > 0);
-*/
-
 #if 1
       KdPrint((__DRIVER_NAME "     Flags = %sNETRXF_data_validated|%sNETRXF_csum_blank|%sNETRXF_more_data|%sNETRXF_extra_info\n",
         (rxrsp->flags&NETRXF_data_validated)?"":"!",
@@ -536,41 +517,30 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         (rxrsp->flags&NETRXF_more_data)?"":"!",
         (rxrsp->flags&NETRXF_extra_info)?"":"!"));
 #endif
+      ASSERT(!(rxrsp->flags & NETRXF_extra_info)); // not used on RX
+
       //XenNet_ProcessReceivedEthernetPacket(packet, buff_va, rxrsp->status);
 
-      more_frags = rxrsp->flags & NETRXF_more_data;
-
-      if (!more_frags)
+      /* Packet done, pass it up */
+      if (!(rxrsp->flags & NETRXF_more_data))
       {
-        ASSERT(packet != NULL);
         xi->stat_rx_ok++;
         NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
-
-        /* just indicate 1 packet for now */
         NdisMIndicateReceivePacket(xi->adapter_handle, &packet, 1);
       }
     }
+
+    ASSERT(!(rxrsp->flags & NETRXF_more_data));
 
     xi->rx.rsp_cons = prod;
 
     RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, moretodo);
   } while (moretodo);
 
-  if (more_frags)
-  {
-    KdPrint((__DRIVER_NAME "     Missing fragments\n"));
-    // free our packet and buffer(s) (may be more than one buffer...) here, as nobody else will!
-/*
-    NdisFreeMemory(buff_va, 0, 0);
-    NdisFreeBuffer(buffer);
-    NdisFreePacket(packet);
-*/
-  }
+  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
   /* Give netback more buffers */
   XenNet_RxBufferAlloc(xi);
-
-  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
   //xi->rx.sring->rsp_event = xi->rx.rsp_cons + 1;
 
@@ -1494,10 +1464,16 @@ XenNet_ReturnPacket(
 
   NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
     &tot_buff_len, NormalPagePriority);
-  //ASSERT(buff_len == tot_buff_len);
+  ASSERT(tot_buff_len <= XN_MAX_PKT_SIZE);
 
-  NdisFreeMemory(buff_va, 0, 0);
-  NdisFreeBuffer(buffer);
+  while (buffer)
+  {
+    NdisQueryBufferSafe(buffer, &buff_va, &buff_len, NormalPagePriority);
+    NdisFreeMemory(buff_va, 0, 0);
+    NdisFreeBuffer(buffer);
+    NdisGetNextBuffer(buffer, &buffer);
+  }
+
   NdisFreePacket(Packet);
 
   //KdPrint((__FUNCTION__ " called\n"));
