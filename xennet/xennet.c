@@ -379,6 +379,88 @@ XenNet_RxBufferFree(struct xennet_info *xi)
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 }
 
+static VOID
+XenNet_ProcessReceivedTcpPacket(PNDIS_PACKET packet, PUCHAR buf, ULONG len)
+{
+  USHORT checksum = (buf[28] << 8) | buf[29];
+}
+
+static VOID
+XenNet_ProcessReceivedIpPacket(PNDIS_PACKET packet, PUCHAR buf, ULONG len)
+{
+  UCHAR version;
+  UCHAR header_len;
+  UCHAR proto;
+  USHORT total_len;
+
+  if (len < 20)
+  {
+    KdPrint((__DRIVER_NAME "     IP packet too small\n"));
+    return;
+  }
+  version = buf[0] >> 4;
+  if (version != 4)
+  {
+    KdPrint((__DRIVER_NAME "     IP version not IPv4 (version = %d)\n", version));
+    return;
+  }
+
+  header_len = (buf[0] & 15) * 4;
+  total_len = (buf[2] << 8) | buf[3];
+
+  if (total_len != len)
+  {
+    KdPrint((__DRIVER_NAME "     IP packet probably fragmented.\n"));
+    return;
+  }
+
+  // todo: check header checksum & fix if wrong
+
+  proto = buf[9];
+
+  switch (proto)
+  {
+  case 0x06: //tcp
+    KdPrint((__DRIVER_NAME "     IP Proto = TCP\n"));
+    XenNet_ProcessReceivedTcpPacket(packet, buf + header_len, len - header_len);
+    break;
+  case 0x17: //udp
+    KdPrint((__DRIVER_NAME "     IP Proto = UDP\n"));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     IP Proto = %d\n", proto));
+    break;
+  }
+}
+
+static VOID
+XenNet_ProcessReceivedEthernetPacket(PNDIS_PACKET packet, PUCHAR buf, ULONG len)
+{
+  USHORT ethertype = (buf[12]) << 8 | buf[13];
+
+  if (len < 14)
+  {
+    KdPrint((__DRIVER_NAME "     Ethernet packet header too small.\n"));
+    return;
+  }
+  switch (ethertype)
+  {
+  case 0x0800:
+    KdPrint((__DRIVER_NAME "     EtherType = IP\n"));
+    XenNet_ProcessReceivedIpPacket(packet, buf + 14, len - 14);
+    break;
+  case 0x0806:
+    KdPrint((__DRIVER_NAME "     EtherType = ARP\n"));
+    break;
+  case 0x8100:
+    KdPrint((__DRIVER_NAME "     EtherType = VLAN\n"));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     EtherType = %04x\n", ethertype));
+    break;
+  }
+}
+
 // Called at DISPATCH_LEVEL
 static NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi)
@@ -432,13 +514,14 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         (rxrsp->flags&NETRXF_more_data)?"":"!",
         (rxrsp->flags&NETRXF_extra_info)?"":"!"));
 #endif
+      XenNet_ProcessReceivedEthernetPacket(packet, buff_va, rxrsp->status);
 
       if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) == NDIS_PROTOCOL_ID_TCP_IP
         && (rxrsp->flags & (NETRXF_csum_blank|NETRXF_data_validated)))
       {
         csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo);
         csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
-        csum_info->Receive.NdisPacketUdpChecksumSucceeded = 0;
+        csum_info->Receive.NdisPacketUdpChecksumSucceeded = 1;
         csum_info->Receive.NdisPacketIpChecksumSucceeded = 1;
 //        KdPrint((__DRIVER_NAME "     Offload = %08x\n", NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo)));
       }
