@@ -94,7 +94,7 @@ struct xennet_info
    * is an index into a chain of free entries. */
   int tx_pkt_ids_used;
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE+1];
-  PNDIS_PACKET rx_pkts[NET_RX_RING_SIZE];
+  PNDIS_PACKET rx_buffers[NET_RX_RING_SIZE];
 
   grant_ref_t gref_tx_head;
   grant_ref_t grant_tx_ref[NET_TX_RING_SIZE+1];
@@ -270,7 +270,6 @@ static NDIS_STATUS
 XenNet_RxBufferAlloc(struct xennet_info *xi)
 {
   unsigned short id;
-  PNDIS_PACKET packet;
   PNDIS_BUFFER buffer;
   int i, batch_target, notify;
   RING_IDX req_prod = xi->rx.req_prod_pvt;
@@ -300,21 +299,10 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
       NdisFreeMemory(start, 0, 0);
       break;
     }
-    NdisAllocatePacket(&status, &packet, xi->packet_pool);
-    if (status != NDIS_STATUS_SUCCESS)
-    {
-      KdPrint(("NdisAllocatePacket Failed! status = 0x%x\n", status));
-      NdisFreeMemory(start, 0, 0);
-      NdisFreeBuffer(buffer);
-      break;
-    }
-    NdisChainBufferAtBack(packet, buffer);
-    NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
-
     /* Give to netback */
     id = (unsigned short)(req_prod + i) & (NET_RX_RING_SIZE - 1);
-    ASSERT(!xi->rx_pkts[id]);
-    xi->rx_pkts[id] = packet;
+//    ASSERT(!xi->rx_pkts[id]);
+    xi->rx_buffers[id] = buffer;
     req = RING_GET_REQUEST(&xi->rx, req_prod + i);
     /* an NDIS_BUFFER is just a MDL, so we can get its pfn array */
     ref = xi->XenInterface.GntTbl_GrantAccess(
@@ -345,7 +333,6 @@ XenNet_RxBufferFree(struct xennet_info *xi)
 {
   int i;
   grant_ref_t ref;
-  PNDIS_PACKET packet;
   PNDIS_BUFFER buffer;
   PVOID buff_va;
   UINT buff_len;
@@ -358,22 +345,17 @@ XenNet_RxBufferFree(struct xennet_info *xi)
 
   for (i = 0; i < NET_RX_RING_SIZE; i++)
   {
-    if (!xi->rx_pkts[i])
+    if (!xi->rx_buffers[i])
       continue;
 
-    packet = xi->rx_pkts[i];
+    buffer = xi->rx_buffers[i];
     ref = xi->grant_rx_ref[i];
 
     /* don't check return, what can we do about it on failure? */
     xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context, ref);
 
-    NdisGetFirstBufferFromPacketSafe(packet, &buffer, &buff_va, &buff_len,
-      &tot_buff_len, NormalPagePriority);
-    ASSERT(buff_len == tot_buff_len);
-
-    NdisFreeMemory(buff_va, 0, 0);
+    NdisFreeMemory(NdisBufferVirtualAddressSafe(buffer, NormalPagePriority), 0, 0);
     NdisFreeBuffer(buffer);
-    NdisFreePacket(packet);
   }
 
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
@@ -382,7 +364,9 @@ XenNet_RxBufferFree(struct xennet_info *xi)
 static VOID
 XenNet_ProcessReceivedTcpPacket(PNDIS_PACKET packet, PUCHAR buf, ULONG len)
 {
-  USHORT checksum = (buf[28] << 8) | buf[29];
+  USHORT checksum = (buf[16] << 8) | buf[17];
+  buf[16] = 0;
+  buf[17] = 0;
 }
 
 static VOID
@@ -405,6 +389,10 @@ XenNet_ProcessReceivedIpPacket(PNDIS_PACKET packet, PUCHAR buf, ULONG len)
     return;
   }
 
+  KdPrint((__DRIVER_NAME "     %d.%d.%d.%d -> %d.%d.%d.%d\n",
+    buf[12], buf[13], buf[14], buf[15],
+    buf[16], buf[17], buf[18], buf[19]));
+
   header_len = (buf[0] & 15) * 4;
   total_len = (buf[2] << 8) | buf[3];
 
@@ -420,11 +408,11 @@ XenNet_ProcessReceivedIpPacket(PNDIS_PACKET packet, PUCHAR buf, ULONG len)
 
   switch (proto)
   {
-  case 0x06: //tcp
+  case 6: //tcp
     KdPrint((__DRIVER_NAME "     IP Proto = TCP\n"));
     XenNet_ProcessReceivedTcpPacket(packet, buf + header_len, len - header_len);
     break;
-  case 0x17: //udp
+  case 17: //udp
     KdPrint((__DRIVER_NAME "     IP Proto = UDP\n"));
     break;
   default:
@@ -440,9 +428,11 @@ XenNet_ProcessReceivedEthernetPacket(PNDIS_PACKET packet, PUCHAR buf, ULONG len)
 
   if (len < 14)
   {
-    KdPrint((__DRIVER_NAME "     Ethernet packet header too small.\n"));
+    KdPrint((__DRIVER_NAME "     Ethernet packet header too small (%d).\n", len));
     return;
   }
+  if (ethertype < 0x600)
+    return; // not Ethernet II
   switch (ethertype)
   {
   case 0x0800:
@@ -467,7 +457,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
 
-  PNDIS_PACKET packet;
+  PNDIS_PACKET packet = NULL;
   PNDIS_BUFFER buffer;
   PVOID buff_va;
   UINT buff_len;
@@ -475,8 +465,10 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   int moretodo;
   KIRQL OldIrql;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
-
+  struct netif_rx_response *rxrsp = NULL;
+  int more_frags = 0;
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  PNDIS_STATUS status;
 
   ASSERT(xi->connected);
 
@@ -487,58 +479,93 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
     for (cons = xi->rx.rsp_cons; cons != prod; cons++) {
-      struct netif_rx_response *rxrsp;
-
       rxrsp = RING_GET_RESPONSE(&xi->rx, cons);
       if (rxrsp->status == NETIF_RSP_NULL)
         continue;
 
     //  KdPrint((__DRIVER_NAME "     Got a packet\n"));
 
-      packet = xi->rx_pkts[rxrsp->id];
-      xi->rx_pkts[rxrsp->id] = NULL;
+      if (!more_frags) // !more_frags means this buffer is the first for the packet
+      {
+        // we might be able to set up an IP and an Other pool and select as appropriate here...
+        NdisAllocatePacket(&status, &packet, xi->packet_pool);
+        if (status != NDIS_STATUS_SUCCESS)
+        {
+          KdPrint(("NdisAllocatePacket Failed! status = 0x%x\n", status));
+/* we are going to fail horribly here right now!!! */
+/*
+          NdisFreeMemory(start, 0, 0);
+          NdisFreeBuffer(buffer);
+          break;
+*/
+        }
+        NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
+/*
+        if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) == NDIS_PROTOCOL_ID_TCP_IP
+          && (rxrsp->flags & (NETRXF_csum_blank|NETRXF_data_validated)))
+        {
+          csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo);
+          csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
+          csum_info->Receive.NdisPacketUdpChecksumSucceeded = 1;
+          csum_info->Receive.NdisPacketIpChecksumSucceeded = 1;
+//          KdPrint((__DRIVER_NAME "     Offload = %08x\n", NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo)));
+        }
+*/
+      }
+      buffer = xi->rx_buffers[rxrsp->id];
+      xi->rx_buffers[rxrsp->id] = NULL;
+      NdisAdjustBufferLength(buffer, rxrsp->status);
+
+      NdisChainBufferAtBack(packet, buffer);
+
       xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
         xi->grant_rx_ref[rxrsp->id]);
       xi->grant_rx_ref[rxrsp->id] = GRANT_INVALID_REF;
 
+/*
       NdisGetFirstBufferFromPacketSafe(packet, &buffer, &buff_va, &buff_len,
         &tot_buff_len, NormalPagePriority);
       ASSERT(rxrsp->offset == 0);
       ASSERT(rxrsp->status > 0);
-      NdisAdjustBufferLength(buffer, rxrsp->status);
+*/
 
-#if 0
+#if 1
       KdPrint((__DRIVER_NAME "     Flags = %sNETRXF_data_validated|%sNETRXF_csum_blank|%sNETRXF_more_data|%sNETRXF_extra_info\n",
         (rxrsp->flags&NETRXF_data_validated)?"":"!",
         (rxrsp->flags&NETRXF_csum_blank)?"":"!",
         (rxrsp->flags&NETRXF_more_data)?"":"!",
         (rxrsp->flags&NETRXF_extra_info)?"":"!"));
 #endif
-      XenNet_ProcessReceivedEthernetPacket(packet, buff_va, rxrsp->status);
+      //XenNet_ProcessReceivedEthernetPacket(packet, buff_va, rxrsp->status);
 
-      if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) == NDIS_PROTOCOL_ID_TCP_IP
-        && (rxrsp->flags & (NETRXF_csum_blank|NETRXF_data_validated)))
+      more_frags = rxrsp->flags & NETRXF_more_data;
+
+      if (!more_frags)
       {
-        csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo);
-        csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
-        csum_info->Receive.NdisPacketUdpChecksumSucceeded = 1;
-        csum_info->Receive.NdisPacketIpChecksumSucceeded = 1;
-//        KdPrint((__DRIVER_NAME "     Offload = %08x\n", NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo)));
+        ASSERT(packet != NULL);
+        xi->stat_rx_ok++;
+        NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
+
+        /* just indicate 1 packet for now */
+        NdisMIndicateReceivePacket(xi->adapter_handle, &packet, 1);
       }
-
-      xi->stat_rx_ok++;
-      NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
-
-      /* just indicate 1 packet for now */
-    //  KdPrint((__DRIVER_NAME "     Indicating Received\n"));
-      NdisMIndicateReceivePacket(xi->adapter_handle, &packet, 1);
-    //  KdPrint((__DRIVER_NAME "     Done Indicating Received\n"));
     }
 
     xi->rx.rsp_cons = prod;
 
     RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, moretodo);
   } while (moretodo);
+
+  if (more_frags)
+  {
+    KdPrint((__DRIVER_NAME "     Missing fragments\n"));
+    // free our packet and buffer(s) (may be more than one buffer...) here, as nobody else will!
+/*
+    NdisFreeMemory(buff_va, 0, 0);
+    NdisFreeBuffer(buffer);
+    NdisFreePacket(packet);
+*/
+  }
 
   /* Give netback more buffers */
   XenNet_RxBufferAlloc(xi);
@@ -827,7 +854,7 @@ XenNet_Init(
   }
 
   for (i = 0; i < NET_RX_RING_SIZE; i++) {
-    xi->rx_pkts[i] = NULL;
+    xi->rx_buffers[i] = NULL;
     xi->grant_rx_ref[i] = GRANT_INVALID_REF;
   }
 
@@ -887,7 +914,7 @@ XenNet_Init(
   res = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, &Value);
 
-#if 0
+#if 1
   if (res || strcmp(Value, "netfront") != 0)
   {
     KdPrint((__DRIVER_NAME "    Backend type is not 'netfront'\n"));
@@ -1467,9 +1494,7 @@ XenNet_ReturnPacket(
 
   NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
     &tot_buff_len, NormalPagePriority);
-  ASSERT(buff_len == tot_buff_len);
-
-  /* TODO: reuse returned packets */
+  //ASSERT(buff_len == tot_buff_len);
 
   NdisFreeMemory(buff_va, 0, 0);
   NdisFreeBuffer(buffer);
