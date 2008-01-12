@@ -360,94 +360,38 @@ XenNet_RxBufferFree(struct xennet_info *xi)
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 }
 
-static VOID
-XenNet_ProcessReceivedTcpPacket(PNDIS_PACKET packet, PUCHAR buf, ULONG len)
+VOID
+XenNet_ReturnPacket(
+  IN NDIS_HANDLE MiniportAdapterContext,
+  IN PNDIS_PACKET Packet
+  )
 {
-  USHORT checksum = (buf[16] << 8) | buf[17];
-  buf[16] = 0;
-  buf[17] = 0;
-}
+  PNDIS_BUFFER buffer;
+  PNDIS_BUFFER next_buffer;
+  PVOID buff_va;
+  UINT buff_len;
+  UINT tot_buff_len;
 
-static VOID
-XenNet_ProcessReceivedIpPacket(PNDIS_PACKET packet, PUCHAR buf, ULONG len)
-{
-  UCHAR version;
-  UCHAR header_len;
-  UCHAR proto;
-  USHORT total_len;
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  if (len < 20)
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+
+  NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
+    &tot_buff_len, NormalPagePriority);
+  ASSERT(tot_buff_len <= XN_MAX_PKT_SIZE);
+
+  while (buffer)
   {
-    KdPrint((__DRIVER_NAME "     IP packet too small\n"));
-    return;
-  }
-  version = buf[0] >> 4;
-  if (version != 4)
-  {
-    KdPrint((__DRIVER_NAME "     IP version not IPv4 (version = %d)\n", version));
-    return;
+    NdisGetNextBuffer(buffer, &next_buffer);
+    NdisQueryBufferSafe(buffer, &buff_va, &buff_len, NormalPagePriority);
+    NdisFreeMemory(buff_va, 0, 0);
+    NdisFreeBuffer(buffer);
+    buffer = next_buffer;
   }
 
-  KdPrint((__DRIVER_NAME "     %d.%d.%d.%d -> %d.%d.%d.%d\n",
-    buf[12], buf[13], buf[14], buf[15],
-    buf[16], buf[17], buf[18], buf[19]));
+  NdisFreePacket(Packet);
 
-  header_len = (buf[0] & 15) * 4;
-  total_len = (buf[2] << 8) | buf[3];
-
-  if (total_len != len)
-  {
-    KdPrint((__DRIVER_NAME "     IP packet probably fragmented.\n"));
-    return;
-  }
-
-  // todo: check header checksum & fix if wrong
-
-  proto = buf[9];
-
-  switch (proto)
-  {
-  case 6: //tcp
-    KdPrint((__DRIVER_NAME "     IP Proto = TCP\n"));
-    XenNet_ProcessReceivedTcpPacket(packet, buf + header_len, len - header_len);
-    break;
-  case 17: //udp
-    KdPrint((__DRIVER_NAME "     IP Proto = UDP\n"));
-    break;
-  default:
-    KdPrint((__DRIVER_NAME "     IP Proto = %d\n", proto));
-    break;
-  }
-}
-
-static VOID
-XenNet_ProcessReceivedEthernetPacket(PNDIS_PACKET packet, PUCHAR buf, ULONG len)
-{
-  USHORT ethertype = (buf[12]) << 8 | buf[13];
-
-  if (len < 14)
-  {
-    KdPrint((__DRIVER_NAME "     Ethernet packet header too small (%d).\n", len));
-    return;
-  }
-  if (ethertype < 0x600)
-    return; // not Ethernet II
-  switch (ethertype)
-  {
-  case 0x0800:
-    KdPrint((__DRIVER_NAME "     EtherType = IP\n"));
-    XenNet_ProcessReceivedIpPacket(packet, buf + 14, len - 14);
-    break;
-  case 0x0806:
-    KdPrint((__DRIVER_NAME "     EtherType = ARP\n"));
-    break;
-  case 0x8100:
-    KdPrint((__DRIVER_NAME "     EtherType = VLAN\n"));
-    break;
-  default:
-    KdPrint((__DRIVER_NAME "     EtherType = %04x\n", ethertype));
-    break;
-  }
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 // Called at DISPATCH_LEVEL
@@ -462,8 +406,10 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   KIRQL OldIrql;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
   struct netif_rx_response *rxrsp = NULL;
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  int more_frags = 0;
   NDIS_STATUS status;
+
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   ASSERT(xi->connected);
 
@@ -477,7 +423,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       rxrsp = RING_GET_RESPONSE(&xi->rx, cons);
       ASSERT(rxrsp->status > 0);
 
-      if (!(rxrsp->flags & NETRXF_more_data)) // handling the packet's 1st buffer
+      if (!more_frags) // handling the packet's 1st buffer
       {
         //  KdPrint((__DRIVER_NAME "     Got a packet\n"));
         NdisAllocatePacket(&status, &packet, xi->packet_pool);
@@ -495,17 +441,17 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         }
 */
       }
+
       buffer = xi->rx_buffers[rxrsp->id];
       xi->rx_buffers[rxrsp->id] = NULL;
       NdisAdjustBufferLength(buffer, rxrsp->status);
-
       NdisChainBufferAtBack(packet, buffer);
 
       xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
         xi->grant_rx_ref[rxrsp->id]);
       xi->grant_rx_ref[rxrsp->id] = GRANT_INVALID_REF;
 
-#if 1
+#if 0
       KdPrint((__DRIVER_NAME "     Flags = %sNETRXF_data_validated|%sNETRXF_csum_blank|%sNETRXF_more_data|%sNETRXF_extra_info\n",
         (rxrsp->flags&NETRXF_data_validated)?"":"!",
         (rxrsp->flags&NETRXF_csum_blank)?"":"!",
@@ -514,23 +460,26 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 #endif
       ASSERT(!(rxrsp->flags & NETRXF_extra_info)); // not used on RX
 
-      //XenNet_ProcessReceivedEthernetPacket(packet, buff_va, rxrsp->status);
+      more_frags = rxrsp->flags & NETRXF_more_data;
 
       /* Packet done, pass it up */
-      if (!(rxrsp->flags & NETRXF_more_data))
+      if (!more_frags)
       {
         xi->stat_rx_ok++;
         NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
         NdisMIndicateReceivePacket(xi->adapter_handle, &packet, 1);
       }
     }
-
-    ASSERT(!(rxrsp->flags & NETRXF_more_data));
-
     xi->rx.rsp_cons = prod;
 
     RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, moretodo);
   } while (moretodo);
+
+  if (more_frags)
+  {
+    KdPrint((__DRIVER_NAME "     Missing fragments\n"));
+    XenNet_ReturnPacket(xi, packet);
+  }
 
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
@@ -1440,39 +1389,6 @@ XenNet_SetInformation(
   }
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
-}
-
-VOID
-XenNet_ReturnPacket(
-  IN NDIS_HANDLE MiniportAdapterContext,
-  IN PNDIS_PACKET Packet
-  )
-{
-  PNDIS_BUFFER buffer;
-  PVOID buff_va;
-  UINT buff_len;
-  UINT tot_buff_len;
-
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  UNREFERENCED_PARAMETER(MiniportAdapterContext);
-
-  NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
-    &tot_buff_len, NormalPagePriority);
-  ASSERT(tot_buff_len <= XN_MAX_PKT_SIZE);
-
-  while (buffer)
-  {
-    NdisQueryBufferSafe(buffer, &buff_va, &buff_len, NormalPagePriority);
-    NdisFreeMemory(buff_va, 0, 0);
-    NdisFreeBuffer(buffer);
-    NdisGetNextBuffer(buffer, &buffer);
-  }
-
-  NdisFreePacket(Packet);
-
-  //KdPrint((__FUNCTION__ " called\n"));
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 PMDL
