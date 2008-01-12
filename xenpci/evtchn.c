@@ -154,9 +154,13 @@ EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
 
   EvtChn_Mask(Context, Port);
-  xpdd->ev_actions[Port].ServiceContext = NULL;
   xpdd->ev_actions[Port].ServiceRoutine = NULL;
+  KeMemoryBarrier();
+  xpdd->ev_actions[Port].ServiceContext = NULL;
 
+  if (xpdd->ev_actions[Port].DpcFlag)
+    WdfDpcCancel(xpdd->ev_actions[Port].Dpc, TRUE);
+  
   //KdPrint((__DRIVER_NAME " <-- EvtChn_UnBind\n"));
 
   return STATUS_SUCCESS;

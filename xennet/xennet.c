@@ -67,6 +67,7 @@ struct xennet_info
   evtchn_port_t event_channel;
   ULONG state;
   KEVENT backend_state_change_event;
+  KEVENT shutdown_event;
   char backend_path[MAX_XENBUS_STR_LEN];
   ULONG backend_state;
 
@@ -108,6 +109,8 @@ struct xennet_info
   ULONG rx_target;
   ULONG rx_max_target;
   ULONG rx_min_target;
+
+  ULONG rx_outstanding;
 
   /* stats */
   ULONG64 stat_tx_ok;
@@ -366,6 +369,7 @@ XenNet_ReturnPacket(
   IN PNDIS_PACKET Packet
   )
 {
+  struct xennet_info *xi = MiniportAdapterContext;
   PNDIS_BUFFER buffer;
   PNDIS_BUFFER next_buffer;
   PVOID buff_va;
@@ -373,8 +377,6 @@ XenNet_ReturnPacket(
   UINT tot_buff_len;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  UNREFERENCED_PARAMETER(MiniportAdapterContext);
 
   NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
     &tot_buff_len, NormalPagePriority);
@@ -390,6 +392,11 @@ XenNet_ReturnPacket(
   }
 
   NdisFreePacket(Packet);
+
+  InterlockedDecrement(&xi->rx_outstanding);
+  // if we are no longer connected then _halt probably needs to know when rx_outstanding reaches zero
+  if (!xi->connected && !xi->rx_outstanding)
+    KeSetEvent(&xi->shutdown_event, 1, FALSE);  
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -466,6 +473,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       if (!more_frags)
       {
         xi->stat_rx_ok++;
+        InterlockedIncrement(&xi->rx_outstanding);
         NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
         NdisMIndicateReceivePacket(xi->adapter_handle, &packet, 1);
       }
@@ -838,6 +846,7 @@ XenNet_Init(
 #endif
 
   KeInitializeEvent(&xi->backend_state_change_event, SynchronizationEvent, FALSE);  
+  KeInitializeEvent(&xi->shutdown_event, SynchronizationEvent, FALSE);  
 
   /* Add watch on backend state */
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->backend_path);
@@ -1583,6 +1592,7 @@ XenNet_Halt(
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
+  // this disables the interrupt
   XenNet_Shutdown(xi);
 
   // set frontend state to 'closing'
@@ -1607,6 +1617,11 @@ XenNet_Halt(
     KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
 
   xi->connected = FALSE;
+
+  /* wait for all receive buffers to be returned */
+  KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
+  while (xi->rx_outstanding > 0)
+    KeWaitForSingleObject(&xi->shutdown_event, Executive, KernelMode, FALSE, NULL);
 
   // TODO: remove event channel xenbus entry (how?)
 
