@@ -110,7 +110,7 @@ struct xennet_info
   ULONG rx_max_target;
   ULONG rx_min_target;
 
-  ULONG rx_outstanding;
+  LONG rx_outstanding;
 
   /* stats */
   ULONG64 stat_tx_ok;
@@ -411,7 +411,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   PNDIS_BUFFER buffer;
   int moretodo;
   KIRQL OldIrql;
-  PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
   struct netif_rx_response *rxrsp = NULL;
   int more_frags = 0;
   NDIS_STATUS status;

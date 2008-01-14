@@ -85,7 +85,7 @@ struct
 
   int BusChangePending;
 
-  int EnumeratedDevices;
+  LONG EnumeratedDevices;
   int TotalInitialDevices;
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 

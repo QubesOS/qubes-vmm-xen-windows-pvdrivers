@@ -289,7 +289,6 @@ XenEnum_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pr
   char *msg;
   char buffer[128];
   int i;
-  LARGE_INTEGER WaitTimeout;
 
   UNREFERENCED_PARAMETER(Device);
   UNREFERENCED_PARAMETER(PreviousState);
@@ -367,6 +366,8 @@ XenEnum_D0Exit(
 static NTSTATUS
 XenEnum_DeviceUsageNotification(WDFDEVICE Device, WDF_SPECIAL_FILE_TYPE NotificationType, BOOLEAN IsInNotificationPath)
 {
+  UNREFERENCED_PARAMETER(Device);
+
   KdPrint((__DRIVER_NAME " --> DeviceUsageNotification\n"));
 
   switch (NotificationType)
@@ -411,8 +412,6 @@ XenEnum_WatchHandler(char *Path, PVOID Data)
   XENPCI_IDENTIFICATION_DESCRIPTION IdentificationDescription;
   char **Bits;
   int Count;
-  char TmpPath[128];
-  char *Value;
   ANSI_STRING AnsiBuf;
   WDFCHILDLIST ChildList;
   WDFDEVICE Device = Data;
