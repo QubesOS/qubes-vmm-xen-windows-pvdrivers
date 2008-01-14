@@ -298,13 +298,13 @@ namespace ShutdownMon
                         break;
                     case "reboot":
                         //DoExitWin(EWX_REBOOT | EWX_FORCE);
-                        DoExitWin(ExitWindows.Reboot | ExitWindows.ForceIfHung);
+                        DoExitWin(ExitWindows.Reboot | ExitWindows.Force);
                         break;
                     case "poweroff":
                     case "halt":
                     default:
                         //DoExitWin(EWX_POWEROFF | EWX_FORCE);
-                        DoExitWin(ExitWindows.PowerOff | ExitWindows.ForceIfHung);
+                        DoExitWin(ExitWindows.PowerOff | ExitWindows.Force);
                         break;
                 }
             }

@@ -42,6 +42,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HW_INITIALIZATION_DATA HwInitializationData;
 
   KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   RtlZeroMemory(&HwInitializationData, sizeof(HW_INITIALIZATION_DATA));
 
@@ -418,6 +419,7 @@ XenVbd_WatchHandler(char *Path, PVOID DeviceExtension)
   int i, j;
 
   KdPrint((__DRIVER_NAME " --> WatchHandler (DeviceData = %08x)\n", DeviceData));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   KdPrint((__DRIVER_NAME "     Path = %s\n", Path));
 

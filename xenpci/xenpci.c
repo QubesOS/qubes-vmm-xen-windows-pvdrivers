@@ -21,6 +21,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "hypercall.h"
 #include <stdlib.h>
 
+#define SYSRQ_PATH "control/sysrq"
 #define SHUTDOWN_PATH "control/shutdown"
 #define BALLOON_PATH "memory/target"
 
@@ -58,6 +59,8 @@ XenPCI_FilterAddResourceRequirements(WDFDEVICE Device, WDFIORESREQLIST Requireme
 static NTSTATUS
 XenPCI_RemoveAddedResources(WDFDEVICE Device, WDFCMRESLIST ResourcesRaw, WDFCMRESLIST ResourcesTranslated);
 
+static VOID
+XenBus_SysrqHandler(char *Path, PVOID Data);
 static VOID
 XenBus_ShutdownHandler(char *Path, PVOID Data);
 static VOID
@@ -600,6 +603,9 @@ XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pre
   XenBus_Start(Device);
 
   KdPrint((__DRIVER_NAME "     A\n"));
+
+  response = XenBus_AddWatch(Device, XBT_NIL, SYSRQ_PATH, XenBus_SysrqHandler, Device);
+  KdPrint((__DRIVER_NAME "     sysrqwatch response = '%s'\n", response)); 
   
   response = XenBus_AddWatch(Device, XBT_NIL, SHUTDOWN_PATH, XenBus_ShutdownHandler, Device);
   KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
@@ -1039,6 +1045,63 @@ XenBus_BalloonHandler(char *Path, PVOID Data)
   XenPCI_FreeMem(value);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_BalloonHandler\n"));
+}
+
+static VOID
+XenBus_SysrqHandler(char *Path, PVOID Data)
+{
+  WDFDEVICE Device = Data;
+  char *Value;
+  xenbus_transaction_t xbt;
+  int retry;
+  char letter;
+  char *res;
+
+  UNREFERENCED_PARAMETER(Path);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  XenBus_StartTransaction(Device, &xbt);
+
+  XenBus_Read(Device, XBT_NIL, SYSRQ_PATH, &Value);
+
+  KdPrint((__DRIVER_NAME "     SysRq Value = %s\n", Value));
+
+  if (Value != NULL && strlen(Value) != 0)
+  {
+    letter = *Value;
+    res = XenBus_Write(Device, XBT_NIL, SYSRQ_PATH, "");
+    if (res)
+    {
+      KdPrint(("Error writing sysrq path\n"));
+      XenPCI_FreeMem(res);
+      XenBus_EndTransaction(Device, xbt, 0, &retry);
+      return;
+    }
+  }
+  else
+  {
+    letter = 0;
+  }
+
+  XenBus_EndTransaction(Device, xbt, 0, &retry);
+
+  if (Value != NULL)
+  {
+    XenPCI_FreeMem(Value);
+  }
+
+  switch (letter)
+  {
+  case 'B':
+    KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000001, 0x00000000, 0x00000000, 0x00000000);
+    break;
+  default:
+    KdPrint(("     Unhandled sysrq letter %c\n", letter));
+    break;
+  }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 /*
