@@ -111,7 +111,7 @@ ADD_ID_TO_FREELIST(PXENVBD_TARGET_DATA TargetData, uint64_t Id)
 //static HANDLE XenVbd_ScsiPortThreadHandle;
 //static KEVENT XenVbd_ScsiPortThreadEvent;
 
-static VOID
+static BOOLEAN
 XenVbd_Interrupt(PKINTERRUPT Interrupt, PVOID DeviceExtension)
 {
   PXENVBD_TARGET_DATA TargetData = (PXENVBD_TARGET_DATA)DeviceExtension;
@@ -123,6 +123,8 @@ XenVbd_Interrupt(PKINTERRUPT Interrupt, PVOID DeviceExtension)
   TargetData->PendingInterrupt = TRUE;
 
 //  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
+
+  return TRUE;
 }
 
 static VOID

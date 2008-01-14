@@ -110,6 +110,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
   return STATUS_SUCCESS;
 }
 
+NTSTATUS
 EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
   WDFDEVICE Device = Context;
