@@ -145,7 +145,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
                       WDF_NO_HANDLE);
   if(!NT_SUCCESS(status))
   {
-    //KdPrint((__DRIVER_NAME " WdfDriverCreate failed with status 0x%08x\n", status));
+    KdPrint((__DRIVER_NAME " WdfDriverCreate failed with status 0x%08x\n", status));
   }
 
   KdPrint((__DRIVER_NAME " <-- DriverEntry\n"));
@@ -175,7 +175,12 @@ XenHide_AddDevice(
 
   WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
 
-  WdfDeviceInitAssignWdmIrpPreprocessCallback(DeviceInit, XenHide_PreprocessWdmIrpPNP, IRP_MJ_PNP, MinorFunctions, 1);
+  status = WdfDeviceInitAssignWdmIrpPreprocessCallback(DeviceInit, XenHide_PreprocessWdmIrpPNP, IRP_MJ_PNP, MinorFunctions, 1);
+  if(!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     WdfDeviceInitAssignWdmIrpPreprocessCallback failed with status 0x%08x\n", status));
+    return status;
+  }
 
   status = WdfDeviceCreate(&DeviceInit, &attributes, &Device);  
   if(!NT_SUCCESS(status))
