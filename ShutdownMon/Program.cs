@@ -17,21 +17,8 @@ namespace ShutdownMon
     {
         /* 
         * Shutdown definition see here: http://msdn2.microsoft.com/en-us/library/aa376868.aspx
+         * http://msdn2.microsoft.com/en-us/library/aa376873(VS.85).aspx
         */
-
-        //public enum ExitWindows : uint
-        internal enum ExitWindows : uint
-        {
-            // ONE of the following five:
-            LogOff = 0x00,
-            ShutDown = 0x01,
-            Reboot = 0x02,
-            PowerOff = 0x08,
-            RestartApps = 0x40,
-            // plus AT MOST ONE of the following two:
-            Force = 0x04,
-            ForceIfHung = 0x10,
-        }
 
         internal enum ShutdownReason : uint
         {
@@ -115,17 +102,18 @@ namespace ShutdownMon
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         internal static extern bool AdjustTokenPrivileges(IntPtr htok, bool disall, ref TokPriv1Luid newst, int len, IntPtr prev, IntPtr relen);
 
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-        
-        internal static extern bool ExitWindowsEx(ExitWindows uFlags, ShutdownReason dwReason);
-        
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        internal static extern bool InitiateSystemShutdownEx(string lpMachineName, string lpMessage, int dwTimeout, bool bForceAppsClosed, bool bRebootAfterShutdown, ShutdownReason dwReason);
+
+//        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+               
         internal const int SE_PRIVILEGE_ENABLED = 0x00000002;
         internal const int TOKEN_QUERY = 0x00000008;
         internal const int TOKEN_ADJUST_PRIVILEGES = 0x00000020;
         internal const string SE_SHUTDOWN_NAME = "SeShutdownPrivilege";
 
 
-        private static void DoExitWin(ExitWindows flg)
+        private static void DoExitWin(bool bForceAppsClosed, bool bRebootAfterShutdown)
         {
             bool ok;
             TokPriv1Luid tp;
@@ -136,11 +124,10 @@ namespace ShutdownMon
             tp.Luid = 0;
             tp.Attr = SE_PRIVILEGE_ENABLED;
             ok = LookupPrivilegeValue(null, SE_SHUTDOWN_NAME, ref tp.Luid);
-            ok = AdjustTokenPrivileges(htok, false, ref tp, 0, IntPtr.Zero,
-            IntPtr.Zero);
-            ok = ExitWindowsEx(flg, ShutdownReason.MajorOther & ShutdownReason.MinorOther);
+            ok = AdjustTokenPrivileges(htok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+            ok = InitiateSystemShutdownEx(null, null, 0, bForceAppsClosed, bRebootAfterShutdown, ShutdownReason.MajorOther & ShutdownReason.MinorOther);
         }
-
+        
         const string MyServiceName = "XenShutdownMon";
         const string MyDisplayName = "Xen Shutdown Monitor Service";
         const string MyServiceDescription = "Monitors the kernel driver and shuts down Windows when directed";
@@ -298,13 +285,15 @@ namespace ShutdownMon
                         break;
                     case "reboot":
                         //DoExitWin(EWX_REBOOT | EWX_FORCE);
-                        DoExitWin(ExitWindows.Reboot | ExitWindows.Force);
+                        //DoExitWin(ExitWindows.Reboot | ExitWindows.ForceIfHung);
+                        DoExitWin(true, true);
                         break;
                     case "poweroff":
                     case "halt":
                     default:
                         //DoExitWin(EWX_POWEROFF | EWX_FORCE);
-                        DoExitWin(ExitWindows.PowerOff | ExitWindows.Force);
+                        //DoExitWin(ExitWindows.PowerOff | ExitWindows.ForceIfHung);
+                        DoExitWin(true, false);
                         break;
                 }
             }
