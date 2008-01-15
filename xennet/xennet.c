@@ -835,7 +835,7 @@ XenNet_Init(
   res = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
       XBT_NIL, TmpPath, &Value);
 
-#if 1
+#if 0
   if (res || strcmp(Value, "netfront") != 0)
   {
     KdPrint((__DRIVER_NAME "    Backend type is not 'netfront'\n"));
