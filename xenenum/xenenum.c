@@ -367,6 +367,7 @@ static NTSTATUS
 XenEnum_DeviceUsageNotification(WDFDEVICE Device, WDF_SPECIAL_FILE_TYPE NotificationType, BOOLEAN IsInNotificationPath)
 {
   UNREFERENCED_PARAMETER(Device);
+  UNREFERENCED_PARAMETER(IsInNotificationPath);
 
   KdPrint((__DRIVER_NAME " --> DeviceUsageNotification\n"));
 
