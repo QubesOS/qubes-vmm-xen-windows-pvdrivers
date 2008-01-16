@@ -5,7 +5,19 @@
 #pragma warning( disable : 4214 ) // nonstandard extension used : bit field types other than int
 
 #define __XEN_INTERFACE_VERSION__ 0x00030205
-#define __i386__
+#if defined(_AMD64_)
+  #define __x86_64__
+#else 
+  #if defined(_IA64_)
+    #define __ia64__
+  #else
+    #if defined(_X86_)
+      #define __i386__
+    #else
+      #error Unknown architecture
+    #endif
+  #endif
+#endif
 typedef INT8 int8_t;
 typedef UINT8 uint8_t;
 typedef INT16 int16_t;

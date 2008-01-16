@@ -18,7 +18,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
 #include "xenpci.h"
-#include <hypercall.h>
 
 static void
 put_free_entry(WDFDEVICE Device, grant_ref_t ref)

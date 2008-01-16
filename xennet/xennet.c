@@ -154,7 +154,7 @@ static void
 add_id_to_freelist(struct xennet_info *xi, unsigned short id)
 {
   xi->tx_pkts[id] = xi->tx_pkts[0];
-  xi->tx_pkts[0]  = (void *)(unsigned long)id;
+  xi->tx_pkts[0]  = (void *)id;
   xi->tx_pkt_ids_used--;
 }
 
@@ -770,7 +770,7 @@ XenNet_Init(
 
   /* Initialize tx_pkts as a free chain containing every entry. */
   for (i = 0; i < NET_TX_RING_SIZE+1; i++) {
-    xi->tx_pkts[i] = (void *)((unsigned long) i+1);
+    xi->tx_pkts[i] = i + 1;
     xi->grant_tx_ref[i] = GRANT_INVALID_REF;
   }
 
@@ -1214,7 +1214,7 @@ XenNet_SetInformation(
   PNDIS_TASK_TCP_IP_CHECKSUM nttic;
   int offset;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
   UNREFERENCED_PARAMETER(InformationBufferLength);
@@ -1395,7 +1395,7 @@ XenNet_SetInformation(
       status = NDIS_STATUS_NOT_SUPPORTED;
       break;
   }
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
 }
 

@@ -43,7 +43,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   ULONG Status;
   HW_INITIALIZATION_DATA HwInitializationData;
 
-  KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
+  KdPrint((__DRIVER_NAME " --> "__FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   RtlZeroMemory(&HwInitializationData, sizeof(HW_INITIALIZATION_DATA));
@@ -61,17 +61,12 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HwInitializationData.SpecificLuExtensionSize = 0;
   HwInitializationData.SrbExtensionSize = 0;
   HwInitializationData.NumberOfAccessRanges = 1;
-
-  //HwInitializationData.MapBuffers = FALSE;
   HwInitializationData.MapBuffers = TRUE;
-
   HwInitializationData.NeedPhysicalAddresses = FALSE;
-//  HwInitializationData.NeedPhysicalAddresses = TRUE;
-
-  HwInitializationData.TaggedQueuing = TRUE; //FALSE;
+  HwInitializationData.TaggedQueuing = TRUE;
   HwInitializationData.AutoRequestSense = FALSE;
   HwInitializationData.MultipleRequestPerLu = FALSE;
-  HwInitializationData.ReceiveEvent = FALSE; // check this
+  HwInitializationData.ReceiveEvent = FALSE;
   HwInitializationData.VendorIdLength = 0;
   HwInitializationData.VendorId = NULL;
   HwInitializationData.DeviceIdLength = 0;
@@ -85,7 +80,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     KdPrint((__DRIVER_NAME " ScsiPortInitialize failed with status 0x%08x\n", Status));
   }
 
-  KdPrint((__DRIVER_NAME " <-- DriverEntry\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return Status;
 }
@@ -107,9 +102,6 @@ ADD_ID_TO_FREELIST(PXENVBD_TARGET_DATA TargetData, uint64_t Id)
   TargetData->shadow[Id].Srb = NULL;
   TargetData->shadow_free = Id;
 }
-
-//static HANDLE XenVbd_ScsiPortThreadHandle;
-//static KEVENT XenVbd_ScsiPortThreadEvent;
 
 static BOOLEAN
 XenVbd_Interrupt(PKINTERRUPT Interrupt, PVOID DeviceExtension)
@@ -383,10 +375,20 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
 
   case XenbusStateClosing:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));  
+    // this behaviour is only to properly close down to then restart in the case of a dump
+    RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
+    RtlStringCbCatA(TmpPath, 128, "/state");
+    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", XenbusStateClosed);
+    KdPrint((__DRIVER_NAME "     Set Frontend state to Closed\n"));
     break;
 
   case XenbusStateClosed:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Closed\n"));  
+    // this behaviour is only to properly close down to then restart in the case of a dump
+    RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
+    RtlStringCbCatA(TmpPath, 128, "/state");
+    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", XenbusStateInitialising);
+    KdPrint((__DRIVER_NAME "     Set Frontend state to Initialising\n"));
     break;
 
   default:
@@ -447,6 +449,20 @@ XenVbd_WatchHandler(char *Path, PVOID DeviceExtension)
       VacantTarget->Present = 1;
       KeReleaseSpinLock(&DeviceData->Lock, OldIrql);
 
+      DeviceData->XenDeviceData->XenInterface.XenBus_Read(
+        DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
+        XBT_NIL, Path, &Value);
+
+      if (Value == NULL)
+      {
+        KdPrint((__DRIVER_NAME "     blank state?\n"));
+        break;
+      }
+      if (atoi(Value) != XenbusStateInitialising)
+        DeviceData->XenDeviceData->XenInterface.XenBus_Printf(
+          DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
+          XBT_NIL, Path, "%d", XenbusStateClosing);
+
       RtlStringCbCopyA(VacantTarget->Path, 128, Bits[0]);
       RtlStringCbCatA(VacantTarget->Path, 128, "/");
       RtlStringCbCatA(VacantTarget->Path, 128, Bits[1]);
@@ -500,6 +516,10 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   KeInitializeSpinLock(&DeviceData->Lock);
   KdPrint((__DRIVER_NAME " --> HwScsiFindAdapter\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
+  // testing this for dump mode
+  if (KeGetCurrentIrql() > ConfigInfo->BusInterruptLevel)
+    ConfigInfo->BusInterruptLevel = KeGetCurrentIrql();
 
   KdPrint((__DRIVER_NAME "     BusInterruptLevel = %d\n", ConfigInfo->BusInterruptLevel));
   KdPrint((__DRIVER_NAME "     BusInterruptVector = %d\n", ConfigInfo->BusInterruptVector));
@@ -592,8 +612,8 @@ XenVbd_CheckBusEnumeratedTimer(PVOID DeviceExtension)
 {
   PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)DeviceExtension;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   if (DeviceData->EnumeratedDevices >= DeviceData->TotalInitialDevices)
   {
@@ -605,7 +625,7 @@ XenVbd_CheckBusEnumeratedTimer(PVOID DeviceExtension)
   {
     ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_CheckBusEnumeratedTimer, 100000);
   }
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static VOID 
@@ -624,12 +644,12 @@ XenVbd_CheckBusChangedTimer(PVOID DeviceExtension)
 static BOOLEAN
 XenVbd_HwScsiInitialize(PVOID DeviceExtension)
 {
-  KdPrint((__DRIVER_NAME " --> HwScsiInitialize\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_CheckBusEnumeratedTimer, 100000);
 
-  KdPrint((__DRIVER_NAME " <-- HwScsiInitialize\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return TRUE;
 }

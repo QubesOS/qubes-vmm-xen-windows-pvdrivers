@@ -2,7 +2,7 @@ The source code still needs a tidy up. The Windows DDK stuff has it's own coding
 get to that as soon as I figure out what coding style to use and where.
 
 Known problems or things that need doing to make it properly useful:
-. Test under envirnments other than 32-bit PAE Windows 2003. Almost certainly won't work under 64 bit
+. Test under environments other than 32-bit PAE Windows 2003. Almost certainly won't work under 64 bit
 . No power management
 . Almost certainly won't support migration or suspend/resume.
 . Reports of problems on Intel systems
@@ -11,7 +11,8 @@ Known problems or things that need doing to make it properly useful:
 
 TODO:
 . Do some performance testing
-. network adapters (vif) (Andy Grover is looking at this)
 . virtual scsi (eg a front end for the scsi passthrough stuff)
 . balloon drivers (this should actually be pretty easy)
 . Write an installer for the above binaries to automate everything
+. Fix crash dump under vbd (currently just hangs)
+. Correctly handle CD changes

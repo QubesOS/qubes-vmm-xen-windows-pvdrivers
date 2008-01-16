@@ -143,6 +143,8 @@ typedef struct {
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_DATA, GetDeviceData);
 
+#include "hypercall_x86.h"
+
 typedef unsigned long xenbus_transaction_t;
 typedef uint32_t XENSTORE_RING_IDX;
 
