@@ -245,11 +245,11 @@ get_hypercall_stubs(WDFDEVICE Device)
   if (!xpdd->hypercall_stubs)
     return 1;
   for (i = 0; i < pages; i++) {
-    ULONG pfn;
+    ULONGLONG pfn;
     //pfn = vmalloc_to_pfn((char *)hypercall_stubs + i * PAGE_SIZE);
-    pfn = (ULONG)(MmGetPhysicalAddress(xpdd->hypercall_stubs + i * PAGE_SIZE).QuadPart >> PAGE_SHIFT);
-    //KdPrint((__DRIVER_NAME " pfn = %08X\n", pfn));
-    __writemsr(msr, ((ULONGLONG)pfn << PAGE_SHIFT) + i);
+    pfn = (MmGetPhysicalAddress(xpdd->hypercall_stubs + i * PAGE_SIZE).QuadPart >> PAGE_SHIFT);
+    KdPrint((__DRIVER_NAME " pfn = %10lX\n", pfn));
+    __writemsr(msr, (pfn << PAGE_SHIFT) + i);
   }
   return STATUS_SUCCESS;
 }
