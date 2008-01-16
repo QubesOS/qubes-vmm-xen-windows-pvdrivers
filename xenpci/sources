@@ -1,7 +1,7 @@
 TARGETNAME=XENPCI
 TARGETTYPE=DRIVER
 TARGETPATH=..\Target\$(DDK_TARGET_OS)
-VERSION=0.5.0.24
+VERSION=0.5.0.27
 KMDF_VERSION=1
 MSC_WARNING_LEVEL=/W4
 INF_NAME=xenpci
@@ -9,4 +9,4 @@ INCLUDES = ..\common\include;..\common\include\public
 TARGETLIBS=$(DDK_LIB_PATH)\ntstrsafe.lib
 MISCFILES=$(TARGETPATH)\$(INF_NAME).inf
 NTTARGETFILES=
-SOURCES=xenpci.c xenbus.c gnttbl.c evtchn.c
+SOURCES=xenpci.c xenbus.c gnttbl.c evtchn.c hypercall.asm

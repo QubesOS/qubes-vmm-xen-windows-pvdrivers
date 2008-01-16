@@ -14,7 +14,8 @@ CoInstaller_CopyFiles = 11
 ExcludeFromSelect=*
 
 [Manufacturer]
-%JAMESHARPER%=JAMESHARPER,NT$ARCH$
+%JAMESHARPER%=JAMESHARPER,NTx86
+%JAMESHARPER%=JAMESHARPER,NTAMD64
 
 ; For Win2K
 ;[JAMESHARPER]
@@ -22,7 +23,10 @@ ExcludeFromSelect=*
 ; -----------       	 -------           --------
 ;%XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
 
-[JAMESHARPER.NT$ARCH$]
+[JAMESHARPER.NTx86]
+%XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
+
+[JAMESHARPER.NTAMD64]
 %XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
 
 [XenPCI_Inst.NT]
@@ -35,9 +39,11 @@ xenpci.sys
 xenpci.sys=1
 WdfCoinstaller01005.dll=1,,
 
-[SourceDisksNames]
+[SourceDisksNames.x86]
 1 = %DISK_NAME%,,,\i386
-;1 = %DISK_NAME%,,,\i386
+
+[SourceDisksNames.amd64]
+1 = %DISK_NAME%,,,\amd64
 
 [XenPCI_Inst.NT.Services]
 AddService=XenPCI,2,XenPCI_Service 

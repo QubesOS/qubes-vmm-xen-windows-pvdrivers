@@ -300,7 +300,7 @@ init_xen_info(WDFDEVICE Device)
   xatp.space = XENMAPSPACE_shared_info;
   xatp.gpfn = (xen_pfn_t)(shared_info_area_unmapped.QuadPart >> PAGE_SHIFT);
   ret = HYPERVISOR_memory_op(Device, XENMEM_add_to_physmap, &xatp);
-  //KdPrint((__DRIVER_NAME " ret = %d\n", ret));
+  KdPrint((__DRIVER_NAME " hypervisor memory op ret = %d\n", ret));
 
   xpdd->shared_info_area = MmMapIoSpace(shared_info_area_unmapped,
     PAGE_SIZE, MmNonCached);
@@ -314,13 +314,13 @@ set_callback_irq(WDFDEVICE Device, ULONGLONG irq)
   struct xen_hvm_param a;
   int retval;
 
-  //KdPrint((__DRIVER_NAME " --> set_callback_irq\n"));
+  KdPrint((__DRIVER_NAME " --> set_callback_irq\n"));
   a.domid = DOMID_SELF;
   a.index = HVM_PARAM_CALLBACK_IRQ;
   a.value = irq;
   retval = HYPERVISOR_hvm_op(Device, HVMOP_set_param, &a);
-  //KdPrint((__DRIVER_NAME " HYPERVISOR_hvm_op retval = %d\n", retval));
-  //KdPrint((__DRIVER_NAME " <-- set_callback_irq\n"));
+  KdPrint((__DRIVER_NAME " HYPERVISOR_hvm_op retval = %d\n", retval));
+  KdPrint((__DRIVER_NAME " <-- set_callback_irq\n"));
   return retval;
 }
 
