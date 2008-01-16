@@ -1,8 +1,11 @@
-The source code still needs a tidy up. The Windows DDK stuff has it's own coding style which I've imitated in places, and then xen has it's own too, so this code is mostly one, the other, both, or neither. I'll
-get to that as soon as I figure out what coding style to use and where.
+The source code still needs a tidy up. The Windows DDK stuff has it's 
+own coding style which I've imitated in places, and then xen has it's 
+own too, so this code is mostly one, the other, both, or neither. I'll 
+get to that as soon as I figure out what coding style to use and where. 
 
 Known problems or things that need doing to make it properly useful:
-. Test under environments other than 32-bit PAE Windows 2003. Almost certainly won't work under 64 bit
+. Test under environments other than 32-bit PAE Windows 2003. Almost certainly
+  won't work under 64 bit
 . No power management
 . Almost certainly won't support migration or suspend/resume.
 . Reports of problems on Intel systems
