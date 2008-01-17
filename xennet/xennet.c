@@ -155,7 +155,7 @@ static void
 add_id_to_freelist(struct xennet_info *xi, unsigned short id)
 {
   xi->tx_pkts[id] = xi->tx_pkts[0];
-  xi->tx_pkts[0]  = (void *)id;
+  xi->tx_pkts[0]  = (void *)(int)id;
   xi->tx_pkt_ids_used--;
 }
 
@@ -779,7 +779,7 @@ XenNet_Init(
 
   /* Initialize tx_pkts as a free chain containing every entry. */
   for (i = 0; i < NET_TX_RING_SIZE+1; i++) {
-    xi->tx_pkts[i] = i + 1;
+    xi->tx_pkts[i] = (PNDIS_PACKET)(i + 1);
     xi->grant_tx_ref[i] = GRANT_INVALID_REF;
   }
 
