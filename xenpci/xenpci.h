@@ -90,6 +90,8 @@ typedef struct _XENBUS_WATCH_ENTRY {
   PVOID ServiceContext;
   int Count;
   int Active;
+  int Running;
+  KEVENT CompleteEvent;
 } XENBUS_WATCH_ENTRY, *PXENBUS_WATCH_ENTRY;
 
 #define NR_EVENTS 1024
@@ -139,6 +141,7 @@ typedef struct {
   int nr_live_reqs;
   XENBUS_WATCH_ENTRY XenBus_WatchEntries[MAX_WATCH_ENTRIES];
 
+  KSPIN_LOCK WatchLock;
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_DATA, GetDeviceData);

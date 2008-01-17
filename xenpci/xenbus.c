@@ -303,11 +303,17 @@ XenBus_Init(WDFDEVICE Device)
     
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+  KeInitializeSpinLock(&xpdd->WatchLock);
+
   xpdd->xen_store_evtchn = EvtChn_GetXenStorePort(Device);
   xpdd->xen_store_interface = EvtChn_GetXenStoreRingAddr(Device);
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
+  {
     xpdd->XenBus_WatchEntries[i].Active = 0;
+    xpdd->XenBus_WatchEntries[i].Running = 0;
+    KeInitializeEvent(&xpdd->XenBus_WatchEntries[i].CompleteEvent, SynchronizationEvent, FALSE);  
+  }
 
   KeInitializeEvent(&xpdd->XenBus_ReadThreadEvent, SynchronizationEvent, FALSE);
   KeInitializeEvent(&xpdd->XenBus_WatchThreadEvent, SynchronizationEvent, FALSE);
@@ -544,6 +550,7 @@ XenBus_WatchThreadProc(PVOID StartContext)
   PXENBUS_WATCH_ENTRY entry;
   WDFDEVICE Device = StartContext;
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  KIRQL OldIrql;
 
   for(;;)
   {
@@ -558,27 +565,20 @@ XenBus_WatchThreadProc(PVOID StartContext)
       xpdd->XenBus_WatchRingReadIndex = 
         (xpdd->XenBus_WatchRingReadIndex + 1) % WATCH_RING_SIZE;
       index = atoi(xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Token);
-      //XenBus_WatchRing[XenBus_WatchRingReadIndex].Path
-      //XenBus_WatchRing[XenBus_WatchRingReadIndex].Token
 
       entry = &xpdd->XenBus_WatchEntries[index];
-      if (!entry->Active)
+      KeAcquireSpinLock(&xpdd->WatchLock, &OldIrql);
+      if (!entry->Active || !entry->ServiceRoutine)
       {
-        KdPrint((__DRIVER_NAME " +++ Watch not active! = %s Token = %s\n",
-        xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Path,
-        xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Token));
+        KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
         continue;
       }
+      entry->Running = 1;
+      KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
       entry->Count++;
-      if (!entry->ServiceRoutine)
-      {
-        KdPrint((__DRIVER_NAME " +++ no handler for watch! = %s Token = %s\n",
-          xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Path,
-          xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Token));
-        continue;
-      }
-      //KdPrint((__DRIVER_NAME " +++ Watch Triggered Path = %s Token = %d (%s)\n", XenBus_WatchRing[XenBus_WatchRingReadIndex].Path, index, XenBus_WatchRing[XenBus_WatchRingReadIndex].Token));
       entry->ServiceRoutine(xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Path, entry->ServiceContext);
+      entry->Running = 0;
+      KeSetEvent(&entry->CompleteEvent, 1, FALSE);
     }
   }
 }    
@@ -599,10 +599,13 @@ XenBus_AddWatch(
   char Token[20];
   struct write_req req[2];
   PXENBUS_WATCH_ENTRY w_entry;
+  KIRQL OldIrql;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   ASSERT(strlen(Path) < ARRAY_SIZE(w_entry->Path));
+
+  KeAcquireSpinLock(&xpdd->WatchLock, &OldIrql);
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
     if (xpdd->XenBus_WatchEntries[i].Active == 0)
@@ -611,16 +614,20 @@ XenBus_AddWatch(
   if (i == MAX_WATCH_ENTRIES)
   {
     KdPrint((__DRIVER_NAME " +++ No more watch slots left\n"));
+    KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
     return NULL;
   }
 
   /* must init watchentry before starting watch */
+  
   w_entry = &xpdd->XenBus_WatchEntries[i];
   strncpy(w_entry->Path, Path, ARRAY_SIZE(w_entry->Path));
   w_entry->ServiceRoutine = ServiceRoutine;
   w_entry->ServiceContext = ServiceContext;
   w_entry->Count = 0;
   w_entry->Active = 1;
+
+  KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
 
   req[0].data = Path;
   req[0].len = strlen(Path) + 1;
@@ -660,8 +667,11 @@ XenBus_RemWatch(
   int i;
   char Token[20];
   struct write_req req[2];
+  KIRQL OldIrql;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeAcquireSpinLock(&xpdd->WatchLock, &OldIrql);
 
   // check that Path < 128 chars
 
@@ -675,9 +685,20 @@ XenBus_RemWatch(
 
   if (i == MAX_WATCH_ENTRIES)
   {
+    KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
     KdPrint((__DRIVER_NAME "     Watch not set - can't remove\n"));
     return NULL;
   }
+
+  while (xpdd->XenBus_WatchEntries[i].Running)
+  {
+    KeWaitForSingleObject(&xpdd->XenBus_WatchEntries[i].CompleteEvent, Executive, KernelMode, FALSE, NULL);
+  }
+
+  xpdd->XenBus_WatchEntries[i].Active = 0;
+  xpdd->XenBus_WatchEntries[i].Path[0] = 0;
+
+  KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
 
   req[0].data = Path;
   req[0].len = strlen(Path) + 1;
@@ -690,11 +711,14 @@ XenBus_RemWatch(
 
   msg = errmsg(rep);
   if (msg)
+  {
+    KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
     return msg;
+  }
 
   ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
 
-  xpdd->XenBus_WatchEntries[i].Active = 0;
+  KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
