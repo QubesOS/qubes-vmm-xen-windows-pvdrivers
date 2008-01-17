@@ -1596,6 +1596,7 @@ XenNet_Halt(
 {
   struct xennet_info *xi = MiniportAdapterContext;
   CHAR TmpPath[MAX_XENBUS_STR_LEN];
+  PVOID if_cxt = xi->XenInterface.InterfaceHeader.Context;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
@@ -1606,23 +1607,23 @@ XenNet_Halt(
   // set frontend state to 'closing'
   xi->state = XenbusStateClosing;
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
-  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
-    XBT_NIL, TmpPath, "%d", xi->state);
+  xi->XenInterface.XenBus_Printf(if_cxt, XBT_NIL, TmpPath, "%d", xi->state);
 
   // wait for backend to set 'Closing' state
 
   while (xi->backend_state != XenbusStateClosing)
-    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
+    KeWaitForSingleObject(&xi->backend_state_change_event, Executive,
+      KernelMode, FALSE, NULL);
 
   // set frontend state to 'closed'
   xi->state = XenbusStateClosed;
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
-  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
-    XBT_NIL, TmpPath, "%d", xi->state);
+  xi->XenInterface.XenBus_Printf(if_cxt, XBT_NIL, TmpPath, "%d", xi->state);
 
   // wait for backend to set 'Closed' state
   while (xi->backend_state != XenbusStateClosed)
-    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
+    KeWaitForSingleObject(&xi->backend_state_change_event, Executive,
+      KernelMode, FALSE, NULL);
 
   xi->connected = FALSE;
 
@@ -1634,25 +1635,29 @@ XenNet_Halt(
   // TODO: remove event channel xenbus entry (how?)
 
   /* free TX resources */
-  xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
-    xi->tx_ring_ref);
-  xi->tx_ring_ref = GRANT_INVALID_REF;
-  FreePages(xi->tx_mdl);
+  if (xi->XenInterface.GntTbl_EndAccess(if_cxt, xi->tx_ring_ref))
+  {
+    xi->tx_ring_ref = GRANT_INVALID_REF;
+    FreePages(xi->tx_mdl);
+  }
+  /* if EndAccess fails then tx/rx ring pages LEAKED -- it's not safe to reuse
+     pages Dom0 still has access to */
   xi->tx_pgs = NULL;
   XenNet_TxBufferFree(xi);
 
   /* free RX resources */
-  xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
-    xi->rx_ring_ref);
-  xi->rx_ring_ref = GRANT_INVALID_REF;
-  FreePages(xi->rx_mdl);
+  if (xi->XenInterface.GntTbl_EndAccess(if_cxt, xi->rx_ring_ref))
+  {
+    xi->rx_ring_ref = GRANT_INVALID_REF;
+    FreePages(xi->rx_mdl);
+  }
   xi->rx_pgs = NULL;
   XenNet_RxBufferFree(MiniportAdapterContext);
 
   /* Remove watch on backend state */
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->backend_path);
-  xi->XenInterface.XenBus_RemWatch(xi->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
+  xi->XenInterface.XenBus_RemWatch(if_cxt, XBT_NIL, TmpPath,
+    XenNet_BackEndStateHandler, xi);
 
   xi->XenInterface.InterfaceHeader.InterfaceDereference(NULL);
 
