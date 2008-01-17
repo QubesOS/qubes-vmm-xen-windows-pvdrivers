@@ -91,7 +91,7 @@ struct xennet_info
   PMDL tx_mdl;
   PMDL rx_mdl;
 
-  /* Outstanding packets. The first entry in tx_pkts
+  /* Packets given to netback. The first entry in tx_pkts
    * is an index into a chain of free entries. */
   int tx_pkt_ids_used;
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE+1];
@@ -110,6 +110,7 @@ struct xennet_info
   ULONG rx_max_target;
   ULONG rx_min_target;
 
+  /* how many packets are in the net stack atm */
   LONG rx_outstanding;
 
   /* stats */
@@ -170,7 +171,8 @@ get_id_from_freelist(struct xennet_info *xi)
   return id;
 }
 
-VOID XenNet_SendQueuedPackets(struct xennet_info *xi);
+VOID
+XenNet_SendQueuedPackets(struct xennet_info *xi);
 
 // Called at DISPATCH_LEVEL
 static NDIS_STATUS
@@ -240,13 +242,31 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
-static void XenNet_TxBufferFree(struct xennet_info *xi)
+static void
+XenNet_TxBufferFree(struct xennet_info *xi)
 {
   PNDIS_PACKET packet;
   PMDL pmdl;
+  PLIST_ENTRY entry;
   unsigned short id;
 
-  /* TODO: free packets in tx queue (once implemented) */
+  ASSERT(!xi->connected);
+
+  /* Free packets in tx queue */
+  entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
+  while (entry != &xi->tx_waiting_pkt_list)
+  {
+    packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[4]);
+
+    /* free linearized data page */
+    pmdl = *(PMDL *)packet->MiniportReservedEx;
+    NdisFreeMemory(MmGetMdlVirtualAddress(pmdl), 0, 0); // <= DISPATCH_LEVEL
+    IoFreeMdl(pmdl);
+
+    NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
+
+    entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
+  }
 
   /* free sent-but-not-completed packets */
   for (id = 1; id < NET_TX_RING_SIZE+1; id++) {
@@ -435,17 +455,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         NdisAllocatePacket(&status, &packet, xi->packet_pool);
         ASSERT(status == NDIS_STATUS_SUCCESS);
         NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
-/*
-        if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) == NDIS_PROTOCOL_ID_TCP_IP
-          && (rxrsp->flags & (NETRXF_csum_blank|NETRXF_data_validated)))
-        {
-          csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo);
-          csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
-          csum_info->Receive.NdisPacketUdpChecksumSucceeded = 1;
-          csum_info->Receive.NdisPacketIpChecksumSucceeded = 1;
-//          KdPrint((__DRIVER_NAME "     Offload = %08x\n", NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo)));
-        }
-*/
       }
 
       buffer = xi->rx_buffers[rxrsp->id];
@@ -591,7 +600,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     /* TODO: must free pages in MDL as well as MDL using MmFreePagesFromMdl and ExFreePool */
     // or, allocate mem and then get mdl, then free mdl
     xi->tx_mdl = AllocatePage();
-    xi->tx_pgs = MmGetMdlVirtualAddress(xi->tx_mdl); //MmMapLockedPagesSpecifyCache(xi->tx_mdl, KernelMode, MmNonCached, NULL, FALSE, NormalPagePriority);
+    xi->tx_pgs = MmGetMdlVirtualAddress(xi->tx_mdl);
     SHARED_RING_INIT(xi->tx_pgs);
     FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
     xi->tx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
@@ -599,7 +608,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
       *MmGetMdlPfnArray(xi->tx_mdl), FALSE);
 
     xi->rx_mdl = AllocatePage();
-    xi->rx_pgs = MmGetMdlVirtualAddress(xi->rx_mdl); //MmMapLockedPagesSpecifyCache(xi->rx_mdl, KernelMode, MmNonCached, NULL, FALSE, NormalPagePriority);
+    xi->rx_pgs = MmGetMdlVirtualAddress(xi->rx_mdl);
     SHARED_RING_INIT(xi->rx_pgs);
     FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
     xi->rx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
