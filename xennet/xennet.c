@@ -41,6 +41,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NET_TX_RING_SIZE __NET_RING_SIZE(netif_tx, PAGE_SIZE)
 #define NET_RX_RING_SIZE __NET_RING_SIZE(netif_rx, PAGE_SIZE)
 
+#if defined(_X86_)
+ #define INT_TO_PTR(x) ((PVOID)(LONG)(x))
+#else
+ #if defined(_AMD64_)
+  #define INT_TO_PTR(x) ((PVOID)(LONGLONG)(x))
+ #endif
+#endif
+
 #pragma warning(disable: 4127) // conditional expression is constant
 
 struct xennet_info
@@ -156,7 +164,7 @@ static void
 add_id_to_freelist(struct xennet_info *xi, unsigned short id)
 {
   xi->tx_pkts[id] = xi->tx_pkts[0];
-  xi->tx_pkts[0]  = (void *)id;
+  xi->tx_pkts[0]  = INT_TO_PTR(id);
   xi->tx_pkt_ids_used--;
 }
 
@@ -782,7 +790,7 @@ XenNet_Init(
 
   /* Initialize tx_pkts as a free chain containing every entry. */
   for (i = 0; i < NET_TX_RING_SIZE+1; i++) {
-    xi->tx_pkts[i] = i + 1;
+    xi->tx_pkts[i] = INT_TO_PTR(i + 1);
     xi->grant_tx_ref[i] = GRANT_INVALID_REF;
   }
 
