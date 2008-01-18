@@ -247,12 +247,10 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
         break;
       }
       // Qemu Network
-#if 0 // we don't need this because we can specify type=netfront instead of type=ioemu
       if (XenHide_StringMatches(Ptr, L"PCI\\VEN_10EC&DEV_8139&SUBSYS_00015853")) {
         Match = 1;
         break;
       }
-#endif
       RtlStringCchLengthW(Ptr, Length, &StrLen);
     }
     if (Match)
