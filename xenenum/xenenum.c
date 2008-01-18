@@ -305,37 +305,19 @@ XenEnum_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pr
   KeInitializeEvent(&WaitDevicesEvent, SynchronizationEvent, FALSE);  
 
   // TODO: Should probably do this in an EvtChildListScanForChildren
-/*
-  if (AutoEnumerate)
+  // TODO: Get the correct path from parent here...
+  msg = XenInterface.XenBus_List(XenInterface.InterfaceHeader.Context, XBT_NIL, PdoDeviceData->Path, &Devices);
+  if (!msg)
   {
-*/
-    // TODO: Get the correct path from parent here...
-    msg = XenInterface.XenBus_List(XenInterface.InterfaceHeader.Context, XBT_NIL, PdoDeviceData->Path, &Devices);
-    if (!msg)
+    for (i = 0; Devices[i]; i++)
     {
-      for (i = 0; Devices[i]; i++)
-      {
-        KdPrint((__DRIVER_NAME "     found existing device %s\n", Devices[i]));
-        KdPrint((__DRIVER_NAME "     faking watch event for %s/%s", PdoDeviceData->Path, Devices[i]));
-        RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "%s/%s", PdoDeviceData->Path, Devices[i]);
-        XenEnum_WatchHandler(buffer, Device);
-        //ExFreePoolWithTag(Devices[i], XENPCI_POOL_TAG);
-      }
-/*
-      KdPrint((__DRIVER_NAME "     Waiting for devices to be enumerated\n"));
-      while (EnumeratedDevices != i)
-      {
-        WaitTimeout.QuadPart = -600000000;
-        if (KeWaitForSingleObject(&WaitDevicesEvent, Executive, KernelMode, FALSE, &WaitTimeout) == STATUS_TIMEOUT)
-        {
-          KdPrint((__DRIVER_NAME "     Wait timed out\n"));
-          break;
-        }
-        KdPrint((__DRIVER_NAME "     %d out of %d devices enumerated\n", EnumeratedDevices, i));
-      }  
-*/
+      KdPrint((__DRIVER_NAME "     found existing device %s\n", Devices[i]));
+      KdPrint((__DRIVER_NAME "     faking watch event for %s/%s", PdoDeviceData->Path, Devices[i]));
+      RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "%s/%s", PdoDeviceData->Path, Devices[i]);
+      XenEnum_WatchHandler(buffer, Device);
+      //ExFreePoolWithTag(Devices[i], XENPCI_POOL_TAG);
     }
-//  }
+  }
 
   KdPrint((__DRIVER_NAME " <-- EvtDeviceD0EntryPostInterruptsEnabled\n"));
 

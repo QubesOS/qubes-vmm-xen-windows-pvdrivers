@@ -112,6 +112,7 @@ struct xennet_info
 
   /* how many packets are in the net stack atm */
   LONG rx_outstanding;
+  LONG tx_outstanding;
 
   /* stats */
   ULONG64 stat_tx_ok;
@@ -155,7 +156,7 @@ static void
 add_id_to_freelist(struct xennet_info *xi, unsigned short id)
 {
   xi->tx_pkts[id] = xi->tx_pkts[0];
-  xi->tx_pkts[0]  = (void *)(int)id;
+  xi->tx_pkts[0]  = (void *)id;
   xi->tx_pkt_ids_used--;
 }
 
@@ -213,6 +214,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       NdisFreeMemory(MmGetMdlVirtualAddress(pmdl), 0, 0); // <= DISPATCH_LEVEL
       IoFreeMdl(pmdl);
 
+      InterlockedDecrement(&xi->tx_outstanding);
       xi->stat_tx_ok++;
       NdisMSendComplete(xi->adapter_handle, pkt, NDIS_STATUS_SUCCESS);
     }
@@ -401,12 +403,12 @@ XenNet_ReturnPacket(
   NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
     &tot_buff_len, NormalPagePriority);
   ASSERT(tot_buff_len <= XN_MAX_PKT_SIZE);
+  ASSERT(buff_va != NULL);
 
   while (buffer)
   {
     NdisGetNextBuffer(buffer, &next_buffer);
-    NdisQueryBufferSafe(buffer, &buff_va, &buff_len, NormalPagePriority);
-    NdisFreeMemory(buff_va, 0, 0);
+    NdisFreeMemory(NdisBufferVirtualAddressSafe(buffer, NormalPagePriority), 0, 0);
     NdisFreeBuffer(buffer);
     buffer = next_buffer;
   }
@@ -414,6 +416,7 @@ XenNet_ReturnPacket(
   NdisFreePacket(Packet);
 
   InterlockedDecrement(&xi->rx_outstanding);
+
   // if we are no longer connected then _halt probably needs to know when rx_outstanding reaches zero
   if (!xi->connected && !xi->rx_outstanding)
     KeSetEvent(&xi->shutdown_event, 1, FALSE);  
@@ -779,7 +782,7 @@ XenNet_Init(
 
   /* Initialize tx_pkts as a free chain containing every entry. */
   for (i = 0; i < NET_TX_RING_SIZE+1; i++) {
-    xi->tx_pkts[i] = (PNDIS_PACKET)(i + 1);
+    xi->tx_pkts[i] = i + 1;
     xi->grant_tx_ref[i] = GRANT_INVALID_REF;
   }
 
@@ -1551,6 +1554,7 @@ XenNet_SendPackets(
 
     entry = (PLIST_ENTRY)&curr_packet->MiniportReservedEx[4];
     ExInterlockedInsertTailList(&xi->tx_waiting_pkt_list, entry, &xi->tx_lock);
+    InterlockedIncrement(&xi->tx_outstanding);
   }
 
   XenNet_SendQueuedPackets(xi);
@@ -1600,6 +1604,8 @@ XenNet_Halt(
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
+  KdPrint((__DRIVER_NAME "     rx_outstanding = %d\n", xi->rx_outstanding));
 
   // this disables the interrupt
   XenNet_Shutdown(xi);
@@ -1634,6 +1640,9 @@ XenNet_Halt(
 
   // TODO: remove event channel xenbus entry (how?)
 
+  KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
+  KdPrint((__DRIVER_NAME "     rx_outstanding = %d\n", xi->rx_outstanding));
+
   /* free TX resources */
   if (xi->XenInterface.GntTbl_EndAccess(if_cxt, xi->tx_ring_ref))
   {
@@ -1644,6 +1653,9 @@ XenNet_Halt(
      pages Dom0 still has access to */
   xi->tx_pgs = NULL;
   XenNet_TxBufferFree(xi);
+
+  KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
+  KdPrint((__DRIVER_NAME "     rx_outstanding = %d\n", xi->rx_outstanding));
 
   /* free RX resources */
   if (xi->XenInterface.GntTbl_EndAccess(if_cxt, xi->rx_ring_ref))
@@ -1665,6 +1677,10 @@ XenNet_Halt(
 
   NdisFreeBufferPool(xi->buffer_pool);
   NdisFreePacketPool(xi->packet_pool);
+
+  KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
+  KdPrint((__DRIVER_NAME "     rx_outstanding = %d\n", xi->rx_outstanding));
+
   NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));

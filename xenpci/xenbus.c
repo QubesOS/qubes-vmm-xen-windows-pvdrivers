@@ -692,7 +692,9 @@ XenBus_RemWatch(
 
   while (xpdd->XenBus_WatchEntries[i].Running)
   {
+    KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
     KeWaitForSingleObject(&xpdd->XenBus_WatchEntries[i].CompleteEvent, Executive, KernelMode, FALSE, NULL);
+    KeAcquireSpinLock(&xpdd->WatchLock, &OldIrql);
   }
 
   xpdd->XenBus_WatchEntries[i].Active = 0;
@@ -712,13 +714,10 @@ XenBus_RemWatch(
   msg = errmsg(rep);
   if (msg)
   {
-    KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
     return msg;
   }
 
   ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
-
-  KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
