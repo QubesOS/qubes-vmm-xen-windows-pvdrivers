@@ -32,6 +32,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define GRANT_INVALID_REF 0
 
+#define XEN_DOESNT_UNGRANT_RINGS 1
+
 /* couldn't get regular xen ring macros to work...*/
 #define __NET_RING_SIZE(type, _sz) \
     (__RD32( \
@@ -87,9 +89,14 @@ struct xennet_info
   struct netif_tx_sring *tx_pgs;
   struct netif_rx_sring *rx_pgs;
 
+#if !defined(XEN_DOESNT_UNGRANT_RINGS)
   /* MDLs for the above */
   PMDL tx_mdl;
   PMDL rx_mdl;
+#else
+  PHYSICAL_ADDRESS tx_phys;
+  PHYSICAL_ADDRESS rx_phys;
+#endif
 
   /* Packets given to netback. The first entry in tx_pkts
    * is an index into a chain of free entries. */
@@ -627,8 +634,7 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
     xi->XenInterface.EvtChn_BindDpc(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel, XenNet_Interrupt, xi);
 
-    /* TODO: must free pages in MDL as well as MDL using MmFreePagesFromMdl and ExFreePool */
-    // or, allocate mem and then get mdl, then free mdl
+#if !defined(XEN_DOESNT_UNGRANT_RINGS)
     xi->tx_mdl = AllocatePage();
 PageAlloc++;
     xi->tx_pgs = MmGetMdlVirtualAddress(xi->tx_mdl);
@@ -646,6 +652,34 @@ PageAlloc++;
     xi->rx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
       xi->XenInterface.InterfaceHeader.Context, 0,
       *MmGetMdlPfnArray(xi->rx_mdl), FALSE);
+#else
+    xi->tx_phys = xi->XenInterface.AllocMMIO(
+      xi->XenInterface.InterfaceHeader.Context, PAGE_SIZE);
+KdPrint(("tx_phys = %08x\n", xi->tx_phys.LowPart));
+    xi->tx_pgs = MmMapIoSpace(xi->tx_phys,
+      PAGE_SIZE, MmNonCached);
+KdPrint(("tx_pgs = %08p\n", xi->tx_pgs));
+    SHARED_RING_INIT(xi->tx_pgs);
+    FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
+KdPrint(("tx_pfn = %08x\n", xi->tx_phys.QuadPart >> PAGE_SHIFT));
+    xi->tx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
+      xi->XenInterface.InterfaceHeader.Context, 0,
+      (ULONG)(xi->tx_phys.QuadPart >> PAGE_SHIFT), FALSE);
+KdPrint(("tx_ring_ref = %08x\n", xi->tx_ring_ref));
+
+    xi->rx_phys = xi->XenInterface.AllocMMIO(
+      xi->XenInterface.InterfaceHeader.Context, PAGE_SIZE);
+KdPrint(("rx_phys = %08x\n", xi->rx_phys.LowPart));
+    xi->rx_pgs = MmMapIoSpace(xi->rx_phys,
+      PAGE_SIZE, MmNonCached);
+KdPrint(("rx_pgs = %08x\n", xi->rx_pgs));
+    SHARED_RING_INIT(xi->rx_pgs);
+    FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
+    xi->rx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
+      xi->XenInterface.InterfaceHeader.Context, 0,
+      (ULONG)(xi->rx_phys.QuadPart >> PAGE_SHIFT), FALSE);
+KdPrint(("rx_ring_ref = %08x\n", xi->rx_ring_ref));
+#endif
 
     /* fixup array for dynamic values */
     params[0].value = xi->tx_ring_ref;
@@ -1630,6 +1664,7 @@ XenNet_Shutdown(
 }
 
 /* Opposite of XenNet_Init */
+VOID
 XenNet_Halt(
   IN NDIS_HANDLE MiniportAdapterContext
   )
@@ -1687,6 +1722,7 @@ KdPrint((__DRIVER_NAME "     PageAlloc = %d\n", PageAlloc));
 KdPrint((__DRIVER_NAME "     PacketPoolAlloc = %d\n", PacketPoolAlloc));
 KdPrint((__DRIVER_NAME "     BufferPoolAlloc = %d\n", BufferPoolAlloc));
 
+#if !defined(XEN_DOESNT_UNGRANT_RINGS)
   /* free TX resources */
   if (xi->XenInterface.GntTbl_EndAccess(if_cxt, xi->tx_ring_ref))
   {
@@ -1697,18 +1733,6 @@ PageAlloc--;
   /* if EndAccess fails then tx/rx ring pages LEAKED -- it's not safe to reuse
      pages Dom0 still has access to */
   xi->tx_pgs = NULL;
-  XenNet_TxBufferFree(xi);
-
-KdPrint((__DRIVER_NAME "     NdisAlloc = %d\n", NdisAlloc));
-KdPrint((__DRIVER_NAME "     MdlAlloc = %d\n", MdlAlloc));
-KdPrint((__DRIVER_NAME "     BufferAlloc = %d\n", BufferAlloc));
-KdPrint((__DRIVER_NAME "     PacketAlloc = %d\n", PacketAlloc));
-KdPrint((__DRIVER_NAME "     PageAlloc = %d\n", PageAlloc));
-KdPrint((__DRIVER_NAME "     PacketPoolAlloc = %d\n", PacketPoolAlloc));
-KdPrint((__DRIVER_NAME "     BufferPoolAlloc = %d\n", BufferPoolAlloc));
-
-  KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
-  KdPrint((__DRIVER_NAME "     rx_outstanding = %d\n", xi->rx_outstanding));
 
   /* free RX resources */
   if (xi->XenInterface.GntTbl_EndAccess(if_cxt, xi->rx_ring_ref))
@@ -1718,6 +1742,9 @@ KdPrint((__DRIVER_NAME "     BufferPoolAlloc = %d\n", BufferPoolAlloc));
 PageAlloc--;
   }
   xi->rx_pgs = NULL;
+#endif
+
+  XenNet_TxBufferFree(xi);
   XenNet_RxBufferFree(MiniportAdapterContext);
 
   /* Remove watch on backend state */
@@ -1747,6 +1774,14 @@ KdPrint((__DRIVER_NAME "     BufferPoolAlloc = %d\n", BufferPoolAlloc));
 
   NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL
 NdisAlloc--;
+
+KdPrint((__DRIVER_NAME "     NdisAlloc = %d\n", NdisAlloc));
+KdPrint((__DRIVER_NAME "     MdlAlloc = %d\n", MdlAlloc));
+KdPrint((__DRIVER_NAME "     BufferAlloc = %d\n", BufferAlloc));
+KdPrint((__DRIVER_NAME "     PacketAlloc = %d\n", PacketAlloc));
+KdPrint((__DRIVER_NAME "     PageAlloc = %d\n", PageAlloc));
+KdPrint((__DRIVER_NAME "     PacketPoolAlloc = %d\n", PacketPoolAlloc));
+KdPrint((__DRIVER_NAME "     BufferPoolAlloc = %d\n", BufferPoolAlloc));
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }

@@ -109,6 +109,8 @@ GntTbl_GrantAccess(
 
   //KdPrint((__DRIVER_NAME " --> GntTbl_GrantAccess\n"));
 
+  KdPrint((__DRIVER_NAME "     Granting access to frame %08x\n", frame));
+
   /* TODO: locking? */
   ref = get_free_entry(Device);
   xpdd->gnttab_table[ref].frame = frame;

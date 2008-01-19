@@ -274,6 +274,8 @@ XenPCI_AllocMMIO(WDFDEVICE Device, ULONG len)
 
   PHYSICAL_ADDRESS addr;
 
+  len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
   addr = xpdd->platform_mmio_addr;
   addr.QuadPart += xpdd->platform_mmio_alloc;
   xpdd->platform_mmio_alloc += len;
