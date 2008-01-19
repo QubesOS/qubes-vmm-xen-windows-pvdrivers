@@ -1727,7 +1727,7 @@ PageAlloc--;
 
   xi->XenInterface.InterfaceHeader.InterfaceDereference(NULL);
 
-  WdfDriverMiniportUnload(WdfGetDriver());
+  //WdfDriverMiniportUnload(WdfGetDriver()); // this should only happen on _driver_ unload
 
   NdisFreeBufferPool(xi->buffer_pool);
 BufferPoolAlloc--;
@@ -1748,6 +1748,20 @@ KdPrint((__DRIVER_NAME "     BufferPoolAlloc = %d\n", BufferPoolAlloc));
   NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL
 NdisAlloc--;
 
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
+VOID
+XenNet_Unload(
+  PDRIVER_OBJECT  DriverObject
+  )
+{
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  UNREFERENCED_PARAMETER(DriverObject);
+
+  WdfDriverMiniportUnload(WdfGetDriver());
+  
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
@@ -1817,6 +1831,8 @@ BufferPoolAlloc = 0;
     NdisTerminateWrapper(ndis_wrapper_handle, NULL);
     return status;
   }
+
+  NdisMRegisterUnloadHandler(ndis_wrapper_handle, XenNet_Unload);
 
   return status;
 }
