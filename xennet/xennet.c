@@ -32,8 +32,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define GRANT_INVALID_REF 0
 
-#define XEN_DOESNT_UNGRANT_RINGS 1
-
 /* couldn't get regular xen ring macros to work...*/
 #define __NET_RING_SIZE(type, _sz) \
     (__RD32( \
@@ -89,14 +87,9 @@ struct xennet_info
   struct netif_tx_sring *tx_pgs;
   struct netif_rx_sring *rx_pgs;
 
-#if !defined(XEN_DOESNT_UNGRANT_RINGS)
   /* MDLs for the above */
   PMDL tx_mdl;
   PMDL rx_mdl;
-#else
-  PHYSICAL_ADDRESS tx_phys;
-  PHYSICAL_ADDRESS rx_phys;
-#endif
 
   /* Packets given to netback. The first entry in tx_pkts
    * is an index into a chain of free entries. */
@@ -107,7 +100,7 @@ struct xennet_info
   grant_ref_t gref_tx_head;
   grant_ref_t grant_tx_ref[NET_TX_RING_SIZE+1];
   grant_ref_t gref_rx_head;
-  grant_ref_t grant_rx_ref[NET_TX_RING_SIZE];
+  grant_ref_t grant_rx_ref[NET_RX_RING_SIZE];
 
   /* Receive-ring batched refills. */
 #define RX_MIN_TARGET 8
@@ -165,7 +158,7 @@ simple_strtoul(const char *cp,char **endp,unsigned int base)
   if (endp)
   *endp = (char *)cp;
   return result;
- }
+}
 
 static void
 add_id_to_freelist(struct xennet_info *xi, unsigned short id)
@@ -199,6 +192,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   PNDIS_PACKET pkt;
   PMDL pmdl;
   KIRQL OldIrql;
+  PVOID ptr;
 
   ASSERT(xi->connected);
 
@@ -226,10 +220,11 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
       /* free linearized data page */
       pmdl = *(PMDL *)pkt->MiniportReservedEx;
-      NdisFreeMemory(MmGetMdlVirtualAddress(pmdl), 0, 0); // <= DISPATCH_LEVEL
-NdisAlloc--;
+      ptr = MmGetMdlVirtualAddress(pmdl);
       IoFreeMdl(pmdl);
 MdlAlloc--;
+      NdisFreeMemory(ptr, 0, 0); // <= DISPATCH_LEVEL
+NdisAlloc--;
 
       InterlockedDecrement(&xi->tx_outstanding);
       xi->stat_tx_ok++;
@@ -268,6 +263,7 @@ XenNet_TxBufferFree(struct xennet_info *xi)
   PMDL pmdl;
   PLIST_ENTRY entry;
   unsigned short id;
+  PVOID ptr;
 
   ASSERT(!xi->connected);
 
@@ -275,14 +271,16 @@ XenNet_TxBufferFree(struct xennet_info *xi)
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   while (entry != &xi->tx_waiting_pkt_list)
   {
-    packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[4]);
+    packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
 
     /* free linearized data page */
     pmdl = *(PMDL *)packet->MiniportReservedEx;
-    NdisFreeMemory(MmGetMdlVirtualAddress(pmdl), 0, 0); // <= DISPATCH_LEVEL
-NdisAlloc--;
+    ptr = MmGetMdlVirtualAddress(pmdl);
+KdPrint((__DRIVER_NAME " --- TxBufferFree %p\n", ptr));
     IoFreeMdl(pmdl);
 MdlAlloc--;
+    NdisFreeMemory(ptr, 0, 0); // <= DISPATCH_LEVEL
+NdisAlloc--;
 
     NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
 
@@ -302,10 +300,12 @@ MdlAlloc--;
 
     /* free linearized data page */
     pmdl = *(PMDL *)packet->MiniportReservedEx;
-    NdisFreeMemory(MmGetMdlVirtualAddress(pmdl), 0, 0); // <= DISPATCH_LEVEL
-NdisAlloc--;
+    ptr = MmGetMdlVirtualAddress(pmdl);
+KdPrint((__DRIVER_NAME " --- TxBufferFree %p\n", ptr));
     IoFreeMdl(pmdl);
 MdlAlloc--;
+    NdisFreeMemory(ptr, 0, 0); // <= DISPATCH_LEVEL
+NdisAlloc--;
 
     NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
   }
@@ -406,6 +406,7 @@ XenNet_RxBufferFree(struct xennet_info *xi)
     buff_va = NdisBufferVirtualAddressSafe(buffer, NormalPagePriority);
     NdisFreeBuffer(buffer);
 BufferAlloc--;
+KdPrint((__DRIVER_NAME " --- RxBufferFree %p\n", buff_va));
     NdisFreeMemory(buff_va, 0, 0);
 NdisAlloc--;
   }
@@ -547,6 +548,7 @@ PacketAlloc++;
 }
 
 // Called at DISPATCH_LEVEL
+
 static BOOLEAN
 XenNet_Interrupt(
   PKINTERRUPT Interrupt,
@@ -558,13 +560,11 @@ XenNet_Interrupt(
   UNREFERENCED_PARAMETER(Interrupt);
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
   if (xi->connected)
   {
     XenNet_TxBufferGC(xi);
     XenNet_RxBufferCheck(xi);
   }
-
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return TRUE;
@@ -577,33 +577,19 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 {
   struct xennet_info *xi = Data;
   char *Value;
-  char TmpPath[MAX_XENBUS_STR_LEN];
-  xenbus_transaction_t xbt = 0;
-  int retry = 0;
   char *err;
-  int i;
   ULONG new_backend_state;
-
-  struct set_params {
-    char *name;
-    int value;
-  } params[] = {
-    {"tx-ring-ref", 0},
-    {"rx-ring-ref", 0},
-    {"event-channel", 0},
-    {"request-rx-copy", 1},
-    {"feature-rx-notify", 1},
-    {"feature-no-csum-offload", 1},
-    {"feature-sg", 1},
-    {"feature-gso-tcpv4", 0},
-    {NULL, 0},
-  };
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
-  xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
+  err = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
     XBT_NIL, Path, &Value);
+  if (err)
+  {
+    KdPrint(("Failed to read %s\n", Path, err));
+    return;
+  }
   new_backend_state = atoi(Value);
   xi->XenInterface.FreeMem(Value);
 
@@ -628,96 +614,6 @@ XenNet_BackEndStateHandler(char *Path, PVOID Data)
 
   case XenbusStateInitWait:
     KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait\n"));  
-
-    xi->event_channel = xi->XenInterface.EvtChn_AllocUnbound(
-      xi->XenInterface.InterfaceHeader.Context, 0);
-    xi->XenInterface.EvtChn_BindDpc(xi->XenInterface.InterfaceHeader.Context,
-      xi->event_channel, XenNet_Interrupt, xi);
-
-#if !defined(XEN_DOESNT_UNGRANT_RINGS)
-    xi->tx_mdl = AllocatePage();
-PageAlloc++;
-    xi->tx_pgs = MmGetMdlVirtualAddress(xi->tx_mdl);
-    SHARED_RING_INIT(xi->tx_pgs);
-    FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
-    xi->tx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
-      xi->XenInterface.InterfaceHeader.Context, 0,
-      *MmGetMdlPfnArray(xi->tx_mdl), FALSE);
-
-    xi->rx_mdl = AllocatePage();
-PageAlloc++;
-    xi->rx_pgs = MmGetMdlVirtualAddress(xi->rx_mdl);
-    SHARED_RING_INIT(xi->rx_pgs);
-    FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
-    xi->rx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
-      xi->XenInterface.InterfaceHeader.Context, 0,
-      *MmGetMdlPfnArray(xi->rx_mdl), FALSE);
-#else
-    xi->tx_phys = xi->XenInterface.AllocMMIO(
-      xi->XenInterface.InterfaceHeader.Context, PAGE_SIZE);
-KdPrint(("tx_phys = %08x\n", xi->tx_phys.LowPart));
-    xi->tx_pgs = MmMapIoSpace(xi->tx_phys,
-      PAGE_SIZE, MmNonCached);
-KdPrint(("tx_pgs = %08p\n", xi->tx_pgs));
-    SHARED_RING_INIT(xi->tx_pgs);
-    FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
-KdPrint(("tx_pfn = %08x\n", xi->tx_phys.QuadPart >> PAGE_SHIFT));
-    xi->tx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
-      xi->XenInterface.InterfaceHeader.Context, 0,
-      (ULONG)(xi->tx_phys.QuadPart >> PAGE_SHIFT), FALSE);
-KdPrint(("tx_ring_ref = %08x\n", xi->tx_ring_ref));
-
-    xi->rx_phys = xi->XenInterface.AllocMMIO(
-      xi->XenInterface.InterfaceHeader.Context, PAGE_SIZE);
-KdPrint(("rx_phys = %08x\n", xi->rx_phys.LowPart));
-    xi->rx_pgs = MmMapIoSpace(xi->rx_phys,
-      PAGE_SIZE, MmNonCached);
-KdPrint(("rx_pgs = %08x\n", xi->rx_pgs));
-    SHARED_RING_INIT(xi->rx_pgs);
-    FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
-    xi->rx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
-      xi->XenInterface.InterfaceHeader.Context, 0,
-      (ULONG)(xi->rx_phys.QuadPart >> PAGE_SHIFT), FALSE);
-KdPrint(("rx_ring_ref = %08x\n", xi->rx_ring_ref));
-#endif
-
-    /* fixup array for dynamic values */
-    params[0].value = xi->tx_ring_ref;
-    params[1].value = xi->rx_ring_ref;
-    params[2].value = xi->event_channel;
-
-    xi->XenInterface.XenBus_StartTransaction(
-      xi->XenInterface.InterfaceHeader.Context, &xbt);
-
-    for (i = 0; params[i].name; i++)
-    {
-      RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/%s",
-        xi->pdo_data->Path, params[i].name);
-      err = xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
-        XBT_NIL, TmpPath, "%d", params[i].value);
-      if (err)
-      {
-        KdPrint(("setting %s failed, err = %s\n", params[i].name, err));
-        goto trouble;
-      }
-    }
-
-    /* commit transaction */
-    xi->XenInterface.XenBus_EndTransaction(xi->XenInterface.InterfaceHeader.Context,
-      xbt, 0, &retry);
-
-    XenNet_RxBufferAlloc(xi);
-
-    xi->state = XenbusStateConnected;
-    KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
-    xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", xi->state);
-
-    /* send fake arp? */
-
-    xi->connected = TRUE;
-
     break;
 
   case XenbusStateInitialised:
@@ -746,12 +642,6 @@ KdPrint(("rx_ring_ref = %08x\n", xi->rx_ring_ref));
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return;
-
-trouble:
-  KdPrint((__DRIVER_NAME __FUNCTION__ ": Should never happen!\n"));
-  xi->XenInterface.XenBus_EndTransaction(xi->XenInterface.InterfaceHeader.Context,
-    xbt, 1, &retry);
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static NDIS_STATUS
@@ -773,6 +663,23 @@ XenNet_Init(
   char *res;
   char *Value;
   char TmpPath[MAX_XENBUS_STR_LEN];
+  struct set_params {
+    char *name;
+    int value;
+  } params[] = {
+    {"tx-ring-ref", 0},
+    {"rx-ring-ref", 0},
+    {"event-channel", 0},
+    {"request-rx-copy", 1},
+    {"feature-rx-notify", 1},
+    {"feature-no-csum-offload", 1},
+    {"feature-sg", 1},
+    {"feature-gso-tcpv4", 0},
+    {NULL, 0},
+  };
+  int retry = 0;
+  char *err;
+  xenbus_transaction_t xbt = 0;
 
   UNREFERENCED_PARAMETER(OpenErrorStatus);
   UNREFERENCED_PARAMETER(WrapperConfigurationContext);
@@ -818,10 +725,10 @@ NdisAlloc++;
 
   KeInitializeSpinLock(&xi->tx_lock);
   KeInitializeSpinLock(&xi->rx_lock);
+
   InitializeListHead(&xi->rx_free_pkt_list);
   InitializeListHead(&xi->tx_waiting_pkt_list);
   
-
   NdisAllocatePacketPool(&status, &xi->packet_pool, NET_RX_RING_SIZE,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
 PacketPoolAlloc++;
@@ -851,7 +758,6 @@ BufferPoolAlloc++;
     xi->tx_pkts[i] = IntToPtr(i + 1);
     xi->grant_tx_ref[i] = GRANT_INVALID_REF;
   }
-
   for (i = 0; i < NET_RX_RING_SIZE; i++) {
     xi->rx_buffers[i] = NULL;
     xi->grant_rx_ref[i] = GRANT_INVALID_REF;
@@ -907,20 +813,8 @@ BufferPoolAlloc++;
     goto err;
   }
   RtlStringCbCopyA(xi->backend_path, ARRAY_SIZE(xi->backend_path), Value);
+  xi->XenInterface.FreeMem(Value);
   KdPrint((__DRIVER_NAME "backend path = %s\n", xi->backend_path));
-
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/type", xi->backend_path);
-  res = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, &Value);
-
-#if 0
-  if (res || strcmp(Value, "netfront") != 0)
-  {
-    KdPrint((__DRIVER_NAME "    Backend type is not 'netfront'\n"));
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  }
-#endif
 
   KeInitializeEvent(&xi->backend_state_change_event, SynchronizationEvent, FALSE);  
   KeInitializeEvent(&xi->shutdown_event, SynchronizationEvent, FALSE);  
@@ -934,6 +828,72 @@ BufferPoolAlloc++;
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
   xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
     XBT_NIL, TmpPath, "%d", XenbusStateInitialising);
+
+  // wait here for signal that we are all set up
+  while (xi->backend_state != XenbusStateInitWait)
+    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
+
+  xi->event_channel = xi->XenInterface.EvtChn_AllocUnbound(
+    xi->XenInterface.InterfaceHeader.Context, 0);
+  xi->XenInterface.EvtChn_BindDpc(xi->XenInterface.InterfaceHeader.Context,
+    xi->event_channel, XenNet_Interrupt, xi);
+
+  xi->tx_mdl = AllocatePage();
+PageAlloc++;
+  xi->tx_pgs = MmGetMdlVirtualAddress(xi->tx_mdl);
+  SHARED_RING_INIT(xi->tx_pgs);
+  FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
+  xi->tx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
+    xi->XenInterface.InterfaceHeader.Context, 0,
+    *MmGetMdlPfnArray(xi->tx_mdl), FALSE);
+
+  xi->rx_mdl = AllocatePage();
+PageAlloc++;
+  xi->rx_pgs = MmGetMdlVirtualAddress(xi->rx_mdl);
+  SHARED_RING_INIT(xi->rx_pgs);
+  FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
+  xi->rx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
+    xi->XenInterface.InterfaceHeader.Context, 0,
+    *MmGetMdlPfnArray(xi->rx_mdl), FALSE);
+
+  /* fixup array for dynamic values */
+  params[0].value = xi->tx_ring_ref;
+  params[1].value = xi->rx_ring_ref;
+  params[2].value = xi->event_channel;
+  xi->XenInterface.XenBus_StartTransaction(
+    xi->XenInterface.InterfaceHeader.Context, &xbt);
+
+  for (err = NULL, i = 0; params[i].name; i++)
+  {
+    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/%s",
+      xi->pdo_data->Path, params[i].name);
+    err = xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", params[i].value);
+    if (err)
+    {
+      KdPrint(("setting %s failed, err = %s\n", params[i].name, err));
+      break;
+    }
+  }
+
+  xi->XenInterface.XenBus_EndTransaction(xi->XenInterface.InterfaceHeader.Context,
+    xbt, 1, &retry);
+  if (err)
+  {
+    status = NDIS_STATUS_FAILURE;
+    goto err;
+  } 
+  XenNet_RxBufferAlloc(xi);
+
+  xi->connected = TRUE;
+
+  KeMemoryBarrier(); // packets could be received anytime after we set Frontent to Connected
+
+  xi->state = XenbusStateConnected;
+  KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
+  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
+    XBT_NIL, TmpPath, "%d", xi->state);
 
   KdPrint((__DRIVER_NAME "     Waiting for backend to connect\n"));
 
@@ -970,6 +930,8 @@ BufferPoolAlloc++;
     memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
     xi->XenInterface.FreeMem(Value);
   }
+
+  /* send fake arp? */
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -1502,8 +1464,7 @@ NdisAlloc++;
     KdPrint(("Could not allocate memory for linearization\n"));
     return NULL;
   }
-  pmdl = IoAllocateMdl(start, tot_buff_len, FALSE, FALSE, FALSE);
-MdlAlloc++;
+  pmdl = IoAllocateMdl(start, tot_buff_len, FALSE, FALSE, NULL);
   if (!pmdl)
   {
     KdPrint(("Could not allocate MDL for linearization\n"));
@@ -1511,6 +1472,7 @@ MdlAlloc++;
 NdisAlloc--;
     return NULL;
   }
+MdlAlloc++;
   MmBuildMdlForNonPagedPool(pmdl);
 
   while (buffer)
@@ -1543,7 +1505,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   /* if empty, the above returns head*, not NULL */
   while (entry != &xi->tx_waiting_pkt_list)
   {
-    packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[4]);
+    packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
 
     NdisQueryPacket(packet, NULL, NULL, NULL, &pkt_size);
     pmdl = *(PMDL *)packet->MiniportReservedEx;
@@ -1552,7 +1514,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
     if (!id)
     {
       /* whups, out of space on the ring. requeue and get out */
-      InsertHeadList(&xi->tx_waiting_pkt_list, entry);
+      InsertTailList(&xi->tx_waiting_pkt_list, entry);
       break;
     }
     xi->tx_pkts[id] = packet;
@@ -1597,9 +1559,18 @@ XenNet_SendPackets(
   UINT i;
   PMDL pmdl;
   PLIST_ENTRY entry;
+  KIRQL OldIrql;
+
+#if 0
+  for (i = 0; i < NumberOfPackets; i++)
+  {
+    curr_packet = PacketArray[i];
+    NdisMSendComplete(xi->adapter_handle, curr_packet, NDIS_STATUS_FAILURE);
+  }
+  return;
+#endif
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
   for (i = 0; i < NumberOfPackets; i++)
   {
     curr_packet = PacketArray[i];
@@ -1611,24 +1582,24 @@ XenNet_SendPackets(
     if (!pmdl)
     {
       KdPrint((__DRIVER_NAME "Couldn't linearize packet!\n"));
-      NdisMSendComplete(xi, curr_packet, NDIS_STATUS_FAILURE);
+      NdisMSendComplete(xi->adapter_handle, curr_packet, NDIS_STATUS_FAILURE);
       break;
     }
 
     /* NOTE: 
-     * We use the UCHAR[12] array in each packet's MiniportReservedEx thusly:
-     * 0-3: PMDL to linearized data
-     * 4-11: LIST_ENTRY for placing packet on the waiting pkt list
+     * We use the UCHAR[3*sizeof(PVOID)] array in each packet's MiniportReservedEx thusly:
+     * 0: PMDL to linearized data
+     * sizeof(PVOID)+: LIST_ENTRY for placing packet on the waiting pkt list
      */
     *(PMDL *)&curr_packet->MiniportReservedEx = pmdl;
 
-    entry = (PLIST_ENTRY)&curr_packet->MiniportReservedEx[4];
-    ExInterlockedInsertTailList(&xi->tx_waiting_pkt_list, entry, &xi->tx_lock);
+    entry = (PLIST_ENTRY)&curr_packet->MiniportReservedEx[sizeof(PVOID)];
+    KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
+    InsertTailList(&xi->tx_waiting_pkt_list, entry);
+    KeReleaseSpinLock(&xi->tx_lock, OldIrql);
     InterlockedIncrement(&xi->tx_outstanding);
   }
-
   XenNet_SendQueuedPackets(xi);
-
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
@@ -1658,7 +1629,7 @@ XenNet_Shutdown(
 
   /* turn off interrupt */
   xi->XenInterface.EvtChn_Unbind(xi->XenInterface.InterfaceHeader.Context,
-    xi->event_channel);  
+    xi->event_channel);
 
   KdPrint((__FUNCTION__ " called\n"));
 }
@@ -1675,8 +1646,8 @@ XenNet_Halt(
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-  KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
-  KdPrint((__DRIVER_NAME "     rx_outstanding = %d\n", xi->rx_outstanding));
+//  KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
+//  KdPrint((__DRIVER_NAME "     rx_outstanding = %d\n", xi->rx_outstanding));
 
   // this disables the interrupt
   XenNet_Shutdown(xi);
@@ -1703,16 +1674,16 @@ XenNet_Halt(
       KernelMode, FALSE, NULL);
 
   xi->connected = FALSE;
-
   /* wait for all receive buffers to be returned */
   KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
+
   while (xi->rx_outstanding > 0)
     KeWaitForSingleObject(&xi->shutdown_event, Executive, KernelMode, FALSE, NULL);
 
   // TODO: remove event channel xenbus entry (how?)
 
-  KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
-  KdPrint((__DRIVER_NAME "     rx_outstanding = %d\n", xi->rx_outstanding));
+//  KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
+//  KdPrint((__DRIVER_NAME "     rx_outstanding = %d\n", xi->rx_outstanding));
 
 KdPrint((__DRIVER_NAME "     NdisAlloc = %d\n", NdisAlloc));
 KdPrint((__DRIVER_NAME "     MdlAlloc = %d\n", MdlAlloc));
@@ -1721,8 +1692,6 @@ KdPrint((__DRIVER_NAME "     PacketAlloc = %d\n", PacketAlloc));
 KdPrint((__DRIVER_NAME "     PageAlloc = %d\n", PageAlloc));
 KdPrint((__DRIVER_NAME "     PacketPoolAlloc = %d\n", PacketPoolAlloc));
 KdPrint((__DRIVER_NAME "     BufferPoolAlloc = %d\n", BufferPoolAlloc));
-
-#if !defined(XEN_DOESNT_UNGRANT_RINGS)
   /* free TX resources */
   if (xi->XenInterface.GntTbl_EndAccess(if_cxt, xi->tx_ring_ref))
   {
@@ -1742,7 +1711,6 @@ PageAlloc--;
 PageAlloc--;
   }
   xi->rx_pgs = NULL;
-#endif
 
   XenNet_TxBufferFree(xi);
   XenNet_RxBufferFree(MiniportAdapterContext);
@@ -1753,8 +1721,6 @@ PageAlloc--;
     XenNet_BackEndStateHandler, xi);
 
   xi->XenInterface.InterfaceHeader.InterfaceDereference(NULL);
-
-  //WdfDriverMiniportUnload(WdfGetDriver()); // this should only happen on _driver_ unload
 
   NdisFreeBufferPool(xi->buffer_pool);
 BufferPoolAlloc--;

@@ -90,6 +90,7 @@ typedef struct _XENBUS_WATCH_ENTRY {
   PVOID ServiceContext;
   int Count;
   int Active;
+  int RemovePending;
   int Running;
   KEVENT CompleteEvent;
 } XENBUS_WATCH_ENTRY, *PXENBUS_WATCH_ENTRY;

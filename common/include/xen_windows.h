@@ -104,12 +104,12 @@ AllocatePages(int Pages)
   PMDL Mdl;
   PVOID Buf;
 
-  //KdPrint((__DRIVER_NAME " --- AllocatePages IRQL = %d\n", KeGetCurrentIrql()));
   Buf = ExAllocatePoolWithTag(NonPagedPool, Pages * PAGE_SIZE, ALLOCATE_PAGES_POOL_TAG);
   if (Buf == NULL)
   {
     KdPrint((__DRIVER_NAME "     AllocatePages Failed at ExAllocatePoolWithTag\n"));
   }
+  KdPrint((__DRIVER_NAME " --- AllocatePages IRQL = %d, Buf = %p\n", KeGetCurrentIrql(), Buf));
   Mdl = IoAllocateMdl(Buf, Pages * PAGE_SIZE, FALSE, FALSE, NULL);
   if (Mdl == NULL)
   {
@@ -130,7 +130,7 @@ static VOID
 FreePages(PMDL Mdl)
 {
   PVOID Buf = MmGetMdlVirtualAddress(Mdl);
-  //KdPrint((__DRIVER_NAME " --- FreePages IRQL = %d\n", KeGetCurrentIrql()));
+  KdPrint((__DRIVER_NAME " --- FreePages IRQL = %d, Buf = %p\n", KeGetCurrentIrql(), Buf));
   IoFreeMdl(Mdl);
   ExFreePoolWithTag(Buf, ALLOCATE_PAGES_POOL_TAG);
 }

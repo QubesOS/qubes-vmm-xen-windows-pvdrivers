@@ -293,9 +293,6 @@ init_xen_info(WDFDEVICE Device)
   int ret;
   PHYSICAL_ADDRESS shared_info_area_unmapped;
 
-  //setup_xen_features();
-  //KdPrint((__DRIVER_NAME " init_xen_info Hypercall area at %08x\n", hypercall_stubs));
-
   shared_info_area_unmapped = XenPCI_AllocMMIO(Device, PAGE_SIZE);
   xatp.domid = DOMID_SELF;
   xatp.idx = 0;

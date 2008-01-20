@@ -555,11 +555,20 @@ XenBus_WatchThreadProc(PVOID StartContext)
       if (!entry->Active || !entry->ServiceRoutine)
       {
         KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
+        KdPrint((__DRIVER_NAME "     No watch for index %d\n", index));
         continue;
       }
+KdPrint((__DRIVER_NAME " --- About to call watch\n"));
+      if (entry->RemovePending)
+      {
+        KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
+        KdPrint((__DRIVER_NAME "     Not calling watch - remove is pending\n"));
+        continue;
+      }        
       entry->Running = 1;
       KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
       entry->Count++;
+KdPrint((__DRIVER_NAME " --- for %s\n", xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Path));
       entry->ServiceRoutine(xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Path, entry->ServiceContext);
       entry->Running = 0;
       KeSetEvent(&entry->CompleteEvent, 1, FALSE);
@@ -653,7 +662,7 @@ XenBus_RemWatch(
   struct write_req req[2];
   KIRQL OldIrql;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   KeAcquireSpinLock(&xpdd->WatchLock, &OldIrql);
 
@@ -674,14 +683,21 @@ XenBus_RemWatch(
     return NULL;
   }
 
-  while (xpdd->XenBus_WatchEntries[i].Running)
+  if (xpdd->XenBus_WatchEntries[i].RemovePending)
   {
     KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
-    KeWaitForSingleObject(&xpdd->XenBus_WatchEntries[i].CompleteEvent, Executive, KernelMode, FALSE, NULL);
-    KeAcquireSpinLock(&xpdd->WatchLock, &OldIrql);
+    KdPrint((__DRIVER_NAME "     Remove already pending - can't remove\n"));
+    return NULL;
   }
+  KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
+
+  while (xpdd->XenBus_WatchEntries[i].Running)
+    KeWaitForSingleObject(&xpdd->XenBus_WatchEntries[i].CompleteEvent, Executive, KernelMode, FALSE, NULL);
+
+  KeAcquireSpinLock(&xpdd->WatchLock, &OldIrql);
 
   xpdd->XenBus_WatchEntries[i].Active = 0;
+  xpdd->XenBus_WatchEntries[i].RemovePending = 0;
   xpdd->XenBus_WatchEntries[i].Path[0] = 0;
 
   KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
@@ -701,9 +717,11 @@ XenBus_RemWatch(
     return msg;
   }
 
+  ASSERT(rep != NULL);
+
   ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NULL;
 }
