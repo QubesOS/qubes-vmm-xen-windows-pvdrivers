@@ -510,8 +510,6 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
   ChildDeviceData->AutoEnumerate = AutoEnumerate;
   ChildDeviceData->WatchHandler = NULL;
   strncpy(ChildDeviceData->Path, XenIdentificationDesc->Path, 128);
-//  memcpy(&ChildDeviceData->InterruptRaw, &InterruptRaw, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
-//  memcpy(&ChildDeviceData->InterruptTranslated, &InterruptTranslated, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
   
   ChildDeviceData->XenInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->XenInterface);
   ChildDeviceData->XenInterface.InterfaceHeader.Version = 1;
@@ -541,6 +539,8 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
   ChildDeviceData->XenInterface.XenBus_List = XenInterface.XenBus_List;
   ChildDeviceData->XenInterface.XenBus_AddWatch = XenInterface.XenBus_AddWatch;
   ChildDeviceData->XenInterface.XenBus_RemWatch = XenInterface.XenBus_RemWatch;
+
+  ChildDeviceData->XenInterface.tmp = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, 0x66606660);
 
   WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->XenInterface, &GUID_XEN_IFACE, NULL);
   status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
