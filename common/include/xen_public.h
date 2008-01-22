@@ -108,8 +108,6 @@ typedef struct _XEN_IFACE {
   PXEN_XENBUS_LIST XenBus_List;
   PXEN_XENBUS_ADDWATCH XenBus_AddWatch;
   PXEN_XENBUS_REMWATCH XenBus_RemWatch;
-
-  PVOID tmp;
 } XEN_IFACE, *PXEN_IFACE;
 
 #define XEN_DATA_MAGIC 0x12345678

@@ -540,8 +540,6 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
   ChildDeviceData->XenInterface.XenBus_AddWatch = XenInterface.XenBus_AddWatch;
   ChildDeviceData->XenInterface.XenBus_RemWatch = XenInterface.XenBus_RemWatch;
 
-  ChildDeviceData->XenInterface.tmp = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, 0x66606660);
-
   WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->XenInterface, &GUID_XEN_IFACE, NULL);
   status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);
   if (!NT_SUCCESS(status)) {
