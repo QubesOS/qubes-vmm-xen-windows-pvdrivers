@@ -143,7 +143,9 @@ GntTbl_EndAccess(
       return FALSE;
     }
   } while ((nflags = InterlockedCompareExchange16(
-    (volatile SHORT *)&xpdd->gnttab_table[ref].flags, flags, 0)) != flags);
+    (volatile SHORT *)&xpdd->gnttab_table[ref].flags, 0, flags)) != flags);
+//  } while ((nflags = InterlockedCompareExchange16(
+//    (volatile SHORT *)&xpdd->gnttab_table[ref].flags, flags, 0)) != flags);
 
   put_free_entry(Device, ref);
   //KdPrint((__DRIVER_NAME " <-- GntTbl_EndAccess\n"));

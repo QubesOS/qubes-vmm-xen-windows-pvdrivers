@@ -338,19 +338,17 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
+
   for (i = 0; i < batch_target; i++)
   {
     entry = RemoveHeadList(&xi->rx_free_buf_list);
-KdPrint((__DRIVER_NAME "     A - %08x\n", entry));
     if (entry == &xi->rx_free_buf_list)
       break;
     buffer = CONTAINING_RECORD(entry, buffer_entry_t, entry)->buffer;
-KdPrint((__DRIVER_NAME "     B - %08x\n", buffer));
     
     /* Give to netback */
     id = (unsigned short)(req_prod + i) & (NET_RX_RING_SIZE - 1);
     ASSERT(!xi->rx_buffers[id]);
-KdPrint(("Putting id = %d on ring\n", id));
     xi->rx_buffers[id] = buffer;
     req = RING_GET_REQUEST(&xi->rx, req_prod + i);
     /* an NDIS_BUFFER is just a MDL, so we can get its pfn array */
@@ -390,6 +388,7 @@ XenNet_RxBufferFree(struct xennet_info *xi)
   KIRQL OldIrql;
   PVOID buff_va;
   PLIST_ENTRY entry;
+  int ungranted;
 
   ASSERT(!xi->connected);
 
@@ -406,14 +405,17 @@ XenNet_RxBufferFree(struct xennet_info *xi)
     ref = xi->grant_rx_ref[i];
 
     /* don't check return, what can we do about it on failure? */
-    xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context, ref);
+    ungranted = xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context, ref);
 
     NdisAdjustBufferLength(buffer, sizeof(buffer_entry_t));
     buff_va = NdisBufferVirtualAddressSafe(buffer, NormalPagePriority);
     NdisFreeBuffer(buffer);
     BufferAlloc--;
-    NdisFreeMemory(buff_va, 0, 0); // <= DISPATCH_LEVEL
-    NdisAlloc--;
+    if (ungranted)
+    {
+      NdisFreeMemory(buff_va, 0, 0); // <= DISPATCH_LEVEL
+      NdisAlloc--;
+    }
   }
 
   KdPrint((__DRIVER_NAME "     B\n"));
@@ -443,6 +445,8 @@ XenNet_RxBufferFree(struct xennet_info *xi)
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 }
 
+int in_dpc = 0;
+
 VOID
 XenNet_ReturnPacket(
   IN NDIS_HANDLE MiniportAdapterContext,
@@ -458,7 +462,7 @@ XenNet_ReturnPacket(
   buffer_entry_t *buffer_entry;
 //  KIRQL OldIrql;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (in_dpc = %d)\n", in_dpc));
 
   NdisQueryPacketLength(Packet, &tot_buff_len);
 //  NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
@@ -510,6 +514,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   ASSERT(xi->connected);
 
+  in_dpc = 1;
   KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
   do {
@@ -519,6 +524,8 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     for (cons = xi->rx.rsp_cons; cons != prod; cons++) {
       rxrsp = RING_GET_RESPONSE(&xi->rx, cons);
       ASSERT(rxrsp->status > 0);
+
+      KdPrint((__DRIVER_NAME " rx id = %d\n", rxrsp->id));
 
       if (!more_frags) // handling the packet's 1st buffer
       {
@@ -568,6 +575,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, moretodo);
   } while (moretodo);
 
+  in_dpc = 0;
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
   if (more_frags)
@@ -1726,9 +1734,6 @@ XenNet_Halt(
 //  KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
 //  KdPrint((__DRIVER_NAME "     rx_outstanding = %d\n", xi->rx_outstanding));
 
-  // this disables the interrupt
-  XenNet_Shutdown(xi);
-
   // set frontend state to 'closing'
   xi->state = XenbusStateClosing;
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
@@ -1749,6 +1754,19 @@ XenNet_Halt(
   while (xi->backend_state != XenbusStateClosed)
     KeWaitForSingleObject(&xi->backend_state_change_event, Executive,
       KernelMode, FALSE, NULL);
+
+  // set frontend state to 'Initialising'
+  xi->state = XenbusStateInitialising;
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
+  xi->XenInterface.XenBus_Printf(if_cxt, XBT_NIL, TmpPath, "%d", xi->state);
+
+  // wait for backend to set 'InitWait' state
+  while (xi->backend_state != XenbusStateInitWait)
+    KeWaitForSingleObject(&xi->backend_state_change_event, Executive,
+      KernelMode, FALSE, NULL);
+
+  // this disables the interrupt
+  XenNet_Shutdown(xi);
 
   xi->connected = FALSE;
   KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
