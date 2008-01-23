@@ -319,8 +319,6 @@ XenBus_Init(WDFDEVICE Device)
   KeInitializeEvent(&xpdd->XenBus_WatchThreadEvent, SynchronizationEvent, FALSE);
   xpdd->XenBus_ShuttingDown = FALSE;
 
-  //InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
-  //Status = PsCreateSystemThread(&XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_ReadThreadProc, NULL);
   Status = PsCreateSystemThread(&xpdd->XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_ReadThreadProc, Device);
   if (!NT_SUCCESS(Status))
   {
@@ -328,8 +326,6 @@ XenBus_Init(WDFDEVICE Device)
     return STATUS_UNSUCCESSFUL;
   }
 
-  //InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
-  //Status = PsCreateSystemThread(&XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, &oa, NULL, NULL, XenBus_WatchThreadProc, NULL);
   Status = PsCreateSystemThread(&xpdd->XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_WatchThreadProc, Device);
   if (!NT_SUCCESS(Status))
   {
@@ -594,7 +590,7 @@ XenBus_AddWatch(
   PXENBUS_WATCH_ENTRY w_entry;
   KIRQL OldIrql;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   ASSERT(strlen(Path) < ARRAY_SIZE(w_entry->Path));
 
@@ -640,7 +636,7 @@ XenBus_AddWatch(
     return msg;
   }
 
-//  KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
+  KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
 
   return NULL;
 }

@@ -43,7 +43,7 @@ EvtChn_DpcBounce(WDFDPC Dpc)
 BOOLEAN
 EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
 {
-  int cpu = KeGetCurrentProcessorNumber();
+  int cpu = KeGetCurrentProcessorNumber() & (MAX_VIRT_CPUS - 1);
   vcpu_info_t *vcpu_info;
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(WdfInterruptGetDevice(Interrupt));
   shared_info_t *shared_info_area = xpdd->shared_info_area;
