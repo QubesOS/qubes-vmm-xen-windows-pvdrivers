@@ -162,7 +162,7 @@ void elf_set_logfile(struct elf_binary *elf, FILE * log, int verbose);
 void elf_parse_binary(struct elf_binary *elf);
 void elf_load_binary(struct elf_binary *elf);
 
-void *elf_get_ptr(struct elf_binary *elf, unsigned long addr);
+void *elf_get_ptr(struct elf_binary *elf, xen_ulong_t addr);
 uint64_t elf_lookup_addr(struct elf_binary *elf, const char *symbol);
 
 /* ------------------------------------------------------------------------ */

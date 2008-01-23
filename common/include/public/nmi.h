@@ -53,8 +53,8 @@
  */
 #define XENNMI_register_callback   0
 struct xennmi_callback {
-    unsigned long handler_address;
-    unsigned long pad;
+    xen_ulong_t handler_address;
+    xen_ulong_t pad;
 };
 typedef struct xennmi_callback xennmi_callback_t;
 DEFINE_XEN_GUEST_HANDLE(xennmi_callback_t);

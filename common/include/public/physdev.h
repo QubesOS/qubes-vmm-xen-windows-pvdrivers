@@ -95,7 +95,7 @@ DEFINE_XEN_GUEST_HANDLE(physdev_set_iobitmap_t);
 #define PHYSDEVOP_apic_write             9
 struct physdev_apic {
     /* IN */
-    unsigned long apic_physbase;
+    xen_ulong_t apic_physbase;
     uint32_t reg;
     /* IN or OUT */
     uint32_t value;

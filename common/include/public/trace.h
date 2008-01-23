@@ -94,7 +94,7 @@
 struct t_rec {
     uint64_t cycles;          /* cycle counter timestamp */
     uint32_t event;           /* event ID                */
-    unsigned long data[5];    /* event data items        */
+    xen_ulong_t data[5];    /* event data items        */
 };
 
 /*

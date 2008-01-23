@@ -77,10 +77,10 @@
  
 typedef struct xen_kexec_image {
 #if defined(__i386__) || defined(__x86_64__)
-    unsigned long page_list[KEXEC_XEN_NO_PAGES];
+    xen_ulong_t page_list[KEXEC_XEN_NO_PAGES];
 #endif
-    unsigned long indirection_page;
-    unsigned long start_address;
+    xen_ulong_t indirection_page;
+    xen_ulong_t start_address;
 } xen_kexec_image_t;
 
 /*
@@ -120,8 +120,8 @@ typedef struct xen_kexec_load {
 typedef struct xen_kexec_range {
     int range;
     int nr;
-    unsigned long size;
-    unsigned long start;
+    xen_ulong_t size;
+    xen_ulong_t start;
 } xen_kexec_range_t;
 
 #endif /* _XEN_PUBLIC_KEXEC_H */
