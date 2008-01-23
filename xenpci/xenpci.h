@@ -66,8 +66,6 @@ typedef struct _ev_action_t {
 
 typedef struct {
   ev_action_t *Action;
-//  shared_info_t *shared_info_area;
-//  ULONG port;
 } EVTCHN_DEVICE_DATA, *PEVTCHN_DEVICE_DATA;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(EVTCHN_DEVICE_DATA, GetEvtChnDeviceData);
 

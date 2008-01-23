@@ -43,6 +43,9 @@ HYPERVISOR_memory_op(WDFDEVICE Device, int cmd, void *arg)
 static __inline int
 HYPERVISOR_xen_version(WDFDEVICE Device, int cmd, void *arg)
 {
+  PCHAR xen_version_func = GetDeviceData(Device)->hypercall_stubs;
+  xen_version_func += __HYPERVISOR_xen_version * 32;
+  return _hypercall2(xen_version_func, cmd, arg);
 /*
   char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
@@ -56,12 +59,12 @@ HYPERVISOR_xen_version(WDFDEVICE Device, int cmd, void *arg)
   }
   return __res;
 */
-  return -1;
 }
 
 static __inline int
 HYPERVISOR_grant_table_op(WDFDEVICE Device, int cmd, void *uop, unsigned int count)
 {
+  ASSERTMSG("grant_table_op not yet supported under AMD64", FALSE);
 /*
   char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
@@ -82,6 +85,7 @@ HYPERVISOR_grant_table_op(WDFDEVICE Device, int cmd, void *uop, unsigned int cou
 static __inline int
 HYPERVISOR_mmu_update(WDFDEVICE Device, mmu_update_t *req, int count, int *success_count, domid_t domid)
 {
+  ASSERTMSG("mmu_update not yet supported under AMD64", FALSE);
 /*
   char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
@@ -104,6 +108,7 @@ HYPERVISOR_mmu_update(WDFDEVICE Device, mmu_update_t *req, int count, int *succe
 static __inline int
 HYPERVISOR_console_io(WDFDEVICE Device, int cmd, int count, char *string)
 {
+  ASSERTMSG("consoile_io not yet supported under AMD64", FALSE);
 /*
   char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
@@ -145,6 +150,9 @@ HYPERVISOR_hvm_op(WDFDEVICE Device, int op, struct xen_hvm_param *arg)
 static __inline int
 HYPERVISOR_event_channel_op(WDFDEVICE Device, int cmd, void *op)
 {
+  PCHAR event_channel_op_func = GetDeviceData(Device)->hypercall_stubs;
+  event_channel_op_func += __HYPERVISOR_event_channel_op * 32;
+  return _hypercall2(event_channel_op_func, cmd, op);
 /*
   char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
@@ -158,7 +166,6 @@ HYPERVISOR_event_channel_op(WDFDEVICE Device, int cmd, void *op)
   }
   return __res;
 */
-  return -1;
 }
 
 static __inline ULONGLONG
@@ -170,7 +177,6 @@ hvm_get_parameter(WDFDEVICE Device, int hvm_param)
   KdPrint((__DRIVER_NAME " --> hvm_get_parameter\n"));
   a.domid = DOMID_SELF;
   a.index = hvm_param;
-  //a.value = via;
   retval = HYPERVISOR_hvm_op(Device, HVMOP_get_param, &a);
   KdPrint((__DRIVER_NAME " hvm_get_parameter retval = %d\n", retval));
   KdPrint((__DRIVER_NAME " <-- hvm_get_parameter\n"));
