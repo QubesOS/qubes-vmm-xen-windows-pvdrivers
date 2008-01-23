@@ -61,7 +61,7 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
 
   vcpu_info->evtchn_upcall_pending = 0;
 
-  evt_words = xchg((volatile xen_ulong_t *)&vcpu_info->evtchn_pending_sel, 0);
+  evt_words = xchg((volatile xen_long_t *)&vcpu_info->evtchn_pending_sel, 0);
   
   while (bit_scan_forward(&evt_word, evt_words))
   {
@@ -86,7 +86,7 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
           ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
         }
       }
-      synch_clear_bit(port, (volatile xen_ulong_t *)&shared_info_area->evtchn_pending[evt_word]);
+      synch_clear_bit(port, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
     }
   }
 
@@ -185,7 +185,7 @@ EvtChn_Mask(PVOID Context, evtchn_port_t Port)
   //KdPrint((__DRIVER_NAME " --> EvtChn_Mask\n"));
 
   synch_set_bit(Port,
-    (volatile xen_ulong_t *)&xpdd->shared_info_area->evtchn_mask[0]);
+    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[0]);
 
   //KdPrint((__DRIVER_NAME " <-- EvtChn_Mask\n"));
 
@@ -200,7 +200,7 @@ EvtChn_Unmask(PVOID Context, evtchn_port_t Port)
   //KdPrint((__DRIVER_NAME " --> EvtChn_Unmask\n"));
 
   synch_clear_bit(Port,
-    (volatile xen_ulong_t *)&xpdd->shared_info_area->evtchn_mask[0]);
+    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[0]);
   // should we kick off pending interrupts here too???
 
   //KdPrint((__DRIVER_NAME " <-- EvtChn_Unmask\n"));
@@ -264,7 +264,7 @@ EvtChn_GetXenStoreRingAddr(WDFDEVICE Device)
 
   KdPrint((__DRIVER_NAME " --> EvtChn_GetRingAddr\n"));
 
-  xen_store_mfn = hvm_get_parameter(Device, HVM_PARAM_STORE_PFN);
+  xen_store_mfn = (xen_ulong_t)hvm_get_parameter(Device, HVM_PARAM_STORE_PFN);
 
   pa_xen_store_interface.QuadPart = xen_store_mfn << PAGE_SHIFT;
   xen_store_interface = MmMapIoSpace(pa_xen_store_interface, PAGE_SIZE, MmNonCached);
