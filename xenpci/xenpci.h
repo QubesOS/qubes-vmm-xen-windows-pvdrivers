@@ -216,7 +216,7 @@ EvtChn_GetXenStoreRingAddr(WDFDEVICE Device);
 VOID
 GntTbl_Init(WDFDEVICE Device);
 grant_ref_t
-GntTbl_GrantAccess(WDFDEVICE Device, domid_t domid, unsigned long frame, int readonly);
+GntTbl_GrantAccess(WDFDEVICE Device, domid_t domid, uint32_t, int readonly);
 BOOLEAN
 GntTbl_EndAccess(WDFDEVICE Device, grant_ref_t ref);
 

@@ -108,7 +108,7 @@ HYPERVISOR_mmu_update(WDFDEVICE Device, mmu_update_t *req, int count, int *succe
 static __inline int
 HYPERVISOR_console_io(WDFDEVICE Device, int cmd, int count, char *string)
 {
-  ASSERTMSG("consoile_io not yet supported under AMD64", FALSE);
+  ASSERTMSG("console_io not yet supported under AMD64", FALSE);
 /*
   char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
   long __res;
@@ -130,7 +130,7 @@ static __inline int
 HYPERVISOR_hvm_op(WDFDEVICE Device, int op, struct xen_hvm_param *arg)
 {
   PCHAR hvm_op_func = GetDeviceData(Device)->hypercall_stubs;
-  hvm_op_func += __HYPERVISOR_memory_op * 32;
+  hvm_op_func += __HYPERVISOR_hvm_op * 32;
   return _hypercall2(hvm_op_func, op, arg);
 /*
   char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
@@ -179,6 +179,7 @@ hvm_get_parameter(WDFDEVICE Device, int hvm_param)
   a.index = hvm_param;
   retval = HYPERVISOR_hvm_op(Device, HVMOP_get_param, &a);
   KdPrint((__DRIVER_NAME " hvm_get_parameter retval = %d\n", retval));
+  KdPrint((__DRIVER_NAME " hvm_get_parameter value = %ld\n", a.value));
   KdPrint((__DRIVER_NAME " <-- hvm_get_parameter\n"));
   return a.value;
 }

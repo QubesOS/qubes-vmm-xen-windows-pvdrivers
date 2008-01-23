@@ -24,11 +24,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define SHUTDOWN_PATH "control/shutdown"
 #define BALLOON_PATH "memory/target"
 
-#if sizeof(long) < sizeof(void *)
- #define x 1
-#else
- #define x 2
-#endif
 DRIVER_INITIALIZE DriverEntry;
 static NTSTATUS
 XenPCI_AddDevice(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit);
@@ -306,18 +301,9 @@ init_xen_info(WDFDEVICE Device)
   KdPrint((__DRIVER_NAME " gpfn = %d\n", xatp.gpfn));
   ret = HYPERVISOR_memory_op(Device, XENMEM_add_to_physmap, &xatp);
   KdPrint((__DRIVER_NAME " hypervisor memory op ret = %d\n", ret));
-
-  KdPrint((__DRIVER_NAME " %d %d %d", sizeof(short), sizeof(int), sizeof(long)));
-  KdPrint((__DRIVER_NAME " sizeof(xen_add_to_physmap) = %d\n", sizeof(struct xen_add_to_physmap)));
-  KdPrint((__DRIVER_NAME " FIELD_OFFSET(xen_add_to_physmap, domid) = %d\n", FIELD_OFFSET(struct xen_add_to_physmap, domid)));
-  KdPrint((__DRIVER_NAME " FIELD_OFFSET(xen_add_to_physmap, idx) = %d\n", FIELD_OFFSET(struct xen_add_to_physmap, idx)));
-  KdPrint((__DRIVER_NAME " FIELD_OFFSET(xen_add_to_physmap, space) = %d\n", FIELD_OFFSET(struct xen_add_to_physmap, space)));
-  KdPrint((__DRIVER_NAME " FIELD_OFFSET(xen_add_to_physmap, gpfn) = %d\n", FIELD_OFFSET(struct xen_add_to_physmap, gpfn)));
-
   xpdd->shared_info_area = MmMapIoSpace(shared_info_area_unmapped,
     PAGE_SIZE, MmCached);
-
-  return 1;
+  return 0;
 } 
 
 static int
@@ -527,7 +513,7 @@ XenPCI_PrepareHardware(
       break;
     case CmResourceTypeMemory:
       KdPrint((__DRIVER_NAME "     Memory mapped CSR:(%x:%x) Length:(%d)\n", descriptor->u.Memory.Start.LowPart, descriptor->u.Memory.Start.HighPart, descriptor->u.Memory.Length));
-      xpdd->platform_mmio_addr = descriptor->u.Memory.Start; //(ULONG)MmMapIoSpace(descriptor->u.Memory.Start, descriptor->u.Memory.Length, MmNonCached);
+      xpdd->platform_mmio_addr = descriptor->u.Memory.Start;
       xpdd->platform_mmio_len = descriptor->u.Memory.Length;
       xpdd->platform_mmio_alloc = 0;
       break;
