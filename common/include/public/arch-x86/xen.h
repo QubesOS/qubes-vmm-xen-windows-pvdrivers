@@ -44,6 +44,15 @@
 #define get_xen_guest_handle(val, hnd)  do { val = (hnd).p; } while (0)
 #endif
 
+#if defined(_AMD64_)
+/* Under windows _AMD64_, sizeof(long) != sizeof(void *) */
+typedef long xen_long_t;
+typedef unsigned long long xen_ulong_t;
+#else
+typedef long xen_long_t;
+typedef unsigned long long xen_ulong_t;
+#endif
+
 #if defined(__i386__)
 #include "xen-x86_32.h"
 #elif defined(__x86_64__)
@@ -54,13 +63,13 @@
 /* Guest handles for primitive C types. */
 __DEFINE_XEN_GUEST_HANDLE(uchar, unsigned char);
 __DEFINE_XEN_GUEST_HANDLE(uint,  unsigned int);
-__DEFINE_XEN_GUEST_HANDLE(ulong, unsigned long);
+__DEFINE_XEN_GUEST_HANDLE(ulong, xen_ulong_t);
 DEFINE_XEN_GUEST_HANDLE(char);
 DEFINE_XEN_GUEST_HANDLE(int);
 DEFINE_XEN_GUEST_HANDLE(long);
 DEFINE_XEN_GUEST_HANDLE(void);
 
-typedef unsigned long xen_pfn_t;
+typedef xen_ulong_t xen_pfn_t;
 DEFINE_XEN_GUEST_HANDLE(xen_pfn_t);
 #define PRI_xen_pfn "lx"
 #endif
@@ -83,8 +92,6 @@ DEFINE_XEN_GUEST_HANDLE(xen_pfn_t);
 
 #ifndef __ASSEMBLY__
 
-typedef unsigned long xen_ulong_t;
-
 /*
  * Send an array of these to HYPERVISOR_set_trap_table().
  * The privilege level specifies which modes may enter a trap via a software
@@ -103,7 +110,7 @@ struct trap_info {
     uint8_t       vector;  /* exception vector                              */
     uint8_t       flags;   /* 0-3: privilege level; 4: clear event enable?  */
     uint16_t      cs;      /* code selector                                 */
-    unsigned long address; /* code offset                                   */
+    xen_ulong_t address; /* code offset                                   */
 };
 typedef struct trap_info trap_info_t;
 DEFINE_XEN_GUEST_HANDLE(trap_info_t);
@@ -129,36 +136,36 @@ struct vcpu_guest_context {
 #define VGCF_syscall_disables_events   (1<<_VGCF_syscall_disables_events)
 #define _VGCF_online                   5
 #define VGCF_online                    (1<<_VGCF_online)
-    unsigned long flags;                    /* VGCF_* flags                 */
+    xen_ulong_t flags;                    /* VGCF_* flags                 */
     struct cpu_user_regs user_regs;         /* User-level CPU registers     */
     struct trap_info trap_ctxt[256];        /* Virtual IDT                  */
-    unsigned long ldt_base, ldt_ents;       /* LDT (linear address, # ents) */
-    unsigned long gdt_frames[16], gdt_ents; /* GDT (machine frames, # ents) */
-    unsigned long kernel_ss, kernel_sp;     /* Virtual TSS (only SS1/SP1)   */
+    xen_ulong_t ldt_base, ldt_ents;       /* LDT (linear address, # ents) */
+    xen_ulong_t gdt_frames[16], gdt_ents; /* GDT (machine frames, # ents) */
+    xen_ulong_t kernel_ss, kernel_sp;     /* Virtual TSS (only SS1/SP1)   */
     /* NB. User pagetable on x86/64 is placed in ctrlreg[1]. */
-    unsigned long ctrlreg[8];               /* CR0-CR7 (control registers)  */
-    unsigned long debugreg[8];              /* DB0-DB7 (debug registers)    */
+    xen_ulong_t ctrlreg[8];               /* CR0-CR7 (control registers)  */
+    xen_ulong_t debugreg[8];              /* DB0-DB7 (debug registers)    */
 #ifdef __i386__
-    unsigned long event_callback_cs;        /* CS:EIP of event callback     */
-    unsigned long event_callback_eip;
-    unsigned long failsafe_callback_cs;     /* CS:EIP of failsafe callback  */
-    unsigned long failsafe_callback_eip;
+    xen_ulong_t event_callback_cs;        /* CS:EIP of event callback     */
+    xen_ulong_t event_callback_eip;
+    xen_ulong_t failsafe_callback_cs;     /* CS:EIP of failsafe callback  */
+    xen_ulong_t failsafe_callback_eip;
 #else
-    unsigned long event_callback_eip;
-    unsigned long failsafe_callback_eip;
+    xen_ulong_t event_callback_eip;
+    xen_ulong_t failsafe_callback_eip;
 #ifdef __XEN__
     union {
-        unsigned long syscall_callback_eip;
+        xen_ulong_t syscall_callback_eip;
         struct {
             unsigned int event_callback_cs;    /* compat CS of event cb     */
             unsigned int failsafe_callback_cs; /* compat CS of failsafe cb  */
         };
     };
 #else
-    unsigned long syscall_callback_eip;
+    xen_ulong_t syscall_callback_eip;
 #endif
 #endif
-    unsigned long vm_assist;                /* VMASST_TYPE_* bitmap */
+    xen_ulong_t vm_assist;                /* VMASST_TYPE_* bitmap */
 #ifdef __x86_64__
     /* Segment base addresses. */
     uint64_t      fs_base;
@@ -170,10 +177,10 @@ typedef struct vcpu_guest_context vcpu_guest_context_t;
 DEFINE_XEN_GUEST_HANDLE(vcpu_guest_context_t);
 
 struct arch_shared_info {
-    unsigned long max_pfn;                  /* max pfn that appears in table */
+    xen_ulong_t max_pfn;                  /* max pfn that appears in table */
     /* Frame containing list of mfns containing list of mfns containing p2m. */
     xen_pfn_t     pfn_to_mfn_frame_list_list;
-    unsigned long nmi_reason;
+    xen_ulong_t nmi_reason;
     uint64_t pad[32];
 };
 typedef struct arch_shared_info arch_shared_info_t;

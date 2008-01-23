@@ -239,7 +239,7 @@ struct mmuext_op {
         /* [UN]PIN_TABLE, NEW_BASEPTR, NEW_USER_BASEPTR */
         xen_pfn_t     mfn;
         /* INVLPG_LOCAL, INVLPG_ALL, SET_LDT */
-        unsigned long linear_addr;
+        xen_ulong_t linear_addr;
     } arg1;
     union {
         /* SET_LDT */
@@ -338,8 +338,8 @@ DEFINE_XEN_GUEST_HANDLE(mmu_update_t);
  * NB. The fields are natural register size for this architecture.
  */
 struct multicall_entry {
-    unsigned long op, result;
-    unsigned long args[6];
+    xen_ulong_t op, result;
+    xen_ulong_t args[6];
 };
 typedef struct multicall_entry multicall_entry_t;
 DEFINE_XEN_GUEST_HANDLE(multicall_entry_t);
@@ -348,7 +348,7 @@ DEFINE_XEN_GUEST_HANDLE(multicall_entry_t);
  * Event channel endpoints per domain:
  *  1024 if a long is 32 bits; 4096 if a long is 64 bits.
  */
-#define NR_EVENT_CHANNELS (sizeof(unsigned long) * sizeof(unsigned long) * 64)
+#define NR_EVENT_CHANNELS (sizeof(xen_ulong_t) * sizeof(xen_ulong_t) * 64)
 
 struct vcpu_time_info {
     /*
@@ -405,7 +405,7 @@ struct vcpu_info {
      */
     uint8_t evtchn_upcall_pending;
     uint8_t evtchn_upcall_mask;
-    unsigned long evtchn_pending_sel;
+    xen_ulong_t evtchn_pending_sel;
     struct arch_vcpu_info arch;
     struct vcpu_time_info time;
 }; /* 64 bytes (x86) */
@@ -455,8 +455,8 @@ struct shared_info {
      * per-vcpu selector word to be set. Each bit in the selector covers a
      * 'C long' in the PENDING bitfield array.
      */
-    unsigned long evtchn_pending[sizeof(unsigned long) * 8];
-    unsigned long evtchn_mask[sizeof(unsigned long) * 8];
+    xen_ulong_t evtchn_pending[sizeof(xen_ulong_t) * 8];
+    xen_ulong_t evtchn_mask[sizeof(xen_ulong_t) * 8];
 
     /*
      * Wallclock time: updated only by control software. Guests should base
@@ -500,8 +500,8 @@ typedef struct shared_info shared_info_t;
 struct start_info {
     /* THE FOLLOWING ARE FILLED IN BOTH ON INITIAL BOOT AND ON RESUME.    */
     char magic[32];             /* "xen-<version>-<platform>".            */
-    unsigned long nr_pages;     /* Total pages allocated to this domain.  */
-    unsigned long shared_info;  /* MACHINE address of shared info struct. */
+    xen_ulong_t nr_pages;     /* Total pages allocated to this domain.  */
+    xen_ulong_t shared_info;  /* MACHINE address of shared info struct. */
     uint32_t flags;             /* SIF_xxx flags.                         */
     xen_pfn_t store_mfn;        /* MACHINE page number of shared page.    */
     uint32_t store_evtchn;      /* Event channel for store communication. */
@@ -516,11 +516,11 @@ struct start_info {
         } dom0;
     } console;
     /* THE FOLLOWING ARE ONLY FILLED IN ON INITIAL BOOT (NOT RESUME).     */
-    unsigned long pt_base;      /* VIRTUAL address of page directory.     */
-    unsigned long nr_pt_frames; /* Number of bootstrap p.t. frames.       */
-    unsigned long mfn_list;     /* VIRTUAL address of page-frame list.    */
-    unsigned long mod_start;    /* VIRTUAL address of pre-loaded module.  */
-    unsigned long mod_len;      /* Size (bytes) of pre-loaded module.     */
+    xen_ulong_t pt_base;      /* VIRTUAL address of page directory.     */
+    xen_ulong_t nr_pt_frames; /* Number of bootstrap p.t. frames.       */
+    xen_ulong_t mfn_list;     /* VIRTUAL address of page-frame list.    */
+    xen_ulong_t mod_start;    /* VIRTUAL address of pre-loaded module.  */
+    xen_ulong_t mod_len;      /* Size (bytes) of pre-loaded module.     */
     int8_t cmd_line[MAX_GUEST_CMDLINE];
 };
 typedef struct start_info start_info_t;
@@ -573,7 +573,7 @@ typedef struct dom0_vga_console_info {
 
 typedef uint8_t xen_domain_handle_t[16];
 
-/* Turn a plain number into a C unsigned long constant. */
+/* Turn a plain number into a C xen_ulong_t constant. */
 #define __mk_unsigned_long(x) x ## UL
 #define mk_unsigned_long(x) __mk_unsigned_long(x)
 

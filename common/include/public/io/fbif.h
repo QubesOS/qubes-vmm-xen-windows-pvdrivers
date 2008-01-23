@@ -109,10 +109,10 @@ struct xenfb_page
      * Each directory page holds PAGE_SIZE / sizeof(*pd)
      * framebuffer pages, and can thus map up to PAGE_SIZE *
      * PAGE_SIZE / sizeof(*pd) bytes.  With PAGE_SIZE == 4096 and
-     * sizeof(unsigned long) == 4, that's 4 Megs.  Two directory
+     * sizeof(xen_ulong_t) == 4, that's 4 Megs.  Two directory
      * pages should be enough for a while.
      */
-    unsigned long pd[2];
+    xen_ulong_t pd[2];
 };
 
 /*

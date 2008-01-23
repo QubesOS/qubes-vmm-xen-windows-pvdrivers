@@ -48,14 +48,14 @@
 /* Guest handles for primitive C types. */
 __DEFINE_XEN_GUEST_HANDLE(uchar, unsigned char);
 __DEFINE_XEN_GUEST_HANDLE(uint,  unsigned int);
-__DEFINE_XEN_GUEST_HANDLE(ulong, unsigned long);
-__DEFINE_XEN_GUEST_HANDLE(u64,   unsigned long);
+__DEFINE_XEN_GUEST_HANDLE(ulong, xen_ulong_t);
+__DEFINE_XEN_GUEST_HANDLE(u64,   xen_ulong_t);
 DEFINE_XEN_GUEST_HANDLE(char);
 DEFINE_XEN_GUEST_HANDLE(int);
 DEFINE_XEN_GUEST_HANDLE(long);
 DEFINE_XEN_GUEST_HANDLE(void);
 
-typedef unsigned long xen_pfn_t;
+typedef xen_ulong_t xen_pfn_t;
 DEFINE_XEN_GUEST_HANDLE(xen_pfn_t);
 #define PRI_xen_pfn "lx"
 #endif
@@ -71,7 +71,7 @@ DEFINE_XEN_GUEST_HANDLE(xen_pfn_t);
 
 #ifndef __ASSEMBLY__
 
-typedef unsigned long xen_ulong_t;
+typedef xen_ulong_t xen_ulong_t;
 
 #define INVALID_MFN       (~0UL)
 
@@ -115,74 +115,74 @@ typedef unsigned long xen_ulong_t;
 
 #define NVRAM_VALID_SIG 0x4650494e45584948 		// "HIXENIPF"
 struct nvram_save_addr {
-    unsigned long addr;
-    unsigned long signature;
+    xen_ulong_t addr;
+    xen_ulong_t signature;
 };
 
 struct pt_fpreg {
     union {
-        unsigned long bits[2];
+        xen_ulong_t bits[2];
         long double __dummy;    /* force 16-byte alignment */
     } u;
 };
 
 struct cpu_user_regs {
     /* The following registers are saved by SAVE_MIN: */
-    unsigned long b6;  /* scratch */
-    unsigned long b7;  /* scratch */
+    xen_ulong_t b6;  /* scratch */
+    xen_ulong_t b7;  /* scratch */
 
-    unsigned long ar_csd; /* used by cmp8xchg16 (scratch) */
-    unsigned long ar_ssd; /* reserved for future use (scratch) */
+    xen_ulong_t ar_csd; /* used by cmp8xchg16 (scratch) */
+    xen_ulong_t ar_ssd; /* reserved for future use (scratch) */
 
-    unsigned long r8;  /* scratch (return value register 0) */
-    unsigned long r9;  /* scratch (return value register 1) */
-    unsigned long r10; /* scratch (return value register 2) */
-    unsigned long r11; /* scratch (return value register 3) */
+    xen_ulong_t r8;  /* scratch (return value register 0) */
+    xen_ulong_t r9;  /* scratch (return value register 1) */
+    xen_ulong_t r10; /* scratch (return value register 2) */
+    xen_ulong_t r11; /* scratch (return value register 3) */
 
-    unsigned long cr_ipsr; /* interrupted task's psr */
-    unsigned long cr_iip;  /* interrupted task's instruction pointer */
-    unsigned long cr_ifs;  /* interrupted task's function state */
+    xen_ulong_t cr_ipsr; /* interrupted task's psr */
+    xen_ulong_t cr_iip;  /* interrupted task's instruction pointer */
+    xen_ulong_t cr_ifs;  /* interrupted task's function state */
 
-    unsigned long ar_unat; /* interrupted task's NaT register (preserved) */
-    unsigned long ar_pfs;  /* prev function state  */
-    unsigned long ar_rsc;  /* RSE configuration */
+    xen_ulong_t ar_unat; /* interrupted task's NaT register (preserved) */
+    xen_ulong_t ar_pfs;  /* prev function state  */
+    xen_ulong_t ar_rsc;  /* RSE configuration */
     /* The following two are valid only if cr_ipsr.cpl > 0: */
-    unsigned long ar_rnat;  /* RSE NaT */
-    unsigned long ar_bspstore; /* RSE bspstore */
+    xen_ulong_t ar_rnat;  /* RSE NaT */
+    xen_ulong_t ar_bspstore; /* RSE bspstore */
 
-    unsigned long pr;  /* 64 predicate registers (1 bit each) */
-    unsigned long b0;  /* return pointer (bp) */
-    unsigned long loadrs;  /* size of dirty partition << 16 */
+    xen_ulong_t pr;  /* 64 predicate registers (1 bit each) */
+    xen_ulong_t b0;  /* return pointer (bp) */
+    xen_ulong_t loadrs;  /* size of dirty partition << 16 */
 
-    unsigned long r1;  /* the gp pointer */
-    unsigned long r12; /* interrupted task's memory stack pointer */
-    unsigned long r13; /* thread pointer */
+    xen_ulong_t r1;  /* the gp pointer */
+    xen_ulong_t r12; /* interrupted task's memory stack pointer */
+    xen_ulong_t r13; /* thread pointer */
 
-    unsigned long ar_fpsr;  /* floating point status (preserved) */
-    unsigned long r15;  /* scratch */
+    xen_ulong_t ar_fpsr;  /* floating point status (preserved) */
+    xen_ulong_t r15;  /* scratch */
 
  /* The remaining registers are NOT saved for system calls.  */
 
-    unsigned long r14;  /* scratch */
-    unsigned long r2;  /* scratch */
-    unsigned long r3;  /* scratch */
-    unsigned long r16;  /* scratch */
-    unsigned long r17;  /* scratch */
-    unsigned long r18;  /* scratch */
-    unsigned long r19;  /* scratch */
-    unsigned long r20;  /* scratch */
-    unsigned long r21;  /* scratch */
-    unsigned long r22;  /* scratch */
-    unsigned long r23;  /* scratch */
-    unsigned long r24;  /* scratch */
-    unsigned long r25;  /* scratch */
-    unsigned long r26;  /* scratch */
-    unsigned long r27;  /* scratch */
-    unsigned long r28;  /* scratch */
-    unsigned long r29;  /* scratch */
-    unsigned long r30;  /* scratch */
-    unsigned long r31;  /* scratch */
-    unsigned long ar_ccv;  /* compare/exchange value (scratch) */
+    xen_ulong_t r14;  /* scratch */
+    xen_ulong_t r2;  /* scratch */
+    xen_ulong_t r3;  /* scratch */
+    xen_ulong_t r16;  /* scratch */
+    xen_ulong_t r17;  /* scratch */
+    xen_ulong_t r18;  /* scratch */
+    xen_ulong_t r19;  /* scratch */
+    xen_ulong_t r20;  /* scratch */
+    xen_ulong_t r21;  /* scratch */
+    xen_ulong_t r22;  /* scratch */
+    xen_ulong_t r23;  /* scratch */
+    xen_ulong_t r24;  /* scratch */
+    xen_ulong_t r25;  /* scratch */
+    xen_ulong_t r26;  /* scratch */
+    xen_ulong_t r27;  /* scratch */
+    xen_ulong_t r28;  /* scratch */
+    xen_ulong_t r29;  /* scratch */
+    xen_ulong_t r30;  /* scratch */
+    xen_ulong_t r31;  /* scratch */
+    xen_ulong_t ar_ccv;  /* compare/exchange value (scratch) */
 
     /*
      * Floating point registers that the kernel considers scratch:
@@ -193,18 +193,18 @@ struct cpu_user_regs {
     struct pt_fpreg f9;  /* scratch */
     struct pt_fpreg f10;  /* scratch */
     struct pt_fpreg f11;  /* scratch */
-    unsigned long r4;  /* preserved */
-    unsigned long r5;  /* preserved */
-    unsigned long r6;  /* preserved */
-    unsigned long r7;  /* preserved */
-    unsigned long eml_unat;    /* used for emulating instruction */
-    unsigned long pad0;     /* alignment pad */
+    xen_ulong_t r4;  /* preserved */
+    xen_ulong_t r5;  /* preserved */
+    xen_ulong_t r6;  /* preserved */
+    xen_ulong_t r7;  /* preserved */
+    xen_ulong_t eml_unat;    /* used for emulating instruction */
+    xen_ulong_t pad0;     /* alignment pad */
 
 };
 typedef struct cpu_user_regs cpu_user_regs_t;
 
 union vac {
-    unsigned long value;
+    xen_ulong_t value;
     struct {
         int a_int:1;
         int a_from_int_cr:1;
@@ -219,7 +219,7 @@ union vac {
 typedef union vac vac_t;
 
 union vdc {
-    unsigned long value;
+    xen_ulong_t value;
     struct {
         int d_vmsw:1;
         int d_extint:1;
@@ -235,64 +235,64 @@ typedef union vdc vdc_t;
 struct mapped_regs {
     union vac   vac;
     union vdc   vdc;
-    unsigned long  virt_env_vaddr;
-    unsigned long  reserved1[29];
-    unsigned long  vhpi;
-    unsigned long  reserved2[95];
+    xen_ulong_t  virt_env_vaddr;
+    xen_ulong_t  reserved1[29];
+    xen_ulong_t  vhpi;
+    xen_ulong_t  reserved2[95];
     union {
-        unsigned long  vgr[16];
-        unsigned long bank1_regs[16]; // bank1 regs (r16-r31) when bank0 active
+        xen_ulong_t  vgr[16];
+        xen_ulong_t bank1_regs[16]; // bank1 regs (r16-r31) when bank0 active
     };
     union {
-        unsigned long  vbgr[16];
-        unsigned long bank0_regs[16]; // bank0 regs (r16-r31) when bank1 active
+        xen_ulong_t  vbgr[16];
+        xen_ulong_t bank0_regs[16]; // bank0 regs (r16-r31) when bank1 active
     };
-    unsigned long  vnat;
-    unsigned long  vbnat;
-    unsigned long  vcpuid[5];
-    unsigned long  reserved3[11];
-    unsigned long  vpsr;
-    unsigned long  vpr;
-    unsigned long  reserved4[76];
+    xen_ulong_t  vnat;
+    xen_ulong_t  vbnat;
+    xen_ulong_t  vcpuid[5];
+    xen_ulong_t  reserved3[11];
+    xen_ulong_t  vpsr;
+    xen_ulong_t  vpr;
+    xen_ulong_t  reserved4[76];
     union {
-        unsigned long  vcr[128];
+        xen_ulong_t  vcr[128];
         struct {
-            unsigned long dcr;  // CR0
-            unsigned long itm;
-            unsigned long iva;
-            unsigned long rsv1[5];
-            unsigned long pta;  // CR8
-            unsigned long rsv2[7];
-            unsigned long ipsr;  // CR16
-            unsigned long isr;
-            unsigned long rsv3;
-            unsigned long iip;
-            unsigned long ifa;
-            unsigned long itir;
-            unsigned long iipa;
-            unsigned long ifs;
-            unsigned long iim;  // CR24
-            unsigned long iha;
-            unsigned long rsv4[38];
-            unsigned long lid;  // CR64
-            unsigned long ivr;
-            unsigned long tpr;
-            unsigned long eoi;
-            unsigned long irr[4];
-            unsigned long itv;  // CR72
-            unsigned long pmv;
-            unsigned long cmcv;
-            unsigned long rsv5[5];
-            unsigned long lrr0;  // CR80
-            unsigned long lrr1;
-            unsigned long rsv6[46];
+            xen_ulong_t dcr;  // CR0
+            xen_ulong_t itm;
+            xen_ulong_t iva;
+            xen_ulong_t rsv1[5];
+            xen_ulong_t pta;  // CR8
+            xen_ulong_t rsv2[7];
+            xen_ulong_t ipsr;  // CR16
+            xen_ulong_t isr;
+            xen_ulong_t rsv3;
+            xen_ulong_t iip;
+            xen_ulong_t ifa;
+            xen_ulong_t itir;
+            xen_ulong_t iipa;
+            xen_ulong_t ifs;
+            xen_ulong_t iim;  // CR24
+            xen_ulong_t iha;
+            xen_ulong_t rsv4[38];
+            xen_ulong_t lid;  // CR64
+            xen_ulong_t ivr;
+            xen_ulong_t tpr;
+            xen_ulong_t eoi;
+            xen_ulong_t irr[4];
+            xen_ulong_t itv;  // CR72
+            xen_ulong_t pmv;
+            xen_ulong_t cmcv;
+            xen_ulong_t rsv5[5];
+            xen_ulong_t lrr0;  // CR80
+            xen_ulong_t lrr1;
+            xen_ulong_t rsv6[46];
         };
     };
     union {
-        unsigned long  reserved5[128];
+        xen_ulong_t  reserved5[128];
         struct {
-            unsigned long precover_ifs;
-            unsigned long unat;  // not sure if this is needed until NaT arch is done
+            xen_ulong_t precover_ifs;
+            xen_ulong_t unat;  // not sure if this is needed until NaT arch is done
             int interrupt_collection_enabled; // virtual psr.ic
             /* virtual interrupt deliverable flag is evtchn_upcall_mask in
              * shared info area now. interrupt_mask_addr is the address
@@ -304,13 +304,13 @@ struct mapped_regs {
             unsigned char vpsr_dfh;
             unsigned char hpsr_dfh;
             unsigned char hpsr_mfh;
-            unsigned long reserved5_1[4];
+            xen_ulong_t reserved5_1[4];
             int metaphysical_mode; // 1 = use metaphys mapping, 0 = use virtual
             int banknum; // 0 or 1, which virtual register bank is active
-            unsigned long rrs[8]; // region registers
-            unsigned long krs[8]; // kernel registers
-            unsigned long pkrs[8]; // protection key registers
-            unsigned long tmp[8]; // temp registers (e.g. for hyperprivops)
+            xen_ulong_t rrs[8]; // region registers
+            xen_ulong_t krs[8]; // kernel registers
+            xen_ulong_t pkrs[8]; // protection key registers
+            xen_ulong_t tmp[8]; // temp registers (e.g. for hyperprivops)
         };
     };
 };
@@ -318,9 +318,9 @@ typedef struct mapped_regs mapped_regs_t;
 
 struct vpd {
     struct mapped_regs vpd_low;
-    unsigned long  reserved6[3456];
-    unsigned long  vmm_avail[128];
-    unsigned long  reserved7[4096];
+    xen_ulong_t  reserved6[3456];
+    xen_ulong_t  vmm_avail[128];
+    xen_ulong_t  reserved7[4096];
 };
 typedef struct vpd vpd_t;
 
@@ -330,7 +330,7 @@ typedef struct arch_vcpu_info arch_vcpu_info_t;
 
 struct arch_shared_info {
     /* PFN of the start_info page.  */
-    unsigned long start_info_pfn;
+    xen_ulong_t start_info_pfn;
 
     /* Interrupt vector for event channel.  */
     int evtchn_vector;
@@ -339,30 +339,30 @@ struct arch_shared_info {
 };
 typedef struct arch_shared_info arch_shared_info_t;
 
-typedef unsigned long xen_callback_t;
+typedef xen_ulong_t xen_callback_t;
 
 struct ia64_tr_entry {
-    unsigned long pte;
-    unsigned long itir;
-    unsigned long vadr;
-    unsigned long rid;
+    xen_ulong_t pte;
+    xen_ulong_t itir;
+    xen_ulong_t vadr;
+    xen_ulong_t rid;
 };
 
 struct vcpu_extra_regs {
     struct ia64_tr_entry itrs[8];
     struct ia64_tr_entry dtrs[8];
-    unsigned long iva;
-    unsigned long dcr;
-    unsigned long event_callback_ip;
+    xen_ulong_t iva;
+    xen_ulong_t dcr;
+    xen_ulong_t event_callback_ip;
 };
 
 struct vcpu_guest_context {
 #define VGCF_EXTRA_REGS (1<<1)	/* Get/Set extra regs.  */
-    unsigned long flags;       /* VGCF_* flags */
+    xen_ulong_t flags;       /* VGCF_* flags */
 
     struct cpu_user_regs user_regs;
     struct vcpu_extra_regs extra_regs;
-    unsigned long privregs_pfn;
+    xen_ulong_t privregs_pfn;
 };
 typedef struct vcpu_guest_context vcpu_guest_context_t;
 DEFINE_XEN_GUEST_HANDLE(vcpu_guest_context_t);
@@ -420,11 +420,11 @@ DEFINE_XEN_GUEST_HANDLE(vcpu_guest_context_t);
 /* This structure has the same layout of struct ia64_boot_param, defined in
    <asm/system.h>.  It is redefined here to ease use.  */
 struct xen_ia64_boot_param {
-	unsigned long command_line;	/* physical address of cmd line args */
-	unsigned long efi_systab;	/* physical address of EFI system table */
-	unsigned long efi_memmap;	/* physical address of EFI memory map */
-	unsigned long efi_memmap_size;	/* size of EFI memory map */
-	unsigned long efi_memdesc_size;	/* size of an EFI memory map descriptor */
+	xen_ulong_t command_line;	/* physical address of cmd line args */
+	xen_ulong_t efi_systab;	/* physical address of EFI system table */
+	xen_ulong_t efi_memmap;	/* physical address of EFI memory map */
+	xen_ulong_t efi_memmap_size;	/* size of EFI memory map */
+	xen_ulong_t efi_memdesc_size;	/* size of an EFI memory map descriptor */
 	unsigned int  efi_memdesc_version;	/* memory descriptor version */
 	struct {
 		unsigned short num_cols;	/* number of columns on console.  */
@@ -432,11 +432,11 @@ struct xen_ia64_boot_param {
 		unsigned short orig_x;	/* cursor's x position */
 		unsigned short orig_y;	/* cursor's y position */
 	} console_info;
-	unsigned long fpswa;		/* physical address of the fpswa interface */
-	unsigned long initrd_start;
-	unsigned long initrd_size;
-	unsigned long domain_start;	/* va where the boot time domain begins */
-	unsigned long domain_size;	/* how big is the boot domain */
+	xen_ulong_t fpswa;		/* physical address of the fpswa interface */
+	xen_ulong_t initrd_start;
+	xen_ulong_t initrd_size;
+	xen_ulong_t domain_start;	/* va where the boot time domain begins */
+	xen_ulong_t domain_size;	/* how big is the boot domain */
 };
 
 #endif /* !__ASSEMBLY__ */
@@ -487,9 +487,9 @@ struct xen_ia64_boot_param {
 #define XENCOMM_INLINE_FLAG 0x8000000000000000UL
 
 #define XENCOMM_IS_INLINE(addr) \
-  (((unsigned long)(addr) & XENCOMM_INLINE_MASK) == XENCOMM_INLINE_FLAG)
+  (((xen_ulong_t)(addr) & XENCOMM_INLINE_MASK) == XENCOMM_INLINE_FLAG)
 #define XENCOMM_INLINE_ADDR(addr) \
-  ((unsigned long)(addr) & ~XENCOMM_INLINE_MASK)
+  ((xen_ulong_t)(addr) & ~XENCOMM_INLINE_MASK)
 
 /* xen perfmon */
 #ifdef XEN

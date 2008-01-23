@@ -94,13 +94,13 @@
 #define MACH2PHYS_VIRT_END    mk_unsigned_long(__MACH2PHYS_VIRT_END)
 #define MACH2PHYS_NR_ENTRIES  ((MACH2PHYS_VIRT_END-MACH2PHYS_VIRT_START)>>3)
 #ifndef machine_to_phys_mapping
-#define machine_to_phys_mapping ((unsigned long *)HYPERVISOR_VIRT_START)
+#define machine_to_phys_mapping ((xen_ulong_t *)HYPERVISOR_VIRT_START)
 #endif
 
 #ifndef __ASSEMBLY__
 
 /*
- * int HYPERVISOR_set_segment_base(unsigned int which, unsigned long base)
+ * int HYPERVISOR_set_segment_base(unsigned int which, xen_ulong_t base)
  *  @which == SEGBASE_*  ;  @base == 64-bit base address
  * Returns 0 on success.
  */
@@ -185,16 +185,16 @@ DEFINE_XEN_GUEST_HANDLE(cpu_user_regs_t);
 
 #undef __DECL_REG
 
-#define xen_pfn_to_cr3(pfn) ((unsigned long)(pfn) << 12)
-#define xen_cr3_to_pfn(cr3) ((unsigned long)(cr3) >> 12)
+#define xen_pfn_to_cr3(pfn) ((xen_ulong_t)(pfn) << 12)
+#define xen_cr3_to_pfn(cr3) ((xen_ulong_t)(cr3) >> 12)
 
 struct arch_vcpu_info {
-    unsigned long cr2;
-    unsigned long pad; /* sizeof(vcpu_info_t) == 64 */
+    xen_ulong_t cr2;
+    xen_ulong_t pad; /* sizeof(vcpu_info_t) == 64 */
 };
 typedef struct arch_vcpu_info arch_vcpu_info_t;
 
-typedef unsigned long xen_callback_t;
+typedef xen_ulong_t xen_callback_t;
 
 #endif /* !__ASSEMBLY__ */
 

@@ -37,7 +37,7 @@
 #include "../grant_table.h"
 
 struct tpmif_tx_request {
-    unsigned long addr;   /* Machine address of packet.   */
+    xen_ulong_t addr;   /* Machine address of packet.   */
     grant_ref_t ref;      /* grant table access reference */
     uint16_t unused;
     uint16_t size;        /* Packet size in bytes.        */

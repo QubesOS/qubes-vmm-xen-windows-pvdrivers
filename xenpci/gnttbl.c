@@ -101,7 +101,7 @@ grant_ref_t
 GntTbl_GrantAccess(
   WDFDEVICE Device,
   domid_t domid,
-  unsigned long frame,
+  uint32_t frame,
   int readonly)
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);

@@ -143,8 +143,8 @@ static void xb_write(
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   for (r = 0; r < nr_reqs; r++)
-    len += req[r].len;
-  m.len = len;
+    len += (size_t)req[r].len;
+  m.len = (ULONG)len;
   len += sizeof(m);
 
   cur_req = &header_req;
@@ -175,7 +175,7 @@ static void xb_write(
   {
     this_chunk = min(cur_req->len - req_off,XENSTORE_RING_SIZE - MASK_XENSTORE_IDX(prod));
     memcpy((char *)xpdd->xen_store_interface->req + MASK_XENSTORE_IDX(prod), (char *)cur_req->data + req_off, this_chunk);
-    prod += this_chunk;
+    prod += (XENSTORE_RING_IDX)this_chunk;
     req_off += this_chunk;
     total_off += this_chunk;
     if (req_off == cur_req->len)
@@ -198,7 +198,7 @@ static void xb_write(
   //_WriteBarrier();
   KeMemoryBarrier();
 
-  xpdd->xen_store_interface->req_prod += len;
+  xpdd->xen_store_interface->req_prod += (XENSTORE_RING_IDX)len;
 
   //KdPrint((__DRIVER_NAME " prod = %08x\n", xen_store_interface->req_prod));
 
@@ -242,7 +242,7 @@ XenBus_Read(
   char **value)
 {
   WDFDEVICE Device = Context;
-  struct write_req req[] = { {path, strlen(path) + 1} };
+  struct write_req req[] = { {path, (ULONG)strlen(path) + 1} };
   struct xsd_sockmsg *rep;
   char *res;
   char *msg;
@@ -275,8 +275,8 @@ XenBus_Write(
 {
   WDFDEVICE Device = Context;
   struct write_req req[] = {
-    {path, strlen(path) + 1},
-    {value, strlen(value) + 1},
+    {path, (ULONG)strlen(path) + 1},
+    {value, (ULONG)strlen(value) + 1},
   };
   struct xsd_sockmsg *rep;
   char *msg;
@@ -413,7 +413,7 @@ XenBus_List(
 {
   WDFDEVICE Device = Context;
   struct xsd_sockmsg *reply, *repmsg;
-  struct write_req req[] = { { pre, strlen(pre)+1 } };
+  struct write_req req[] = { { pre, (ULONG)strlen(pre)+1 } };
   ULONG nr_elems, x, i;
   char **res;
   char *msg;
@@ -437,7 +437,7 @@ XenBus_List(
     XENPCI_POOL_TAG);
   for (x = i = 0; i < nr_elems; i++)
   {
-    int l = strlen((char *)reply + x);
+    int l = (int)strlen((char *)reply + x);
     res[i] = ExAllocatePoolWithTag(NonPagedPool, l + 1, XENPCI_POOL_TAG);
     memcpy(res[i], (char *)reply + x, l + 1);
     x += l + 1;
@@ -623,11 +623,11 @@ XenBus_AddWatch(
   KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
 
   req[0].data = Path;
-  req[0].len = strlen(Path) + 1;
+  req[0].len = (ULONG)strlen(Path) + 1;
 
   RtlStringCbPrintfA(Token, ARRAY_SIZE(Token), "%d", i);
   req[1].data = Token;
-  req[1].len = strlen(Token) + 1;
+  req[1].len = (ULONG)strlen(Token) + 1;
 
   rep = xenbus_msg_reply(Device, XS_WATCH, xbt, req, ARRAY_SIZE(req));
 
@@ -703,11 +703,11 @@ XenBus_RemWatch(
   KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
 
   req[0].data = Path;
-  req[0].len = strlen(Path) + 1;
+  req[0].len = (ULONG)strlen(Path) + 1;
 
   RtlStringCbPrintfA(Token, ARRAY_SIZE(Token), "%d", i);
   req[1].data = Token;
-  req[1].len = strlen(Token) + 1;
+  req[1].len = (ULONG)strlen(Token) + 1;
 
   rep = xenbus_msg_reply(Device, XS_UNWATCH, xbt, req, ARRAY_SIZE(req));
 

@@ -145,7 +145,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     case 0:
       if (SystemStartOptions[i] == L'G')
       {
-        StartPos = i;
+        StartPos = (int)i;
         State = 2;
       } else if (SystemStartOptions[i] != L' ')
       {
@@ -240,15 +240,14 @@ get_hypercall_stubs(WDFDEVICE Device)
   //KdPrint((__DRIVER_NAME " Hypercall area is %u pages.\n", pages));
 
   xpdd->hypercall_stubs = ExAllocatePoolWithTag(NonPagedPool, pages * PAGE_SIZE, XENPCI_POOL_TAG);
-  //KdPrint((__DRIVER_NAME " Hypercall area at %08x\n", hypercall_stubs));
+  KdPrint((__DRIVER_NAME " Hypercall area at %p\n", xpdd->hypercall_stubs));
 
   if (!xpdd->hypercall_stubs)
     return 1;
   for (i = 0; i < pages; i++) {
     ULONGLONG pfn;
-    //pfn = vmalloc_to_pfn((char *)hypercall_stubs + i * PAGE_SIZE);
     pfn = (MmGetPhysicalAddress(xpdd->hypercall_stubs + i * PAGE_SIZE).QuadPart >> PAGE_SHIFT);
-    KdPrint((__DRIVER_NAME " pfn = %10lX\n", pfn));
+    KdPrint((__DRIVER_NAME " pfn = %16lX\n", pfn));
     __writemsr(msr, (pfn << PAGE_SHIFT) + i);
   }
   return STATUS_SUCCESS;
@@ -294,18 +293,18 @@ init_xen_info(WDFDEVICE Device)
   PHYSICAL_ADDRESS shared_info_area_unmapped;
 
   shared_info_area_unmapped = XenPCI_AllocMMIO(Device, PAGE_SIZE);
+  KdPrint((__DRIVER_NAME " shared_info_area_unmapped.QuadPart = %lx\n", shared_info_area_unmapped.QuadPart));
   xatp.domid = DOMID_SELF;
   xatp.idx = 0;
   xatp.space = XENMAPSPACE_shared_info;
   xatp.gpfn = (xen_pfn_t)(shared_info_area_unmapped.QuadPart >> PAGE_SHIFT);
+  KdPrint((__DRIVER_NAME " gpfn = %d\n", xatp.gpfn));
   ret = HYPERVISOR_memory_op(Device, XENMEM_add_to_physmap, &xatp);
   KdPrint((__DRIVER_NAME " hypervisor memory op ret = %d\n", ret));
-
   xpdd->shared_info_area = MmMapIoSpace(shared_info_area_unmapped,
-    PAGE_SIZE, MmNonCached);
-
+    PAGE_SIZE, MmCached);
   return 0;
-}
+} 
 
 static int
 set_callback_irq(WDFDEVICE Device, ULONGLONG irq)
@@ -514,7 +513,7 @@ XenPCI_PrepareHardware(
       break;
     case CmResourceTypeMemory:
       KdPrint((__DRIVER_NAME "     Memory mapped CSR:(%x:%x) Length:(%d)\n", descriptor->u.Memory.Start.LowPart, descriptor->u.Memory.Start.HighPart, descriptor->u.Memory.Length));
-      xpdd->platform_mmio_addr = descriptor->u.Memory.Start; //(ULONG)MmMapIoSpace(descriptor->u.Memory.Start, descriptor->u.Memory.Length, MmNonCached);
+      xpdd->platform_mmio_addr = descriptor->u.Memory.Start;
       xpdd->platform_mmio_len = descriptor->u.Memory.Length;
       xpdd->platform_mmio_alloc = 0;
       break;
@@ -534,7 +533,8 @@ XenPCI_PrepareHardware(
 
   get_hypercall_stubs(Device);
 
-  init_xen_info(Device);
+  if (init_xen_info(Device))
+    return STATUS_ACCESS_DENIED;
 
   GntTbl_Init(Device);
 
@@ -684,8 +684,8 @@ static VOID
 XenPCI_IoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 {
   PSHUTDOWN_MSG_ENTRY Entry;
-  ULONG Remaining;
-  ULONG CopyLen;
+  size_t Remaining;
+  size_t CopyLen;
   PCHAR Buffer;
   size_t BufLen;
   KIRQL OldIrql;
@@ -721,7 +721,7 @@ XenPCI_IoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
   else
   {    
     KdPrint((__DRIVER_NAME "     More to do...\n"));
-    Entry->Ptr += CopyLen;
+    Entry->Ptr += (ULONG)CopyLen;
     InsertHeadList(&ShutdownMsgList, &Entry->ListEntry);
   }
 

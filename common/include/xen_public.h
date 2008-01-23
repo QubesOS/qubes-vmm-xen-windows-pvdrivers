@@ -20,10 +20,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #if !defined(_XEN_PUBLIC_H_)
 #define _XEN_PUBLIC_H_
 
-//#include <evtchn_public.h>
-//#include <xenbus_public.h>
-//#include <gnttbl_public.h>
-
 DEFINE_GUID( GUID_XEN_IFACE, 0x5C568AC5, 0x9DDF, 0x4FA5, 0xA9, 0x4A, 0x39, 0xD6, 0x70, 0x77, 0x81, 0x9C);
 //{5C568AC5-9DDF-4FA5-A94A-39D67077819C}
 
@@ -52,7 +48,7 @@ typedef evtchn_port_t
 (*PXEN_EVTCHN_ALLOCUNBOUND)(PVOID Context, domid_t Domain);
 
 typedef grant_ref_t
-(*PXEN_GNTTBL_GRANTACCESS)(WDFDEVICE Device, domid_t domid, unsigned long frame, int readonly);
+(*PXEN_GNTTBL_GRANTACCESS)(WDFDEVICE Device, domid_t domid, uint32_t frame, int readonly);
 typedef BOOLEAN
 (*PXEN_GNTTBL_ENDACCESS)(WDFDEVICE Device, grant_ref_t ref);
 

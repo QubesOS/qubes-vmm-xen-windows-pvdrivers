@@ -102,7 +102,7 @@
 #define MACH2PHYS_VIRT_END    mk_unsigned_long(__MACH2PHYS_VIRT_END)
 #define MACH2PHYS_NR_ENTRIES  ((MACH2PHYS_VIRT_END-MACH2PHYS_VIRT_START)>>2)
 #ifndef machine_to_phys_mapping
-#define machine_to_phys_mapping ((unsigned long *)MACH2PHYS_VIRT_START)
+#define machine_to_phys_mapping ((xen_ulong_t *)MACH2PHYS_VIRT_START)
 #endif
 
 /* 32-/64-bit invariability for control interfaces (domctl/sysctl). */
@@ -158,14 +158,14 @@ DEFINE_XEN_GUEST_HANDLE(cpu_user_regs_t);
 #define xen_cr3_to_pfn(cr3) (((unsigned)(cr3) >> 12) | ((unsigned)(cr3) << 20))
 
 struct arch_vcpu_info {
-    unsigned long cr2;
-    unsigned long pad[5]; /* sizeof(vcpu_info_t) == 64 */
+    xen_ulong_t cr2;
+    xen_ulong_t pad[5]; /* sizeof(vcpu_info_t) == 64 */
 };
 typedef struct arch_vcpu_info arch_vcpu_info_t;
 
 struct xen_callback {
-    unsigned long cs;
-    unsigned long eip;
+    xen_ulong_t cs;
+    xen_ulong_t eip;
 };
 typedef struct xen_callback xen_callback_t;
 

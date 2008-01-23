@@ -19,6 +19,18 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 
+#if defined(__X86__)
+  #define xchg(p1, p2) _InterlockedExchange(p1, p2)
+  #define synch_clear_bit(p1, p2) _interlockedbittestandreset(p2, p1)
+  #define synch_set_bit(p1, p2) _interlockedbittestandset(p2, p1)
+  #define bit_scan_forward(p1, p2) _BitScanForward(p1, p2)
+#else
+  #define xchg(p1, p2) _InterlockedExchange64(p1, p2)
+  #define synch_clear_bit(p1, p2) _interlockedbittestandreset64(p2, p1)
+  #define synch_set_bit(p1, p2) _interlockedbittestandset64(p2, p1)
+  #define bit_scan_forward(p1, p2) _BitScanForward64(p1, p2)
+#endif
+
 static VOID
 EvtChn_DpcBounce(WDFDPC Dpc)
 {
@@ -35,12 +47,13 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
   vcpu_info_t *vcpu_info;
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(WdfInterruptGetDevice(Interrupt));
   shared_info_t *shared_info_area = xpdd->shared_info_area;
-  unsigned long evt_words, evt_word;
+  xen_ulong_t evt_words;
+  unsigned long evt_word;
   unsigned long evt_bit;
-  unsigned long port;
+  unsigned int port;
   ev_action_t *ev_action;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
   UNREFERENCED_PARAMETER(MessageID);
 
@@ -48,12 +61,12 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
 
   vcpu_info->evtchn_upcall_pending = 0;
 
-  evt_words = _InterlockedExchange((volatile LONG *)&vcpu_info->evtchn_pending_sel, 0);
+  evt_words = xchg((volatile xen_ulong_t *)&vcpu_info->evtchn_pending_sel, 0);
   
-  while (_BitScanForward(&evt_word, evt_words))
+  while (bit_scan_forward(&evt_word, evt_words))
   {
     evt_words &= ~(1 << evt_word);
-    while (_BitScanForward(&evt_bit, shared_info_area->evtchn_pending[evt_word] & ~shared_info_area->evtchn_mask[evt_word]))
+    while (bit_scan_forward(&evt_bit, shared_info_area->evtchn_pending[evt_word] & ~shared_info_area->evtchn_mask[evt_word]))
     {
       port = (evt_word << 5) + evt_bit;
       ev_action = &xpdd->ev_actions[port];
@@ -65,7 +78,7 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
       {
         if (ev_action->DpcFlag)
         {
-//          KdPrint((__DRIVER_NAME " --- Scheduling Dpc\n"));
+          KdPrint((__DRIVER_NAME " --- Scheduling Dpc\n"));
           WdfDpcEnqueue(ev_action->Dpc);
         }
         else
@@ -73,11 +86,11 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
           ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
         }
       }
-      _interlockedbittestandreset((volatile LONG *)&shared_info_area->evtchn_pending[0], port);
+      synch_clear_bit(port, (volatile xen_ulong_t *)&shared_info_area->evtchn_pending[evt_word]);
     }
   }
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return FALSE; // This needs to be FALSE so it can fall through to the scsiport ISR.
 }
@@ -171,8 +184,8 @@ EvtChn_Mask(PVOID Context, evtchn_port_t Port)
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   //KdPrint((__DRIVER_NAME " --> EvtChn_Mask\n"));
 
-  _interlockedbittestandset(
-    (volatile LONG *)&xpdd->shared_info_area->evtchn_mask[0], Port);
+  synch_set_bit(Port,
+    (volatile xen_ulong_t *)&xpdd->shared_info_area->evtchn_mask[0]);
 
   //KdPrint((__DRIVER_NAME " <-- EvtChn_Mask\n"));
 
@@ -186,8 +199,8 @@ EvtChn_Unmask(PVOID Context, evtchn_port_t Port)
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   //KdPrint((__DRIVER_NAME " --> EvtChn_Unmask\n"));
 
-  _interlockedbittestandreset(
-    (volatile LONG *)&xpdd->shared_info_area->evtchn_mask[0], Port);
+  synch_clear_bit(Port,
+    (volatile xen_ulong_t *)&xpdd->shared_info_area->evtchn_mask[0]);
   // should we kick off pending interrupts here too???
 
   //KdPrint((__DRIVER_NAME " <-- EvtChn_Unmask\n"));
@@ -232,11 +245,11 @@ EvtChn_GetXenStorePort(WDFDEVICE Device)
 {
   evtchn_port_t Port;  
 
-  //KdPrint((__DRIVER_NAME " --> EvtChn_GetStorePort\n"));
+  KdPrint((__DRIVER_NAME " --> EvtChn_GetStorePort\n"));
 
   Port = (evtchn_port_t)hvm_get_parameter(Device, HVM_PARAM_STORE_EVTCHN);
 
-  //KdPrint((__DRIVER_NAME " <-- EvtChn_GetStorePort\n"));
+  KdPrint((__DRIVER_NAME " <-- EvtChn_GetStorePort\n"));
 
   return Port;
 }
@@ -247,22 +260,20 @@ EvtChn_GetXenStoreRingAddr(WDFDEVICE Device)
   PHYSICAL_ADDRESS pa_xen_store_interface;
   PVOID xen_store_interface;
 
-  ULONG xen_store_mfn;
+  xen_ulong_t xen_store_mfn;
 
-  //KdPrint((__DRIVER_NAME " --> EvtChn_GetRingAddr\n"));
+  KdPrint((__DRIVER_NAME " --> EvtChn_GetRingAddr\n"));
 
-  xen_store_mfn = (ULONG)hvm_get_parameter(Device, HVM_PARAM_STORE_PFN);
+  xen_store_mfn = hvm_get_parameter(Device, HVM_PARAM_STORE_PFN);
 
   pa_xen_store_interface.QuadPart = xen_store_mfn << PAGE_SHIFT;
   xen_store_interface = MmMapIoSpace(pa_xen_store_interface, PAGE_SIZE, MmNonCached);
 
-  //KdPrint((__DRIVER_NAME " xen_store_mfn = %08x\n", xen_store_mfn));
+  KdPrint((__DRIVER_NAME " xen_store_mfn = %08x\n", xen_store_mfn));
   //KdPrint((__DRIVER_NAME " xen_store_evtchn = %08x\n", xen_store_evtchn));
-  //KdPrint((__DRIVER_NAME " xen_store_interface = %08x\n", xen_store_interface));
+  KdPrint((__DRIVER_NAME " xen_store_interface = %08x\n", xen_store_interface));
 
-  //KeInitializeEvent(&xenbus_waitevent, NotificationEvent, FALSE);
-
-  //KdPrint((__DRIVER_NAME " <-- EvtChn_GetRingAddr\n"));
+  KdPrint((__DRIVER_NAME " <-- EvtChn_GetRingAddr\n"));
 
   return xen_store_interface;
 }
