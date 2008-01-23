@@ -46,11 +46,11 @@
 
 #if defined(_AMD64_)
 /* Under windows _AMD64_, sizeof(long) != sizeof(void *) */
-typedef long xen_long_t;
+typedef long long xen_long_t;
 typedef unsigned long long xen_ulong_t;
 #else
 typedef long xen_long_t;
-typedef unsigned long long xen_ulong_t;
+typedef unsigned long xen_ulong_t;
 #endif
 
 #if defined(__i386__)

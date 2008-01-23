@@ -423,8 +423,8 @@ XenNet_ReturnPacket(
   struct xennet_info *xi = MiniportAdapterContext;
   PNDIS_BUFFER buffer;
 //  PNDIS_BUFFER next_buffer;
-  PVOID buff_va;
-  UINT buff_len;
+  // PVOID buff_va;
+  // UINT buff_len;
   UINT tot_buff_len;
   buffer_entry_t *buffer_entry;
 
@@ -1167,9 +1167,13 @@ XenNet_QueryInformation(
       }
 
       ntoh = (PNDIS_TASK_OFFLOAD_HEADER)InformationBuffer;
-      ASSERT(ntoh->Version == NDIS_TASK_OFFLOAD_VERSION);
-      ASSERT(ntoh->Size == sizeof(*ntoh));
-      ASSERT(ntoh->EncapsulationFormat.Encapsulation == IEEE_802_3_Encapsulation);
+      if (ntoh->Version != NDIS_TASK_OFFLOAD_VERSION
+        || ntoh->Size != sizeof(*ntoh)
+        || ntoh->EncapsulationFormat.Encapsulation != IEEE_802_3_Encapsulation)
+      {
+        status = NDIS_STATUS_NOT_SUPPORTED;
+        break;
+      }
       ntoh->OffsetFirstTask = ntoh->Size;
 
       /* fill in first nto */
