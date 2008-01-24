@@ -2,8 +2,7 @@
 Signature="$WINDOWS NT$"
 Class=Net
 ClassGuid={4D36E972-E325-11CE-BFC1-08002BE10318}
-Provider=%JAMESHARPER%
-;DriverVer=11/11/2007,1.0.1.290
+Provider=%XenGplPv%
 
 [DestinationDirs]
 DefaultDestDir = 12
@@ -29,9 +28,13 @@ ExcludeFromSelect=*
 
 
 [Manufacturer]
-%JAMESHARPER%=JAMESHARPER,NT$ARCH$
+%XenGplPv%=XenGplPv,NTx86
+%XenGplPv%=XenGplPv,NTamd64
 
-[JAMESHARPER.NT$ARCH$]
+[XenGplPv.NTx86]
+%XenNet.DRVDESC%=XenNet_Inst, XEN\VIFDEV
+
+[XenGplPv.NTamd64]
 %XenNet.DRVDESC%=XenNet_Inst, XEN\VIFDEV
 
 [XenNet_Inst.NT]
@@ -51,8 +54,11 @@ xennet.sys
 xennet.sys=1
 WdfCoinstaller01005.dll=1,,
 
-[SourceDisksNames]
+[SourceDisksNames.x86]
 1 = %DISK_NAME%,,,\i386
+
+[SourceDisksNames.amd64]
+1 = %DISK_NAME%,,,\amd64
 
 [XenNet_Inst.Services]
 AddService=XenNet,2,XenNet_Service 
@@ -90,7 +96,7 @@ KmdfService = xennet, xennet_wdfsect
 KmdfLibraryVersion = 1.0
 
 [Strings]
-JAMESHARPER = "James Harper"
+XenGplPv = "Xen GPL PV Driver Developers"
 ClassName = "Network Adapters"
 XenNet.SVCDESC = "Xen Net Device Driver"
 XenNet.DRVDESC = "Xen Net Device Driver"

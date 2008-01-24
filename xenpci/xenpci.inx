@@ -2,8 +2,7 @@
 Signature="$WINDOWS NT$"
 Class=System
 ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
-Provider=%JAMESHARPER%
-DriverVer=12/05/2007,0.4.0.1
+Provider=%XenGplPv%
 
 [DestinationDirs]
 DefaultDestDir = 12
@@ -14,19 +13,13 @@ CoInstaller_CopyFiles = 11
 ExcludeFromSelect=*
 
 [Manufacturer]
-%JAMESHARPER%=JAMESHARPER,NTx86
-%JAMESHARPER%=JAMESHARPER,NTAMD64
+%XenGplPv%=XenGplPv,NTx86
+%XenGplPv%=XenGplPv,NTAMD64
 
-; For Win2K
-;[JAMESHARPER]
-; DisplayName            Section           DeviceId
-; -----------       	 -------           --------
-;%XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
-
-[JAMESHARPER.NTx86]
+[XenGplPv.NTx86]
 %XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
 
-[JAMESHARPER.NTAMD64]
+[XenGplPv.NTAMD64]
 %XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
 
 [XenPCI_Inst.NT]
@@ -73,7 +66,7 @@ KmdfService = xenpci, xenpci_wdfsect
 KmdfLibraryVersion = 1.0
 
 [Strings]
-JAMESHARPER = "James Harper"
+XenGplPv = "Xen GPL PV Driver Developers"
 XenPCI.SVCDESC = "Xen PCI Device Driver"
 XenPCI.DRVDESC = "Xen PCI Device Driver"
 DISK_NAME = "Xen PCI Device Driver Install Disk"

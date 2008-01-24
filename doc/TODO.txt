@@ -19,3 +19,4 @@ TODO:
 . Fix BSoD crash dump under vbd (currently just hangs without writing
   a dump file)
 . Correctly handle CD changes
+. Prevent xenvbd loading if the pci ide driver is loaded (bad things will happen)

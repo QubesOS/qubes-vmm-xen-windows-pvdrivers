@@ -2,7 +2,7 @@
 Signature="$WINDOWS NT$"
 Class=System
 ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
-Provider=%JAMESHARPER%
+Provider=%XenGplPv%
 
 [DestinationDirs]
 DefaultDestDir = 12
@@ -13,9 +13,13 @@ CoInstaller_CopyFiles = 11
 ExcludeFromSelect=*
 
 [Manufacturer]
-%JAMESHARPER%=JAMESHARPER,NT$ARCH$
+%XenGplPv%=XenGplPv,NTx86
+%XenGplPv%=XenGplPv,NTAMD64
 
-[JAMESHARPER.NT$ARCH$]
+[XenGplPv.NTx86]
+%XenEnum.DRVDESC%=XenEnum_Inst, XEN\VIF
+
+[XenGplPv.NTAMD64]
 %XenEnum.DRVDESC%=XenEnum_Inst, XEN\VIF
 
 [XenEnum_Inst.NT]
@@ -53,8 +57,11 @@ KmdfLibraryVersion = 1.0
 xenenum.sys=1
 WdfCoinstaller01005.dll=1,,
 
-[SourceDisksNames]
+[SourceDisksNames.x86]
 1 = %DISK_NAME%,,,\i386
+
+[SourceDisksNames.amd64]
+1 = %DISK_NAME%,,,\amd64
 
 [CoInstaller_CopyFiles]
 WdfCoinstaller01005.dll,,,2
@@ -63,7 +70,7 @@ WdfCoinstaller01005.dll,,,2
 HKR,,CoInstallers32,0x00010000, "WdfCoinstaller01005.dll,WdfCoInstaller"
 
 [Strings]
-JAMESHARPER = "James Harper"
+XenGplPv = "Xen GPL PV Driver Developers"
 XenEnum.SVCDESC = "Xen Enum Device Driver"
 XenEnum.DRVDESC = "Xen Enum Device Driver"
 DISK_NAME = "Xen Enum Device Driver Install Disk"

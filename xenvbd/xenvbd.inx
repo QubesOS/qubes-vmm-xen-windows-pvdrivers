@@ -2,7 +2,7 @@
 Signature="$WINDOWS NT$"
 Class=SCSIAdapter
 ClassGuid={4D36E97B-E325-11CE-BFC1-08002BE10318}
-Provider=%JAMESHARPER%
+Provider=%XenGplPv%
 DriverVer=12/10/2007,0.4.0.1
 
 [DestinationDirs]
@@ -14,11 +14,14 @@ CoInstaller_CopyFiles = 11
 ExcludeFromSelect=*
 
 [Manufacturer]
-%JAMESHARPER%=JAMESHARPER,NT$ARCH$
+%XenGplPv%=XenGplPv,NTx86
+%XenGplPv%=XenGplPv,NTamd64
 
-[JAMESHARPER.NT$ARCH$]
+[XenGplPv.NTx86]
 %XenVbd.DRVDESC%=XenVbd_Inst, XEN\VBD
-;%XenAddResource.DRVDESC%=XenAddResource_INST, XEN\VBD
+
+[XenGplPv.NTamd64]
+%XenVbd.DRVDESC%=XenVbd_Inst, XEN\VBD
 
 [XenVbd_Inst.NT]
 CopyFiles=XenVbd.CopyFiles
@@ -104,8 +107,11 @@ xenvbd.sys=1
 xenaddresource.sys=1
 WdfCoinstaller01005.dll=1,,
 
-[SourceDisksNames]
+[SourceDisksNames.x86]
 1 = %DISK_NAME%,,,\i386
+
+[SourceDisksNames.amd64]
+1 = %DISK_NAME%,,,\amd64
 
 [CoInstaller_CopyFiles]
 WdfCoinstaller01005.dll,,,2
@@ -114,7 +120,7 @@ WdfCoinstaller01005.dll,,,2
 HKR,,CoInstallers32,0x00010000, "WdfCoinstaller01005.dll,WdfCoInstaller"
 
 [Strings]
-JAMESHARPER = "James Harper"
+XenGplPv = "Xen GPL PV Driver Developers"
 XenVbd.SVCDESC = "Xen Block Device Driver"
 XenVbd.DRVDESC = "Xen Block Device Driver"
 XenAddResource.DRVDESC = "Xen Resource Adder"

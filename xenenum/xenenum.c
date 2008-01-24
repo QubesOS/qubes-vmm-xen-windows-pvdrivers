@@ -210,12 +210,6 @@ XenEnum_AddDevice(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 
   WdfDeviceSetBusInformationForChildren(GlobalDevice, &BusInfo);
 
-/*
-  WdfDeviceSetSpecialFileSupport(GlobalDevice, WdfSpecialFilePaging, TRUE);
-  WdfDeviceSetSpecialFileSupport(GlobalDevice, WdfSpecialFileHibernation, TRUE);
-  WdfDeviceSetSpecialFileSupport(GlobalDevice, WdfSpecialFileDump, TRUE);
-*/
-
   status = STATUS_SUCCESS;
 
   KdPrint((__DRIVER_NAME " <-- DeviceAdd\n"));
