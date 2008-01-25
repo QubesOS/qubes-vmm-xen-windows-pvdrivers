@@ -14,7 +14,7 @@ ExcludeFromSelect=*
 
 [Manufacturer]
 %XenGplPv%=XenGplPv,NTx86
-%XenGplPv%=XenGplPv,NTAMD64
+%XenGplPv%=XenGplPv,NTamd64
 
 [XenGplPv.NTx86]
 %XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001

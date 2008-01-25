@@ -110,11 +110,11 @@ XenVbd_Interrupt(PKINTERRUPT Interrupt, PVOID DeviceExtension)
 
   UNREFERENCED_PARAMETER(Interrupt);
 
-//  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
+  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
 
   TargetData->PendingInterrupt = TRUE;
 
-//  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
+  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
 
   return TRUE;
 }
@@ -131,7 +131,7 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
   PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)TargetData->DeviceData;
   int more_to_do = TRUE;
 
-//  KdPrint((__DRIVER_NAME " --> HwScsiInterruptTarget\n"));
+  KdPrint((__DRIVER_NAME " --> HwScsiInterruptTarget\n"));
 
   while (more_to_do)
   {
@@ -180,7 +180,7 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
     }
   }
 
-  //  KdPrint((__DRIVER_NAME " <-- HwScsiInterruptTarget\n"));
+  KdPrint((__DRIVER_NAME " <-- HwScsiInterruptTarget\n"));
 }
 
 static BOOLEAN
@@ -190,7 +190,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   PXENVBD_TARGET_DATA TargetData;
   int i, j;
 
-//  KdPrint((__DRIVER_NAME " --> HwScsiInterrupt\n"));
+  KdPrint((__DRIVER_NAME " --> HwScsiInterrupt\n"));
 
   DeviceData = (PXENVBD_DEVICE_DATA)DeviceExtension;
 
@@ -205,7 +205,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
       TargetData->PendingInterrupt = FALSE;
     }
   }
-//  KdPrint((__DRIVER_NAME " <-- HwScsiInterrupt\n"));
+  KdPrint((__DRIVER_NAME " <-- HwScsiInterrupt\n"));
 
   return TRUE;
 }
@@ -254,7 +254,7 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
       TargetData->EventChannel, XenVbd_Interrupt, TargetData);
     Mdl = AllocatePage();
-    PFN = *MmGetMdlPfnArray(Mdl);
+    PFN = (ULONG)*MmGetMdlPfnArray(Mdl);
     SharedRing = (blkif_sring_t *)MmGetMdlVirtualAddress(Mdl);
     SHARED_RING_INIT(SharedRing);
     FRONT_RING_INIT(&TargetData->Ring, SharedRing, PAGE_SIZE);
@@ -512,11 +512,11 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   UNREFERENCED_PARAMETER(HwContext);
   UNREFERENCED_PARAMETER(BusInformation);
   UNREFERENCED_PARAMETER(ArgumentString);
-
   KeInitializeSpinLock(&DeviceData->Lock);
-  KdPrint((__DRIVER_NAME " --> HwScsiFindAdapter\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));  
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
+//#if 0
   // testing this for dump mode
   if (KeGetCurrentIrql() > ConfigInfo->BusInterruptLevel)
     ConfigInfo->BusInterruptLevel = KeGetCurrentIrql();
@@ -529,12 +529,12 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   for (i = 0; i < ConfigInfo->NumberOfAccessRanges; i++)
   {
     AccessRange = &(*(ConfigInfo->AccessRanges))[i];
-    KdPrint((__DRIVER_NAME "     AccessRange %2d: RangeStart = %08x, RangeLength = %08x, RangeInMemory = %d\n", i, AccessRange->RangeStart.LowPart, AccessRange->RangeLength, AccessRange->RangeInMemory));
+    KdPrint((__DRIVER_NAME "     AccessRange %2d: RangeStart = %p, RangeLength = %x, RangeInMemory = %d\n", i, AccessRange->RangeStart.QuadPart, AccessRange->RangeLength, AccessRange->RangeInMemory));
     switch (i)
     {
     case 0:
-      DeviceData->XenDeviceData = (PVOID)(ULONG_PTR)AccessRange->RangeStart.QuadPart;
-      KdPrint((__DRIVER_NAME "     Mapped to virtual address %08x\n", DeviceData->XenDeviceData));
+      DeviceData->XenDeviceData = (PVOID)(xen_ulong_t)AccessRange->RangeStart.QuadPart;
+      KdPrint((__DRIVER_NAME "     Mapped to virtual address %p\n", DeviceData->XenDeviceData));
       KdPrint((__DRIVER_NAME "     Magic = %08x\n", DeviceData->XenDeviceData->Magic));
       if (DeviceData->XenDeviceData->Magic != XEN_DATA_MAGIC)
       {
@@ -547,14 +547,15 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
     }
   }
 
-  ConfigInfo->NumberOfBuses = SCSI_BUSES;
   ConfigInfo->MaximumTransferLength = BUF_PAGES_PER_SRB * PAGE_SIZE;
-  ConfigInfo->NumberOfPhysicalBreaks = BUF_PAGES_PER_SRB - 1; //11 - 1;
+KdPrint((__DRIVER_NAME "     NumberOfPhysicalBreaks = %d\n", ConfigInfo->NumberOfPhysicalBreaks));
+  ConfigInfo->NumberOfPhysicalBreaks = 2; //BUF_PAGES_PER_SRB - 1; //11 - 1;
   ConfigInfo->ScatterGather = TRUE;
   ConfigInfo->Master = FALSE;
   ConfigInfo->AlignmentMask = 0;
+  ConfigInfo->NumberOfBuses = SCSI_BUSES;
   ConfigInfo->MaximumNumberOfLogicalUnits = 1;
-  ConfigInfo->MaximumNumberOfTargets = SCSI_TARGETS_PER_BUS;
+  ConfigInfo->MaximumNumberOfTargets = SCSI_TARGETS_PER_BUS * SCSI_BUSES;
   //ConfigInfo->TaggedQueueing = TRUE;
 
 
@@ -597,9 +598,11 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
     //ScsiPortNotification(BusChangeDetected, DeviceData, 0);
   }
 
+//#endif
+
   *Again = FALSE;
 
-  KdPrint((__DRIVER_NAME " <-- HwScsiFindAdapter\n"));  
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));  
 
   return SP_RETURN_FOUND;
 }
@@ -743,7 +746,7 @@ XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
   {
     req->seg[i].gref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
-      0, MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i], FALSE);
+      0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i], FALSE);
     req->seg[i].first_sect = 0;
     if (i == req->nr_segments - 1)
       req->seg[i].last_sect = (UINT8)((BlockCount - 1) % (PAGE_SIZE / TargetData->BytesPerSector));
@@ -769,8 +772,8 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   unsigned int i;
   int notify;
 
-//  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
-//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   // If we haven't enumerated all the devices yet then just defer the request
   // A timer will issue a NextRequest to get things started again...
@@ -1069,7 +1072,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
     break;
   }
 
-//  KdPrint((__DRIVER_NAME " <-- HwScsiStartIo\n"));
+  KdPrint((__DRIVER_NAME " <-- HwScsiStartIo\n"));
 
   return TRUE;
 }

@@ -151,9 +151,6 @@ XenAddResource_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp)
     Stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList.PartialDescriptors[0].u.Memory.Length = sizeof(XENPCI_XEN_DEVICE_DATA);
     memcpy(&Stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList.PartialDescriptors[1], &XenDeviceData->InterruptTranslated, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
 
-//    KdPrint((__DRIVER_NAME "     AllocatedResources[0].Count = %d\n", Stack->Parameters.StartDevice.AllocatedResources->Count));
-//    KdPrint((__DRIVER_NAME "     AllocatedResources[0].List.PartialResourceList.Count = %d\n", Stack->Parameters.StartDevice.AllocatedResources->List[0].PartialResourceList.Count));
-
     IoSkipCurrentIrpStackLocation(Irp);
     Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
     break;

@@ -53,7 +53,7 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
   unsigned int port;
   ev_action_t *ev_action;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
   UNREFERENCED_PARAMETER(MessageID);
 
@@ -78,7 +78,7 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
       {
         if (ev_action->DpcFlag)
         {
-          KdPrint((__DRIVER_NAME " --- Scheduling Dpc\n"));
+//          KdPrint((__DRIVER_NAME " --- Scheduling Dpc\n"));
           WdfDpcEnqueue(ev_action->Dpc);
         }
         else
@@ -90,9 +90,10 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
     }
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-  return FALSE; // This needs to be FALSE so it can fall through to the scsiport ISR.
+  /* Need to return FALSE so we can fall through to the scsiport ISR. */
+  return FALSE;
 }
 
 NTSTATUS
