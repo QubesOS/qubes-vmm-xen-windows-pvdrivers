@@ -13,14 +13,16 @@ DefaultDestDir = 12
 CoInstaller_CopyFiles = 11
 
 [Manufacturer]
-%JAMESHARPER%=JAMESHARPER,NT$ARCH$
+%JAMESHARPER%=JAMESHARPER,NTx86
+%JAMESHARPER%=JAMESHARPER,NTamd64
 
-; For Win2K
 [JAMESHARPER]
 %XenHide.DRVDESC%=XenHide_Inst, *PNP0A03
 
-; For XP and later
-[JAMESHARPER.NT$ARCH$]
+[JAMESHARPER.NTx86]
+%XenHide.DRVDESC%=XenHide_Inst, *PNP0A03
+
+[JAMESHARPER.NTamd64]
 %XenHide.DRVDESC%=XenHide_Inst, *PNP0A03
 
 [XenHide_Inst.NT]
@@ -45,8 +47,11 @@ xenhide.sys
 xenhide.sys=1
 WdfCoinstaller01005.dll=1,,
 
-[SourceDisksNames]
+[SourceDisksNames.x86]
 1 = %DISK_NAME%,,,\i386
+
+[SourceDisksNames.amd64]
+1 = %DISK_NAME%,,,\amd64
 
 [XenHide_Inst.NT.Services]
 AddService=XenHide,,XenHide_Service_Inst

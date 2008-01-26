@@ -61,7 +61,7 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
 
   vcpu_info->evtchn_upcall_pending = 0;
 
-  evt_words = xchg((volatile xen_long_t *)&vcpu_info->evtchn_pending_sel, 0);
+  evt_words = (xen_ulong_t)xchg((volatile xen_long_t *)&vcpu_info->evtchn_pending_sel, 0);
   
   while (bit_scan_forward(&evt_word, evt_words))
   {

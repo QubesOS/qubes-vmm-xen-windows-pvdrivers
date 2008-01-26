@@ -89,6 +89,7 @@ static void release_xenbus_id(WDFDEVICE Device, int id)
 //    spin_unlock(&req_lock);
 }
 
+// This routine free's the rep structure if there was an error!!!
 static char *errmsg(struct xsd_sockmsg *rep)
 {
   char *res;
@@ -628,13 +629,13 @@ XenBus_AddWatch(
   rep = xenbus_msg_reply(Device, XS_WATCH, xbt, req, ARRAY_SIZE(req));
 
   msg = errmsg(rep);
-  ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
   if (msg)
   {
     xpdd->XenBus_WatchEntries[i].Active = 0;
     KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch (%s)\n", msg));
     return msg;
   }
+  ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
 
@@ -712,8 +713,6 @@ XenBus_RemWatch(
   {
     return msg;
   }
-
-  ASSERT(rep != NULL);
 
   ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
 

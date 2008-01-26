@@ -3,7 +3,6 @@ Signature="$WINDOWS NT$"
 Class=SCSIAdapter
 ClassGuid={4D36E97B-E325-11CE-BFC1-08002BE10318}
 Provider=%XenGplPv%
-DriverVer=12/10/2007,0.4.0.1
 
 [DestinationDirs]
 DefaultDestDir = 12
@@ -31,8 +30,8 @@ xenvbd.sys
 xenaddresource.sys
 
 [XenVbd_Inst.NT.Services]
-AddService=XenVbd,2,XenVbd_Service 
-AddService=XenAddResource,,XenAddResource_Service 
+AddService=XenVbd,2,XenVbd_Service, XenVbd_EventLog
+AddService=XenAddResource,,XenAddResource_Service
 
 [XenVbd_Service]
 DisplayName    = %XenVbd.SVCDESC%                            
@@ -45,6 +44,13 @@ AddReg = XenVbd_Service_AddReg
 
 [XenVbd_Service_AddReg]
 HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+
+[XenVbd_EventLog]
+AddReg = XenVbd_EventLog_AddReg
+
+[XenVbd_EventLog_AddReg]
+HKR,,EventMessageFile,0x00020000,"%SystemRoot%\System32\IoLogMsg.dll;%SystemRoot%\System32\drivers\XenVbd.sys"
+HKR,,TypesSupported,0x00010001,7
 
 [XenVbd_Inst.NT.CoInstallers]
 AddReg=CoInstaller_AddReg

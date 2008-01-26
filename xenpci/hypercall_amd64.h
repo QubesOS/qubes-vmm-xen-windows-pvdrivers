@@ -25,19 +25,6 @@ HYPERVISOR_memory_op(WDFDEVICE Device, int cmd, void *arg)
   PCHAR memory_op_func = GetDeviceData(Device)->hypercall_stubs;
   memory_op_func += __HYPERVISOR_memory_op * 32;
   return _hypercall2(memory_op_func, cmd, arg);
-  
-/*
-  long __res;
-  __asm {
-    mov ebx, cmd
-    mov ecx, arg
-    mov eax, hypercall_stubs
-    add eax, (__HYPERVISOR_memory_op * 32)
-    call eax
-    mov [__res], eax
-  }
-  return __res;
-*/
 }
 
 static __inline int
@@ -46,21 +33,9 @@ HYPERVISOR_xen_version(WDFDEVICE Device, int cmd, void *arg)
   PCHAR xen_version_func = GetDeviceData(Device)->hypercall_stubs;
   xen_version_func += __HYPERVISOR_xen_version * 32;
   return _hypercall2(xen_version_func, cmd, arg);
-/*
-  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
-  long __res;
-  __asm {
-    mov ebx, cmd
-    mov ecx, arg
-    mov eax, hypercall_stubs
-    add eax, (__HYPERVISOR_xen_version * 32)
-    call eax
-    mov [__res], eax
-  }
-  return __res;
-*/
 }
 
+#if 0
 static __inline int
 HYPERVISOR_grant_table_op(WDFDEVICE Device, int cmd, void *uop, unsigned int count)
 {
@@ -125,6 +100,7 @@ HYPERVISOR_console_io(WDFDEVICE Device, int cmd, int count, char *string)
 */
   return -1;
 }
+#endif
 
 static __inline int
 HYPERVISOR_hvm_op(WDFDEVICE Device, int op, struct xen_hvm_param *arg)
@@ -132,19 +108,6 @@ HYPERVISOR_hvm_op(WDFDEVICE Device, int op, struct xen_hvm_param *arg)
   PCHAR hvm_op_func = GetDeviceData(Device)->hypercall_stubs;
   hvm_op_func += __HYPERVISOR_hvm_op * 32;
   return _hypercall2(hvm_op_func, op, arg);
-/*
-  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
-  long __res;
-  __asm {
-    mov ebx, op
-    mov ecx, arg
-    mov eax, hypercall_stubs
-    add eax, (__HYPERVISOR_hvm_op * 32)
-    call eax
-    mov [__res], eax
-  }
-  return __res;
-*/
 }
 
 static __inline int
@@ -153,19 +116,6 @@ HYPERVISOR_event_channel_op(WDFDEVICE Device, int cmd, void *op)
   PCHAR event_channel_op_func = GetDeviceData(Device)->hypercall_stubs;
   event_channel_op_func += __HYPERVISOR_event_channel_op * 32;
   return _hypercall2(event_channel_op_func, cmd, op);
-/*
-  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
-  long __res;
-  __asm {
-    mov ebx, cmd
-    mov ecx, op
-    mov eax, hypercall_stubs
-    add eax, (__HYPERVISOR_event_channel_op * 32)
-    call eax
-    mov [__res], eax
-  }
-  return __res;
-*/
 }
 
 static __inline ULONGLONG

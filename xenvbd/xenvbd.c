@@ -56,7 +56,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HwInitializationData.HwFindAdapter = XenVbd_HwScsiFindAdapter;
   HwInitializationData.HwResetBus = XenVbd_HwScsiResetBus;
   HwInitializationData.HwDmaStarted = NULL;
-  HwInitializationData.HwAdapterState = NULL;
+  HwInitializationData.HwAdapterState = XenVbd_HwScsiAdapterState;
   HwInitializationData.DeviceExtensionSize = sizeof(XENVBD_DEVICE_DATA);
   HwInitializationData.SpecificLuExtensionSize = 0;
   HwInitializationData.SrbExtensionSize = 0;
@@ -65,7 +65,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HwInitializationData.NeedPhysicalAddresses = FALSE;
   HwInitializationData.TaggedQueuing = TRUE;
   HwInitializationData.AutoRequestSense = FALSE;
-  HwInitializationData.MultipleRequestPerLu = FALSE;
+  HwInitializationData.MultipleRequestPerLu = TRUE;
   HwInitializationData.ReceiveEvent = FALSE;
   HwInitializationData.VendorIdLength = 0;
   HwInitializationData.VendorId = NULL;
@@ -110,11 +110,11 @@ XenVbd_Interrupt(PKINTERRUPT Interrupt, PVOID DeviceExtension)
 
   UNREFERENCED_PARAMETER(Interrupt);
 
-  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
+//  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
 
   TargetData->PendingInterrupt = TRUE;
 
-  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
+//  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
 
   return TRUE;
 }
@@ -190,7 +190,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   PXENVBD_TARGET_DATA TargetData;
   int i, j;
 
-  KdPrint((__DRIVER_NAME " --> HwScsiInterrupt\n"));
+//  KdPrint((__DRIVER_NAME " --> HwScsiInterrupt\n"));
 
   DeviceData = (PXENVBD_DEVICE_DATA)DeviceExtension;
 
@@ -205,7 +205,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
       TargetData->PendingInterrupt = FALSE;
     }
   }
-  KdPrint((__DRIVER_NAME " <-- HwScsiInterrupt\n"));
+//  KdPrint((__DRIVER_NAME " <-- HwScsiInterrupt\n"));
 
   return TRUE;
 }
@@ -412,7 +412,7 @@ XenVbd_WatchHandler(char *Path, PVOID DeviceExtension)
   KIRQL OldIrql;
   int i;
 
-  KdPrint((__DRIVER_NAME " --> WatchHandler (DeviceData = %08x)\n", DeviceData));
+  KdPrint((__DRIVER_NAME " --> WatchHandler (DeviceData = %p)\n", DeviceData));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   KdPrint((__DRIVER_NAME "     Path = %s\n", Path));
@@ -516,10 +516,9 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));  
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
-//#if 0
   // testing this for dump mode
-  if (KeGetCurrentIrql() > ConfigInfo->BusInterruptLevel)
-    ConfigInfo->BusInterruptLevel = KeGetCurrentIrql();
+//  if (KeGetCurrentIrql() > ConfigInfo->BusInterruptLevel)
+//    ConfigInfo->BusInterruptLevel = KeGetCurrentIrql();
 
   KdPrint((__DRIVER_NAME "     BusInterruptLevel = %d\n", ConfigInfo->BusInterruptLevel));
   KdPrint((__DRIVER_NAME "     BusInterruptVector = %d\n", ConfigInfo->BusInterruptVector));
@@ -546,19 +545,21 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
       break;
     }
   }
-
+  ConfigInfo->Master = TRUE; // Won't work under x64 without this...
   ConfigInfo->MaximumTransferLength = BUF_PAGES_PER_SRB * PAGE_SIZE;
-KdPrint((__DRIVER_NAME "     NumberOfPhysicalBreaks = %d\n", ConfigInfo->NumberOfPhysicalBreaks));
-  ConfigInfo->NumberOfPhysicalBreaks = 2; //BUF_PAGES_PER_SRB - 1; //11 - 1;
+  ConfigInfo->NumberOfPhysicalBreaks = BUF_PAGES_PER_SRB - 1;
   ConfigInfo->ScatterGather = TRUE;
-  ConfigInfo->Master = FALSE;
   ConfigInfo->AlignmentMask = 0;
   ConfigInfo->NumberOfBuses = SCSI_BUSES;
+  for (i = 0; i < ConfigInfo->NumberOfBuses; i++)
+  {
+    ConfigInfo->InitiatorBusId[i] = 7;
+  }
   ConfigInfo->MaximumNumberOfLogicalUnits = 1;
-  ConfigInfo->MaximumNumberOfTargets = SCSI_TARGETS_PER_BUS * SCSI_BUSES;
-  //ConfigInfo->TaggedQueueing = TRUE;
-
-
+  ConfigInfo->MaximumNumberOfTargets = SCSI_TARGETS_PER_BUS;
+//  ConfigInfo->TaggedQueueing = TRUE;
+  if (ConfigInfo->Dma64BitAddresses == SCSI_DMA64_SYSTEM_SUPPORTED)
+    ConfigInfo->Dma64BitAddresses = SCSI_DMA64_MINIPORT_SUPPORTED;
   // This all has to be initialized here as the real Initialize routine
   // is called at DIRQL, and the XenBus stuff has to be called at
   // <= DISPATCH_LEVEL
@@ -597,8 +598,6 @@ KdPrint((__DRIVER_NAME "     NumberOfPhysicalBreaks = %d\n", ConfigInfo->NumberO
     }
     //ScsiPortNotification(BusChangeDetected, DeviceData, 0);
   }
-
-//#endif
 
   *Again = FALSE;
 
