@@ -113,83 +113,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   InitializeListHead(&ShutdownMsgList);
   KeInitializeSpinLock(&ShutdownMsgLock);
 
-  RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
-  InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
-  status = ZwOpenKey(&RegHandle, KEY_READ, &RegObjectAttributes);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     ZwOpenKey returned %08x\n", status));
-  }
-
-  RtlInitUnicodeString(&RegValueName, L"SystemStartOptions");
-  status = ZwQueryValueKey(RegHandle, &RegValueName, KeyValuePartialInformation, Buf, BufLen, &BufLen);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     ZwQueryKeyValue returned %08x\n", status));
-  }
-  //KdPrint((__DRIVER_NAME "     BufLen = %d\n", BufLen));
-  KeyPartialValue = (PKEY_VALUE_PARTIAL_INFORMATION)Buf;
-  KdPrint((__DRIVER_NAME "     Buf = %ws\n", KeyPartialValue->Data));
-  SystemStartOptions = (WCHAR *)KeyPartialValue->Data;
-
-  AutoEnumerate = FALSE;
-
-  RtlStringCbLengthW(SystemStartOptions, KeyPartialValue->DataLength, &SystemStartOptionsLen);
-
-  for (i = 0; i <= SystemStartOptionsLen/2; i++)
-  {
-    //KdPrint((__DRIVER_NAME "     pos = %d, state = %d, char = '%wc' (%d)\n", i, State, SystemStartOptions[i], SystemStartOptions[i]));
-    
-    switch (State)
-    {
-    case 0:
-      if (SystemStartOptions[i] == L'G')
-      {
-        StartPos = (int)i;
-        State = 2;
-      } else if (SystemStartOptions[i] != L' ')
-      {
-        State = 1;
-      }
-      break;
-    case 1:
-      if (SystemStartOptions[i] == L' ')
-        State = 0;
-      break;
-    case 2:
-      if (SystemStartOptions[i] == L'P')
-        State = 3;
-      else
-        State = 0;
-      break;
-    case 3:
-      if (SystemStartOptions[i] == L'L')
-        State = 4;
-      else
-        State = 0;
-      break;
-    case 4:
-      if (SystemStartOptions[i] == L'P')
-        State = 5;
-      else
-        State = 0;
-      break;
-    case 5:
-      if (SystemStartOptions[i] == L'V')
-        State = 6;
-      else
-        State = 0;
-      break;
-    case 6:
-      if (SystemStartOptions[i] == L' ' || SystemStartOptions[i] == 0)
-        AutoEnumerate = TRUE;
-      State = 0;
-      break;
-    }
-  }
-
-  KdPrint((__DRIVER_NAME "     AutoEnumerate = %d\n", AutoEnumerate));
-
   WDF_DRIVER_CONFIG_INIT(&config, XenPCI_AddDevice);
   status = WdfDriverCreate(
                       DriverObject,
@@ -342,6 +265,7 @@ XenPCI_AddDevice(
   DECLARE_CONST_UNICODE_STRING(SymbolicName, L"\\DosDevices\\XenShutdown");
   WDFDEVICE Device;
   PXENPCI_DEVICE_DATA xpdd;
+  PWSTR InterfaceList;
 
   UNREFERENCED_PARAMETER(Driver);
 
@@ -388,10 +312,16 @@ XenPCI_AddDevice(
   WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileHibernation, TRUE);
   WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileDump, TRUE);
 
-  Status = WdfFdoQueryForInterface(Device, &GUID_BUS_INTERFACE_STANDARD, (PINTERFACE) &BusInterface, sizeof(BUS_INTERFACE_STANDARD), 1, NULL);
-  if(!NT_SUCCESS(Status))
+  Status = IoGetDeviceInterfaces(&GUID_XENHIDE_IFACE, NULL, 0, &InterfaceList);
+  if (!NT_SUCCESS(Status) || InterfaceList == NULL || *InterfaceList == 0)
   {
-    KdPrint((__DRIVER_NAME "     WdfFdoQueryForInterface (BusInterface) failed with Status 0x%08x\n", Status));
+    AutoEnumerate = FALSE;
+    KdPrint((__DRIVER_NAME "     XenHide not loaded or GPLPV not specified\n", Status));
+  }
+  else
+  {
+    AutoEnumerate = TRUE;
+    KdPrint((__DRIVER_NAME "     XenHide loaded and GPLPV specified\n", Status));
   }
 
   busInfo.BusTypeGuid = GUID_XENPCI_DEVCLASS;
@@ -400,7 +330,7 @@ XenPCI_AddDevice(
 
   WdfDeviceSetBusInformationForChildren(Device, &busInfo);
 
-  WDF_INTERRUPT_CONFIG_INIT(&InterruptConfig, EvtChn_Interrupt, NULL); //EvtChn_InterruptDpc);
+  WDF_INTERRUPT_CONFIG_INIT(&InterruptConfig, EvtChn_Interrupt, NULL);
   InterruptConfig.EvtInterruptEnable = XenPCI_InterruptEnable;
   InterruptConfig.EvtInterruptDisable = XenPCI_InterruptDisable;
   Status = WdfInterruptCreate(Device, &InterruptConfig, WDF_NO_OBJECT_ATTRIBUTES, &xpdd->XenInterrupt);

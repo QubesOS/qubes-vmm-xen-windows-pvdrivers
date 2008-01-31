@@ -41,10 +41,7 @@ XenEnum_WatchHandler(char *Path, PVOID Data);
 #endif
 
 LIST_ENTRY DeviceListHead;
-//XEN_IFACE_EVTCHN EvtChnInterface;
-//XEN_IFACE_XENBUS XenBusInterface;
 XEN_IFACE XenInterface;
-//XEN_IFACE_GNTTBL GntTblInterface;
 
 static BOOLEAN AutoEnumerate;
 
@@ -79,84 +76,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   {
     KdPrint((__DRIVER_NAME " WdfDriverCreate failed with status 0x%08x\n", status));
   }
-
-  RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
-  InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
-  status = ZwOpenKey(&RegHandle, KEY_READ, &RegObjectAttributes);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     ZwOpenKey returned %08x\n", status));
-  }
-
-  RtlInitUnicodeString(&RegValueName, L"SystemStartOptions");
-  status = ZwQueryValueKey(RegHandle, &RegValueName, KeyValuePartialInformation,
-    Buf, ARRAY_SIZE(Buf), &BufLen);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     ZwQueryKeyValue returned %08x\n", status));
-  }
-  //KdPrint((__DRIVER_NAME "     BufLen = %d\n", BufLen));
-  KeyPartialValue = (PKEY_VALUE_PARTIAL_INFORMATION)Buf;
-  KdPrint((__DRIVER_NAME "     Buf = %ws\n", KeyPartialValue->Data));
-  SystemStartOptions = (WCHAR *)KeyPartialValue->Data;
-
-  AutoEnumerate = FALSE;
-
-  RtlStringCbLengthW(SystemStartOptions, KeyPartialValue->DataLength, &SystemStartOptionsLen);
-
-  for (i = 0; i <= SystemStartOptionsLen/2; i++)
-  {
-    //KdPrint((__DRIVER_NAME "     pos = %d, state = %d, char = '%wc' (%d)\n", i, State, SystemStartOptions[i], SystemStartOptions[i]));
-    
-    switch (State)
-    {
-    case 0:
-      if (SystemStartOptions[i] == L'G')
-      {
-        StartPos = i;
-        State = 2;
-      } else if (SystemStartOptions[i] != L' ')
-      {
-        State = 1;
-      }
-      break;
-    case 1:
-      if (SystemStartOptions[i] == L' ')
-        State = 0;
-      break;
-    case 2:
-      if (SystemStartOptions[i] == L'P')
-        State = 3;
-      else
-        State = 0;
-      break;
-    case 3:
-      if (SystemStartOptions[i] == L'L')
-        State = 4;
-      else
-        State = 0;
-      break;
-    case 4:
-      if (SystemStartOptions[i] == L'P')
-        State = 5;
-      else
-        State = 0;
-      break;
-    case 5:
-      if (SystemStartOptions[i] == L'V')
-        State = 6;
-      else
-        State = 0;
-      break;
-    case 6:
-      if (SystemStartOptions[i] == L' ' || SystemStartOptions[i] == 0)
-        AutoEnumerate = TRUE;
-      State = 0;
-      break;
-    }
-  }
-
-  KdPrint((__DRIVER_NAME "     AutoEnumerate = %d\n", AutoEnumerate));
 
   KdPrint((__DRIVER_NAME " <-- DriverEntry\n"));
 
@@ -294,12 +213,12 @@ XenEnum_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pr
   //KdPrint((__DRIVER_NAME "     Path = %s\n", PdoDeviceData->Path));
   PdoDeviceData->WatchHandler = XenEnum_WatchHandler;
   PdoDeviceData->WatchContext = Device;
+  AutoEnumerate = PdoDeviceData->AutoEnumerate;
 
   EnumeratedDevices = 0;
   KeInitializeEvent(&WaitDevicesEvent, SynchronizationEvent, FALSE);  
 
   // TODO: Should probably do this in an EvtChildListScanForChildren
-  // TODO: Get the correct path from parent here...
   msg = XenInterface.XenBus_List(XenInterface.InterfaceHeader.Context, XBT_NIL, PdoDeviceData->Path, &Devices);
   if (!msg)
   {

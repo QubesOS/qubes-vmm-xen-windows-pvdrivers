@@ -35,7 +35,7 @@ XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Con
 #pragma alloc_text (INIT, DriverEntry)
 #endif
 
-static BOOLEAN AutoEnumerate;
+//static BOOLEAN AutoEnumerate;
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
@@ -131,7 +131,7 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
   PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)TargetData->DeviceData;
   int more_to_do = TRUE;
 
-  KdPrint((__DRIVER_NAME " --> HwScsiInterruptTarget\n"));
+//  KdPrint((__DRIVER_NAME " --> HwScsiInterruptTarget\n"));
 
   while (more_to_do)
   {
@@ -180,7 +180,7 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
     }
   }
 
-  KdPrint((__DRIVER_NAME " <-- HwScsiInterruptTarget\n"));
+//  KdPrint((__DRIVER_NAME " <-- HwScsiInterruptTarget\n"));
 }
 
 static BOOLEAN
@@ -261,6 +261,7 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
     ref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
       0, PFN, FALSE);
+    ASSERT((signed short)ref >= 0);
 
     TargetData->shadow = ExAllocatePoolWithTag(NonPagedPool, sizeof(blkif_shadow_t) * BLK_RING_SIZE, XENVBD_POOL_TAG);
 
@@ -746,6 +747,7 @@ XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
     req->seg[i].gref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
       0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i], FALSE);
+    ASSERT((signed short)req->seg[i].gref >= 0);
     req->seg[i].first_sect = 0;
     if (i == req->nr_segments - 1)
       req->seg[i].last_sect = (UINT8)((BlockCount - 1) % (PAGE_SIZE / TargetData->BytesPerSector));

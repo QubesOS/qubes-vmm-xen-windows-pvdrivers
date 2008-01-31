@@ -135,7 +135,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   KdPrint((__DRIVER_NAME "     AutoEnumerate = %d\n", AutoEnumerate));
 
-
   WDF_DRIVER_CONFIG_INIT(&config, XenHide_AddDevice);
   status = WdfDriverCreate(
                       DriverObject,
@@ -156,6 +155,43 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 static NTSTATUS
 XenHide_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp);
 
+static VOID 
+XenPCI_IoDefault(
+    IN WDFQUEUE  Queue,
+    IN WDFREQUEST  Request
+    )
+{
+  UNREFERENCED_PARAMETER(Queue);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  WdfRequestComplete(Request, STATUS_NOT_IMPLEMENTED);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
+static VOID 
+XenPCI_IoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
+{
+  PCHAR Buffer;
+  size_t BufLen;
+
+  UNREFERENCED_PARAMETER(Queue);
+  UNREFERENCED_PARAMETER(Length);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  WdfRequestRetrieveOutputBuffer(Request, 1, &Buffer, &BufLen);
+
+  ASSERT(BufLen > 0);
+
+  Buffer[0] = 1;
+
+  WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, 1);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
 static NTSTATUS
 XenHide_AddDevice(
     IN WDFDRIVER Driver,
@@ -164,7 +200,7 @@ XenHide_AddDevice(
 {
   NTSTATUS status;
   WDF_OBJECT_ATTRIBUTES attributes;
-  UCHAR MinorFunctions[1] = { IRP_MN_QUERY_DEVICE_RELATIONS };
+  UCHAR MinorFunctions[3] = { IRP_MN_QUERY_DEVICE_RELATIONS };
 
   UNREFERENCED_PARAMETER(Driver);
 
@@ -173,20 +209,30 @@ XenHide_AddDevice(
 
   WdfFdoInitSetFilter(DeviceInit);
 
-  WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
-
-  status = WdfDeviceInitAssignWdmIrpPreprocessCallback(DeviceInit, XenHide_PreprocessWdmIrpPNP, IRP_MJ_PNP, MinorFunctions, 1);
+  status = WdfDeviceInitAssignWdmIrpPreprocessCallback(DeviceInit, XenHide_PreprocessWdmIrpPNP, IRP_MJ_PNP, MinorFunctions, 3);
   if(!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     WdfDeviceInitAssignWdmIrpPreprocessCallback failed with status 0x%08x\n", status));
     return status;
   }
 
+  WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+
   status = WdfDeviceCreate(&DeviceInit, &attributes, &Device);  
   if(!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     WdfDeviceCreate failed with status 0x%08x\n", status));
     return status;
+  }
+
+  if (AutoEnumerate)
+  {
+    status = WdfDeviceCreateDeviceInterface(Device, (LPGUID)&GUID_XENHIDE_IFACE, NULL);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint((__DRIVER_NAME "     WdfDeviceCreateDeviceInterface failed 0x%08x\n", status));
+      return status;
+    }
   }
 
   KdPrint((__DRIVER_NAME " <-- DeviceAdd\n"));
@@ -272,7 +318,7 @@ XenHide_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp)
   NTSTATUS Status = STATUS_SUCCESS;
   PIO_STACK_LOCATION Stack;
 
-  KdPrint((__DRIVER_NAME " --> WdmIrpPreprocessPNP\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   Stack = IoGetCurrentIrpStackLocation(Irp);
@@ -318,6 +364,27 @@ XenHide_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp)
       break;  
     }
     break;
+  case IRP_MN_QUERY_INTERFACE:
+    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_INTERFACE\n"));
+    if (memcmp(Stack->Parameters.QueryInterface.InterfaceType, &GUID_XENHIDE_IFACE, sizeof(GUID)) == 0)
+    {
+      KdPrint((__DRIVER_NAME "     Interface == GUID_XENHIDE_IFACE\n"));
+    }
+    IoSkipCurrentIrpStackLocation(Irp);
+    Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
+    break;
+  case IRP_MN_QUERY_BUS_INFORMATION:
+    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_BUS_INFORMATION\n"));
+    IoSkipCurrentIrpStackLocation(Irp);
+    Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
+    break;
+/*
+  case IRP_MN_START_DEVICE:
+    KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE\n"));
+    IoSkipCurrentIrpStackLocation(Irp);
+    Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
+    break;
+*/
   default:
     IoSkipCurrentIrpStackLocation(Irp);
     Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
@@ -325,7 +392,7 @@ XenHide_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp)
     break;
   }
 
-  KdPrint((__DRIVER_NAME " <-- WdmIrpPreprocessPNP (returning with status %08x\n", Status));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returning with status %08x)\n", Status));
 
   return Status;
 }
