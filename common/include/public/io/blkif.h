@@ -71,6 +71,9 @@
  */
 #define BLKIF_MAX_SEGMENTS_PER_REQUEST 11
 
+#if defined(__i386__)
+#pragma pack(4)
+#endif
 struct blkif_request_segment {
     grant_ref_t gref;        /* reference to I/O buffer frame        */
     /* @first_sect: first sector in frame to transfer (inclusive).   */
@@ -94,6 +97,9 @@ struct blkif_response {
     int16_t         status;          /* BLKIF_RSP_???       */
 };
 typedef struct blkif_response blkif_response_t;
+#if defined(__i386__)
+#pragma pack()
+#endif
 
 /*
  * STATUS RETURN CODES.

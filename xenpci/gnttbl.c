@@ -38,15 +38,6 @@ get_free_entry(WDFDEVICE Device)
   return ref;
 }
 
-/*
-struct grant_entry {
-    uint16_t flags;
-    domid_t  domid;
-    uint32_t frame;
-};
-typedef struct grant_entry grant_entry_t;
-*/
-
 static int 
 GntTab_Map(WDFDEVICE Device, unsigned int start_idx, unsigned int end_idx)
 {
@@ -115,7 +106,6 @@ GntTbl_GrantAccess(
   ref = get_free_entry(Device);
   xpdd->gnttab_table[ref].frame = frame;
   xpdd->gnttab_table[ref].domid = domid;
-  //_WriteBarrier();
   KeMemoryBarrier();
   readonly *= GTF_readonly;
   xpdd->gnttab_table[ref].flags = GTF_permit_access | (uint16_t)readonly;

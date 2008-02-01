@@ -108,12 +108,15 @@ AllocatePages(int Pages)
   if (Buf == NULL)
   {
     KdPrint((__DRIVER_NAME "     AllocatePages Failed at ExAllocatePoolWithTag\n"));
+    return NULL;
   }
   KdPrint((__DRIVER_NAME " --- AllocatePages IRQL = %d, Buf = %p\n", KeGetCurrentIrql(), Buf));
   Mdl = IoAllocateMdl(Buf, Pages * PAGE_SIZE, FALSE, FALSE, NULL);
   if (Mdl == NULL)
   {
+    // free the memory here
     KdPrint((__DRIVER_NAME "     AllocatePages Failed at IoAllocateMdl\n"));
+    return NULL;
   }
   MmBuildMdlForNonPagedPool(Mdl);
   

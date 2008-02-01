@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <xen_public.h>
 #include <io/xenbus.h>
+#include <io/protocols.h>
 
 #pragma warning(disable: 4127)
 
@@ -140,6 +141,9 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
     for (i = TargetData->Ring.rsp_cons; i != rp; i++)
     {
       rep = RING_GET_RESPONSE(&TargetData->Ring, i);
+//KdPrint((__DRIVER_NAME "     rep = %p\n", rep));
+//KdPrint((__DRIVER_NAME "     rep->id = %d\n", rep->id));
+
       Srb = TargetData->shadow[rep->id].Srb;
       BlockCount = (Srb->Cdb[7] << 8) | Srb->Cdb[8];
 
@@ -282,11 +286,19 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
     RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
     RtlStringCbCatA(TmpPath, 128, "/event-channel");
     DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", TargetData->EventChannel);
+
+    RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
+    RtlStringCbCatA(TmpPath, 128, "/protocol");
+    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%s", XEN_IO_PROTO_ABI_NATIVE);
+//    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%s", XEN_IO_PROTO_ABI_X86_64);
   
     RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
     RtlStringCbCatA(TmpPath, 128, "/state");
     DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", XenbusStateInitialised);
 
+    KdPrint((__DRIVER_NAME "     sizeof(blkif_request) = %d\n", sizeof(struct blkif_request)));
+    KdPrint((__DRIVER_NAME "     sizeof( blkif_request_segment) = %d\n", sizeof(struct blkif_request_segment)));
+    KdPrint((__DRIVER_NAME "     sizeof(blkif_response) = %d\n", sizeof(struct blkif_response)));
     KdPrint((__DRIVER_NAME "     Set Frontend state to Initialised\n"));
     break;
 
@@ -712,7 +724,7 @@ XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
 
 // can use SRB_STATUS_BUSY to push the SRB back to windows...
 
-//  KdPrint((__DRIVER_NAME " --> PutSrbOnRing\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   if (RING_FULL(&TargetData->Ring))
   {
@@ -726,6 +738,10 @@ XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
   BlockCount = (Srb->Cdb[7] << 8) | Srb->Cdb[8];
 
   req->id = GET_ID_FROM_FREELIST(TargetData);
+
+//KdPrint((__DRIVER_NAME "     req = %p\n", req));
+//KdPrint((__DRIVER_NAME "     req->id = %ld\n", req->id));
+//KdPrint((__DRIVER_NAME "     ((blkif_response *)req)->id = %ld\n", req->id));
 
   if (req->id == 0x0fffffff)
   {
@@ -742,11 +758,16 @@ XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
   req->nr_segments = (UINT8)((BlockCount * TargetData->BytesPerSector + PAGE_SIZE - 1) / PAGE_SIZE);
 //  KdPrint((__DRIVER_NAME "     req->nr_segments = %08X\n", req->nr_segments));
 
+
   for (i = 0; i < req->nr_segments; i++)
   {
+//KdPrint((__DRIVER_NAME "     (ULONG)MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i] = %d\n", (ULONG)MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i]));
+//KdBreakPoint();
     req->seg[i].gref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
       0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i], FALSE);
+//KdPrint((__DRIVER_NAME "     req->seg[i].gref = %d\n", req->seg[i].gref));
+//KdBreakPoint();
     ASSERT((signed short)req->seg[i].gref >= 0);
     req->seg[i].first_sect = 0;
     if (i == req->nr_segments - 1)
@@ -760,7 +781,7 @@ XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
   TargetData->shadow[req->id].req = *req;
   TargetData->Ring.req_prod_pvt++;
 
-//  KdPrint((__DRIVER_NAME " <-- PutSrbOnRing\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static BOOLEAN
@@ -773,8 +794,8 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   unsigned int i;
   int notify;
 
-  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+//  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
+//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   // If we haven't enumerated all the devices yet then just defer the request
   // A timer will issue a NextRequest to get things started again...
@@ -1073,7 +1094,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
     break;
   }
 
-  KdPrint((__DRIVER_NAME " <-- HwScsiStartIo\n"));
+//  KdPrint((__DRIVER_NAME " <-- HwScsiStartIo\n"));
 
   return TRUE;
 }
