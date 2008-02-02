@@ -72,9 +72,9 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   }
   else
     ZwClose(RegHandle);
-  KdPrint((__DRIVER_NAME "     BufLen = %d\n", BufLen));
+//  KdPrint((__DRIVER_NAME "     BufLen = %d\n", BufLen));
   KeyPartialValue = (PKEY_VALUE_PARTIAL_INFORMATION)Buf;
-  KdPrint((__DRIVER_NAME "     Buf = %ws\n", KeyPartialValue->Data));
+//  KdPrint((__DRIVER_NAME "     Buf = %ws\n", KeyPartialValue->Data));
   SystemStartOptions = (WCHAR *)KeyPartialValue->Data;
 
   AutoEnumerate = FALSE;
@@ -274,11 +274,11 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
 
     Length = sizeof(Buffer);
     IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyDeviceDescription, Length, Buffer, &Length);
-    KdPrint((__DRIVER_NAME "     %3d - %ws\n", i, Buffer));
+//    KdPrint((__DRIVER_NAME "     %3d - %ws\n", i, Buffer));
 
     Length = sizeof(Buffer);
     IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyPhysicalDeviceObjectName, Length, Buffer, &Length);
-    KdPrint((__DRIVER_NAME "     %3d - %ws\n", i, Buffer));
+//    KdPrint((__DRIVER_NAME "     %3d - %ws\n", i, Buffer));
 
     Length = sizeof(Buffer);
     IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyHardwareID, Length, Buffer, &Length);
@@ -286,7 +286,7 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
     StrLen = 0;
     for (Ptr = Buffer; *Ptr != 0; Ptr += StrLen + 1)
     {
-      KdPrint((__DRIVER_NAME "         - %ws\n", Ptr));
+//      KdPrint((__DRIVER_NAME "         - %ws\n", Ptr));
       // Qemu PCI
       if (XenHide_StringMatches(Ptr, L"PCI\\VEN_8086&DEV_7010&SUBSYS_00015853")) {
         Match = 1;
@@ -301,7 +301,7 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
     }
     if (Match)
     {
-      KdPrint((__DRIVER_NAME "           (Match)\n"));
+//      KdPrint((__DRIVER_NAME "           (Match)\n"));
       Offset++;
     }
   }

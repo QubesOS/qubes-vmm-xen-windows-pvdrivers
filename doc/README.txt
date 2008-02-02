@@ -5,8 +5,7 @@ Block and Network drivers are supported, and a service is supplied which
 will respond to 'xm shutdown' and 'xm reboot' commands.
 
 My test environment is Xen 3.1.1 (64 bit Hypervisor) and Windows 2003 
-sp2 (32 bit PAE). YMMV. There have definitely been problems reported on
-Intel architectures.
+sp2 (32, 32p, 64). YMMV.
 
 You can get the source using Mercurial at 
 http://xenbits.xensource.com/ext/win-pvdrivers.hg. 
@@ -24,4 +23,3 @@ See BUILDING.txt for instructions on building the drivers.
 See INSTALLING.txt for instructions on installing the drivers. 
 
 See TODO.txt for known problems and future plans. 
-

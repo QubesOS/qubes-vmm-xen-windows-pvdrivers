@@ -4,10 +4,8 @@ own too, so this code is mostly one, the other, both, or neither. I'll
 get to that as soon as I figure out what coding style to use and where.
 
 Known problems or things that need doing to make it properly useful:
-. Test under environments other than 32-bit PAE Windows 2003.
 . No power management
 . Almost certainly won't support migration or suspend/resume.
-. Reports of problems on Intel systems
 . Not enough testing under SMP.
 . Probably lots of other things too.
 
@@ -19,4 +17,3 @@ TODO:
 . Fix BSoD crash dump under vbd (currently just hangs without writing
   a dump file)
 . Correctly handle CD changes
-. Prevent xenvbd loading if the pci ide driver is loaded (bad things will happen)

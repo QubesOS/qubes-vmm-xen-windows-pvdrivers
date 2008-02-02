@@ -30,6 +30,10 @@
 #include "ring.h"
 #include "../grant_table.h"
 
+#if defined(__i386__)
+#pragma pack(4)
+#endif
+
 /*
  * Front->back notifications: When enqueuing a new request, sending a
  * notification can be made conditional on req_event (i.e., the generic
@@ -71,9 +75,6 @@
  */
 #define BLKIF_MAX_SEGMENTS_PER_REQUEST 11
 
-#if defined(__i386__)
-#pragma pack(4)
-#endif
 struct blkif_request_segment {
     grant_ref_t gref;        /* reference to I/O buffer frame        */
     /* @first_sect: first sector in frame to transfer (inclusive).   */
@@ -97,9 +98,6 @@ struct blkif_response {
     int16_t         status;          /* BLKIF_RSP_???       */
 };
 typedef struct blkif_response blkif_response_t;
-#if defined(__i386__)
-#pragma pack()
-#endif
 
 /*
  * STATUS RETURN CODES.
@@ -120,6 +118,10 @@ DEFINE_RING_TYPES(blkif, struct blkif_request, struct blkif_response);
 #define VDISK_CDROM        0x1
 #define VDISK_REMOVABLE    0x2
 #define VDISK_READONLY     0x4
+
+#if defined(__i386__)
+#pragma pack()
+#endif
 
 #endif /* __XEN_PUBLIC_IO_BLKIF_H__ */
 

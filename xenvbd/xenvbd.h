@@ -28,6 +28,31 @@
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define BLK_RING_SIZE __RING_SIZE((blkif_sring_t *)0, PAGE_SIZE)
+#define BLK_OTHER_RING_SIZE __RING_SIZE((blkif_other_sring_t *)0, PAGE_SIZE)
+
+#if defined(__x86_64__)
+#pragma pack(push, 4)
+#endif
+struct blkif_other_request {
+  uint8_t operation;
+  uint8_t nr_segments;
+  blkif_vdev_t handle;
+  uint64_t id;
+  blkif_sector_t sector_number;
+  struct blkif_request_segment seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
+};
+struct blkif_other_response {
+  uint64_t id;
+  uint8_t operation;
+  int16_t status;
+};
+#if defined(__x86_64__)
+#pragma pack(pop)
+#endif
+
+typedef struct blkif_other_request blkif_other_request_t;
+typedef struct blkif_other_response blkif_other_response_t;
+DEFINE_RING_TYPES(blkif_other, struct blkif_other_request, struct blkif_other_response);
 
 typedef struct {
   blkif_request_t req;
@@ -55,7 +80,6 @@ struct
   BOOLEAN PendingInterrupt;
   PVOID DeviceData; // how can we create a forward definition for this???
   evtchn_port_t EventChannel;
-  //blkif_sring_t *SharedRing;
   blkif_shadow_t *shadow;
   uint64_t shadow_free;
   ULONG RingBufPFN;
@@ -64,7 +88,13 @@ struct
   char Path[128];
   int DeviceIndex;
   char BackendPath[128];
-  blkif_front_ring_t Ring;
+  union {
+    blkif_front_ring_t Ring;
+    blkif_other_front_ring_t OtherRing;
+  };
+  int ring_detect_state;
+  BOOLEAN use_other;
+  blkif_response_t tmp_rep;
   XENVBD_DEVICETYPE DeviceType;
   DISK_GEOMETRY Geometry;
   ULONG BytesPerSector;

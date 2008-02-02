@@ -7,16 +7,12 @@
 #define __XEN_INTERFACE_VERSION__ 0x00030205
 #if defined(_AMD64_)
   #define __x86_64__
-#else 
-  #if defined(_IA64_)
-    #define __ia64__
-  #else
-    #if defined(_X86_)
-      #define __i386__
-    #else
-      #error Unknown architecture
-    #endif
-  #endif
+#elif defined(_IA64_)
+  #define __ia64__
+#elif defined(_X86_)
+  #define __i386__
+#else
+  #error Unknown architecture
 #endif
 typedef INT8 int8_t;
 typedef UINT8 uint8_t;
@@ -25,7 +21,6 @@ typedef UINT16 uint16_t;
 typedef INT32 int32_t;
 typedef UINT32 uint32_t;
 typedef UINT64 uint64_t;
-//typedef unsigned long pgentry_t;
 
 #include <xen.h>
 
@@ -110,7 +105,7 @@ AllocatePages(int Pages)
     KdPrint((__DRIVER_NAME "     AllocatePages Failed at ExAllocatePoolWithTag\n"));
     return NULL;
   }
-  KdPrint((__DRIVER_NAME " --- AllocatePages IRQL = %d, Buf = %p\n", KeGetCurrentIrql(), Buf));
+//  KdPrint((__DRIVER_NAME " --- AllocatePages IRQL = %d, Buf = %p\n", KeGetCurrentIrql(), Buf));
   Mdl = IoAllocateMdl(Buf, Pages * PAGE_SIZE, FALSE, FALSE, NULL);
   if (Mdl == NULL)
   {
@@ -133,7 +128,7 @@ static VOID
 FreePages(PMDL Mdl)
 {
   PVOID Buf = MmGetMdlVirtualAddress(Mdl);
-  KdPrint((__DRIVER_NAME " --- FreePages IRQL = %d, Buf = %p\n", KeGetCurrentIrql(), Buf));
+//  KdPrint((__DRIVER_NAME " --- FreePages IRQL = %d, Buf = %p\n", KeGetCurrentIrql(), Buf));
   IoFreeMdl(Mdl);
   ExFreePoolWithTag(Buf, ALLOCATE_PAGES_POOL_TAG);
 }

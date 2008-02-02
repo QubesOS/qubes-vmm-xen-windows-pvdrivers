@@ -120,6 +120,19 @@ XenVbd_Interrupt(PKINTERRUPT Interrupt, PVOID DeviceExtension)
   return TRUE;
 }
 
+static blkif_response_t *
+XenVbd_GetResponse(PXENVBD_TARGET_DATA TargetData, int i)
+{
+  blkif_other_response_t *rep;
+  if (!TargetData->use_other)
+    return RING_GET_RESPONSE(&TargetData->Ring, i);
+  rep = RING_GET_RESPONSE(&TargetData->OtherRing, i);
+  TargetData->tmp_rep.id = rep->id;
+  TargetData->tmp_rep.operation = rep->operation;
+  TargetData->tmp_rep.status = rep->status;
+  return &TargetData->tmp_rep;
+}
+
 static VOID
 XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
 {
@@ -140,36 +153,55 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
     KeMemoryBarrier();
     for (i = TargetData->Ring.rsp_cons; i != rp; i++)
     {
-      rep = RING_GET_RESPONSE(&TargetData->Ring, i);
+      rep = XenVbd_GetResponse(TargetData, i);
+
 //KdPrint((__DRIVER_NAME "     rep = %p\n", rep));
 //KdPrint((__DRIVER_NAME "     rep->id = %d\n", rep->id));
-
-      Srb = TargetData->shadow[rep->id].Srb;
-      BlockCount = (Srb->Cdb[7] << 8) | Srb->Cdb[8];
-
-      if (rep->status == BLKIF_RSP_OKAY)
-        Srb->SrbStatus = SRB_STATUS_SUCCESS;
-      else
+      switch (TargetData->ring_detect_state)
       {
-        KdPrint((__DRIVER_NAME "     Xen Operation returned error\n"));
-        if (Srb->Cdb[0] == SCSIOP_READ)
-          KdPrint((__DRIVER_NAME "     Operation = Read\n"));
+      case 0:
+        KdPrint((__DRIVER_NAME "     ring_detect_state = %d, operation = %x, id = %lx, status = %d\n", TargetData->ring_detect_state, rep->operation, rep->id, rep->status));
+        TargetData->ring_detect_state = 1;
+        break;
+      case 1:
+        KdPrint((__DRIVER_NAME "     ring_detect_state = %d, operation = %x, id = %lx, status = %d\n", TargetData->ring_detect_state, rep->operation, rep->id, rep->status));
+        if (rep->operation != 0xff)
+        {
+          TargetData->Ring.nr_ents = BLK_OTHER_RING_SIZE;
+          TargetData->use_other = TRUE;
+        }
+        TargetData->shadow[TargetData->Ring.nr_ents - 1].req.id = 0x0fffffff;
+        DeviceData->BusChangePending = 1;
+        TargetData->ring_detect_state = 2;
+        break;
+      case 2:
+        Srb = TargetData->shadow[rep->id].Srb;
+        BlockCount = (Srb->Cdb[7] << 8) | Srb->Cdb[8];
+  
+        if (rep->status == BLKIF_RSP_OKAY)
+          Srb->SrbStatus = SRB_STATUS_SUCCESS;
         else
-          KdPrint((__DRIVER_NAME "     Operation = Write\n"));     
-        KdPrint((__DRIVER_NAME "     Sector = %08X, Count = %d\n", TargetData->shadow[rep->id].req.sector_number, BlockCount));
-        Srb->SrbStatus = SRB_STATUS_ERROR;
+        {
+          KdPrint((__DRIVER_NAME "     Xen Operation returned error\n"));
+          if (Srb->Cdb[0] == SCSIOP_READ)
+            KdPrint((__DRIVER_NAME "     Operation = Read\n"));
+          else
+            KdPrint((__DRIVER_NAME "     Operation = Write\n"));     
+          KdPrint((__DRIVER_NAME "     Sector = %08X, Count = %d\n", TargetData->shadow[rep->id].req.sector_number, BlockCount));
+          Srb->SrbStatus = SRB_STATUS_ERROR;
+        }
+        for (j = 0; j < TargetData->shadow[rep->id].req.nr_segments; j++)
+          DeviceData->XenDeviceData->XenInterface.GntTbl_EndAccess(
+            DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
+            TargetData->shadow[rep->id].req.seg[j].gref);
+        if (Srb->Cdb[0] == SCSIOP_READ)
+          memcpy(Srb->DataBuffer, TargetData->shadow[rep->id].Buf, BlockCount * TargetData->BytesPerSector);
+  
+        ScsiPortNotification(RequestComplete, DeviceData, Srb);
+        ScsiPortNotification(NextLuRequest, DeviceData, Srb->PathId, Srb->TargetId, Srb->Lun);
+
+        ADD_ID_TO_FREELIST(TargetData, rep->id);
       }
-      for (j = 0; j < TargetData->shadow[rep->id].req.nr_segments; j++)
-        DeviceData->XenDeviceData->XenInterface.GntTbl_EndAccess(
-          DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
-          TargetData->shadow[rep->id].req.seg[j].gref);
-      if (Srb->Cdb[0] == SCSIOP_READ)
-        memcpy(Srb->DataBuffer, TargetData->shadow[rep->id].Buf, BlockCount * TargetData->BytesPerSector);
-
-      ScsiPortNotification(RequestComplete, DeviceData, Srb);
-      ScsiPortNotification(NextLuRequest, DeviceData, Srb->PathId, Srb->TargetId, Srb->Lun);
-
-      ADD_ID_TO_FREELIST(TargetData, rep->id);
     }
 
     TargetData->Ring.rsp_cons = i;
@@ -227,6 +259,8 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
   blkif_sring_t *SharedRing;
   ULONG PFN;
   ULONG i;
+  blkif_request_t *req;
+  int notify;
 
   KdPrint((__DRIVER_NAME " --> BackEndStateHandler\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
@@ -260,45 +294,67 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
     Mdl = AllocatePage();
     PFN = (ULONG)*MmGetMdlPfnArray(Mdl);
     SharedRing = (blkif_sring_t *)MmGetMdlVirtualAddress(Mdl);
+    RtlZeroMemory(SharedRing, PAGE_SIZE);
     SHARED_RING_INIT(SharedRing);
     FRONT_RING_INIT(&TargetData->Ring, SharedRing, PAGE_SIZE);
     ref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
       0, PFN, FALSE);
     ASSERT((signed short)ref >= 0);
+    TargetData->ring_detect_state = 0;
+    TargetData->shadow = ExAllocatePoolWithTag(NonPagedPool, sizeof(blkif_shadow_t) * max(BLK_RING_SIZE, BLK_OTHER_RING_SIZE), XENVBD_POOL_TAG);
 
-    TargetData->shadow = ExAllocatePoolWithTag(NonPagedPool, sizeof(blkif_shadow_t) * BLK_RING_SIZE, XENVBD_POOL_TAG);
-
-    memset(TargetData->shadow, 0, sizeof(blkif_shadow_t) * BLK_RING_SIZE);
-    for (i = 0; i < BLK_RING_SIZE; i++)
+    memset(TargetData->shadow, 0, sizeof(blkif_shadow_t) * max(BLK_RING_SIZE, BLK_OTHER_RING_SIZE));
+    for (i = 0; i < max(BLK_RING_SIZE, BLK_OTHER_RING_SIZE); i++)
     {
       TargetData->shadow[i].req.id = i + 1;
       TargetData->shadow[i].Mdl = AllocatePages(BUF_PAGES_PER_SRB); // stupid that we have to do this!
       TargetData->shadow[i].Buf = MmGetMdlVirtualAddress(TargetData->shadow[i].Mdl);
     }
     TargetData->shadow_free = 0;
-    TargetData->shadow[BLK_RING_SIZE - 1].req.id = 0x0fffffff;
-
-    RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
-    RtlStringCbCatA(TmpPath, 128, "/ring-ref");
-    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", ref);
-
-    RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
-    RtlStringCbCatA(TmpPath, 128, "/event-channel");
-    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", TargetData->EventChannel);
 
     RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
     RtlStringCbCatA(TmpPath, 128, "/protocol");
-    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%s", XEN_IO_PROTO_ABI_NATIVE);
-//    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%s", XEN_IO_PROTO_ABI_X86_64);
-  
+    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(
+      DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%s", XEN_IO_PROTO_ABI_NATIVE);
+
+    RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
+    RtlStringCbCatA(TmpPath, 128, "/ring-ref");
+    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(
+      DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", ref);
+
+    RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
+    RtlStringCbCatA(TmpPath, 128, "/event-channel");
+    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(
+      DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
+      XBT_NIL, TmpPath, "%d", TargetData->EventChannel);
+
     RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
     RtlStringCbCatA(TmpPath, 128, "/state");
-    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", XenbusStateInitialised);
+    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(
+      DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, 
+      XBT_NIL, TmpPath, "%d", XenbusStateInitialised);
 
+/*
     KdPrint((__DRIVER_NAME "     sizeof(blkif_request) = %d\n", sizeof(struct blkif_request)));
-    KdPrint((__DRIVER_NAME "     sizeof( blkif_request_segment) = %d\n", sizeof(struct blkif_request_segment)));
+    KdPrint((__DRIVER_NAME "     sizeof(blkif_request_segment) = %d\n", sizeof(struct blkif_request_segment)));
     KdPrint((__DRIVER_NAME "     sizeof(blkif_response) = %d\n", sizeof(struct blkif_response)));
+    KdPrint((__DRIVER_NAME "     operation = %d\n", (int)((char *)(&req.operation) - (char *)(&req))));
+    KdPrint((__DRIVER_NAME "     nr_segments = %d\n", (int)((char *)(&req.nr_segments) - (char *)(&req))));
+    KdPrint((__DRIVER_NAME "     handle = %d\n", (int)((char *)(&req.handle) - (char *)(&req))));
+    KdPrint((__DRIVER_NAME "     id = %d\n", (int)((char *)(&req.id) - (char *)(&req))));
+    KdPrint((__DRIVER_NAME "     sector_number = %d\n", (int)((char *)(&req.sector_number) - (char *)(&req))));
+    KdPrint((__DRIVER_NAME "     seg = %d\n", (int)((char *)(&req.seg) - (char *)(&req))));
+
+    KdPrint((__DRIVER_NAME "     id = %d\n", (int)((char *)(&rep.id) - (char *)(&rep))));
+    KdPrint((__DRIVER_NAME "     operation = %d\n", (int)((char *)(&rep.operation) - (char *)(&rep))));
+    KdPrint((__DRIVER_NAME "     status = %d\n", (int)((char *)(&rep.status) - (char *)(&rep))));
+
+    KdPrint((__DRIVER_NAME "     sizeof(union blkif_sring_entry) = %d\n", sizeof(union blkif_sring_entry)));
+    KdPrint((__DRIVER_NAME "     %d\n", (int)((char *)(&entries[1]) - (char *)(&entries[0]))));
+*/
     KdPrint((__DRIVER_NAME "     Set Frontend state to Initialised\n"));
     break;
 
@@ -374,8 +430,31 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
     TargetData->Geometry.Cylinders.QuadPart = TargetData->TotalSectors / TargetData->Geometry.SectorsPerTrack / TargetData->Geometry.TracksPerCylinder;
     KdPrint((__DRIVER_NAME "     Geometry C/H/S = %d/%d/%d\n", TargetData->Geometry.Cylinders.LowPart, TargetData->Geometry.TracksPerCylinder, TargetData->Geometry.SectorsPerTrack));
     
-// now ask windows to rescan the scsi bus...
-    DeviceData->BusChangePending = 1;
+    req = RING_GET_REQUEST(&TargetData->Ring, TargetData->Ring.req_prod_pvt);
+    req->operation = 0xff;
+    req->nr_segments = 0;
+    for (i = 0; i < req->nr_segments; i++)
+    {
+      req->seg[i].gref = 0xffffffff;
+      req->seg[i].first_sect = 0xff;
+      req->seg[i].last_sect = 0xff;
+    }
+    TargetData->Ring.req_prod_pvt++;
+    req = RING_GET_REQUEST(&TargetData->Ring, TargetData->Ring.req_prod_pvt);
+    req->operation = 0xff;
+    req->nr_segments = 0;
+    for (i = 0; i < req->nr_segments; i++)
+    {
+      req->seg[i].gref = 0xffffffff;
+      req->seg[i].first_sect = 0xff;
+      req->seg[i].last_sect = 0xff;
+    }
+    TargetData->Ring.req_prod_pvt++;
+    RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&TargetData->Ring, notify);
+    if (notify)
+      DeviceData->XenDeviceData->XenInterface.EvtChn_Notify(
+        DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
+        TargetData->EventChannel);
 
     RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
     RtlStringCbCatA(TmpPath, 128, "/state");
@@ -384,6 +463,9 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
     KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
     InterlockedIncrement(&DeviceData->EnumeratedDevices);
     KdPrint((__DRIVER_NAME "     Added a device\n"));  
+
+// now ask windows to rescan the scsi bus...
+//    DeviceData->BusChangePending = 1;
     break;
 
   case XenbusStateClosing:
@@ -609,7 +691,6 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
         DeviceData->TotalInitialDevices++;
       }  
     }
-    //ScsiPortNotification(BusChangeDetected, DeviceData, 0);
   }
 
   *Again = FALSE;
@@ -712,15 +793,38 @@ XenVbd_FillModePage(PXENVBD_DEVICE_DATA DeviceData, UCHAR PageCode, PUCHAR DataB
   return 0;
 }
 
+static VOID
+XenVbd_PutRequest(PXENVBD_TARGET_DATA TargetData, blkif_request_t *req)
+{
+  blkif_other_request_t *other_req;
+
+  if (!TargetData->use_other)
+  {
+    *RING_GET_REQUEST(&TargetData->Ring, TargetData->Ring.req_prod_pvt) = *req;
+  }
+  else
+  {  
+    other_req = RING_GET_REQUEST(&TargetData->OtherRing, TargetData->Ring.req_prod_pvt);
+    other_req->operation = req->operation;
+    other_req->nr_segments = req->nr_segments;
+    other_req->handle = req->handle;
+    other_req->id = req->id;
+    other_req->sector_number = req->sector_number;
+    memcpy(other_req->seg, req->seg, sizeof(struct blkif_request_segment) * req->nr_segments);
+  }
+  TargetData->Ring.req_prod_pvt++;
+}
+
 // Call with device lock held
 static VOID
 XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
 {
   //PUCHAR DataBuffer;
-  blkif_request_t *req;
   int i;
   int BlockCount;
   PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)TargetData->DeviceData;
+  blkif_shadow_t *shadow;
+  int id;
 
 // can use SRB_STATUS_BUSY to push the SRB back to windows...
 
@@ -732,54 +836,39 @@ XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
     // TODO: Fail badly here
   }
 
-  req = RING_GET_REQUEST(&TargetData->Ring, TargetData->Ring.req_prod_pvt);
-
-  req->sector_number = (Srb->Cdb[2] << 24) | (Srb->Cdb[3] << 16) | (Srb->Cdb[4] << 8) | Srb->Cdb[5];
-  BlockCount = (Srb->Cdb[7] << 8) | Srb->Cdb[8];
-
-  req->id = GET_ID_FROM_FREELIST(TargetData);
-
-//KdPrint((__DRIVER_NAME "     req = %p\n", req));
-//KdPrint((__DRIVER_NAME "     req->id = %ld\n", req->id));
-//KdPrint((__DRIVER_NAME "     ((blkif_response *)req)->id = %ld\n", req->id));
-
-  if (req->id == 0x0fffffff)
+  id = GET_ID_FROM_FREELIST(TargetData);
+  if (id == 0x0fffffff)
   {
     KdPrint((__DRIVER_NAME "     Something is horribly wrong in PutSrbOnRing\n"));
   }
 
-  req->handle = 0;
-  req->operation = (Srb->Cdb[0] == SCSIOP_READ)?BLKIF_OP_READ:BLKIF_OP_WRITE;
-  TargetData->shadow[req->id].Srb = Srb;
+  shadow = &TargetData->shadow[id];
+  shadow->req.id = id;
 
-//  KdPrint((__DRIVER_NAME "     DataBuffer = %08X\n", Srb->DataBuffer));
-//  KdPrint((__DRIVER_NAME "     BlockCount = %08X\n", BlockCount));
+  shadow->req.sector_number = (Srb->Cdb[2] << 24) | (Srb->Cdb[3] << 16) | (Srb->Cdb[4] << 8) | Srb->Cdb[5];
+  BlockCount = (Srb->Cdb[7] << 8) | Srb->Cdb[8];
+  shadow->req.handle = 0;
+  shadow->req.operation = (Srb->Cdb[0] == SCSIOP_READ)?BLKIF_OP_READ:BLKIF_OP_WRITE;
+  shadow->Srb = Srb;
 
-  req->nr_segments = (UINT8)((BlockCount * TargetData->BytesPerSector + PAGE_SIZE - 1) / PAGE_SIZE);
-//  KdPrint((__DRIVER_NAME "     req->nr_segments = %08X\n", req->nr_segments));
+  shadow->req.nr_segments = (UINT8)((BlockCount * TargetData->BytesPerSector + PAGE_SIZE - 1) / PAGE_SIZE);
 
-
-  for (i = 0; i < req->nr_segments; i++)
+  for (i = 0; i < shadow->req.nr_segments; i++)
   {
-//KdPrint((__DRIVER_NAME "     (ULONG)MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i] = %d\n", (ULONG)MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i]));
-//KdBreakPoint();
-    req->seg[i].gref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
+    shadow->req.seg[i].gref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
-      0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[req->id].Mdl)[i], FALSE);
-//KdPrint((__DRIVER_NAME "     req->seg[i].gref = %d\n", req->seg[i].gref));
-//KdBreakPoint();
-    ASSERT((signed short)req->seg[i].gref >= 0);
-    req->seg[i].first_sect = 0;
-    if (i == req->nr_segments - 1)
-      req->seg[i].last_sect = (UINT8)((BlockCount - 1) % (PAGE_SIZE / TargetData->BytesPerSector));
+      0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[shadow->req.id].Mdl)[i], FALSE);
+    ASSERT((signed short)shadow->req.seg[i].gref >= 0);
+    shadow->req.seg[i].first_sect = 0;
+    if (i == shadow->req.nr_segments - 1)
+      shadow->req.seg[i].last_sect = (UINT8)((BlockCount - 1) % (PAGE_SIZE / TargetData->BytesPerSector));
     else
-      req->seg[i].last_sect = (UINT8)(PAGE_SIZE / TargetData->BytesPerSector - 1);
-//    KdPrint((__DRIVER_NAME "     Page %d, first_sect = %d, last_sect = %d\n", i, req->seg[i].first_sect, req->seg[i].last_sect));
+      shadow->req.seg[i].last_sect = (UINT8)(PAGE_SIZE / TargetData->BytesPerSector - 1);
   }
   if (Srb->Cdb[0] == SCSIOP_WRITE)
-    memcpy(TargetData->shadow[req->id].Buf, Srb->DataBuffer, BlockCount * TargetData->BytesPerSector);
-  TargetData->shadow[req->id].req = *req;
-  TargetData->Ring.req_prod_pvt++;
+    memcpy(TargetData->shadow[shadow->req.id].Buf, Srb->DataBuffer, BlockCount * TargetData->BytesPerSector);
+
+  XenVbd_PutRequest(TargetData, &shadow->req);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
