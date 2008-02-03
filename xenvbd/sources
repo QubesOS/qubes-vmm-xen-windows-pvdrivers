@@ -1,12 +1,7 @@
-TARGETNAME=XENVBD
+!include "..\common.inc"
+TARGETNAME=xenvbd
 TARGETTYPE=DRIVER
-TARGETPATH=..\Target\$(DDK_TARGET_OS)
-VERSION=0.6.3.0
-KMDF_VERSION=1
-MSC_WARNING_LEVEL=/W4
-INF_NAME=xenvbd
-INCLUDES = ..\common\include;..\common\include\public
-TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\ntstrsafe.lib $(DDK_LIB_PATH)\scsiport.lib
+INF_NAME=$(TARGETNAME)
+TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\scsiport.lib
 MISCFILES=..\Target\$(DDK_TARGET_OS)\$(INF_NAME).inf
-NTTARGETFILES=
 SOURCES=xenvbd.c

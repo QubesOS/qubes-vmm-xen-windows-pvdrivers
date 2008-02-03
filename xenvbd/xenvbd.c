@@ -640,7 +640,9 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
       break;
     }
   }
+#if defined(__x86_64__)
   ConfigInfo->Master = TRUE; // Won't work under x64 without this...
+#endif
   ConfigInfo->MaximumTransferLength = BUF_PAGES_PER_SRB * PAGE_SIZE;
   ConfigInfo->NumberOfPhysicalBreaks = BUF_PAGES_PER_SRB - 1;
   ConfigInfo->ScatterGather = TRUE;
@@ -923,7 +925,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
     switch(cdb->CDB6GENERIC.OperationCode)
     {
     case SCSIOP_TEST_UNIT_READY:
-//      KdPrint((__DRIVER_NAME "     Command = TEST_UNIT_READY\n"));
+      KdPrint((__DRIVER_NAME "     Command = TEST_UNIT_READY\n"));
       Srb->SrbStatus = SRB_STATUS_SUCCESS;
       Srb->ScsiStatus = 0;
       ScsiPortNotification(RequestComplete, DeviceExtension, Srb);

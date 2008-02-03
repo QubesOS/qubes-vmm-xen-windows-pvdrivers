@@ -1,1 +1,1 @@
-DIRS=xenpci xenhide xenvbd xenaddresource xenenum xennet
+DIRS=xenpci xenhide xenvbd xenaddresource xenenum xennet xenstub
