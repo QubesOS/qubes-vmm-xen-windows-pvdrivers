@@ -1,0 +1,82 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%XenGplPv%
+
+[DestinationDirs]
+DefaultDestDir = 12
+ClassInstall32_CopyFiles=11
+CoInstaller_CopyFiles = 11
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Manufacturer]
+%XenGplPv%=XenGplPv,NTx86
+%XenGplPv%=XenGplPv,NTamd64
+
+[XenGplPv.NTx86]
+%XenStub.DRVDESC%=XenStub_Inst, XEN\CONSOLE
+%XenStub.DRVDESC%=XenStub_Inst, XEN\VFB
+
+[XenGplPv.NTamd64]
+%XenStub.DRVDESC%=XenStub_Inst, XEN\CONSOLE
+%XenStub.DRVDESC%=XenStub_Inst, XEN\VFB
+
+[XenStub_Inst.NT]
+CopyFiles=XenStub.CopyFiles
+
+[XenStub.CopyFiles]
+XenStub.sys
+
+[SourceDisksFiles]
+XenStub.sys=1
+WdfCoinstaller01005.dll=1,,
+
+[SourceDisksNames.x86]
+1 = %DISK_NAME%,,,\i386
+
+[SourceDisksNames.amd64]
+1 = %DISK_NAME%,,,\amd64
+
+[XenStub_Inst.Services]
+AddService=XenStub,2,XenStub_Service 
+
+[XenStub_Inst.NT.Services]
+AddService=XenStub,2,XenStub_Service 
+
+[XenStub_Service]
+DisplayName    = %XenStub.SVCDESC%                            
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+LoadOrderGroup = WdfLoadGroup
+ServiceBinary  = %12%\xenstub.sys                            
+AddReg = XenStub_Service_AddReg
+
+[XenStub_Service_AddReg]
+HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+
+[XenStub_Inst.NT.CoInstallers]
+AddReg=CoInstaller_AddReg
+CopyFiles=CoInstaller_CopyFiles
+
+[CoInstaller_CopyFiles]
+WdfCoinstaller01005.dll,,,2
+
+[CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoinstaller01005.dll,WdfCoInstaller"
+
+[XenStub_Inst.NT.Wdf]
+KmdfService = XenStub, XenStub_wdfsect
+
+[XenStub_wdfsect]
+KmdfLibraryVersion = 1.0
+
+[Strings]
+XenGplPv = "Xen GPL PV Driver Developers"
+ClassName = "Network Adapters"
+XenStub.SVCDESC = "Xen Stub Device Driver"
+XenStub.DRVDESC = "Xen Stub Device Driver"
+DISK_NAME = "Xen Net Device Driver Install Disk"
