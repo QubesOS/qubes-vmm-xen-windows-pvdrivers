@@ -32,7 +32,7 @@ XenStub.sys
 
 [SourceDisksFiles]
 XenStub.sys=1
-WdfCoinstaller01005.dll=1,,
+WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll=1,,
 
 [SourceDisksNames.x86]
 1 = %DISK_NAME%,,,\i386
@@ -63,16 +63,16 @@ AddReg=CoInstaller_AddReg
 CopyFiles=CoInstaller_CopyFiles
 
 [CoInstaller_CopyFiles]
-WdfCoinstaller01005.dll,,,2
+WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll,,,2
 
 [CoInstaller_AddReg]
-HKR,,CoInstallers32,0x00010000, "WdfCoinstaller01005.dll,WdfCoInstaller"
+HKR,,CoInstallers32,0x00010000, "WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll,WdfCoInstaller"
 
 [XenStub_Inst.NT.Wdf]
 KmdfService = XenStub, XenStub_wdfsect
 
 [XenStub_wdfsect]
-KmdfLibraryVersion = 1.0
+KmdfLibraryVersion = $KMDFVERSION$
 
 [Strings]
 XenGplPv = "Xen GPL PV Driver Developers"
