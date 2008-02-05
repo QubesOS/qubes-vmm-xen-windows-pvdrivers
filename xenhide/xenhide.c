@@ -75,9 +75,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   }
   else
     ZwClose(RegHandle);
-//  KdPrint((__DRIVER_NAME "     BufLen = %d\n", BufLen));
   KeyPartialValue = (PKEY_VALUE_PARTIAL_INFORMATION)Buf;
-//  KdPrint((__DRIVER_NAME "     Buf = %ws\n", KeyPartialValue->Data));
   SystemStartOptions = (WCHAR *)KeyPartialValue->Data;
 
   AutoEnumerate = FALSE;
@@ -138,12 +136,11 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   KdPrint((__DRIVER_NAME "     AutoEnumerate = %d\n", AutoEnumerate));
 
-  for (i = 0; i < IRP_MJ_MAXIMUM_FUNCTION; i++)
+  for (i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++)
     DriverObject->MajorFunction[i] = XenHide_Pass;
   if (AutoEnumerate)
     DriverObject->MajorFunction[IRP_MJ_PNP] = XenHide_Pnp;
   DriverObject->DriverExtension->AddDevice = XenHide_AddDevice;
-//  DriverObject->DriverUnload = XenHide_Unload;
 
   KdPrint((__DRIVER_NAME " <-- DriverEntry\n"));
 
@@ -291,10 +288,9 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
 static NTSTATUS
 XenHide_Pass(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
-  PDEVICE_EXTENSION DeviceExtension;
+  PDEVICE_EXTENSION DeviceExtension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
   NTSTATUS status;
     
-  DeviceExtension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
   IoSkipCurrentIrpStackLocation(Irp);
   status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
   return status;
@@ -319,17 +315,9 @@ XenHide_Pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     {
     case BusRelations:
       KdPrint((__DRIVER_NAME "       BusRelations\n"));
-      if (AutoEnumerate)
-      {
-        IoCopyCurrentIrpStackLocationToNext(Irp);
-        IoSetCompletionRoutine(Irp, XenHide_IoCompletion, NULL, TRUE, TRUE, TRUE);
-        Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
-      }
-      else
-      {
-        IoSkipCurrentIrpStackLocation(Irp);
-        Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
-      }
+      IoCopyCurrentIrpStackLocationToNext(Irp);
+      IoSetCompletionRoutine(Irp, XenHide_IoCompletion, NULL, TRUE, TRUE, TRUE);
+      Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
       break;  
     default:
       IoSkipCurrentIrpStackLocation(Irp);
