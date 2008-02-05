@@ -50,18 +50,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
   WDF_DRIVER_CONFIG config;
   ULONG status;
-  UNICODE_STRING RegKeyName;
-  UNICODE_STRING RegValueName;
-  HANDLE RegHandle;
-  OBJECT_ATTRIBUTES RegObjectAttributes;
-  char Buf[300];
-  ULONG BufLen;
-  PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
-  int State = 0;
-  int StartPos = 0;
-  WCHAR *SystemStartOptions;
-  size_t SystemStartOptionsLen;
-  size_t i;
 
   KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
 

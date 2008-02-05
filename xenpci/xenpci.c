@@ -95,18 +95,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
   WDF_DRIVER_CONFIG config;
   NTSTATUS status;
-  UNICODE_STRING RegKeyName;
-  UNICODE_STRING RegValueName;
-  HANDLE RegHandle;
-  OBJECT_ATTRIBUTES RegObjectAttributes;
-  char Buf[200];
-  ULONG BufLen = 200;
-  PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
-  int State = 0;
-  int StartPos = 0;
-  WCHAR *SystemStartOptions;
-  size_t SystemStartOptionsLen;
-  size_t i;
 
   KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
 
@@ -260,7 +248,6 @@ XenPCI_AddDevice(
   WDF_IO_QUEUE_CONFIG IoQConfig;
   WDF_INTERRUPT_CONFIG InterruptConfig;
   PNP_BUS_INFORMATION busInfo;
-  BUS_INTERFACE_STANDARD BusInterface;
   DECLARE_CONST_UNICODE_STRING(DeviceName, L"\\Device\\XenShutdown");
   DECLARE_CONST_UNICODE_STRING(SymbolicName, L"\\DosDevices\\XenShutdown");
   WDFDEVICE Device;
