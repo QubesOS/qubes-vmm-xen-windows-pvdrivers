@@ -300,7 +300,8 @@ XenNet_TxBufferFree(struct xennet_info *xi)
   }
 }
 
-// Called at DISPATCH_LEVEL with no locks held
+// Called at DISPATCH_LEVEL with rx lock held
+
 static NDIS_STATUS
 XenNet_RxBufferAlloc(struct xennet_info *xi)
 {
@@ -310,14 +311,9 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   RING_IDX req_prod = xi->rx.req_prod_pvt;
   grant_ref_t ref;
   netif_rx_request_t *req;
-//  NDIS_STATUS status;
-//  PVOID start;
-  KIRQL OldIrql;
   PLIST_ENTRY entry;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
 
@@ -351,8 +347,6 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
     xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel);
   }
-
-  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -431,10 +425,6 @@ XenNet_ReturnPacket(
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   NdisQueryPacketLength(Packet, &tot_buff_len);
-//  NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
-//    &tot_buff_len, NormalPagePriority);
-  ASSERT(tot_buff_len <= XN_MAX_PKT_SIZE);
-//  ASSERT(buff_va != NULL);
 
   NdisUnchainBufferAtBack(Packet, &buffer);
   while (buffer)
@@ -528,8 +518,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, moretodo);
   } while (moretodo);
 
-  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
-
   if (more_frags)
   {
     KdPrint((__DRIVER_NAME "     Missing fragments\n"));
@@ -538,6 +526,8 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   /* Give netback more buffers */
   XenNet_RxBufferAlloc(xi);
+
+  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -917,9 +907,9 @@ XenNet_Init(
     InsertTailList(&xi->rx_free_pkt_list, entry);
   }
 
-  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
-
   XenNet_RxBufferAlloc(xi);
+
+  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
   /* get mac address */
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->backend_path);
@@ -1556,14 +1546,14 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
     entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   }
 
-  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
-
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->tx, notify);
   if (notify)
   {
     xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
       xi->event_channel);
   }
+
+  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 }
 
 VOID
