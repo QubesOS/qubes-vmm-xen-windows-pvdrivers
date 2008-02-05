@@ -3,14 +3,12 @@ Signature="$WINDOWS NT$"
 Class=System
 ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider=%JAMESHARPER%
-DriverVer=11/20/2007,0.4.0.0
 
 [ControlFlags]
 ExcludeFromSelect = *
 
 [DestinationDirs]
 DefaultDestDir = 12
-CoInstaller_CopyFiles = 11
 
 [Manufacturer]
 %JAMESHARPER%=JAMESHARPER,NTx86
@@ -38,14 +36,12 @@ Needs=PCI_DRV_ROOT.HW
 
 [XenHide_Inst_HW_AddReg]
 HKR,,"LowerFilters",0x00010000,"XenHide"
-HKLM,SYSTEM\CurrentControlSet\Services\Wdf01000,Group,0x00000000,Boot Bus Extender
 
 [XenHide.CopyFiles]
 xenhide.sys
 
 [SourceDisksFiles]
 xenhide.sys=1
-WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll=1,,
 
 [SourceDisksNames.x86]
 1 = %DISK_NAME%,,,\i386
@@ -65,22 +61,11 @@ ServiceType    = 1
 StartType      = 0
 ErrorControl   = 1
 ServiceBinary  = %12%\xenhide.sys                          
+LoadOrderGroup = Boot Bus Extender
 
 [XenHide_Inst.NT.CoInstallers]
 AddReg=CoInstaller_AddReg
 CopyFiles=CoInstaller_CopyFiles
-
-[CoInstaller_CopyFiles]
-WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll,,,2
-
-[CoInstaller_AddReg]
-HKR,,CoInstallers32,0x00010000, "WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll,WdfCoInstaller"
-
-[XenHide_Inst.NT.Wdf]
-KmdfService = xenhide, XenHide_WDFSect
-
-[XenHide_WDFSect]
-KmdfLibraryVersion = $KMDFVERSION$
 
 [Strings]
 JAMESHARPER = "James Harper"

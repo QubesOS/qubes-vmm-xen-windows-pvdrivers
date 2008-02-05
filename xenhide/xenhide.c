@@ -22,9 +22,15 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 DRIVER_INITIALIZE DriverEntry;
 static NTSTATUS
-XenHide_AddDevice(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit);
-static VOID
-XenHide_IoInternalDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBufferLength, size_t InputBufferLength, ULONG IoControlCode);
+XenHide_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObject);
+static NTSTATUS
+XenHide_Pass(PDEVICE_OBJECT DeviceObject, PIRP Irp);
+static NTSTATUS
+XenHide_Pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp);
+static NTSTATUS
+XenHide_AddDevice();
+//static NTSTATUS
+//XenHide_Unload();
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (INIT, DriverEntry)
@@ -33,12 +39,9 @@ XenHide_IoInternalDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t Outpu
 
 static BOOLEAN AutoEnumerate;
 
-static WDFDEVICE Device;
-
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
-  WDF_DRIVER_CONFIG config;
   NTSTATUS status;
   UNICODE_STRING RegKeyName;
   UNICODE_STRING RegValueName;
@@ -135,17 +138,12 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   KdPrint((__DRIVER_NAME "     AutoEnumerate = %d\n", AutoEnumerate));
 
-  WDF_DRIVER_CONFIG_INIT(&config, XenHide_AddDevice);
-  status = WdfDriverCreate(
-                      DriverObject,
-                      RegistryPath,
-                      WDF_NO_OBJECT_ATTRIBUTES,
-                      &config,
-                      WDF_NO_HANDLE);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME " WdfDriverCreate failed with status 0x%08x\n", status));
-  }
+  for (i = 0; i < IRP_MJ_MAXIMUM_FUNCTION; i++)
+    DriverObject->MajorFunction[i] = XenHide_Pass;
+  if (AutoEnumerate)
+    DriverObject->MajorFunction[IRP_MJ_PNP] = XenHide_Pnp;
+  DriverObject->DriverExtension->AddDevice = XenHide_AddDevice;
+//  DriverObject->DriverUnload = XenHide_Unload;
 
   KdPrint((__DRIVER_NAME " <-- DriverEntry\n"));
 
@@ -153,91 +151,67 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 }
 
 static NTSTATUS
-XenHide_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp);
-
-static VOID 
-XenPCI_IoDefault(
-    IN WDFQUEUE  Queue,
-    IN WDFREQUEST  Request
-    )
-{
-  UNREFERENCED_PARAMETER(Queue);
-
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  WdfRequestComplete(Request, STATUS_NOT_IMPLEMENTED);
-
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-}
-
-static VOID 
-XenPCI_IoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
-{
-  PCHAR Buffer;
-  size_t BufLen;
-
-  UNREFERENCED_PARAMETER(Queue);
-  UNREFERENCED_PARAMETER(Length);
-
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  WdfRequestRetrieveOutputBuffer(Request, 1, &Buffer, &BufLen);
-
-  ASSERT(BufLen > 0);
-
-  Buffer[0] = 1;
-
-  WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, 1);
-
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-}
-
-static NTSTATUS
 XenHide_AddDevice(
-    IN WDFDRIVER Driver,
-    IN PWDFDEVICE_INIT DeviceInit
-    )
+  PDRIVER_OBJECT DriverObject,
+  PDEVICE_OBJECT PhysicalDeviceObject
+  )
 {
   NTSTATUS status;
-  WDF_OBJECT_ATTRIBUTES attributes;
-  UCHAR MinorFunctions[3] = { IRP_MN_QUERY_DEVICE_RELATIONS };
+  PDEVICE_OBJECT deviceObject = NULL;
+  PDEVICE_EXTENSION DeviceExtension;
 
-  UNREFERENCED_PARAMETER(Driver);
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KdPrint((__DRIVER_NAME " --> DeviceAdd\n"));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  status = IoCreateDevice (DriverObject,
+    sizeof(DEVICE_EXTENSION),
+    NULL,
+    FILE_DEVICE_UNKNOWN,
+    FILE_DEVICE_SECURE_OPEN,
+    FALSE,
+    &deviceObject);
 
-  WdfFdoInitSetFilter(DeviceInit);
+  DeviceExtension = (PDEVICE_EXTENSION)deviceObject->DeviceExtension;
 
-  status = WdfDeviceInitAssignWdmIrpPreprocessCallback(DeviceInit, XenHide_PreprocessWdmIrpPNP, IRP_MJ_PNP, MinorFunctions, 3);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     WdfDeviceInitAssignWdmIrpPreprocessCallback failed with status 0x%08x\n", status));
-    return status;
-  }
+  DeviceExtension->NextLowerDevice = IoAttachDeviceToDeviceStack(
+    deviceObject,
+    PhysicalDeviceObject);
+  deviceObject->Flags |= DeviceExtension->NextLowerDevice->Flags;
 
-  WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+  deviceObject->DeviceType = DeviceExtension->NextLowerDevice->DeviceType;
 
-  status = WdfDeviceCreate(&DeviceInit, &attributes, &Device);  
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     WdfDeviceCreate failed with status 0x%08x\n", status));
-    return status;
-  }
+  deviceObject->Characteristics = 
+    DeviceExtension->NextLowerDevice->Characteristics;
+
+  DeviceExtension->Self = deviceObject;
+
+  //INITIALIZE_PNP_STATE(DeviceExtension);
 
   if (AutoEnumerate)
   {
-    status = WdfDeviceCreateDeviceInterface(Device, (LPGUID)&GUID_XENHIDE_IFACE, NULL);
+    status = IoRegisterDeviceInterface(PhysicalDeviceObject, (LPGUID)&GUID_XENHIDE_IFACE, NULL, &DeviceExtension->InterfaceName);
     if (!NT_SUCCESS(status))
     {
-      KdPrint((__DRIVER_NAME "     WdfDeviceCreateDeviceInterface failed 0x%08x\n", status));
+      KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface failed 0x%08x\n", status));
+      return status;
+    }
+    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface complete, SymbolicLinkName = %wZ\n", &DeviceExtension->InterfaceName));
+    status = IoSetDeviceInterfaceState(&DeviceExtension->InterfaceName, TRUE);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint((__DRIVER_NAME "     IoSetDeviceInterfaceState failed 0x%08x\n", status));
       return status;
     }
   }
+  else
+  {
+    KdPrint((__DRIVER_NAME "     Not registering Interface\n"));
+  }
 
-  KdPrint((__DRIVER_NAME " <-- DeviceAdd\n"));
+  deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
-  return status;
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return STATUS_SUCCESS;
 }
 
 static int
@@ -315,10 +289,23 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
 }
 
 static NTSTATUS
-XenHide_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp)
+XenHide_Pass(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+  PDEVICE_EXTENSION DeviceExtension;
+  NTSTATUS status;
+    
+  DeviceExtension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
+  IoSkipCurrentIrpStackLocation(Irp);
+  status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
+  return status;
+}
+
+static NTSTATUS
+XenHide_Pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
   NTSTATUS Status = STATUS_SUCCESS;
   PIO_STACK_LOCATION Stack;
+  PDEVICE_EXTENSION DeviceExtension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
@@ -327,7 +314,7 @@ XenHide_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp)
 
   switch (Stack->MinorFunction) {
   case IRP_MN_QUERY_DEVICE_RELATIONS:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS Device = %08x Irp = %08x, Stack = %08x\n", Device, Irp, Stack));
+    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS\n"));
     switch (Stack->Parameters.QueryDeviceRelations.Type)
     {
     case BusRelations:
@@ -336,61 +323,23 @@ XenHide_PreprocessWdmIrpPNP(WDFDEVICE Device, PIRP Irp)
       {
         IoCopyCurrentIrpStackLocationToNext(Irp);
         IoSetCompletionRoutine(Irp, XenHide_IoCompletion, NULL, TRUE, TRUE, TRUE);
-        Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
+        Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
       }
       else
       {
         IoSkipCurrentIrpStackLocation(Irp);
-        Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
+        Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
       }
-      break;  
-    case EjectionRelations: 
-      IoSkipCurrentIrpStackLocation(Irp);
-      Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
-      KdPrint((__DRIVER_NAME "       EjectionRelations\n"));
-      break;  
-    case RemovalRelations:
-      IoSkipCurrentIrpStackLocation(Irp);
-      Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
-      KdPrint((__DRIVER_NAME "       RemovalRelations\n"));
-      break;  
-    case TargetDeviceRelation:
-      IoSkipCurrentIrpStackLocation(Irp);
-      Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
-      KdPrint((__DRIVER_NAME "       TargetDeviceRelation\n"));
       break;  
     default:
       IoSkipCurrentIrpStackLocation(Irp);
-      Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
-      KdPrint((__DRIVER_NAME "     Unknown Type %d\n", Stack->Parameters.QueryDeviceRelations.Type));
+      Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
       break;  
     }
     break;
-  case IRP_MN_QUERY_INTERFACE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_INTERFACE\n"));
-    if (memcmp(Stack->Parameters.QueryInterface.InterfaceType, &GUID_XENHIDE_IFACE, sizeof(GUID)) == 0)
-    {
-      KdPrint((__DRIVER_NAME "     Interface == GUID_XENHIDE_IFACE\n"));
-    }
-    IoSkipCurrentIrpStackLocation(Irp);
-    Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
-    break;
-  case IRP_MN_QUERY_BUS_INFORMATION:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_BUS_INFORMATION\n"));
-    IoSkipCurrentIrpStackLocation(Irp);
-    Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
-    break;
-/*
-  case IRP_MN_START_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE\n"));
-    IoSkipCurrentIrpStackLocation(Irp);
-    Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
-    break;
-*/
   default:
     IoSkipCurrentIrpStackLocation(Irp);
-    Status = WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
-    KdPrint((__DRIVER_NAME "     Unknown Minor %d\n", Stack->MinorFunction));
+    Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
     break;
   }
 
