@@ -36,7 +36,7 @@ DisplayName    = %XenEnum.SVCDESC%
 ServiceType    = 1
 StartType      = 0
 ErrorControl   = 1
-LoadOrderGroup = WdfLoadGroup
+LoadOrderGroup = System Bus Extender
 ServiceBinary  = %12%\xenenum.sys                            
 AddReg = XenEnum_Service_AddReg
 

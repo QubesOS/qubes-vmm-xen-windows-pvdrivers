@@ -38,7 +38,7 @@ DisplayName    = %XenVbd.SVCDESC%
 ServiceType    = 1
 StartType      = 0
 ErrorControl   = 1
-LoadOrderGroup = WdfLoadGroup
+LoadOrderGroup = System Bus Extender
 ServiceBinary  = %12%\xenvbd.sys                            
 AddReg = XenVbd_Service_AddReg
 
@@ -85,7 +85,7 @@ DisplayName    = "Xen Resource Adder"
 ServiceType    = 1
 StartType      = 0
 ErrorControl   = 1
-LoadOrderGroup = WdfLoadGroup
+LoadOrderGroup = System Bus Extender
 ServiceBinary  = %12%\xenaddresource.sys
 AddReg = XenAddResource_Service_AddReg
 

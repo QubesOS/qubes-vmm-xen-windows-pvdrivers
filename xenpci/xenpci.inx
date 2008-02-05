@@ -46,7 +46,7 @@ DisplayName    = %XenPCI.SVCDESC%
 ServiceType    = 1
 StartType      = 0
 ErrorControl   = 1
-LoadOrderGroup = WdfLoadGroup
+LoadOrderGroup = System Bus Extender
 ServiceBinary  = %12%\xenpci.sys                            
 
 [XenPCI_Inst.NT.CoInstallers]
