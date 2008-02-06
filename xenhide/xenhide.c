@@ -250,7 +250,7 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
       if (j == 0)
         IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyCompatibleIDs, Length, Buffer, &Length);
       else
-        IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyCompatibleIDs, Length, Buffer, &Length);
+        IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyHardwareID, Length, Buffer, &Length);
       StrLen = 0;
       for (Ptr = Buffer; *Ptr != 0; Ptr += StrLen + 1)
       {
