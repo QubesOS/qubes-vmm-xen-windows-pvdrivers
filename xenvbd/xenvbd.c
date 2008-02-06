@@ -13,7 +13,7 @@
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
 
-#define BUF_PAGES_PER_SRB 11
+//#define BUF_PAGES_PER_SRB 11
 
 DRIVER_INITIALIZE DriverEntry;
 
@@ -190,10 +190,12 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
           KdPrint((__DRIVER_NAME "     Sector = %08X, Count = %d\n", TargetData->shadow[rep->id].req.sector_number, BlockCount));
           Srb->SrbStatus = SRB_STATUS_ERROR;
         }
+/*
         for (j = 0; j < TargetData->shadow[rep->id].req.nr_segments; j++)
           DeviceData->XenDeviceData->XenInterface.GntTbl_EndAccess(
             DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
             TargetData->shadow[rep->id].req.seg[j].gref);
+*/
         if (Srb->Cdb[0] == SCSIOP_READ)
           memcpy(Srb->DataBuffer, TargetData->shadow[rep->id].Buf, BlockCount * TargetData->BytesPerSector);
   
@@ -258,7 +260,7 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
   grant_ref_t ref;
   blkif_sring_t *SharedRing;
   ULONG PFN;
-  ULONG i;
+  ULONG i, j;
   blkif_request_t *req;
   int notify;
 
@@ -308,8 +310,15 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
     for (i = 0; i < max(BLK_RING_SIZE, BLK_OTHER_RING_SIZE); i++)
     {
       TargetData->shadow[i].req.id = i + 1;
-      TargetData->shadow[i].Mdl = AllocatePages(BUF_PAGES_PER_SRB); // stupid that we have to do this!
+      TargetData->shadow[i].Mdl = AllocatePages(BLKIF_MAX_SEGMENTS_PER_REQUEST); // stupid that we have to do this!
       TargetData->shadow[i].Buf = MmGetMdlVirtualAddress(TargetData->shadow[i].Mdl);
+      for (j = 0; j < BLKIF_MAX_SEGMENTS_PER_REQUEST; j++)
+      {
+        TargetData->shadow[i].req.seg[j].gref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
+          DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
+          0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[i].Mdl)[j], FALSE);
+        ASSERT((signed short)TargetData->shadow[i].req.seg[j].gref >= 0);
+      }
     }
     TargetData->shadow_free = 0;
 
@@ -643,8 +652,8 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
 #if defined(__x86_64__)
   ConfigInfo->Master = TRUE; // Won't work under x64 without this...
 #endif
-  ConfigInfo->MaximumTransferLength = BUF_PAGES_PER_SRB * PAGE_SIZE;
-  ConfigInfo->NumberOfPhysicalBreaks = BUF_PAGES_PER_SRB - 1;
+  ConfigInfo->MaximumTransferLength = BLKIF_MAX_SEGMENTS_PER_REQUEST * PAGE_SIZE;
+  ConfigInfo->NumberOfPhysicalBreaks = BLKIF_MAX_SEGMENTS_PER_REQUEST - 1;
   ConfigInfo->ScatterGather = TRUE;
   ConfigInfo->AlignmentMask = 0;
   ConfigInfo->NumberOfBuses = SCSI_BUSES;
@@ -857,10 +866,12 @@ XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
 
   for (i = 0; i < shadow->req.nr_segments; i++)
   {
+/*
     shadow->req.seg[i].gref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
       0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[shadow->req.id].Mdl)[i], FALSE);
     ASSERT((signed short)shadow->req.seg[i].gref >= 0);
+*/
     shadow->req.seg[i].first_sect = 0;
     if (i == shadow->req.nr_segments - 1)
       shadow->req.seg[i].last_sect = (UINT8)((BlockCount - 1) % (PAGE_SIZE / TargetData->BytesPerSector));

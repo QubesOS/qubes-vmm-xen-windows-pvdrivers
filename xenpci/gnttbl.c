@@ -23,18 +23,26 @@ static void
 put_free_entry(WDFDEVICE Device, grant_ref_t ref)
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  KIRQL OldIrql;
 
+  KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
   xpdd->gnttab_list[ref] = xpdd->gnttab_list[0];
   xpdd->gnttab_list[0]  = ref;
+  KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
 }
 
 static grant_ref_t
 get_free_entry(WDFDEVICE Device)
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-  unsigned int ref = xpdd->gnttab_list[0];
+  unsigned int ref;
+  KIRQL OldIrql;
 
+  KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
+  ref = xpdd->gnttab_list[0];
   xpdd->gnttab_list[0] = xpdd->gnttab_list[ref];
+  KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
+
   return ref;
 }
 
@@ -71,6 +79,9 @@ GntTbl_Init(WDFDEVICE Device)
 
   //KdPrint((__DRIVER_NAME " --> GntTbl_Init\n"));
 
+  
+  KeInitializeSpinLock(&xpdd->grant_lock);
+
   for (i = NR_RESERVED_ENTRIES; i < NR_GRANT_ENTRIES; i++)
     put_free_entry(Device, i);
 
@@ -102,7 +113,6 @@ GntTbl_GrantAccess(
 
   //KdPrint((__DRIVER_NAME "     Granting access to frame %08x\n", frame));
 
-  /* TODO: locking? */
   ref = get_free_entry(Device);
   xpdd->gnttab_table[ref].frame = frame;
   xpdd->gnttab_table[ref].domid = domid;
@@ -134,8 +144,6 @@ GntTbl_EndAccess(
     }
   } while ((nflags = InterlockedCompareExchange16(
     (volatile SHORT *)&xpdd->gnttab_table[ref].flags, 0, flags)) != flags);
-//  } while ((nflags = InterlockedCompareExchange16(
-//    (volatile SHORT *)&xpdd->gnttab_table[ref].flags, flags, 0)) != flags);
 
   put_free_entry(Device, ref);
   //KdPrint((__DRIVER_NAME " <-- GntTbl_EndAccess\n"));
