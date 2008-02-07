@@ -56,6 +56,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   size_t SystemStartOptionsLen;
   size_t i;
 
+  UNREFERENCED_PARAMETER(RegistryPath);
+
   KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 

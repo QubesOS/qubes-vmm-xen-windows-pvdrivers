@@ -139,7 +139,6 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
   PXENVBD_TARGET_DATA TargetData = (PXENVBD_TARGET_DATA)DeviceExtension;
   PSCSI_REQUEST_BLOCK Srb;
   RING_IDX i, rp;
-  int j;
   blkif_response_t *rep;
   int BlockCount;
   PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)TargetData->DeviceData;
@@ -833,9 +832,8 @@ XenVbd_PutSrbOnRing(PXENVBD_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
   //PUCHAR DataBuffer;
   int i;
   int BlockCount;
-  PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)TargetData->DeviceData;
   blkif_shadow_t *shadow;
-  int id;
+  uint64_t id;
 
 // can use SRB_STATUS_BUSY to push the SRB back to windows...
 
