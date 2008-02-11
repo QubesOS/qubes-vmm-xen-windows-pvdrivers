@@ -84,7 +84,6 @@ struct xennet_info
 
   LIST_ENTRY tx_waiting_pkt_list;
   LIST_ENTRY rx_free_buf_list;
-  LIST_ENTRY rx_free_pkt_list;
 
   struct netif_tx_front_ring tx;
   struct netif_rx_front_ring rx;
@@ -360,7 +359,6 @@ XenNet_RxBufferFree(struct xennet_info *xi)
   int i;
   grant_ref_t ref;
   PNDIS_BUFFER buffer;
-  PNDIS_PACKET packet;
   KIRQL OldIrql;
   PVOID buff_va;
   PLIST_ENTRY entry;
@@ -399,12 +397,6 @@ XenNet_RxBufferFree(struct xennet_info *xi)
     NdisFreeMemory(buff_va, 0, 0); // <= DISPATCH_LEVEL
   }
 
-  while ((entry = RemoveHeadList(&xi->rx_free_pkt_list)) != &xi->rx_free_pkt_list)
-  {
-    packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
-    NdisFreePacket(packet);
-  }
-
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 }
 
@@ -416,15 +408,9 @@ XenNet_ReturnPacket(
 {
   struct xennet_info *xi = MiniportAdapterContext;
   PNDIS_BUFFER buffer;
-//  PNDIS_BUFFER next_buffer;
-  // PVOID buff_va;
-  // UINT buff_len;
-  UINT tot_buff_len;
   buffer_entry_t *buffer_entry;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  NdisQueryPacketLength(Packet, &tot_buff_len);
 
   NdisUnchainBufferAtBack(Packet, &buffer);
   while (buffer)
@@ -435,8 +421,7 @@ XenNet_ReturnPacket(
     NdisUnchainBufferAtBack(Packet, &buffer);
   }
 
-  NdisReinitializePacket(Packet);
-  InsertTailList(&xi->rx_free_pkt_list, (PLIST_ENTRY)&Packet->MiniportReservedEx[sizeof(PVOID)]);
+  NdisFreePacket(Packet);
   
   InterlockedDecrement(&xi->rx_outstanding);
 
@@ -452,15 +437,14 @@ static NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
-  PLIST_ENTRY entry;
   PNDIS_PACKET packet = NULL;
   PNDIS_BUFFER buffer;
   int moretodo;
   KIRQL OldIrql;
   struct netif_rx_response *rxrsp = NULL;
   int more_frags = 0;
-  UINT length;
-
+  NDIS_STATUS status;
+  
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   ASSERT(xi->connected);
@@ -477,18 +461,15 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
       if (!more_frags) // handling the packet's 1st buffer
       {
-        entry = RemoveHeadList(&xi->rx_free_pkt_list);
-        ASSERT(entry != &xi->rx_free_pkt_list);
-        packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
+        NdisAllocatePacket(&status, &packet, xi->packet_pool);
+        ASSERT(status == NDIS_STATUS_SUCCESS);
         NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
-        NdisQueryPacketLength(packet, &length);
       }
 
       buffer = xi->rx_buffers[rxrsp->id];
       xi->rx_buffers[rxrsp->id] = NULL;
       NdisAdjustBufferLength(buffer, rxrsp->status);
       NdisChainBufferAtBack(packet, buffer);
-      NdisQueryPacketLength(packet, &length);
       xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
         xi->grant_rx_ref[rxrsp->id]);
       xi->grant_rx_ref[rxrsp->id] = GRANT_INVALID_REF;
@@ -668,9 +649,7 @@ XenNet_Init(
   char *err;
   xenbus_transaction_t xbt = 0;
   KIRQL OldIrql;
-  PNDIS_PACKET packet;
   buffer_entry_t *buffer_entry;
-  PLIST_ENTRY entry;
 
   UNREFERENCED_PARAMETER(OpenErrorStatus);
   UNREFERENCED_PARAMETER(WrapperConfigurationContext);
@@ -717,7 +696,6 @@ XenNet_Init(
   KeInitializeSpinLock(&xi->rx_lock);
 
   InitializeListHead(&xi->rx_free_buf_list);
-  InitializeListHead(&xi->rx_free_pkt_list);
   InitializeListHead(&xi->tx_waiting_pkt_list);
   
   NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN,
@@ -901,10 +879,6 @@ XenNet_Init(
     NdisAllocateBuffer(&status, &buffer_entry->buffer, xi->buffer_pool, buffer_entry, sizeof(buffer_entry->data));
     ASSERT(status == NDIS_STATUS_SUCCESS); // should never fail
     InsertTailList(&xi->rx_free_buf_list, &buffer_entry->entry);
-
-    NdisAllocatePacket(&status, &packet, xi->packet_pool);
-    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
-    InsertTailList(&xi->rx_free_pkt_list, entry);
   }
 
   XenNet_RxBufferAlloc(xi);
