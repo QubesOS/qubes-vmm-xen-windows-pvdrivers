@@ -456,8 +456,15 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
     for (cons = xi->rx.rsp_cons; cons != prod; cons++) {
+
       rxrsp = RING_GET_RESPONSE(&xi->rx, cons);
-      ASSERT(rxrsp->status > 0);
+      if (rxrsp->status <= 0
+        || rxrsp->offset + rxrsp->status > PAGE_SIZE)
+      {
+        KdPrint((__DRIVER_NAME ": Error: rxrsp offset %d, size %d\n",
+          rxrsp->offset, rxrsp->status));
+        continue;
+      }
 
       if (!more_frags) // handling the packet's 1st buffer
       {
@@ -474,13 +481,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         xi->grant_rx_ref[rxrsp->id]);
       xi->grant_rx_ref[rxrsp->id] = GRANT_INVALID_REF;
 
-#if 0
-      KdPrint((__DRIVER_NAME "     Flags = %sNETRXF_data_validated|%sNETRXF_csum_blank|%sNETRXF_more_data|%sNETRXF_extra_info\n",
-        (rxrsp->flags&NETRXF_data_validated)?"":"!",
-        (rxrsp->flags&NETRXF_csum_blank)?"":"!",
-        (rxrsp->flags&NETRXF_more_data)?"":"!",
-        (rxrsp->flags&NETRXF_extra_info)?"":"!"));
-#endif
       ASSERT(!(rxrsp->flags & NETRXF_extra_info)); // not used on RX
 
       more_frags = rxrsp->flags & NETRXF_more_data;
@@ -1544,16 +1544,7 @@ XenNet_SendPackets(
   PLIST_ENTRY entry;
   KIRQL OldIrql;
 
-#if 0
-  for (i = 0; i < NumberOfPackets; i++)
-  {
-    curr_packet = PacketArray[i];
-    NdisMSendComplete(xi->adapter_handle, curr_packet, NDIS_STATUS_FAILURE);
-  }
-  return;
-#endif
-
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   for (i = 0; i < NumberOfPackets; i++)
   {
     curr_packet = PacketArray[i];
@@ -1583,7 +1574,7 @@ XenNet_SendPackets(
     InterlockedIncrement(&xi->tx_outstanding);
   }
   XenNet_SendQueuedPackets(xi);
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 VOID
@@ -1661,7 +1652,7 @@ XenNet_Halt(
     KeWaitForSingleObject(&xi->backend_state_change_event, Executive,
       KernelMode, FALSE, NULL);
 
-  // this disables the interrupt
+  // Disables the interrupt
   XenNet_Shutdown(xi);
 
   xi->connected = FALSE;
@@ -1770,8 +1761,6 @@ DriverEntry(
   /* added in v.5.1 */
   mini_chars.PnPEventNotifyHandler = XenNet_PnPEventNotify;
   mini_chars.AdapterShutdownHandler = XenNet_Shutdown;
-
-  /* TODO: we don't have hardware, but we have "resources", so do we need to implement fns to handle this? */
 
   /* set up upper-edge interface */
   status = NdisMRegisterMiniport(ndis_wrapper_handle, &mini_chars, sizeof(mini_chars));
