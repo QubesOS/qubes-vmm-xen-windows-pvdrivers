@@ -56,6 +56,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   size_t SystemStartOptionsLen;
   size_t i;
 
+  UNREFERENCED_PARAMETER(RegistryPath);
+
   KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
@@ -154,32 +156,54 @@ XenHide_AddDevice(
   )
 {
   NTSTATUS status;
-  PDEVICE_OBJECT deviceObject = NULL;
+  PDEVICE_OBJECT DeviceObject = NULL;
   PDEVICE_EXTENSION DeviceExtension;
+  ULONG Length;
+  WCHAR Buffer[1000];
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  status = IoCreateDevice (DriverObject,
+  Length = 1000;
+  status = IoGetDeviceProperty(PhysicalDeviceObject, DevicePropertyDeviceDescription, Length, Buffer, &Length);
+  KdPrint((__DRIVER_NAME "     status = %08x, DevicePropertyDeviceDescription = %ws\n", status, Buffer));
+
+  if (!NT_SUCCESS(status) || wcscmp(Buffer, L"PCI bus") != 0)
+  {
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+    return STATUS_SUCCESS;
+  }
+  KdPrint((__DRIVER_NAME "     Found\n"));
+
+  status = IoCreateDevice(DriverObject,
     sizeof(DEVICE_EXTENSION),
     NULL,
     FILE_DEVICE_UNKNOWN,
     FILE_DEVICE_SECURE_OPEN,
     FALSE,
-    &deviceObject);
+    &DeviceObject);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     IoCreateDevice failed 0x%08x\n", status));
+    return status;
+  }
 
-  DeviceExtension = (PDEVICE_EXTENSION)deviceObject->DeviceExtension;
+  DeviceExtension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
+
+  DeviceExtension->Self = DeviceObject;
+  DeviceExtension->DriverObject = DriverObject;
+  DeviceExtension->Type = XENHIDE_TYPE_PCI;
+  DeviceExtension->CallCount = 0;
 
   DeviceExtension->NextLowerDevice = IoAttachDeviceToDeviceStack(
-    deviceObject,
+    DeviceObject,
     PhysicalDeviceObject);
-  deviceObject->Flags |= DeviceExtension->NextLowerDevice->Flags;
 
-  deviceObject->DeviceType = DeviceExtension->NextLowerDevice->DeviceType;
+  DeviceObject->Flags |= DeviceExtension->NextLowerDevice->Flags;
 
-  deviceObject->Characteristics = 
+  DeviceObject->DeviceType = DeviceExtension->NextLowerDevice->DeviceType;
+
+  DeviceObject->Characteristics = 
     DeviceExtension->NextLowerDevice->Characteristics;
-
-  DeviceExtension->Self = deviceObject;
 
   //INITIALIZE_PNP_STATE(DeviceExtension);
 
@@ -204,7 +228,7 @@ XenHide_AddDevice(
     KdPrint((__DRIVER_NAME "     Not registering Interface\n"));
   }
 
-  deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+  DeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -228,66 +252,126 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
   ULONG Length;
   size_t StrLen;
   int Match;
-  int Offset = 0;
+  NTSTATUS status;
+  PDEVICE_OBJECT deviceObject = NULL;
+  PDEVICE_EXTENSION DeviceExtension = (PDEVICE_EXTENSION)Context;
+  PDEVICE_EXTENSION NewDeviceExtension;
 
   UNREFERENCED_PARAMETER(DeviceObject);
   UNREFERENCED_PARAMETER(Context);
 
   KdPrint((__DRIVER_NAME " --> IoCompletion\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  KdPrint((__DRIVER_NAME "     CallCount = %d\n", DeviceExtension->CallCount));
 
-  Relations = (PDEVICE_RELATIONS)Irp->IoStatus.Information;
+  if (Irp->PendingReturned)
+    IoMarkIrpPending(Irp);
 
-  for (i = 0; i < Relations->Count; i++)
+  switch (DeviceExtension->CallCount)
   {
-    if (Offset != 0)
-      Relations->Objects[i - Offset] = Relations->Objects[i];
-
-    Match = 0;
-    for (j = 0; j < 2 && !Match; j++)
+  case 0:
+    DeviceExtension->CallCount = 1;
+    break;
+  case 1:
+    DeviceExtension->CallCount = 2;
+/*
+    break;
+  case 2:
+    DeviceExtension->CallCount = 3;
+*/
+    Relations = (PDEVICE_RELATIONS)Irp->IoStatus.Information;
+  
+    for (i = 0; i < Relations->Count; i++)
     {
-      Length = sizeof(Buffer);
-      if (j == 0)
-        IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyCompatibleIDs, Length, Buffer, &Length);
-      else
-        IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyHardwareID, Length, Buffer, &Length);
-      StrLen = 0;
-      for (Ptr = Buffer; *Ptr != 0; Ptr += StrLen + 1)
+      Match = 0;
+      for (j = 0; j < 2 && !Match; j++)
       {
-        // Qemu PCI
-        if (XenHide_StringMatches(Ptr, L"PCI\\VEN_8086&DEV_7010")) {
-          Match = 1;
-          break;
+        Length = sizeof(Buffer);
+        if (j == 0)
+          IoGetDeviceProperty(Relations->Objects[i], DevicePropertyCompatibleIDs, Length, Buffer, &Length);
+        else
+          IoGetDeviceProperty(Relations->Objects[i], DevicePropertyHardwareID, Length, Buffer, &Length);
+        StrLen = 0;
+        for (Ptr = Buffer; *Ptr != 0; Ptr += StrLen + 1)
+        {
+          // Qemu PCI
+          if (XenHide_StringMatches(Ptr, L"PCI\\VEN_8086&DEV_7010")) {
+            KdPrint((__DRIVER_NAME "     %ws\n", Ptr));
+            Match = 1;
+            break;
+          }
+          // Qemu Network
+          if (XenHide_StringMatches(Ptr, L"PCI\\VEN_10EC&DEV_8139")) {
+            KdPrint((__DRIVER_NAME "     %ws\n", Ptr));
+            Match = 1;
+            break;
+          }
+          RtlStringCchLengthW(Ptr, Length, &StrLen);
         }
-        // Qemu Network
-        if (XenHide_StringMatches(Ptr, L"PCI\\VEN_10EC&DEV_8139")) {
-          Match = 1;
-          break;
+      }
+      if (Match)
+      {
+        KdPrint((__DRIVER_NAME "     Creating and attaching Device\n"));
+        deviceObject = NULL;
+        status = IoCreateDevice(DeviceExtension->DriverObject,
+          sizeof(DEVICE_EXTENSION),
+          NULL,
+          FILE_DEVICE_UNKNOWN,
+          FILE_DEVICE_SECURE_OPEN,
+          FALSE,
+          &deviceObject);
+        if (!NT_SUCCESS(status))
+        {
+          KdPrint((__DRIVER_NAME "     IoCreateDevice failed 0x%08x\n", status));
+          continue;
         }
-        RtlStringCchLengthW(Ptr, Length, &StrLen);
+  
+        NewDeviceExtension = (PDEVICE_EXTENSION)deviceObject->DeviceExtension;
+      
+        NewDeviceExtension->NextLowerDevice = IoAttachDeviceToDeviceStack(
+          deviceObject,
+          Relations->Objects[i]);
+        deviceObject->Flags |= NewDeviceExtension->NextLowerDevice->Flags;
+          
+        deviceObject->DeviceType = NewDeviceExtension->NextLowerDevice->DeviceType;
+      
+        deviceObject->Characteristics = 
+          NewDeviceExtension->NextLowerDevice->Characteristics;
+      
+        NewDeviceExtension->Self = deviceObject;
+        NewDeviceExtension->Type = XENHIDE_TYPE_HIDE;
+      
+        deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
       }
     }
-    if (Match)
-    {
-      Offset++;
-    }
+    break;
+  default:
+    break;
   }
-  Relations->Count -= Offset;
-  
+
   KdPrint((__DRIVER_NAME " <-- IoCompletion\n"));
 
-  return Irp->IoStatus.Status;
+  return STATUS_SUCCESS; //Irp->IoStatus.Status;
 }
 
 static NTSTATUS
 XenHide_Pass(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
   PDEVICE_EXTENSION DeviceExtension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
-  NTSTATUS status;
+  NTSTATUS Status;
     
-  IoSkipCurrentIrpStackLocation(Irp);
-  status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
-  return status;
+  if (DeviceExtension->Type == XENHIDE_TYPE_HIDE)
+  {
+    Irp->IoStatus.Status = Status = STATUS_UNSUCCESSFUL;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+  }
+  else
+  {
+    IoSkipCurrentIrpStackLocation(Irp);
+    Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
+  }
+  return Status;
 }
 
 static NTSTATUS
@@ -298,33 +382,151 @@ XenHide_Pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp)
   PDEVICE_EXTENSION DeviceExtension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME "     DeviceObject = %p\n", DeviceObject));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   Stack = IoGetCurrentIrpStackLocation(Irp);
 
-  switch (Stack->MinorFunction) {
-  case IRP_MN_QUERY_DEVICE_RELATIONS:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS\n"));
-    switch (Stack->Parameters.QueryDeviceRelations.Type)
-    {
-    case BusRelations:
-      KdPrint((__DRIVER_NAME "       BusRelations\n"));
-      IoCopyCurrentIrpStackLocationToNext(Irp);
-      IoSetCompletionRoutine(Irp, XenHide_IoCompletion, NULL, TRUE, TRUE, TRUE);
-      Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
-      break;  
-    default:
-      IoSkipCurrentIrpStackLocation(Irp);
-      Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
-      break;  
-    }
+  switch (Stack->MinorFunction)
+  {
+  case IRP_MN_START_DEVICE:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_START_DEVICE\n"));
     break;
-  default:
-    IoSkipCurrentIrpStackLocation(Irp);
-    Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
+  case IRP_MN_QUERY_STOP_DEVICE:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_STOP_DEVICE\n"));
+    break;
+  case IRP_MN_STOP_DEVICE:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_STOP_DEVICE\n"));
+    break;
+  case IRP_MN_CANCEL_STOP_DEVICE:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_CANCEL_STOP_DEVICE\n"));
+    break;
+  case IRP_MN_QUERY_REMOVE_DEVICE:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_REMOVE_DEVICE\n"));
+    break;
+  case IRP_MN_REMOVE_DEVICE:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_REMOVE_DEVICEE\n"));
+    break;
+  case IRP_MN_CANCEL_REMOVE_DEVICE:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_CANCEL_REMOVE_DEVICE\n"));
+    break;
+  case IRP_MN_SURPRISE_REMOVAL:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_SURPRISE_REMOVAL\n"));
+    break;
+  case IRP_MN_QUERY_CAPABILITIES:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_CAPABILITIES\n"));
+    break;
+  case IRP_MN_QUERY_PNP_DEVICE_STATE:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_PNP_DEVICE_STATE\n"));
+    break;
+  case IRP_MN_FILTER_RESOURCE_REQUIREMENTS:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n"));
+    break;
+  case IRP_MN_DEVICE_USAGE_NOTIFICATION:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_DEVICE_USAGE_NOTIFICATION\n"));
+    break;
+  case IRP_MN_QUERY_DEVICE_RELATIONS:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_DEVICE_RELATIONS\n"));
+    break;
+  case IRP_MN_QUERY_RESOURCES:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_RESOURCES\n"));
+    break;
+  case IRP_MN_QUERY_RESOURCE_REQUIREMENTS:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_RESOURCE_REQUIREMENTS\n"));
+    break;
+  case IRP_MN_QUERY_ID:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_ID\n"));
+    break;
+  case IRP_MN_QUERY_DEVICE_TEXT:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_DEVICE_TEXT\n"));
+    break;
+  case IRP_MN_QUERY_BUS_INFORMATION:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_BUS_INFORMATION\n"));
+    break;
+  case IRP_MN_QUERY_INTERFACE:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_QUERY_INTERFACE\n"));
+    break;
+  case IRP_MN_READ_CONFIG:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_READ_CONFIG\n"));
+    break;
+  case IRP_MN_WRITE_CONFIG:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_WRITE_CONFIG\n"));
+    break;
+  case IRP_MN_EJECT:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_EJECT\n"));
+    break;
+  case IRP_MN_SET_LOCK:
+    KdPrint((__DRIVER_NAME "     MinorFunction = IRP_MN_SET_LOCK\n"));
     break;
   }
 
+  switch (DeviceExtension->Type)
+  {
+  case XENHIDE_TYPE_PCI:
+    KdPrint((__DRIVER_NAME "     As PCI\n"));
+
+    switch (Stack->MinorFunction) {
+    case IRP_MN_QUERY_DEVICE_RELATIONS:
+      KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS\n"));
+      switch (Stack->Parameters.QueryDeviceRelations.Type)
+      {
+      case BusRelations:
+        KdPrint((__DRIVER_NAME "       BusRelations\n"));
+        IoCopyCurrentIrpStackLocationToNext(Irp);
+        IoSetCompletionRoutine(Irp, XenHide_IoCompletion, DeviceExtension, TRUE, TRUE, TRUE);
+        Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
+        break;
+      default:
+        IoSkipCurrentIrpStackLocation(Irp);
+        Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
+        break;  
+      }
+      break;
+    default:
+      IoSkipCurrentIrpStackLocation(Irp);
+      Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
+      break;
+    }
+    break;
+  case XENHIDE_TYPE_HIDE:
+    KdPrint((__DRIVER_NAME "     As Hide\n"));
+    Irp->IoStatus.Information = 0;
+    switch (Stack->MinorFunction)
+    {
+    case IRP_MN_START_DEVICE:
+    case IRP_MN_STOP_DEVICE:
+      Irp->IoStatus.Status = Status = STATUS_SUCCESS;
+      break;
+    case IRP_MN_QUERY_PNP_DEVICE_STATE:
+      Irp->IoStatus.Status = Status = STATUS_SUCCESS;
+      Irp->IoStatus.Information = PNP_DEVICE_DONT_DISPLAY_IN_UI;
+      break;
+    default:
+      Irp->IoStatus.Status = Status = STATUS_UNSUCCESSFUL;
+      break;
+    }
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+/*
+    switch (Stack->MinorFunction)
+    {
+    case IRP_MN_START_DEVICE:
+      IoCopyCurrentIrpStackLocationToNext(Irp);
+      Stack = IoGetNextIrpStackLocation(Irp);
+      Stack->Parameters.StartDevice.AllocatedResources->List[0].PartialResourceList.Count = 0;
+      Stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList.Count = 0;
+      Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
+      break;
+    default:
+      IoSkipCurrentIrpStackLocation(Irp);
+      Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
+      break;
+    }
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+*/
+    break;
+  }
+  
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returning with status %08x)\n", Status));
 
   return Status;
