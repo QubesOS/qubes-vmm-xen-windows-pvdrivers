@@ -1,5 +1,4 @@
-/*
-PV Drivers for Windows Xen HVM Domains
+/*PV Drivers for Windows Xen HVM Domains
 Copyright (C) 2007 James Harper
 
 This program is free software; you can redistribute it and/or
@@ -34,10 +33,17 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //{CD433FE7-954F-4D51-BE29-D8A38DFA1108}
 DEFINE_GUID(GUID_XENHIDE_IFACE, 0xCD433FE7, 0x954F, 0x4D51, 0xBE, 0x29, 0xD8, 0xA3, 0x8D, 0xFA, 0x11, 0x08);
 
+#define XENHIDE_TYPE_PCI 1
+#define XENHIDE_TYPE_HIDE 2
+
 struct _DEVICE_EXTENSION {
   PDEVICE_OBJECT Self;
+  PDRIVER_OBJECT DriverObject;
+  BOOLEAN SeenQueryDeviceRelations;
   PDEVICE_OBJECT NextLowerDevice;
   UNICODE_STRING InterfaceName;
+  ULONG Type;
+  ULONG CallCount;
 } typedef DEVICE_EXTENSION, *PDEVICE_EXTENSION;
 
 #endif
