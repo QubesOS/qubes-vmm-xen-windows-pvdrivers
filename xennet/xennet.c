@@ -311,6 +311,8 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   grant_ref_t ref;
   netif_rx_request_t *req;
   PLIST_ENTRY entry;
+  buffer_entry_t *buffer_entry;
+  NDIS_STATUS status;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -318,11 +320,27 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
 
   for (i = 0; i < batch_target; i++)
   {
+    /* reuse entries off the free buffer list, unless it's exhausted */
     entry = RemoveHeadList(&xi->rx_free_buf_list);
-    if (entry == &xi->rx_free_buf_list)
-      break;
-    buffer = CONTAINING_RECORD(entry, buffer_entry_t, entry)->buffer;
-    
+    if (entry != &xi->rx_free_buf_list)
+    {
+      buffer = CONTAINING_RECORD(entry, buffer_entry_t, entry)->buffer;
+    }
+    else
+    {
+      status = NdisAllocateMemoryWithTag(&buffer_entry,
+        sizeof(buffer_entry_t), XENNET_POOL_TAG);
+      if (status != NDIS_STATUS_SUCCESS)
+      {
+        KdPrint(("NdisAllocateMemoryWithTag Failed! status = 0x%x\n", status));
+        break;
+      }
+      NdisAllocateBuffer(&status, &buffer_entry->buffer, xi->buffer_pool,
+        buffer_entry, sizeof(buffer_entry->data));
+      ASSERT(status == NDIS_STATUS_SUCCESS); // should never fail
+      buffer = buffer_entry->buffer;
+    }
+
     /* Give to netback */
     id = (unsigned short)(req_prod + i) & (NET_RX_RING_SIZE - 1);
     ASSERT(!xi->rx_buffers[id]);
@@ -649,7 +667,6 @@ XenNet_Init(
   char *err;
   xenbus_transaction_t xbt = 0;
   KIRQL OldIrql;
-  buffer_entry_t *buffer_entry;
 
   UNREFERENCED_PARAMETER(OpenErrorStatus);
   UNREFERENCED_PARAMETER(WrapperConfigurationContext);
@@ -867,22 +884,7 @@ XenNet_Init(
   KdPrint((__DRIVER_NAME "     Connected\n"));
 
   KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
-
-  for (i = 0; i < XN_RX_QUEUE_LEN; i++)
-  {
-    status = NdisAllocateMemoryWithTag(&buffer_entry, sizeof(buffer_entry_t), XENNET_POOL_TAG);
-    if (status != NDIS_STATUS_SUCCESS)
-    {
-      KdPrint(("NdisAllocateMemoryWithTag Failed! status = 0x%x\n", status));
-      break;
-    }
-    NdisAllocateBuffer(&status, &buffer_entry->buffer, xi->buffer_pool, buffer_entry, sizeof(buffer_entry->data));
-    ASSERT(status == NDIS_STATUS_SUCCESS); // should never fail
-    InsertTailList(&xi->rx_free_buf_list, &buffer_entry->entry);
-  }
-
   XenNet_RxBufferAlloc(xi);
-
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
   /* get mac address */
