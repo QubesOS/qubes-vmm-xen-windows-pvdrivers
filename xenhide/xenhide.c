@@ -28,6 +28,8 @@ XenHide_Pass(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 static NTSTATUS
 XenHide_Pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 static NTSTATUS
+XenHide_Power(PDEVICE_OBJECT DeviceObject, PIRP Irp);
+static NTSTATUS
 XenHide_AddDevice();
 //static NTSTATUS
 //XenHide_Unload();
@@ -140,8 +142,12 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   for (i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++)
     DriverObject->MajorFunction[i] = XenHide_Pass;
+
+  DriverObject->MajorFunction[IRP_MJ_POWER] = XenHide_Power;
+
   if (AutoEnumerate)
     DriverObject->MajorFunction[IRP_MJ_PNP] = XenHide_Pnp;
+
   DriverObject->DriverExtension->AddDevice = XenHide_AddDevice;
 
   KdPrint((__DRIVER_NAME " <-- DriverEntry\n"));
@@ -205,7 +211,7 @@ XenHide_AddDevice(
   DeviceObject->Characteristics = 
     DeviceExtension->NextLowerDevice->Characteristics;
 
-  //INITIALIZE_PNP_STATE(DeviceExtension);
+  IoInitializeRemoveLock(&DeviceExtension->RemoveLock, XENHIDE_POOL_TAG, 1, 100);
 
   if (AutoEnumerate)
   {
@@ -337,6 +343,8 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
       
         deviceObject->Characteristics = 
           NewDeviceExtension->NextLowerDevice->Characteristics;
+
+        IoInitializeRemoveLock(&NewDeviceExtension->RemoveLock, XENHIDE_POOL_TAG, 1, 100);
       
         NewDeviceExtension->Self = deviceObject;
         NewDeviceExtension->Type = XENHIDE_TYPE_HIDE;
@@ -359,7 +367,13 @@ XenHide_Pass(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
   PDEVICE_EXTENSION DeviceExtension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
   NTSTATUS Status;
-    
+
+  Status = IoAcquireRemoveLock (&DeviceExtension->RemoveLock, Irp);
+  if (!NT_SUCCESS(Status)) {
+    Irp->IoStatus.Status = Status;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return Status;
+  }
   if (DeviceExtension->Type == XENHIDE_TYPE_HIDE)
   {
     Irp->IoStatus.Status = Status = STATUS_UNSUCCESSFUL;
@@ -371,6 +385,28 @@ XenHide_Pass(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     IoSkipCurrentIrpStackLocation(Irp);
     Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
   }
+  IoReleaseRemoveLock(&DeviceExtension->RemoveLock, Irp); 
+  return Status;
+}
+
+static NTSTATUS
+XenHide_Power(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+  NTSTATUS Status = STATUS_SUCCESS;
+  PDEVICE_EXTENSION DeviceExtension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
+
+  Status = IoAcquireRemoveLock (&DeviceExtension->RemoveLock, Irp);
+  if (!NT_SUCCESS(Status)) {
+    Irp->IoStatus.Status = Status;
+    PoStartNextPowerIrp(Irp);
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return Status;
+  }
+
+  PoStartNextPowerIrp(Irp);
+  IoSkipCurrentIrpStackLocation(Irp);
+  Status = PoCallDriver(DeviceExtension->NextLowerDevice, Irp);
+  IoReleaseRemoveLock(&DeviceExtension->RemoveLock, Irp); 
   return Status;
 }
 
@@ -384,6 +420,14 @@ XenHide_Pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp)
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     DeviceObject = %p\n", DeviceObject));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
+  Status = IoAcquireRemoveLock (&DeviceExtension->RemoveLock, Irp);
+  if (!NT_SUCCESS(Status)) {
+    Irp->IoStatus.Status = Status;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returning with status %08x)\n", Status));
+    return Status;
+  }
 
   Stack = IoGetCurrentIrpStackLocation(Irp);
 
@@ -495,6 +539,7 @@ XenHide_Pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     {
     case IRP_MN_START_DEVICE:
     case IRP_MN_STOP_DEVICE:
+    case IRP_MN_REMOVE_DEVICE:
       Irp->IoStatus.Status = Status = STATUS_SUCCESS;
       break;
     case IRP_MN_QUERY_PNP_DEVICE_STATE:
@@ -526,6 +571,8 @@ XenHide_Pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 */
     break;
   }
+
+  IoReleaseRemoveLock(&DeviceExtension->RemoveLock, Irp); 
   
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returning with status %08x)\n", Status));
 
