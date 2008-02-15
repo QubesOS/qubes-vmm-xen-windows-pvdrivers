@@ -40,12 +40,13 @@ DEFINE_GUID(GUID_XENHIDE_IFACE, 0xCD433FE7, 0x954F, 0x4D51, 0xBE, 0x29, 0xD8, 0x
 
 struct _DEVICE_EXTENSION {
   PDEVICE_OBJECT Self;
+  PDEVICE_OBJECT PhysicalDeviceObject;
   PDRIVER_OBJECT DriverObject;
   PDEVICE_OBJECT NextLowerDevice;
   IO_REMOVE_LOCK RemoveLock;
   UNICODE_STRING InterfaceName;
   ULONG Type;
-  ULONG CallCount;
+  ULONG InternalState;
 } typedef DEVICE_EXTENSION, *PDEVICE_EXTENSION;
 
 #endif

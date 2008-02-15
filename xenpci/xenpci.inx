@@ -25,12 +25,6 @@ ExcludeFromSelect=*
 [XenPCI_Inst.NT]
 CopyFiles=XenPCI.CopyFiles
 
-;[XenPCI]
-;AddReg=XenHide_AddReg
-
-;[XenHide_AddReg]
-;HKLM,
-
 [XenPCI.CopyFiles]
 xenpci.sys
 xenhide.sys
@@ -68,7 +62,7 @@ ServiceBinary  = %12%\xenhide.sys
 AddReg         = XenHide_Service_AddReg
 
 [XenHide_Service_AddReg]
-HKR,,AutoEnumerate,0x00010001, 0
+HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97D-E325-11CE-BFC1-08002BE10318},LowerFilters,0x00010008,XenHide
 
 [XenPCI_Inst.NT.CoInstallers]
 AddReg=CoInstaller_AddReg

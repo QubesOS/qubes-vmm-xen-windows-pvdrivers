@@ -948,7 +948,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
     switch(cdb->CDB6GENERIC.OperationCode)
     {
     case SCSIOP_TEST_UNIT_READY:
-      KdPrint((__DRIVER_NAME "     Command = TEST_UNIT_READY\n"));
+//      KdPrint((__DRIVER_NAME "     Command = TEST_UNIT_READY\n"));
       Srb->SrbStatus = SRB_STATUS_SUCCESS;
       Srb->ScsiStatus = 0;
       ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
