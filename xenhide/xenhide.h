@@ -45,7 +45,6 @@ struct _DEVICE_EXTENSION {
   PDEVICE_OBJECT NextLowerDevice;
   IO_REMOVE_LOCK RemoveLock;
   UNICODE_STRING InterfaceName;
-  ULONG Type;
   ULONG InternalState;
 } typedef DEVICE_EXTENSION, *PDEVICE_EXTENSION;
 

@@ -1,15 +1,14 @@
-1. Download and install the Windows Driver Framework SDK (6000, although
-there are some reports that 6001 works too) from Microsoft. You have to
-jump through a few hoops to get it, but it is free (as in beer of
-course. Microsoft don't do the 'as in speech' variety of free). It's
-also huge. http://www.microsoft.com/whdc/driver/wdf/default.mspx is a
-good place to start.
+1. Download and install the Windows Driver Framework SDK (6001 is all
+that is supported now) from Microsoft. You have to jump through a few
+hoops to get it, but it is free (as in beer of course. Microsoft don't
+do the 'as in speech' variety of free). It's also huge.
+http://www.microsoft.com/whdc/driver/wdf/default.mspx is a good place
+to start.
 http://www.microsoft.com/whdc/DevTools/WDK/WDKpkg.mspx is probably a
 better place to start. 
 
 2. Start the WDF Build Environment that best suits your needs. 32 bit
-W2K3 and XP checked and free should all work. 64 bit builds but doesn't
-run.
+W2K3 and XP checked and free should all work. 64 bit W2K3 works too.
 
 3. Use Mercurial (get it from 
 http://www.selenic.com/mercurial/wiki/index.cgi/BinaryPackages) to get 
@@ -22,12 +21,8 @@ http://xenbits.xensource.com/ext/win-pvdrivers.hg.
 directory. (<sys> is winnet or winxp, depending on your DDK compilation 
 environment.) 
 
-I've probably omitted some vitally important step from the above, so 
-please let me know if you need any assistance compiling. 
-
 See the INSTALLING.txt file for information on how to install. 
 
 There is also a simple C# app which will enable 'graceful' shutdown (eg 
 'xm shutdown' and 'xm reboot' will do the right thing). Open Xen.sln in 
 Visual Studio to build it. 
-
