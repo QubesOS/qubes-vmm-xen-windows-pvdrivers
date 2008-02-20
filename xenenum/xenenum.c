@@ -40,10 +40,15 @@ XenEnum_WatchHandler(char *Path, PVOID Data);
 #pragma alloc_text (PAGE, XenEnum_AddDevice)
 #endif
 
-LIST_ENTRY DeviceListHead;
-XEN_IFACE XenInterface;
+typedef struct {
+  LIST_ENTRY DeviceListHead;
+  XEN_IFACE XenInterface;
+  PDEVICE_OBJECT Pdo;
+  BOOLEAN AutoEnumerate;
+  KGUARDED_MUTEX WatchHandlerMutex;
+} XENENUM_DEVICE_DATA, *PXENENUM_DEVICE_DATA;
 
-static BOOLEAN AutoEnumerate;
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENENUM_DEVICE_DATA, GetDeviceData);
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
@@ -72,9 +77,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
 DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82, 0xC2, 0x37, 0x6C, 0x65, 0x18);
 
-static WDFDEVICE GlobalDevice;
-static PDEVICE_OBJECT Pdo;
-
 static NTSTATUS
 XenEnum_AddDevice(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 {
@@ -82,10 +84,14 @@ XenEnum_AddDevice(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
   NTSTATUS status;
   WDF_PNPPOWER_EVENT_CALLBACKS pnpPowerCallbacks;
   PNP_BUS_INFORMATION BusInfo;
+  WDFDEVICE Device;
+  WDF_OBJECT_ATTRIBUTES attributes;
+  PXENENUM_DEVICE_DATA xedd;
+  PDEVICE_OBJECT Pdo;
   
   UNREFERENCED_PARAMETER(Driver);
 
-  KdPrint((__DRIVER_NAME " --> DeviceAdd\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   Pdo = WdfFdoInitWdmGetPhysicalDevice(DeviceInit);
 
@@ -103,23 +109,28 @@ XenEnum_AddDevice(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
   pnpPowerCallbacks.EvtDeviceUsageNotification = XenEnum_DeviceUsageNotification;
   WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &pnpPowerCallbacks);
 
-  /*create a device instance.*/
-  status = WdfDeviceCreate(&DeviceInit, WDF_NO_OBJECT_ATTRIBUTES, &GlobalDevice);  
+  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, XENENUM_DEVICE_DATA);
+
+  status = WdfDeviceCreate(&DeviceInit, &attributes, &Device);
   if(!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "WdfDeviceCreate failed with status 0x%08x\n", status));
     return status;
   }
 
+  xedd = GetDeviceData(Device);
+  
+  KeInitializeGuardedMutex(&xedd->WatchHandlerMutex);
+
+  xedd->Pdo = Pdo;
+
   BusInfo.BusTypeGuid = GUID_XENPCI_DEVCLASS;
   BusInfo.LegacyBusType = Internal;
   BusInfo.BusNumber = 0;
 
-  WdfDeviceSetBusInformationForChildren(GlobalDevice, &BusInfo);
+  WdfDeviceSetBusInformationForChildren(Device, &BusInfo);
 
-  status = STATUS_SUCCESS;
-
-  KdPrint((__DRIVER_NAME " <-- DeviceAdd\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
 }
 
@@ -130,19 +141,20 @@ XenEnum_PrepareHardware(
   IN WDFCMRESLIST ResourceListTranslated)
 {
   NTSTATUS status = STATUS_SUCCESS;
+  PXENENUM_DEVICE_DATA xedd = GetDeviceData(Device);
 
   UNREFERENCED_PARAMETER(ResourceList);
   UNREFERENCED_PARAMETER(ResourceListTranslated);
 
   KdPrint((__DRIVER_NAME " --> EvtDevicePrepareHardware\n"));
 
-  status = WdfFdoQueryForInterface(Device, &GUID_XEN_IFACE, (PINTERFACE)&XenInterface, sizeof(XEN_IFACE), 1, NULL);
+  status = WdfFdoQueryForInterface(Device, &GUID_XEN_IFACE, (PINTERFACE)&xedd->XenInterface, sizeof(XEN_IFACE), 1, NULL);
   if(!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     WdfFdoQueryForInterface (EvtChn) failed with status 0x%08x\n", status));
   }
 
-  InitializeListHead(&DeviceListHead);
+  InitializeListHead(&xedd->DeviceListHead);
 
   KdPrint((__DRIVER_NAME " <-- EvtDevicePrepareHardware\n"));
 
@@ -178,9 +190,6 @@ XenEnum_D0Entry(
   return status;
 }
 
-static int EnumeratedDevices;
-static KEVENT WaitDevicesEvent;
-
 static NTSTATUS
 XenEnum_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
 {
@@ -190,24 +199,22 @@ XenEnum_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pr
   char *msg;
   char buffer[128];
   int i;
+  PXENENUM_DEVICE_DATA xedd = GetDeviceData(Device);
 
   UNREFERENCED_PARAMETER(Device);
   UNREFERENCED_PARAMETER(PreviousState);
 
   KdPrint((__DRIVER_NAME " --> EvtDeviceD0EntryPostInterruptsEnabled\n"));
 
-  PdoDeviceData = (PXENPCI_XEN_DEVICE_DATA)Pdo->DeviceExtension; //GetXenDeviceData(Device);
+  PdoDeviceData = (PXENPCI_XEN_DEVICE_DATA)xedd->Pdo->DeviceExtension; //GetXenDeviceData(Device);
 
   //KdPrint((__DRIVER_NAME "     Path = %s\n", PdoDeviceData->Path));
   PdoDeviceData->WatchHandler = XenEnum_WatchHandler;
   PdoDeviceData->WatchContext = Device;
-  AutoEnumerate = PdoDeviceData->AutoEnumerate;
-
-  EnumeratedDevices = 0;
-  KeInitializeEvent(&WaitDevicesEvent, SynchronizationEvent, FALSE);  
+  xedd->AutoEnumerate = PdoDeviceData->AutoEnumerate;
 
   // TODO: Should probably do this in an EvtChildListScanForChildren
-  msg = XenInterface.XenBus_List(XenInterface.InterfaceHeader.Context, XBT_NIL, PdoDeviceData->Path, &Devices);
+  msg = xedd->XenInterface.XenBus_List(xedd->XenInterface.InterfaceHeader.Context, XBT_NIL, PdoDeviceData->Path, &Devices);
   if (!msg)
   {
     for (i = 0; Devices[i]; i++)
@@ -296,16 +303,18 @@ XenEnum_WatchHandler(char *Path, PVOID Data)
   XENPCI_IDENTIFICATION_DESCRIPTION IdentificationDescription;
   char **Bits;
   int Count;
-  ANSI_STRING AnsiBuf;
   WDFCHILDLIST ChildList;
   WDFDEVICE Device = Data;
   WDF_CHILD_LIST_ITERATOR ChildIterator;
   WDFDEVICE ChildDevice;
   PXENPCI_XEN_DEVICE_DATA ChildDeviceData;
+  PXENENUM_DEVICE_DATA xedd = GetDeviceData(Device);
 
   UNREFERENCED_PARAMETER(Data);  
 
   KdPrint((__DRIVER_NAME " --> WatchHandler\n"));
+
+  KeAcquireGuardedMutex(&xedd->WatchHandlerMutex);
 
   KdPrint((__DRIVER_NAME "     Path = %s\n", Path));
 
@@ -314,12 +323,16 @@ XenEnum_WatchHandler(char *Path, PVOID Data)
   {
     KdPrint((__DRIVER_NAME "     Creating %s\n", Bits[2]));
     ChildList = WdfFdoGetDefaultChildList(Device);
+    RtlZeroMemory(&IdentificationDescription, sizeof(IdentificationDescription));
     WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&IdentificationDescription.Header, sizeof(IdentificationDescription));
     strncpy(IdentificationDescription.Path, Path, 128);
+    strncpy(IdentificationDescription.DeviceType, Bits[1], 128);
+    strncat(IdentificationDescription.DeviceType, "dev", 128);
+/*
     RtlInitAnsiString(&AnsiBuf, Bits[1]);
     RtlAnsiStringToUnicodeString(&IdentificationDescription.DeviceType, &AnsiBuf, TRUE);
+*/
     IdentificationDescription.DeviceIndex = atoi(Bits[2]);
-//    if (IdentificationDescription.DeviceIndex > 0)
     Status = WdfChildListAddOrUpdateChildDescriptionAsPresent(ChildList, &IdentificationDescription.Header, NULL);
   }
   else if (Count > 3)
@@ -350,6 +363,8 @@ XenEnum_WatchHandler(char *Path, PVOID Data)
   }
   FreeSplitString(Bits, Count);
 
+  KeReleaseGuardedMutex(&xedd->WatchHandlerMutex);
+
   KdPrint((__DRIVER_NAME " <-- WatchHandler\n"));  
 
   return;
@@ -366,8 +381,9 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
   DECLARE_CONST_UNICODE_STRING(DeviceLocation, L"Xen Bus");
   PXENPCI_XEN_DEVICE_DATA ChildDeviceData = NULL;
   WDF_QUERY_INTERFACE_CONFIG  qiConfig;
-//  WDF_PDO_EVENT_CALLBACKS PdoCallbacks;
-//  UCHAR PnpMinors[2] = { IRP_MN_START_DEVICE, IRP_MN_STOP_DEVICE };
+  PXENENUM_DEVICE_DATA xedd = GetDeviceData(WdfChildListGetDevice(ChildList));
+  UNICODE_STRING DeviceType;
+  ANSI_STRING AnsiBuf;
 
   UNREFERENCED_PARAMETER(ChildList);
 
@@ -375,11 +391,12 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
 
   XenIdentificationDesc = CONTAINING_RECORD(IdentificationDescription, XENPCI_IDENTIFICATION_DESCRIPTION, Header);
 
-//  ChildDeviceData = XenEnumIdentificationDesc->DeviceData;
+  RtlInitAnsiString(&AnsiBuf, XenIdentificationDesc->DeviceType);
+  RtlAnsiStringToUnicodeString(&DeviceType, &AnsiBuf, TRUE);
 
   WdfDeviceInitSetDeviceType(ChildInit, FILE_DEVICE_UNKNOWN);
 
-  status = RtlUnicodeStringPrintf(&buffer, L"XEN\\%wsdev\0", XenIdentificationDesc->DeviceType.Buffer);
+  status = RtlUnicodeStringPrintf(&buffer, L"XEN\\%wZ\0", &DeviceType);
 
   KdPrint((__DRIVER_NAME "     %ws", buffer.Buffer));
 
@@ -390,7 +407,7 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
   status = RtlUnicodeStringPrintf(&buffer, L"%02d\0", XenIdentificationDesc->DeviceIndex);
   status = WdfPdoInitAssignInstanceID(ChildInit, &buffer);
 
-  status = RtlUnicodeStringPrintf(&buffer, L"Xen %ws Device (%d)", XenIdentificationDesc->DeviceType.Buffer, XenIdentificationDesc->DeviceIndex);
+  status = RtlUnicodeStringPrintf(&buffer, L"Xen %wZ Device (%d)", &DeviceType, XenIdentificationDesc->DeviceIndex);
   status = WdfPdoInitAddDeviceText(ChildInit, &buffer, &DeviceLocation, 0x409);
   WdfPdoInitSetDefaultLocale(ChildInit, 0x409);
 
@@ -408,38 +425,38 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
 
   ChildDeviceData = GetXenDeviceData(ChildDevice);
   ChildDeviceData->Magic = XEN_DATA_MAGIC;
-  ChildDeviceData->AutoEnumerate = AutoEnumerate;
+  ChildDeviceData->AutoEnumerate = xedd->AutoEnumerate;
   ChildDeviceData->WatchHandler = NULL;
   strncpy(ChildDeviceData->Path, XenIdentificationDesc->Path, 128);
   
   ChildDeviceData->XenInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->XenInterface);
   ChildDeviceData->XenInterface.InterfaceHeader.Version = 1;
-  ChildDeviceData->XenInterface.InterfaceHeader.Context = XenInterface.InterfaceHeader.Context;
+  ChildDeviceData->XenInterface.InterfaceHeader.Context = xedd->XenInterface.InterfaceHeader.Context;
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
 
-  ChildDeviceData->XenInterface.AllocMMIO = XenInterface.AllocMMIO;
-  ChildDeviceData->XenInterface.FreeMem = XenInterface.FreeMem;
+  ChildDeviceData->XenInterface.AllocMMIO = xedd->XenInterface.AllocMMIO;
+  ChildDeviceData->XenInterface.FreeMem = xedd->XenInterface.FreeMem;
 
-  ChildDeviceData->XenInterface.EvtChn_Bind = XenInterface.EvtChn_Bind;
-  ChildDeviceData->XenInterface.EvtChn_Unbind = XenInterface.EvtChn_Unbind;
-  ChildDeviceData->XenInterface.EvtChn_Mask = XenInterface.EvtChn_Mask;
-  ChildDeviceData->XenInterface.EvtChn_Unmask = XenInterface.EvtChn_Unmask;
-  ChildDeviceData->XenInterface.EvtChn_Notify = XenInterface.EvtChn_Notify;
-  ChildDeviceData->XenInterface.EvtChn_AllocUnbound = XenInterface.EvtChn_AllocUnbound;
-  ChildDeviceData->XenInterface.EvtChn_BindDpc = XenInterface.EvtChn_BindDpc;
+  ChildDeviceData->XenInterface.EvtChn_Bind = xedd->XenInterface.EvtChn_Bind;
+  ChildDeviceData->XenInterface.EvtChn_Unbind = xedd->XenInterface.EvtChn_Unbind;
+  ChildDeviceData->XenInterface.EvtChn_Mask = xedd->XenInterface.EvtChn_Mask;
+  ChildDeviceData->XenInterface.EvtChn_Unmask = xedd->XenInterface.EvtChn_Unmask;
+  ChildDeviceData->XenInterface.EvtChn_Notify = xedd->XenInterface.EvtChn_Notify;
+  ChildDeviceData->XenInterface.EvtChn_AllocUnbound = xedd->XenInterface.EvtChn_AllocUnbound;
+  ChildDeviceData->XenInterface.EvtChn_BindDpc = xedd->XenInterface.EvtChn_BindDpc;
 
-  ChildDeviceData->XenInterface.GntTbl_GrantAccess = XenInterface.GntTbl_GrantAccess;
-  ChildDeviceData->XenInterface.GntTbl_EndAccess = XenInterface.GntTbl_EndAccess;
+  ChildDeviceData->XenInterface.GntTbl_GrantAccess = xedd->XenInterface.GntTbl_GrantAccess;
+  ChildDeviceData->XenInterface.GntTbl_EndAccess = xedd->XenInterface.GntTbl_EndAccess;
 
-  ChildDeviceData->XenInterface.XenBus_Read = XenInterface.XenBus_Read;
-  ChildDeviceData->XenInterface.XenBus_Write = XenInterface.XenBus_Write;
-  ChildDeviceData->XenInterface.XenBus_Printf = XenInterface.XenBus_Printf;
-  ChildDeviceData->XenInterface.XenBus_StartTransaction = XenInterface.XenBus_StartTransaction;
-  ChildDeviceData->XenInterface.XenBus_EndTransaction = XenInterface.XenBus_EndTransaction;
-  ChildDeviceData->XenInterface.XenBus_List = XenInterface.XenBus_List;
-  ChildDeviceData->XenInterface.XenBus_AddWatch = XenInterface.XenBus_AddWatch;
-  ChildDeviceData->XenInterface.XenBus_RemWatch = XenInterface.XenBus_RemWatch;
+  ChildDeviceData->XenInterface.XenBus_Read = xedd->XenInterface.XenBus_Read;
+  ChildDeviceData->XenInterface.XenBus_Write = xedd->XenInterface.XenBus_Write;
+  ChildDeviceData->XenInterface.XenBus_Printf = xedd->XenInterface.XenBus_Printf;
+  ChildDeviceData->XenInterface.XenBus_StartTransaction = xedd->XenInterface.XenBus_StartTransaction;
+  ChildDeviceData->XenInterface.XenBus_EndTransaction = xedd->XenInterface.XenBus_EndTransaction;
+  ChildDeviceData->XenInterface.XenBus_List = xedd->XenInterface.XenBus_List;
+  ChildDeviceData->XenInterface.XenBus_AddWatch = xedd->XenInterface.XenBus_AddWatch;
+  ChildDeviceData->XenInterface.XenBus_RemWatch = xedd->XenInterface.XenBus_RemWatch;
 
   WDF_QUERY_INTERFACE_CONFIG_INIT(&qiConfig, (PINTERFACE)&ChildDeviceData->XenInterface, &GUID_XEN_IFACE, NULL);
   status = WdfDeviceAddQueryInterface(ChildDevice, &qiConfig);

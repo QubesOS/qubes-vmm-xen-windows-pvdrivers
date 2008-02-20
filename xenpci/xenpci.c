@@ -311,6 +311,7 @@ XenPCI_AddDevice(
     KdPrint((__DRIVER_NAME "     XenHide loaded and GPLPV specified\n", Status));
   }
 
+  KeInitializeGuardedMutex(&xpdd->WatchHandlerMutex);
   busInfo.BusTypeGuid = GUID_XENPCI_DEVCLASS;
   busInfo.LegacyBusType = Internal;
   busInfo.BusNumber = 0;
@@ -350,29 +351,9 @@ XenPCI_AddDevice(
   if (!NT_SUCCESS(Status))
   {
     KdPrint((__DRIVER_NAME "     WdfIoQueueCreate (ReadQueue) failed 0x%08x\n", Status));
-    switch (Status)
-    {
-    case STATUS_INVALID_PARAMETER:
-      KdPrint((__DRIVER_NAME "     STATUS_INVALID_PARAMETER\n"));
-      break;
-    case STATUS_INFO_LENGTH_MISMATCH:
-      KdPrint((__DRIVER_NAME "     STATUS_INFO_LENGTH_MISMATCH\n"));
-      break;
-    case STATUS_POWER_STATE_INVALID:
-      KdPrint((__DRIVER_NAME "     STATUS_POWER_STATE_INVALID\n"));
-      break;
-    case STATUS_INSUFFICIENT_RESOURCES:
-      KdPrint((__DRIVER_NAME "     STATUS_INSUFFICIENT_RESOURCES\n"));
-      break;
-    case STATUS_WDF_NO_CALLBACK:
-      KdPrint((__DRIVER_NAME "     STATUS_WDF_NO_CALLBACK\n"));
-      break;
-    case STATUS_UNSUCCESSFUL:
-      KdPrint((__DRIVER_NAME "     STATUS_UNSUCCESSFUL\n"));
-      break;
-    }
     return Status;
   }
+
   WdfIoQueueStopSynchronously(ReadQueue);
   WdfDeviceConfigureRequestDispatching(Device, ReadQueue, WdfRequestTypeRead);
 
@@ -510,14 +491,13 @@ XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pre
   char **Types;
   int i;
   char buffer[128];
+  WDFCHILDLIST ChildList;
 
   UNREFERENCED_PARAMETER(PreviousState);
 
-  KdPrint((__DRIVER_NAME " --> EvtDeviceD0EntryPostInterruptsEnabled\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   XenBus_Start(Device);
-
-  KdPrint((__DRIVER_NAME "     A\n"));
 
   response = XenBus_AddWatch(Device, XBT_NIL, SYSRQ_PATH, XenBus_SysrqHandler, Device);
   KdPrint((__DRIVER_NAME "     sysrqwatch response = '%s'\n", response)); 
@@ -531,19 +511,23 @@ XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pre
   response = XenBus_AddWatch(Device, XBT_NIL, "device", XenPCI_XenBusWatchHandler, Device);
   KdPrint((__DRIVER_NAME "     device watch response = '%s'\n", response)); 
 
+  ChildList = WdfFdoGetDefaultChildList(Device);
+
+  WdfChildListBeginScan(ChildList);
   msgTypes = XenBus_List(Device, XBT_NIL, "device", &Types);
   if (!msgTypes) {
     for (i = 0; Types[i]; i++)
     {
       RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "device/%s", Types[i]);
-      //KdPrint((__DRIVER_NAME "     ls device[%d] -> %s\n", i, Types[i]));
       XenPCI_XenBusWatchHandler(buffer, Device);
       ExFreePoolWithTag(Types[i], XENPCI_POOL_TAG);
     }
   }
-  KdPrint((__DRIVER_NAME " <-- EvtDeviceD0EntryPostInterruptsEnabled\n"));
+  WdfChildListEndScan(ChildList);
 
   XenPCI_FreeMem(Types);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return status;
 }
@@ -697,19 +681,24 @@ XenPCI_ChildListCreateDevice(
   DECLARE_CONST_UNICODE_STRING(DeviceLocation, L"Xen Bus");
   WDF_QUERY_INTERFACE_CONFIG  qiConfig;
   PXENPCI_XEN_DEVICE_DATA ChildDeviceData = NULL;
+  UNICODE_STRING DeviceType;
+  ANSI_STRING AnsiBuf;
 
   UNREFERENCED_PARAMETER(ChildList);
 
-  //KdPrint((__DRIVER_NAME " --> ChildListCreateDevice\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   XenIdentificationDesc = CONTAINING_RECORD(IdentificationDescription, XENPCI_IDENTIFICATION_DESCRIPTION, Header);
 
-  //KdPrint((__DRIVER_NAME "     Type = %wZ\n", &XenIdentificationDesc->DeviceType));
+  RtlInitAnsiString(&AnsiBuf, XenIdentificationDesc->DeviceType);
+  RtlAnsiStringToUnicodeString(&DeviceType, &AnsiBuf, TRUE);
+
+  KdPrint((__DRIVER_NAME "     Type = %s\n", XenIdentificationDesc->DeviceType));
 
   //DeviceInit = WdfPdoInitAllocate(Device);
   WdfDeviceInitSetDeviceType(ChildInit, FILE_DEVICE_CONTROLLER);
 
-  status = RtlUnicodeStringPrintf(&buffer, L"Xen\\%wZ\0", &XenIdentificationDesc->DeviceType);
+  status = RtlUnicodeStringPrintf(&buffer, L"Xen\\%wZ\0", &DeviceType);
   status = WdfPdoInitAssignDeviceID(ChildInit, &buffer);
   status = WdfPdoInitAddHardwareID(ChildInit, &buffer);
   status = WdfPdoInitAddCompatibleID(ChildInit, &buffer);
@@ -717,7 +706,7 @@ XenPCI_ChildListCreateDevice(
   status = RtlUnicodeStringPrintf(&buffer, L"%02d", 0);
   status = WdfPdoInitAssignInstanceID(ChildInit, &buffer);
 
-  status = RtlUnicodeStringPrintf( &buffer, L"%wZ", &XenIdentificationDesc->DeviceType);
+  status = RtlUnicodeStringPrintf(&buffer, L"%wZ", &DeviceType);
   status = WdfPdoInitAddDeviceText(ChildInit, &buffer, &DeviceLocation, 0x409);
 
   WdfPdoInitSetDefaultLocale(ChildInit, 0x409);
@@ -782,7 +771,7 @@ XenPCI_ChildListCreateDevice(
     return status;
   }
 
-  //KdPrint((__DRIVER_NAME " <-- ChildListCreateDevice\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return status;
 }
@@ -790,7 +779,6 @@ XenPCI_ChildListCreateDevice(
 VOID
 XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
 {
-  XENPCI_IDENTIFICATION_DESCRIPTION description;
   NTSTATUS status;
   char **Bits;
   int Count;
@@ -799,64 +787,55 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
   WDF_CHILD_LIST_ITERATOR ChildIterator;
   WDFDEVICE ChildDevice;
   PXENPCI_XEN_DEVICE_DATA ChildDeviceData;
-  
-  ANSI_STRING AnsiBuf;
+  XENPCI_IDENTIFICATION_DESCRIPTION description;
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
 
-  UNREFERENCED_PARAMETER(Data);
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KdPrint((__DRIVER_NAME " --> XenBusWatchHandler\n"));
+  KeAcquireGuardedMutex(&xpdd->WatchHandlerMutex);
 
-  //KdPrint((__DRIVER_NAME "     %s\n", Path));
+  KdPrint((__DRIVER_NAME "     Path = %s\n", Path));
 
   ChildList = WdfFdoGetDefaultChildList(Device);
 
   Bits = SplitString(Path, '/', 3, &Count);
-  switch (Count)
-  {
-    case 0:
-    case 1:
-      break;
-    case 2:
-      // add or update the device node
-      WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&description.Header, sizeof(description));
-      strncpy(description.Path, Path, 128);
-      RtlInitAnsiString(&AnsiBuf, Bits[1]);
-      //KdPrint((__DRIVER_NAME "     Name = %s\n", Bits[1]));  
-      RtlAnsiStringToUnicodeString(&description.DeviceType, &AnsiBuf, TRUE);
-      status = WdfChildListAddOrUpdateChildDescriptionAsPresent(ChildList, &description.Header, NULL);
-      break;
-    case 3:
-      WDF_CHILD_LIST_ITERATOR_INIT(&ChildIterator, WdfRetrievePresentChildren);
-      WdfChildListBeginIteration(ChildList, &ChildIterator);
-      while (NT_SUCCESS(WdfChildListRetrieveNextDevice(ChildList, &ChildIterator, &ChildDevice, NULL)))
-      {
-        ChildDeviceData = GetXenDeviceData(ChildDevice);
-        if (!ChildDeviceData)
-        {
-          KdPrint((__FUNCTION__ " No child device data, should never happen\n"));
-          continue;
-        }
-        if (strncmp(ChildDeviceData->Path, Path, strlen(ChildDeviceData->Path)) == 0 && Path[strlen(ChildDeviceData->Path)] == '/')
-        {
-          //KdPrint((__DRIVER_NAME "     Child Path = %s (Match - WatchHandler = %08x)\n", ChildDeviceData->Path, ChildDeviceData->WatchHandler));
-          if (ChildDeviceData->WatchHandler != NULL)
-            ChildDeviceData->WatchHandler(Path, ChildDeviceData->WatchContext);
-        }
-        else
-        {
-          //KdPrint((__DRIVER_NAME "     Child Path = %s (No Match)\n", ChildDeviceData->Path));
-        }
-      }
-      WdfChildListEndIteration(ChildList, &ChildIterator);
-      break;
-    default:
-      KdPrint((__FUNCTION__ ": Unknown case %d\n", Count));
-      break;
-  }
 
+  KdPrint((__DRIVER_NAME "     Count = %s\n", Count));
+
+  ChildDeviceData = NULL;
+  WDF_CHILD_LIST_ITERATOR_INIT(&ChildIterator, WdfRetrievePresentChildren);
+  WdfChildListBeginIteration(ChildList, &ChildIterator);
+  while (NT_SUCCESS(WdfChildListRetrieveNextDevice(ChildList, &ChildIterator, &ChildDevice, NULL)))
+  {
+    ChildDeviceData = GetXenDeviceData(ChildDevice);
+    if (!ChildDeviceData)
+    {
+      KdPrint(("     No child device data, should never happen\n"));
+      continue;
+    }
+    if (strncmp(ChildDeviceData->Path, Path, strlen(ChildDeviceData->Path)) == 0 && Path[strlen(ChildDeviceData->Path)] == '/')
+    {
+      if (Count == 3 && ChildDeviceData->WatchHandler != NULL)
+        ChildDeviceData->WatchHandler(Path, ChildDeviceData->WatchContext);
+      break;
+    }
+    ChildDeviceData = NULL;
+  }
+  WdfChildListEndIteration(ChildList, &ChildIterator);
+  if (Count >= 2 && ChildDeviceData == NULL)
+  {
+    RtlZeroMemory(&description, sizeof(description));
+    WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&description.Header, sizeof(description));
+    strncpy(description.Path, Path, 128);
+    strncpy(description.DeviceType, Bits[1], 128);
+    KdPrint((__DRIVER_NAME "     Adding child for %s\n", description.DeviceType));
+    status = WdfChildListAddOrUpdateChildDescriptionAsPresent(ChildList, &description.Header, NULL);
+  }
   FreeSplitString(Bits, Count);
+
+  KeReleaseGuardedMutex(&xpdd->WatchHandlerMutex);
   
-  KdPrint((__DRIVER_NAME " <-- XenBusWatchHandler\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static void
@@ -1019,139 +998,6 @@ XenBus_SysrqHandler(char *Path, PVOID Data)
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
-/*
-IO_RESOURCE_DESCRIPTOR MemoryDescriptor;
-
-static NTSTATUS
-XenPCI_FilterRemoveResourceRequirements(WDFDEVICE Device, WDFIORESREQLIST RequirementsList)
-{
-  NTSTATUS status;
-  WDFIORESLIST ResourceList;
-  PIO_RESOURCE_DESCRIPTOR Descriptor;
-
-  int i, j;
-  int offset;
-
-  //KdPrint((__DRIVER_NAME " --> FilterRemoveResourceRequirements\n"));
-
-  for (i = 0; i < WdfIoResourceRequirementsListGetCount(RequirementsList); i++)
-  {
-    ResourceList = WdfIoResourceRequirementsListGetIoResList(RequirementsList, i);
-    //KdPrint((__DRIVER_NAME "     Resource List %d\n", i));
-    //KdPrint((__DRIVER_NAME "     %d resources in list\n", WdfIoResourceListGetCount(ResourceList)));
-    offset = 0;
-    for (j = 0; j < WdfIoResourceListGetCount(ResourceList); j++)
-    {
-      //KdPrint((__DRIVER_NAME "       Resource %d\n", j));
-      Descriptor = WdfIoResourceListGetDescriptor(ResourceList, j - offset);
-
-      switch (Descriptor->Type) {
-      case CmResourceTypePort:
-        //KdPrint((__DRIVER_NAME "         Port\n"));
-        break;
-      case CmResourceTypeMemory:
-        //KdPrint((__DRIVER_NAME "         Memory %08X%08X - %08X%08X\n", Descriptor->u.Memory.MinimumAddress.HighPart, Descriptor->u.Memory.MinimumAddress.LowPart, Descriptor->u.Memory.MaximumAddress.HighPart, Descriptor->u.Memory.MaximumAddress.LowPart));
-        //KdPrint((__DRIVER_NAME "         Length %08X\n", Descriptor->u.Memory.Length));
-        //KdPrint((__DRIVER_NAME "         ShareDisposition %02X\n", Descriptor->ShareDisposition));
-        //KdPrint((__DRIVER_NAME "         Option %02X\n", Descriptor->Option));
-        if (!Descriptor->Option || Descriptor->Option == IO_RESOURCE_PREFERRED) {
-          memcpy(&MemoryDescriptor, Descriptor, sizeof(IO_RESOURCE_DESCRIPTOR));
-          //platform_mmio_orig_len = MemoryDescriptor.u.Memory.Length;
-          //MemoryDescriptor.u.Memory.Length = PAGE_SIZE;
-          MemoryDescriptor.ShareDisposition = CmResourceShareShared;
-        }
-        WdfIoResourceListRemove(ResourceList, j - offset);
-        offset++;
-        break;
-      case CmResourceTypeInterrupt:
-        //KdPrint((__DRIVER_NAME "         Interrupt\n"));
-        break;
-      case CmResourceTypeDevicePrivate:
-        //KdPrint((__DRIVER_NAME "         Private\n"));
-        break;
-      default:
-        //KdPrint((__DRIVER_NAME "         Unknown Type (0x%x)\n", Descriptor->Type));
-        break;
-      }
-    }
-  }
-  status = STATUS_SUCCESS;
-
-  KdPrint((__DRIVER_NAME " <-- FilterRemoveResourceRequirements\n"));
-
-  return status;
-}
-
-
-static NTSTATUS
-XenPCI_FilterAddResourceRequirements(WDFDEVICE Device, WDFIORESREQLIST RequirementsList)
-{
-  NTSTATUS status;
-  WDFIORESLIST ResourceList;
-  PIO_RESOURCE_DESCRIPTOR Descriptor;
-
-  int i, j;
-
-  KdPrint((__DRIVER_NAME " --> FilterAddResourceRequirements\n"));
-
-
-  for (i = 0; i < WdfIoResourceRequirementsListGetCount(RequirementsList); i++)
-  {
-    ResourceList = WdfIoResourceRequirementsListGetIoResList(RequirementsList, i);
-    //KdPrint((__DRIVER_NAME "     Resource List %d\n", i));
-    //KdPrint((__DRIVER_NAME "     %d resources in list\n", WdfIoResourceListGetCount(ResourceList)));
-    WdfIoResourceListAppendDescriptor(ResourceList, &MemoryDescriptor);
-    //KdPrint((__DRIVER_NAME "         Memory %08X%08X - %08X%08X\n", MemoryDescriptor.u.Memory.MinimumAddress.HighPart, MemoryDescriptor.u.Memory.MinimumAddress.LowPart, MemoryDescriptor.u.Memory.MaximumAddress.HighPart, MemoryDescriptor.u.Memory.MaximumAddress.LowPart));
-    //KdPrint((__DRIVER_NAME "         Length %08X\n", MemoryDescriptor.u.Memory.Length));
-    for (j = 0; j < WdfIoResourceListGetCount(ResourceList); j++)
-    {
-      //KdPrint((__DRIVER_NAME "       Resource %d\n", j));
-      Descriptor = WdfIoResourceListGetDescriptor(ResourceList, j);
-
-      switch (Descriptor->Type) {
-      case CmResourceTypePort:
-        //KdPrint((__DRIVER_NAME "         Port\n"));
-        break;
-      case CmResourceTypeMemory:
-        //KdPrint((__DRIVER_NAME "         Memory %08X%08X - %08X%08X\n", Descriptor->u.Memory.MinimumAddress.HighPart, Descriptor->u.Memory.MinimumAddress.LowPart, Descriptor->u.Memory.MaximumAddress.HighPart, Descriptor->u.Memory.MaximumAddress.LowPart));
-        //KdPrint((__DRIVER_NAME "         Length %08X\n", Descriptor->u.Memory.Length));
-        //KdPrint((__DRIVER_NAME "         ShareDisposition %02X\n", Descriptor->ShareDisposition));
-        //Descriptor->ShareDisposition = CmResourceShareShared;
-        //memcpy(&MemoryDescriptor, Descriptor, sizeof(IO_RESOURCE_DESCRIPTOR));
-        //platform_mmio_orig_len = MemoryDescriptor.u.Memory.Length;
-        //MemoryDescriptor.u.Memory.Length = PAGE_SIZE;
-        //WdfIoResourceListRemove(ResourceList, j);
-        break;
-      case CmResourceTypeInterrupt:
-        //KdPrint((__DRIVER_NAME "         Interrupt\n"));
-        break;
-      case CmResourceTypeDevicePrivate:
-        //KdPrint((__DRIVER_NAME "         Private\n"));
-        break;
-      default:
-        //KdPrint((__DRIVER_NAME "         Unknown Type (0x%x)\n", Descriptor->Type));
-        break;
-      }
-    }
-  }
-  status = STATUS_SUCCESS;
-
-  //KdPrint((__DRIVER_NAME " <-- FilterAddResourceRequirements\n"));
-
-  return status;
-}
-
-static NTSTATUS
-XenPCI_RemoveAddedResources(WDFDEVICE Device, WDFCMRESLIST ResourcesRaw, WDFCMRESLIST ResourcesTranslated)
-{
-  //KdPrint((__DRIVER_NAME " --> RemoveAddedResources\n"));
-  //KdPrint((__DRIVER_NAME " <-- RemoveAddedResources\n"));
-
-  return STATUS_SUCCESS;
-}
-
-*/
-
 static NTSTATUS
 XenPCI_DeviceResourceRequirementsQuery(WDFDEVICE Device, WDFIORESREQLIST IoResourceRequirementsList)
 {
@@ -1165,23 +1011,6 @@ XenPCI_DeviceResourceRequirementsQuery(WDFDEVICE Device, WDFIORESREQLIST IoResou
   status = WdfIoResourceListCreate(IoResourceRequirementsList, WDF_NO_OBJECT_ATTRIBUTES, &resourceList);
   if (!NT_SUCCESS(status))
     return status;
-
-/*
-  RtlZeroMemory(&descriptor, sizeof(descriptor));
-
-  descriptor.Option = 0;
-  descriptor.Type = CmResourceTypeInterrupt;
-  descriptor.ShareDisposition = CmResourceShareDeviceExclusive;
-  descriptor.Flags = CM_RESOURCE_MEMORY_READ_WRITE;
-  descriptor.u.Interrupt.MinimumVector = 1024;
-  descriptor.u.Interrupt.MaximumVector = 1024+255;
-
-  //KdPrint((__DRIVER_NAME "     MinimumVector = %d, MaximumVector = %d\n", descriptor.u.Interrupt.MinimumVector, descriptor.u.Interrupt.MaximumVector));
-
-  status = WdfIoResourceListAppendDescriptor(resourceList, &descriptor);
-  if (!NT_SUCCESS(status))
-    return status;
-*/
 
   RtlZeroMemory(&descriptor, sizeof(descriptor));
 

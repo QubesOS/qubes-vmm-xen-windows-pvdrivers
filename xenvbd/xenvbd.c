@@ -13,8 +13,6 @@
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
 
-//#define BUF_PAGES_PER_SRB 11
-
 DRIVER_INITIALIZE DriverEntry;
 
 static ULONG
@@ -258,7 +256,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   }
 //  KdPrint((__DRIVER_NAME " <-- HwScsiInterrupt\n"));
 
-  return TRUE;
+  return FALSE;
 }
 
 static VOID
@@ -917,6 +915,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   {
     Srb->SrbStatus = SRB_STATUS_BUSY;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
+    KdPrint((__DRIVER_NAME " --- HwScsiStartIo (NotEnumeratedYet)\n"));
     return TRUE;
   }
 
@@ -1208,7 +1207,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
     break;
   }
 
-//  KdPrint((__DRIVER_NAME " <-- HwScsiStartIo\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return TRUE;
 }

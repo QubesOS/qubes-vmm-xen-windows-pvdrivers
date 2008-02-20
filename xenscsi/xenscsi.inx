@@ -1,0 +1,133 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=SCSIAdapter
+ClassGuid={4D36E97B-E325-11CE-BFC1-08002BE10318}
+Provider=%XenGplPv%
+
+[DestinationDirs]
+DefaultDestDir = 12
+ClassInstall32_CopyFiles=11
+CoInstaller_CopyFiles = 11
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Manufacturer]
+%XenGplPv%=XenGplPv,NTx86
+%XenGplPv%=XenGplPv,NTamd64
+
+[XenGplPv.NTx86]
+%XenScsi.DRVDESC%=XenScsi_Inst, XEN\VSCSI
+
+[XenGplPv.NTamd64]
+%XenScsi.DRVDESC%=XenScsi_Inst, XEN\VSCSI
+
+[XenScsi_Inst.NT]
+CopyFiles=XenScsi.CopyFiles
+
+[XenScsi.CopyFiles]
+xenscsi.sys
+xenaddresource.sys
+
+[XenScsi_Inst.NT.Services]
+AddService=XenScsi,2,XenScsi_Service, XenScsi_EventLog
+AddService=XenAddResource,,XenAddResource_Service
+
+[XenScsi_Service]
+DisplayName    = %XenScsi.SVCDESC%                            
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+LoadOrderGroup = System Bus Extender
+ServiceBinary  = %12%\xenscsi.sys                            
+AddReg = XenScsi_Service_AddReg
+
+[XenScsi_Service_AddReg]
+HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+
+[XenScsi_EventLog]
+AddReg = XenScsi_EventLog_AddReg
+
+[XenScsi_EventLog_AddReg]
+HKR,,EventMessageFile,0x00020000,"%SystemRoot%\System32\IoLogMsg.dll;%SystemRoot%\System32\drivers\XenScsi.sys"
+HKR,,TypesSupported,0x00010001,7
+
+[XenScsi_Inst.NT.CoInstallers]
+AddReg=CoInstaller_AddReg
+CopyFiles=CoInstaller_CopyFiles
+
+[XenScsi_Inst.NT.Wdf]
+KmdfService = xenscsi, xenscsi_wdfsect
+
+[XenScsi_Inst.NT.HW]
+AddReg = XenScsi_Inst_HW_AddReg
+
+[XenScsi_Inst_HW_AddReg]
+HKR,,"UpperFilters",0x00010000,"xenaddresource"
+
+[XenAddResource_Inst.NT]
+CopyFiles=XenAddResource.CopyFiles
+
+[XenAddResource_Inst.NT.Services]
+AddService=XenAddResource,,XenAddResource_Service 
+
+[XenAddResource_Inst.NT.HW]
+AddReg = XenAddResource_Inst_HW_AddReg
+
+[XenAddResource_Inst_HW_AddReg]
+HKR,,"LowerFilters",0x00010000,"xenaddresource"
+
+[XenAddResource.CopyFiles]
+xenaddresource.sys
+
+[XenAddResource_Service]
+DisplayName    = "Xen Resource Adder"
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+LoadOrderGroup = System Bus Extender
+ServiceBinary  = %12%\xenaddresource.sys
+AddReg = XenAddResource_Service_AddReg
+
+[XenAddResource.CopyFiles]
+xenaddresource.sys
+
+[XenAddResource_Service_AddReg]
+HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+
+[XenAddResource_Inst.NT.CoInstallers]
+AddReg=CoInstaller_AddReg
+CopyFiles=CoInstaller_CopyFiles
+
+[XenAddResource_Inst.NT.Wdf]
+KmdfService = xenaddresource, xenaddresource_wdfsect
+
+[xenscsi_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[xenaddresource_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[SourceDisksFiles]
+xenscsi.sys=1
+xenaddresource.sys=1
+WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll=1,,
+
+[SourceDisksNames.x86]
+1 = %DISK_NAME%,,,\i386
+
+[SourceDisksNames.amd64]
+1 = %DISK_NAME%,,,\amd64
+
+[CoInstaller_CopyFiles]
+WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll,,,2
+
+[CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll,WdfCoInstaller"
+
+[Strings]
+XenGplPv = "Xen GPL PV Driver Developers"
+XenScsi.SVCDESC = "Xen SCSI Driver"
+XenScsi.DRVDESC = "Xen SCSI Driver"
+XenAddResource.DRVDESC = "Xen Resource Adder"
+DISK_NAME = "Xen SCSI Device Driver Install Disk"
