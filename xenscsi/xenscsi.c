@@ -60,8 +60,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HwInitializationData.MapBuffers = TRUE;
   HwInitializationData.NeedPhysicalAddresses = FALSE;
   HwInitializationData.TaggedQueuing = TRUE;
-  HwInitializationData.AutoRequestSense = FALSE;
-  HwInitializationData.MultipleRequestPerLu = TRUE;
+  HwInitializationData.AutoRequestSense = TRUE;
+  HwInitializationData.MultipleRequestPerLu = FALSE;
   HwInitializationData.ReceiveEvent = FALSE;
   HwInitializationData.VendorIdLength = 0;
   HwInitializationData.VendorId = NULL;
@@ -135,19 +135,25 @@ XenScsi_HwScsiInterruptTarget(PVOID DeviceExtension)
     {
       rep = RING_GET_RESPONSE(&TargetData->Ring, i);
       Srb = TargetData->shadow[rep->rqid].Srb;
+      Srb->ScsiStatus = rep->rslt;
       if (!rep->rslt)
         Srb->SrbStatus = SRB_STATUS_SUCCESS;
       else
       {
-// copy sense info here
-        KdPrint((__DRIVER_NAME "     Xen Operation returned error\n"));
+        KdPrint((__DRIVER_NAME "     Xen Operation returned error (result = 0x%08x)\n", rep->rslt));
         Srb->SrbStatus = SRB_STATUS_ERROR;
+        if (rep->sense_len > 0 && rep->sense_len <= Srb->SenseInfoBufferLength && !(Srb->SrbFlags & SRB_FLAGS_DISABLE_AUTOSENSE) && Srb->SenseInfoBuffer != NULL)
+        {
+          Srb->SrbStatus |= SRB_STATUS_AUTOSENSE_VALID;
+          memcpy(Srb->SenseInfoBuffer, rep->sense_buffer, rep->sense_len);
+        }
       }
       if (Srb->SrbFlags & SRB_FLAGS_DATA_IN)
         memcpy(Srb->DataBuffer, TargetData->shadow[rep->rqid].Buf, Srb->DataTransferLength);
 
       ScsiPortNotification(RequestComplete, DeviceData, Srb);
       ScsiPortNotification(NextLuRequest, DeviceData, Srb->PathId, Srb->TargetId, Srb->Lun);
+//      ScsiPortNotification(NextRequest, DeviceData);
 
       ADD_ID_TO_FREELIST(TargetData, rep->rqid);
     }
@@ -646,6 +652,7 @@ XenScsi_PutSrbOnRing(PXENSCSI_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
   int i;
   vscsiif_shadow_t *shadow;
   uint16_t id;
+  int remaining;
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -665,29 +672,41 @@ XenScsi_PutSrbOnRing(PXENSCSI_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
   shadow->Srb = Srb;
   shadow->req.rqid = id;
   shadow->req.cmd = VSCSIIF_CMND_SCSI;
+  memset(shadow->req.cmnd, 0, VSCSIIF_MAX_COMMAND_SIZE);
   memcpy(shadow->req.cmnd, Srb->Cdb, 16);
   shadow->req.cmd_len = Srb->CdbLength;
   shadow->req.id = TargetData->id;
   shadow->req.lun = TargetData->lun;
   shadow->req.channel = TargetData->channel;
-  if ((Srb->SrbFlags & SRB_FLAGS_DATA_IN) && (Srb->SrbFlags & SRB_FLAGS_DATA_OUT))
+  if (Srb->DataTransferLength && (Srb->SrbFlags & SRB_FLAGS_DATA_IN) && (Srb->SrbFlags & SRB_FLAGS_DATA_OUT))
     shadow->req.sc_data_direction = DMA_BIDIRECTIONAL;
-  else if (Srb->SrbFlags & SRB_FLAGS_DATA_IN)
+  else if (Srb->DataTransferLength && (Srb->SrbFlags & SRB_FLAGS_DATA_IN))
     shadow->req.sc_data_direction = DMA_FROM_DEVICE;
-  else if (Srb->SrbFlags & SRB_FLAGS_DATA_OUT)
+  else if (Srb->DataTransferLength && (Srb->SrbFlags & SRB_FLAGS_DATA_OUT))
     shadow->req.sc_data_direction = DMA_TO_DEVICE;
   else
     shadow->req.sc_data_direction = DMA_NONE;
-  shadow->req.use_sg = (UINT8)((Srb->DataTransferLength + PAGE_SIZE - 1) / PAGE_SIZE);
+  shadow->req.use_sg = (UINT8)((Srb->DataTransferLength + PAGE_SIZE - 1) >> PAGE_SHIFT);
   shadow->req.request_bufflen = Srb->DataTransferLength;
 
-  for (i = 0; i < shadow->req.use_sg; i++)
+//  KdPrint((__DRIVER_NAME "     pages = %d\n", shadow->req.use_sg));
+  remaining = Srb->DataTransferLength;
+  shadow->req.seg[0].offset = 0;
+  shadow->req.seg[0].length = 0;
+  for (i = 0; remaining != 0; i++)
   {
-    shadow->req.seg[i].offset = (uint16_t)i * PAGE_SIZE;
-    if (i != shadow->req.use_sg - 1)
+    shadow->req.seg[i].offset = 0; // this is the offset into the page
+    if (remaining >= PAGE_SIZE)
+    {
       shadow->req.seg[i].length = PAGE_SIZE;
+      remaining -= PAGE_SIZE;
+    }
     else
-      shadow->req.seg[i].length = (uint16_t)(Srb->DataTransferLength & (PAGE_SIZE - 1));
+    {
+      shadow->req.seg[i].length = remaining;
+      remaining = 0;
+    }
+//    KdPrint((__DRIVER_NAME "     sg %d: offset = %d, size = %d\n", i, shadow->req.seg[i].offset, shadow->req.seg[i].length));
   }
   if (Srb->SrbFlags & SRB_FLAGS_DATA_OUT)
     memcpy(TargetData->shadow[shadow->req.rqid].Buf, Srb->DataBuffer, Srb->DataTransferLength);
@@ -704,8 +723,9 @@ XenScsi_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   PXENSCSI_DEVICE_DATA DeviceData = (PXENSCSI_DEVICE_DATA)DeviceExtension;
   PXENSCSI_TARGET_DATA TargetData;
   int notify;
+  int i;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
 
   // If we haven't enumerated all the devices yet then just defer the request
   // A timer will issue a NextRequest to get things started again...
@@ -740,6 +760,14 @@ XenScsi_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   switch (Srb->Function)
   {
   case SRB_FUNCTION_EXECUTE_SCSI:
+#if 0
+    KdPrint((__DRIVER_NAME "     SRB_FUNCTION_EXECUTE_SCSI\n"));
+    KdPrint((__DRIVER_NAME "      CdbLength = %d\n", Srb->CdbLength));
+    for (i = 0; i < Srb->CdbLength; i++)
+      KdPrint((__DRIVER_NAME "      %02x: %02x\n", i, Srb->Cdb[i]));
+    KdPrint((__DRIVER_NAME "      SrbFlags = 0x%02x\n", Srb->SrbFlags));
+    KdPrint((__DRIVER_NAME "      DataTransferLength = %d\n", Srb->DataTransferLength));
+#endif
     XenScsi_PutSrbOnRing(TargetData, Srb);
     RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&TargetData->Ring, notify);
     if (notify)

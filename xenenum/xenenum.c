@@ -119,8 +119,10 @@ XenEnum_AddDevice(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
   }
 
   xedd = GetDeviceData(Device);
-  
+
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)
   KeInitializeGuardedMutex(&xedd->WatchHandlerMutex);
+#endif
 
   xedd->Pdo = Pdo;
 
@@ -308,13 +310,18 @@ XenEnum_WatchHandler(char *Path, PVOID Data)
   WDF_CHILD_LIST_ITERATOR ChildIterator;
   WDFDEVICE ChildDevice;
   PXENPCI_XEN_DEVICE_DATA ChildDeviceData;
+// we only use this if we have guarded mutexes available
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)
   PXENENUM_DEVICE_DATA xedd = GetDeviceData(Device);
+#endif
 
   UNREFERENCED_PARAMETER(Data);  
 
   KdPrint((__DRIVER_NAME " --> WatchHandler\n"));
 
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)
   KeAcquireGuardedMutex(&xedd->WatchHandlerMutex);
+#endif
 
   KdPrint((__DRIVER_NAME "     Path = %s\n", Path));
 
@@ -363,7 +370,9 @@ XenEnum_WatchHandler(char *Path, PVOID Data)
   }
   FreeSplitString(Bits, Count);
 
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)
   KeReleaseGuardedMutex(&xedd->WatchHandlerMutex);
+#endif
 
   KdPrint((__DRIVER_NAME " <-- WatchHandler\n"));  
 

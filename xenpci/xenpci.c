@@ -311,7 +311,9 @@ XenPCI_AddDevice(
     KdPrint((__DRIVER_NAME "     XenHide loaded and GPLPV specified\n", Status));
   }
 
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)
   KeInitializeGuardedMutex(&xpdd->WatchHandlerMutex);
+#endif
   busInfo.BusTypeGuid = GUID_XENPCI_DEVCLASS;
   busInfo.LegacyBusType = Internal;
   busInfo.BusNumber = 0;
@@ -788,11 +790,15 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
   WDFDEVICE ChildDevice;
   PXENPCI_XEN_DEVICE_DATA ChildDeviceData;
   XENPCI_IDENTIFICATION_DESCRIPTION description;
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+#endif
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)
   KeAcquireGuardedMutex(&xpdd->WatchHandlerMutex);
+#endif
 
   KdPrint((__DRIVER_NAME "     Path = %s\n", Path));
 
@@ -833,8 +839,10 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
   }
   FreeSplitString(Bits, Count);
 
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)
   KeReleaseGuardedMutex(&xpdd->WatchHandlerMutex);
-  
+#endif
+
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 

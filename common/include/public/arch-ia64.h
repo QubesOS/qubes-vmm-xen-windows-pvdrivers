@@ -26,6 +26,9 @@
 #ifndef __HYPERVISOR_IF_IA64_H__
 #define __HYPERVISOR_IF_IA64_H__
 
+typedef unsigned long long xen_ulong_t;
+typedef unsigned long long xen_long_t;
+
 /* Structural guest handles introduced in 0x00030201. */
 #if __XEN_INTERFACE_VERSION__ >= 0x00030201
 #define __DEFINE_XEN_GUEST_HANDLE(name, type) \
@@ -52,7 +55,7 @@ __DEFINE_XEN_GUEST_HANDLE(ulong, xen_ulong_t);
 __DEFINE_XEN_GUEST_HANDLE(u64,   xen_ulong_t);
 DEFINE_XEN_GUEST_HANDLE(char);
 DEFINE_XEN_GUEST_HANDLE(int);
-DEFINE_XEN_GUEST_HANDLE(long);
+DEFINE_XEN_GUEST_HANDLE(xen_ulong_t);
 DEFINE_XEN_GUEST_HANDLE(void);
 
 typedef xen_ulong_t xen_pfn_t;
@@ -70,8 +73,6 @@ DEFINE_XEN_GUEST_HANDLE(xen_pfn_t);
 #define MAX_VIRT_CPUS 64
 
 #ifndef __ASSEMBLY__
-
-typedef xen_ulong_t xen_ulong_t;
 
 #define INVALID_MFN       (~0UL)
 
@@ -213,7 +214,7 @@ union vac {
         int a_from_cpuid:1;
         int a_cover:1;
         int a_bsw:1;
-        long reserved:57;
+        xen_long_t reserved:57;
     };
 };
 typedef union vac vac_t;
@@ -227,7 +228,7 @@ union vdc {
         int d_pmc:1;
         int d_to_pmd:1;
         int d_itm:1;
-        long reserved:58;
+        xen_long_t reserved:58;
     };
 };
 typedef union vdc vdc_t;
@@ -324,9 +325,11 @@ struct vpd {
 };
 typedef struct vpd vpd_t;
 
+#if 0
 struct arch_vcpu_info {
 };
 typedef struct arch_vcpu_info arch_vcpu_info_t;
+#endif
 
 struct arch_shared_info {
     /* PFN of the start_info page.  */
