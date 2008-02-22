@@ -20,7 +20,7 @@ goto exit
 :ver_xp
 echo Windows XP Detected... Installing...
 shutdownmon -i
-cd winnet
+cd winxp
 dpinst.exe /LM
 echo Done
 goto exit
