@@ -26,9 +26,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
 
-#if !defined (NDIS51_MINIPORT)
-#error requires NDIS 5.1 compilation environment
-#endif
+//#if !defined (NDIS51_MINIPORT)
+//#error requires NDIS 5.1 compilation environment
+//#endif
 
 #define GRANT_INVALID_REF 0
 
@@ -1060,7 +1060,7 @@ XenNet_QueryInformation(
       temp_data = XN_MAX_PKT_SIZE;
       break;
     case OID_GEN_DRIVER_VERSION:
-      temp_data = (NDIS_MAJOR_VER << 8) | NDIS_MINOR_VER;
+      temp_data = (NDIS_MINIPORT_MAJOR_VERSION << 8) | NDIS_MINIPORT_MINOR_VERSION;
       len = 2;
       break;
     case OID_GEN_MAXIMUM_TOTAL_SIZE:
@@ -1748,8 +1748,8 @@ DriverEntry(
   }
 
   /* NDIS 5.1 driver */
-  mini_chars.MajorNdisVersion = NDIS_MAJOR_VER;
-  mini_chars.MinorNdisVersion = NDIS_MINOR_VER;
+  mini_chars.MajorNdisVersion = NDIS_MINIPORT_MAJOR_VERSION;
+  mini_chars.MinorNdisVersion = NDIS_MINIPORT_MINOR_VERSION;
 
   mini_chars.HaltHandler = XenNet_Halt;
   mini_chars.InitializeHandler = XenNet_Init;
@@ -1760,9 +1760,14 @@ DriverEntry(
   /* added in v.4 -- use multiple pkts interface */
   mini_chars.ReturnPacketHandler = XenNet_ReturnPacket;
   mini_chars.SendPacketsHandler = XenNet_SendPackets;
+
+#if defined (NDIS51_MINIPORT)
   /* added in v.5.1 */
   mini_chars.PnPEventNotifyHandler = XenNet_PnPEventNotify;
   mini_chars.AdapterShutdownHandler = XenNet_Shutdown;
+#else
+  // something else here
+#endif
 
   /* set up upper-edge interface */
   status = NdisMRegisterMiniport(ndis_wrapper_handle, &mini_chars, sizeof(mini_chars));

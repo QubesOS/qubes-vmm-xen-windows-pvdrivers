@@ -846,6 +846,11 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data)
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
+struct {
+  ULONG do_spin;
+  ULONG nr_spinning;
+} typedef SUSPEND_INFO, *PSUSPEND_INFO;
+
 static void
 XenBus_ShutdownHandler(char *Path, PVOID Data)
 {
@@ -855,6 +860,11 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
   xenbus_transaction_t xbt;
   int retry;
   PSHUTDOWN_MSG_ENTRY Entry;
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  KAFFINITY ActiveProcessorMask = 0;
+  ULONG ActiveProcessorCount;
+  int i;
+  PSUSPEND_INFO suspend_info;
 
   UNREFERENCED_PARAMETER(Path);
 
@@ -909,11 +919,33 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
 
   if (Value != NULL && strlen(Value) != 0)
   {
-    Entry = (PSHUTDOWN_MSG_ENTRY)ExAllocatePoolWithTag(NonPagedPool, sizeof(SHUTDOWN_MSG_ENTRY) + strlen(Value) + 1 + 1, XENPCI_POOL_TAG);
-    Entry->Ptr = 0;
-    RtlStringCbPrintfA(Entry->Buf, sizeof(SHUTDOWN_MSG_ENTRY) + strlen(Value) + 1 + 1, "%s\n", Value);
-    InsertTailList(&ShutdownMsgList, &Entry->ListEntry);
-    WdfIoQueueStart(ReadQueue);
+    if (strcmp(Value, "suspend") == 0)
+    {
+#if 0
+// this won't work this way... 
+      if (!xpdd->suspending)
+      {
+        suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);
+        RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO);
+        xpdd->suspending = 1;
+        ActiveProcessorCount = KeQueryActiveProcessorCount(&ActiveProcessorMask);
+        for (i = 0; i < ActiveProcessorCount; i++)
+        {
+          Dpc = ExAllocatePoolWithTag(NonPagedPool, sizeof(KDPC), XENPCI_POOL_TAG);
+          KeInitializeDpc(&Dpc, XenPci_Suspend, xpdd);
+          KeSetTargetProcessorDpc(&Dpc, i);
+          KeInsertQueueDpc(&Dpc, suspend_info, NULL);
+        }
+#endif
+    }
+    else
+    {
+      Entry = (PSHUTDOWN_MSG_ENTRY)ExAllocatePoolWithTag(NonPagedPool, sizeof(SHUTDOWN_MSG_ENTRY) + strlen(Value) + 1 + 1, XENPCI_POOL_TAG);
+      Entry->Ptr = 0;
+      RtlStringCbPrintfA(Entry->Buf, sizeof(SHUTDOWN_MSG_ENTRY) + strlen(Value) + 1 + 1, "%s\n", Value);
+      InsertTailList(&ShutdownMsgList, &Entry->ListEntry);
+      WdfIoQueueStart(ReadQueue);
+    }
   }
 
   XenPCI_FreeMem(Value);

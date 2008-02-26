@@ -34,7 +34,7 @@ XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Con
 #pragma alloc_text (INIT, DriverEntry)
 #endif
 
-//static BOOLEAN AutoEnumerate;
+static BOOLEAN DumpMode;
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
@@ -56,7 +56,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HwInitializationData.HwResetBus = XenVbd_HwScsiResetBus;
   HwInitializationData.HwDmaStarted = NULL;
   HwInitializationData.HwAdapterState = XenVbd_HwScsiAdapterState;
-  HwInitializationData.DeviceExtensionSize = sizeof(XENVBD_DEVICE_DATA);
+  HwInitializationData.DeviceExtensionSize = sizeof(XENVBD_DEVICE_EXTENSION); //sizeof(XENVBD_DEVICE_DATA);
   HwInitializationData.SpecificLuExtensionSize = 0;
   HwInitializationData.SrbExtensionSize = 0;
   HwInitializationData.NumberOfAccessRanges = 1;
@@ -71,6 +71,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HwInitializationData.DeviceIdLength = 0;
   HwInitializationData.DeviceId = NULL;
   HwInitializationData.HwAdapterControl = XenVbd_HwScsiAdapterControl;
+
+  DumpMode = FALSE;
 
   Status = ScsiPortInitialize(DriverObject, RegistryPath, &HwInitializationData, NULL);
 
@@ -109,11 +111,17 @@ XenVbd_Interrupt(PKINTERRUPT Interrupt, PVOID DeviceExtension)
 
   UNREFERENCED_PARAMETER(Interrupt);
 
-//  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
+if (DumpMode)
+{
+  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
+}
 
   TargetData->PendingInterrupt = TRUE;
 
-//  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
+if (DumpMode)
+{
+  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
+}
 
   return TRUE;
 }
@@ -142,7 +150,10 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
   PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)TargetData->DeviceData;
   int more_to_do = TRUE;
 
-//  KdPrint((__DRIVER_NAME " --> HwScsiInterruptTarget\n"));
+if (DumpMode)
+{
+  KdPrint((__DRIVER_NAME " --> HwScsiInterruptTarget\n"));
+}
 
   while (more_to_do)
   {
@@ -187,32 +198,31 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
         break;
       case 2:
         Srb = TargetData->shadow[rep->id].Srb;
-        BlockCount = (Srb->Cdb[7] << 8) | Srb->Cdb[8];
-  
-        if (rep->status == BLKIF_RSP_OKAY)
-          Srb->SrbStatus = SRB_STATUS_SUCCESS;
-        else
+        if (Srb != NULL)
         {
-          KdPrint((__DRIVER_NAME "     Xen Operation returned error\n"));
-          if (Srb->Cdb[0] == SCSIOP_READ)
-            KdPrint((__DRIVER_NAME "     Operation = Read\n"));
-          else
-            KdPrint((__DRIVER_NAME "     Operation = Write\n"));     
-          KdPrint((__DRIVER_NAME "     Sector = %08X, Count = %d\n", TargetData->shadow[rep->id].req.sector_number, BlockCount));
-          Srb->SrbStatus = SRB_STATUS_ERROR;
-        }
-/*
-        for (j = 0; j < TargetData->shadow[rep->id].req.nr_segments; j++)
-          DeviceData->XenDeviceData->XenInterface.GntTbl_EndAccess(
-            DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
-            TargetData->shadow[rep->id].req.seg[j].gref);
-*/
-        if (Srb->Cdb[0] == SCSIOP_READ)
-          memcpy(Srb->DataBuffer, TargetData->shadow[rep->id].Buf, BlockCount * TargetData->BytesPerSector);
+          BlockCount = (Srb->Cdb[7] << 8) | Srb->Cdb[8];
   
-        ScsiPortNotification(RequestComplete, DeviceData, Srb);
-        ScsiPortNotification(NextLuRequest, DeviceData, Srb->PathId, Srb->TargetId, Srb->Lun);
-
+          if (rep->status == BLKIF_RSP_OKAY)
+            Srb->SrbStatus = SRB_STATUS_SUCCESS;
+          else
+          {
+            KdPrint((__DRIVER_NAME "     Xen Operation returned error\n"));
+            if (Srb->Cdb[0] == SCSIOP_READ)
+              KdPrint((__DRIVER_NAME "     Operation = Read\n"));
+            else
+              KdPrint((__DRIVER_NAME "     Operation = Write\n"));     
+            KdPrint((__DRIVER_NAME "     Sector = %08X, Count = %d\n", TargetData->shadow[rep->id].req.sector_number, BlockCount));
+            Srb->SrbStatus = SRB_STATUS_ERROR;
+          }
+          if (Srb->Cdb[0] == SCSIOP_READ)
+            memcpy(Srb->DataBuffer, TargetData->shadow[rep->id].Buf, BlockCount * TargetData->BytesPerSector);
+    
+          ScsiPortNotification(RequestComplete, DeviceData->DeviceExtension, Srb);
+          if (!DumpMode)
+            ScsiPortNotification(NextLuRequest, DeviceData->DeviceExtension, Srb->PathId, Srb->TargetId, Srb->Lun);
+          else
+            ScsiPortNotification(NextRequest, DeviceData->DeviceExtension);
+        }
         ADD_ID_TO_FREELIST(TargetData, rep->id);
       }
     }
@@ -229,7 +239,10 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
     }
   }
 
-//  KdPrint((__DRIVER_NAME " <-- HwScsiInterruptTarget\n"));
+if (DumpMode)
+{
+  KdPrint((__DRIVER_NAME " <-- HwScsiInterruptTarget\n"));
+}
 }
 
 static BOOLEAN
@@ -239,9 +252,12 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   PXENVBD_TARGET_DATA TargetData;
   int i, j;
 
-//  KdPrint((__DRIVER_NAME " --> HwScsiInterrupt\n"));
+if (DumpMode)
+{
+  KdPrint((__DRIVER_NAME " --> HwScsiInterrupt\n"));
+}
 
-  DeviceData = (PXENVBD_DEVICE_DATA)DeviceExtension;
+  DeviceData = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData;
 
   KeMemoryBarrier();
   for (i = 0; i < SCSI_BUSES; i++)
@@ -249,12 +265,15 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     for (j = 0; j < SCSI_TARGETS_PER_BUS; j++)
     {
       TargetData = &DeviceData->BusData[i].TargetData[j];
-      if (TargetData->PendingInterrupt)
+      if (TargetData->PendingInterrupt || (TargetData->Present && DumpMode))
         XenVbd_HwScsiInterruptTarget(TargetData);
       TargetData->PendingInterrupt = FALSE;
     }
   }
-//  KdPrint((__DRIVER_NAME " <-- HwScsiInterrupt\n"));
+if (DumpMode)
+{
+  KdPrint((__DRIVER_NAME " <-- HwScsiInterrupt\n"));
+}
 
   return FALSE;
 }
@@ -614,31 +633,37 @@ XenVbd_WatchHandler(char *Path, PVOID DeviceExtension)
   return;
 }
 
-static ULONG
-XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
+static VOID
+XenVbd_EnumerateExisting(PXENVBD_DEVICE_DATA DeviceData)
 {
-  ULONG i, j;
-  PACCESS_RANGE AccessRange;
-  PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)DeviceExtension;
-  char **VbdDevices;
   char *msg;
+  ULONG i;
+  char **VbdDevices;
   char buffer[128];
+  int TotalInitialDevices = 0;
 
-  UNREFERENCED_PARAMETER(HwContext);
-  UNREFERENCED_PARAMETER(BusInformation);
-  UNREFERENCED_PARAMETER(ArgumentString);
-  KeInitializeSpinLock(&DeviceData->Lock);
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));  
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  msg = DeviceData->XenDeviceData->XenInterface.XenBus_List(
+    DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
+    XBT_NIL, "device/vbd", &VbdDevices);
+  if (!msg)
+  {
+    for (i = 0; VbdDevices[i]; i++)
+    {
+      KdPrint((__DRIVER_NAME "     found existing vbd device %s\n", VbdDevices[i]));
+      RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "device/vbd/%s/state", VbdDevices[i]);
+      XenVbd_WatchHandler(buffer, DeviceData);
+      TotalInitialDevices++;
+    }  
+  }
+  DeviceData->TotalInitialDevices = TotalInitialDevices;
+}
 
-  // testing this for dump mode
-//  if (KeGetCurrentIrql() > ConfigInfo->BusInterruptLevel)
-//    ConfigInfo->BusInterruptLevel = KeGetCurrentIrql();
-
-  KdPrint((__DRIVER_NAME "     BusInterruptLevel = %d\n", ConfigInfo->BusInterruptLevel));
-  KdPrint((__DRIVER_NAME "     BusInterruptVector = %d\n", ConfigInfo->BusInterruptVector));
-
-  KdPrint((__DRIVER_NAME "     AccessRanges = %d\n", ConfigInfo->NumberOfAccessRanges));
+static PXENPCI_XEN_DEVICE_DATA
+XenVbd_GetXenDeviceData(PPORT_CONFIGURATION_INFORMATION ConfigInfo)
+{
+  int i;
+  PACCESS_RANGE AccessRange;
+  PXENPCI_XEN_DEVICE_DATA XenDeviceData = NULL;
 
   for (i = 0; i < ConfigInfo->NumberOfAccessRanges; i++)
   {
@@ -647,19 +672,111 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
     switch (i)
     {
     case 0:
-      DeviceData->XenDeviceData = (PVOID)(xen_ulong_t)AccessRange->RangeStart.QuadPart;
-      KdPrint((__DRIVER_NAME "     Mapped to virtual address %p\n", DeviceData->XenDeviceData));
-      KdPrint((__DRIVER_NAME "     Magic = %08x\n", DeviceData->XenDeviceData->Magic));
-      if (DeviceData->XenDeviceData->Magic != XEN_DATA_MAGIC)
-      {
-        KdPrint((__DRIVER_NAME "     Invalid Magic Number\n"));
-        return SP_RETURN_NOT_FOUND;
-      }
+      XenDeviceData = (PVOID)(xen_ulong_t)AccessRange->RangeStart.QuadPart;
+      KdPrint((__DRIVER_NAME "     Mapped to virtual address %p\n", XenDeviceData));
+      KdPrint((__DRIVER_NAME "     Magic = %08x\n", XenDeviceData->Magic));
       break;
     default:
       break;
     }
   }
+  return XenDeviceData;
+}
+
+static VOID
+XenVbd_InitDeviceData(PXENVBD_DEVICE_DATA DeviceData, PPORT_CONFIGURATION_INFORMATION ConfigInfo)
+{
+  ULONG i, j;
+  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));  
+
+  KeInitializeSpinLock(&DeviceData->Lock);
+
+  DeviceData->XenDeviceData = XenVbd_GetXenDeviceData(ConfigInfo);
+
+  for (i = 0; i < SCSI_BUSES; i++)
+  {
+    for (j = 0; j < SCSI_TARGETS_PER_BUS; j++)
+    {
+      DeviceData->BusData[i].TargetData[j].Present = 0;
+      DeviceData->BusData[i].TargetData[j].DeviceData = DeviceData;
+    }
+  }
+
+  DeviceData->XenDeviceData->WatchContext = DeviceData;
+  KeMemoryBarrier();
+  DeviceData->XenDeviceData->WatchHandler = XenVbd_WatchHandler;
+
+  DeviceData->EnumeratedDevices = 0;
+  DeviceData->TotalInitialDevices = 0;
+
+  if (DeviceData->XenDeviceData->AutoEnumerate)
+  {
+    DeviceData->TotalInitialDevices = SCSI_BUSES * SCSI_TARGETS_PER_BUS;
+    XenVbd_EnumerateExisting(DeviceData);
+  }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
+static ULONG
+XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
+{
+  ULONG i, j, k;
+  PACCESS_RANGE AccessRange;
+  PXENVBD_DEVICE_DATA DeviceData; // = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData;
+  ULONG status;
+  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
+
+  UNREFERENCED_PARAMETER(HwContext);
+  UNREFERENCED_PARAMETER(BusInformation);
+  UNREFERENCED_PARAMETER(ArgumentString);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));  
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
+  KdPrint((__DRIVER_NAME "     BusInterruptLevel = %d\n", ConfigInfo->BusInterruptLevel));
+  KdPrint((__DRIVER_NAME "     BusInterruptVector = %d\n", ConfigInfo->BusInterruptVector));
+
+  KdPrint((__DRIVER_NAME "     AccessRanges = %d\n", ConfigInfo->NumberOfAccessRanges));
+
+  if (KeGetCurrentIrql() == PASSIVE_LEVEL)
+  {
+    DeviceData = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData = ExAllocatePoolWithTag(NonPagedPool, sizeof(XENVBD_DEVICE_DATA), XENVBD_POOL_TAG);
+    XenVbd_InitDeviceData(DeviceData, ConfigInfo);
+    if (DeviceData->XenDeviceData->Magic != XEN_DATA_MAGIC)
+      return SP_RETURN_NOT_FOUND;
+  }
+  else
+  {
+    DumpMode = TRUE;
+    XenDeviceData = XenVbd_GetXenDeviceData(ConfigInfo);
+    if (XenDeviceData == NULL || XenDeviceData->Magic != XEN_DATA_MAGIC)
+    {
+      return SP_RETURN_NOT_FOUND;
+    }
+    DeviceData = XenDeviceData->WatchContext;
+    ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData = DeviceData;
+    DeviceData->XenDeviceData->WatchHandler = XenVbd_WatchHandler;
+
+
+    for (i = 0; i < SCSI_BUSES; i++)
+    {
+      for (j = 0; j < SCSI_TARGETS_PER_BUS; j++)
+      {
+        for (k = 0; k < max(BLK_RING_SIZE, BLK_OTHER_RING_SIZE); k++)
+        {
+          if (DeviceData->BusData[i].TargetData[j].Present)
+            DeviceData->BusData[i].TargetData[j].shadow[k].Srb = NULL;
+        }
+      }
+    }
+  }
+  KdPrint((__DRIVER_NAME "     DeviceData = %p\n", DeviceData));
+
+  DeviceData->DeviceExtension = DeviceExtension;
+
 #if defined(__x86_64__)
   ConfigInfo->Master = TRUE; // Won't work under x64 without this...
 #endif
@@ -674,46 +791,12 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   }
   ConfigInfo->MaximumNumberOfLogicalUnits = 1;
   ConfigInfo->MaximumNumberOfTargets = SCSI_TARGETS_PER_BUS;
-//  ConfigInfo->TaggedQueueing = TRUE;
   if (ConfigInfo->Dma64BitAddresses == SCSI_DMA64_SYSTEM_SUPPORTED)
     ConfigInfo->Dma64BitAddresses = SCSI_DMA64_MINIPORT_SUPPORTED;
+
   // This all has to be initialized here as the real Initialize routine
   // is called at DIRQL, and the XenBus stuff has to be called at
   // <= DISPATCH_LEVEL
-
-  for (i = 0; i < SCSI_BUSES; i++)
-  {
-    for (j = 0; j < SCSI_TARGETS_PER_BUS; j++)
-    {
-      DeviceData->BusData[i].TargetData[j].Present = 0;
-      DeviceData->BusData[i].TargetData[j].DeviceData = DeviceData;
-    }
-  }
-
-  DeviceData->XenDeviceData->WatchContext = DeviceExtension;
-  KeMemoryBarrier();
-  DeviceData->XenDeviceData->WatchHandler = XenVbd_WatchHandler;
-
-//  KeInitializeEvent(&DeviceData->WaitDevicesEvent, SynchronizationEvent, FALSE);  
-  DeviceData->EnumeratedDevices = 0;
-  DeviceData->TotalInitialDevices = 0;
-
-  if (DeviceData->XenDeviceData->AutoEnumerate)
-  {
-    msg = DeviceData->XenDeviceData->XenInterface.XenBus_List(
-      DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, "device/vbd", &VbdDevices);
-    if (!msg)
-    {
-      for (i = 0; VbdDevices[i]; i++)
-      {
-        KdPrint((__DRIVER_NAME "     found existing vbd device %s\n", VbdDevices[i]));
-        RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "device/vbd/%s/state", VbdDevices[i]);
-        XenVbd_WatchHandler(buffer, DeviceData);
-        DeviceData->TotalInitialDevices++;
-      }  
-    }
-  }
 
   *Again = FALSE;
 
@@ -728,11 +811,13 @@ XenVbd_CheckBusChangedTimer(PVOID DeviceExtension);
 static VOID 
 XenVbd_CheckBusEnumeratedTimer(PVOID DeviceExtension)
 {
-  PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)DeviceExtension;
+  PXENVBD_DEVICE_DATA DeviceData = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-
+if (DumpMode)
+{
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+}
   if (DeviceData->EnumeratedDevices >= DeviceData->TotalInitialDevices)
   {
     DeviceData->BusChangePending = 0;
@@ -743,17 +828,20 @@ XenVbd_CheckBusEnumeratedTimer(PVOID DeviceExtension)
   {
     ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_CheckBusEnumeratedTimer, 100000);
   }
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+if (DumpMode)
+{
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
 }
 
 static VOID 
 XenVbd_CheckBusChangedTimer(PVOID DeviceExtension)
 {
-  PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)DeviceExtension;
+  PXENVBD_DEVICE_DATA DeviceData = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData;
 
   if (DeviceData->BusChangePending)
   {
-    ScsiPortNotification(BusChangeDetected, DeviceData, 0);
+    ScsiPortNotification(BusChangeDetected, DeviceExtension, 0);
     DeviceData->BusChangePending = 0;
   }
   ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_CheckBusChangedTimer, 1000000);
@@ -901,13 +989,16 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
 {
   PUCHAR DataBuffer;
   PCDB cdb;
-  PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)DeviceExtension;
+  PXENVBD_DEVICE_DATA DeviceData = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData;
   PXENVBD_TARGET_DATA TargetData;
   unsigned int i;
   int notify;
 
-//  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
-//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+if (DumpMode)
+{
+  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+}
 
   // If we haven't enumerated all the devices yet then just defer the request
   // A timer will issue a NextRequest to get things started again...
@@ -943,7 +1034,10 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   {
   case SRB_FUNCTION_EXECUTE_SCSI:
     cdb = (PCDB)Srb->Cdb;
-//    KdPrint((__DRIVER_NAME "     SRB_FUNCTION_EXECUTE_SCSI\n"));
+if (DumpMode)
+{
+    KdPrint((__DRIVER_NAME "     SRB_FUNCTION_EXECUTE_SCSI\n"));
+}
     switch(cdb->CDB6GENERIC.OperationCode)
     {
     case SCSIOP_TEST_UNIT_READY:
@@ -958,10 +1052,6 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
       KdPrint((__DRIVER_NAME "     (LUN = %d, EVPD = %d, Page Code = %02X)\n", Srb->Cdb[1] >> 5, Srb->Cdb[1] & 1, Srb->Cdb[2]));
       KdPrint((__DRIVER_NAME "     (Length = %d)\n", Srb->DataTransferLength));
       KdPrint((__DRIVER_NAME "     (Srb->Databuffer = %08x)\n", Srb->DataBuffer));
-//      KdPrint((__DRIVER_NAME "     PhysicalAddress.LowPart = %08x\n", ScsiPortGetPhysicalAddress(DeviceData, Srb, Srb->DataBuffer, &Length).LowPart));
-//      DataBuffer = ScsiPortGetVirtualAddress(DeviceData, ScsiPortGetPhysicalAddress(DeviceData, Srb, Srb->DataBuffer, &Length));
-//      KdPrint((__DRIVER_NAME "     (Databuffer = %08x)\n", DataBuffer));
-//      break;
       DataBuffer = Srb->DataBuffer;
       RtlZeroMemory(DataBuffer, Srb->DataTransferLength);
       Srb->SrbStatus = SRB_STATUS_SUCCESS;
@@ -1108,17 +1198,27 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
       break;
     case SCSIOP_READ:
     case SCSIOP_WRITE:
-//      KdPrint((__DRIVER_NAME "     Command = READ/WRITE\n"));
+if (DumpMode)
+{
+      KdPrint((__DRIVER_NAME "     Command = READ/WRITE\n"));
+}
       XenVbd_PutSrbOnRing(TargetData, Srb);
       RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&TargetData->Ring, notify);
       if (notify)
         DeviceData->XenDeviceData->XenInterface.EvtChn_Notify(
           DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
           TargetData->EventChannel);
-      if (!RING_FULL(&TargetData->Ring))
+      if (!RING_FULL(&TargetData->Ring) && !DumpMode)
         ScsiPortNotification(NextLuRequest, DeviceExtension, Srb->PathId, Srb->TargetId, Srb->Lun);
       else
         ScsiPortNotification(NextRequest, DeviceExtension);
+      break;
+    case SCSIOP_VERIFY:
+      // Should we do more here?
+      KdPrint((__DRIVER_NAME "     Command = VERIFY\n"));
+      Srb->SrbStatus = SRB_STATUS_SUCCESS; //SRB_STATUS_INVALID_REQUEST;
+      ScsiPortNotification(RequestComplete, DeviceExtension, Srb);      
+      ScsiPortNotification(NextLuRequest, DeviceExtension, Srb->PathId, Srb->TargetId, Srb->Lun);
       break;
     case SCSIOP_REPORT_LUNS:
       KdPrint((__DRIVER_NAME "     Command = REPORT_LUNS\n"));
@@ -1171,6 +1271,12 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
       ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
       ScsiPortNotification(NextRequest, DeviceExtension, NULL);
       break;
+    case SCSIOP_START_STOP_UNIT:
+      KdPrint((__DRIVER_NAME "     Command = SCSIOP_START_STOP_UNIT\n"));
+      Srb->SrbStatus = SRB_STATUS_SUCCESS;
+      ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
+      ScsiPortNotification(NextRequest, DeviceExtension, NULL);
+      break;
     default:
       KdPrint((__DRIVER_NAME "     Unhandled EXECUTE_SCSI Command = %02X\n", Srb->Cdb[0]));
       Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
@@ -1207,8 +1313,10 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
     break;
   }
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
+if (DumpMode)
+{
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
   return TRUE;
 }
 

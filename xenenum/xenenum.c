@@ -215,17 +215,20 @@ XenEnum_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pr
   PdoDeviceData->WatchContext = Device;
   xedd->AutoEnumerate = PdoDeviceData->AutoEnumerate;
 
-  // TODO: Should probably do this in an EvtChildListScanForChildren
-  msg = xedd->XenInterface.XenBus_List(xedd->XenInterface.InterfaceHeader.Context, XBT_NIL, PdoDeviceData->Path, &Devices);
-  if (!msg)
+  if (xedd->AutoEnumerate)
   {
-    for (i = 0; Devices[i]; i++)
+    // TODO: Should probably do this in an EvtChildListScanForChildren
+    msg = xedd->XenInterface.XenBus_List(xedd->XenInterface.InterfaceHeader.Context, XBT_NIL, PdoDeviceData->Path, &Devices);
+    if (!msg)
     {
-      KdPrint((__DRIVER_NAME "     found existing device %s\n", Devices[i]));
-      KdPrint((__DRIVER_NAME "     faking watch event for %s/%s", PdoDeviceData->Path, Devices[i]));
-      RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "%s/%s", PdoDeviceData->Path, Devices[i]);
-      XenEnum_WatchHandler(buffer, Device);
-      //ExFreePoolWithTag(Devices[i], XENPCI_POOL_TAG);
+      for (i = 0; Devices[i]; i++)
+      {
+        KdPrint((__DRIVER_NAME "     found existing device %s\n", Devices[i]));
+        KdPrint((__DRIVER_NAME "     faking watch event for %s/%s", PdoDeviceData->Path, Devices[i]));
+        RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "%s/%s", PdoDeviceData->Path, Devices[i]);
+        XenEnum_WatchHandler(buffer, Device);
+        //ExFreePoolWithTag(Devices[i], XENPCI_POOL_TAG);
+      }
     }
   }
 

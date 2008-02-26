@@ -161,19 +161,19 @@ XenHide_AddDevice(
   ULONG Length;
   WCHAR Buffer[1000];
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   Length = 1000;
   status = IoGetDeviceProperty(PhysicalDeviceObject, DevicePropertyDeviceDescription, Length, Buffer, &Length);
-  KdPrint((__DRIVER_NAME " status = %08x, DevicePropertyDeviceDescription = %ws\n", status, Buffer));
+//  KdPrint((__DRIVER_NAME " status = %08x, DevicePropertyDeviceDescription = %ws\n", status, Buffer));
 
   if (!NT_SUCCESS(status) || wcscmp(Buffer, L"PCI bus") != 0)
   {
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
     return STATUS_SUCCESS;
   }
 
-  KdPrint((__DRIVER_NAME " Found\n")); 
+//  KdPrint((__DRIVER_NAME " Found\n")); 
 
   status = IoCreateDevice (DriverObject,
     sizeof(DEVICE_EXTENSION),
@@ -207,7 +207,7 @@ XenHide_AddDevice(
       KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface failed 0x%08x\n", status));
       return status;
     }
-    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface complete, SymbolicLinkName = %wZ\n", &DeviceExtension->InterfaceName));
+//    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface complete, SymbolicLinkName = %wZ\n", &DeviceExtension->InterfaceName));
     status = IoSetDeviceInterfaceState(&DeviceExtension->InterfaceName, TRUE);
     if (!NT_SUCCESS(status))
     {
@@ -217,12 +217,12 @@ XenHide_AddDevice(
   }
   else
   {
-    KdPrint((__DRIVER_NAME "     Not registering Interface\n"));
+//    KdPrint((__DRIVER_NAME "     Not registering Interface\n"));
   }
 
   deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return STATUS_SUCCESS;
 }
@@ -250,8 +250,8 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
   UNREFERENCED_PARAMETER(DeviceObject);
   UNREFERENCED_PARAMETER(Context);
 
-  KdPrint((__DRIVER_NAME " --> IoCompletion\n"));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+//  KdPrint((__DRIVER_NAME " --> IoCompletion\n"));
+//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   Relations = (PDEVICE_RELATIONS)Irp->IoStatus.Information;
 
@@ -302,7 +302,7 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
     break;
   }
     
-  KdPrint((__DRIVER_NAME " <-- IoCompletion\n"));
+//  KdPrint((__DRIVER_NAME " <-- IoCompletion\n"));
 
   return Irp->IoStatus.Status;
 }
@@ -325,18 +325,18 @@ XenHide_Pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp)
   PIO_STACK_LOCATION Stack;
   PDEVICE_EXTENSION DeviceExtension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   Stack = IoGetCurrentIrpStackLocation(Irp);
 
   switch (Stack->MinorFunction) {
   case IRP_MN_QUERY_DEVICE_RELATIONS:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS\n"));
+//    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS\n"));
     switch (Stack->Parameters.QueryDeviceRelations.Type)
     {
     case BusRelations:
-      KdPrint((__DRIVER_NAME "       BusRelations\n"));
+//      KdPrint((__DRIVER_NAME "       BusRelations\n"));
       IoCopyCurrentIrpStackLocationToNext(Irp);
       IoSetCompletionRoutine(Irp, XenHide_IoCompletion, DeviceExtension, TRUE, TRUE, TRUE);
       break;  
@@ -352,7 +352,7 @@ XenHide_Pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 
   Status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returning with status %08x)\n", Status));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returning with status %08x)\n", Status));
 
   return Status;
 }

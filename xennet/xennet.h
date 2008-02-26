@@ -26,10 +26,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <wdfminiport.h>
 #include <initguid.h>
 #define NDIS_MINIPORT_DRIVER
-#define NDIS51_MINIPORT 1
+#if NTDDI_VERSION < NTDDI_WINXP
+# define NDIS50_MINIPORT 1
+#else
+# define NDIS51_MINIPORT 1
+#endif
 #include <ndis.h>
-#define NDIS_MAJOR_VER 5
-#define NDIS_MINOR_VER 1
 
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>

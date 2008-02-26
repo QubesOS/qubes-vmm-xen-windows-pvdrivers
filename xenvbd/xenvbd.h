@@ -117,6 +117,13 @@ struct
 
   LONG EnumeratedDevices;
   int TotalInitialDevices;
+
+  PVOID DeviceExtension;
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
+
+struct
+{
+  PXENVBD_DEVICE_DATA XenVbdDeviceData;  
+} typedef XENVBD_DEVICE_EXTENSION, *PXENVBD_DEVICE_EXTENSION;
 
 #endif
