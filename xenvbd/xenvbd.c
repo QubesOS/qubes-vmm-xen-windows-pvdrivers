@@ -265,7 +265,7 @@ if (DumpMode)
     for (j = 0; j < SCSI_TARGETS_PER_BUS; j++)
     {
       TargetData = &DeviceData->BusData[i].TargetData[j];
-      if (TargetData->PendingInterrupt || (TargetData->Present && DumpMode))
+      if (TargetData->Running && (TargetData->PendingInterrupt || (TargetData->Present && DumpMode)))
         XenVbd_HwScsiInterruptTarget(TargetData);
       TargetData->PendingInterrupt = FALSE;
     }
@@ -468,6 +468,15 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
     TargetData->Geometry.TracksPerCylinder = 255;
     TargetData->Geometry.Cylinders.QuadPart = TargetData->TotalSectors / TargetData->Geometry.SectorsPerTrack / TargetData->Geometry.TracksPerCylinder;
     KdPrint((__DRIVER_NAME "     Geometry C/H/S = %d/%d/%d\n", TargetData->Geometry.Cylinders.LowPart, TargetData->Geometry.TracksPerCylinder, TargetData->Geometry.SectorsPerTrack));
+
+    RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
+    RtlStringCbCatA(TmpPath, 128, "/state");
+    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", XenbusStateConnected);
+
+    KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
+
+    TargetData->Running = 1;
+    KeMemoryBarrier();
     
     req = RING_GET_REQUEST(&TargetData->Ring, TargetData->Ring.req_prod_pvt);
     req->operation = 0xff;
@@ -479,6 +488,7 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
       req->seg[i].last_sect = 0xff;
     }
     TargetData->Ring.req_prod_pvt++;
+
     req = RING_GET_REQUEST(&TargetData->Ring, TargetData->Ring.req_prod_pvt);
     req->operation = 0xff;
     req->nr_segments = 0;
@@ -489,17 +499,13 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
       req->seg[i].last_sect = 0xff;
     }
     TargetData->Ring.req_prod_pvt++;
+
     RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&TargetData->Ring, notify);
     if (notify)
       DeviceData->XenDeviceData->XenInterface.EvtChn_Notify(
         DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
         TargetData->EventChannel);
 
-    RtlStringCbCopyA(TmpPath, 128, TargetData->Path);
-    RtlStringCbCatA(TmpPath, 128, "/state");
-    DeviceData->XenDeviceData->XenInterface.XenBus_Printf(DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context, XBT_NIL, TmpPath, "%d", XenbusStateConnected);
-
-    KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
     InterlockedIncrement(&DeviceData->EnumeratedDevices);
     KdPrint((__DRIVER_NAME "     Added a device\n"));  
 
@@ -700,6 +706,7 @@ XenVbd_InitDeviceData(PXENVBD_DEVICE_DATA DeviceData, PPORT_CONFIGURATION_INFORM
     for (j = 0; j < SCSI_TARGETS_PER_BUS; j++)
     {
       DeviceData->BusData[i].TargetData[j].Present = 0;
+      DeviceData->BusData[i].TargetData[j].Running = 0;
       DeviceData->BusData[i].TargetData[j].DeviceData = DeviceData;
     }
   }
@@ -1021,7 +1028,7 @@ if (DumpMode)
 
   TargetData = &DeviceData->BusData[Srb->PathId].TargetData[Srb->TargetId];
 
-  if (!TargetData->Present)
+  if (!TargetData->Running)
   {
     Srb->SrbStatus = SRB_STATUS_NO_DEVICE;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);

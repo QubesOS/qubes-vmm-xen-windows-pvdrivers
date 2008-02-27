@@ -923,6 +923,7 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
     {
 #if 0
 // this won't work this way... 
+// need to create a thread at PASSIVE_LEVEL, turn off xenbus, then go to DISPATCH_LEVEL on all CPU's
       if (!xpdd->suspending)
       {
         suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);

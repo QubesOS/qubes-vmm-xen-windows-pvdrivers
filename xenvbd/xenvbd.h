@@ -77,6 +77,7 @@ typedef enum {
 struct
 {
   int Present;
+  int Running;
   BOOLEAN PendingInterrupt;
   PVOID DeviceData; // how can we create a forward definition for this???
   evtchn_port_t EventChannel;
