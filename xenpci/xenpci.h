@@ -41,6 +41,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <event_channel.h>
 #include <hvm/params.h>
 #include <hvm/hvm_op.h>
+#include <sched.h>
 
 #include <xen_public.h>
 
@@ -144,6 +145,8 @@ typedef struct {
   KSPIN_LOCK grant_lock;
 
   KGUARDED_MUTEX WatchHandlerMutex;
+
+  int suspending;
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_DATA, GetDeviceData);

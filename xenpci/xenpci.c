@@ -851,6 +851,104 @@ struct {
   ULONG nr_spinning;
 } typedef SUSPEND_INFO, *PSUSPEND_INFO;
 
+static VOID
+XenPci_Suspend(
+ PRKDPC Dpc,
+ PVOID Context,
+ PVOID SystemArgument1,
+ PVOID SystemArgument2)
+{
+  WDFDEVICE Device = Context;
+//  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  PSUSPEND_INFO suspend_info = SystemArgument1;
+  ULONG ActiveProcessorCount;
+  KIRQL OldIrql;
+  int cancelled;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (CPU = %d)\n", KeGetCurrentProcessorNumber()));
+  KdPrint((__DRIVER_NAME "     Device = %p\n", Device));
+
+  if (KeGetCurrentProcessorNumber() != 0)
+  {
+    KdPrint((__DRIVER_NAME "     spinning...\n"));
+    InterlockedIncrement((volatile LONG *)&suspend_info->nr_spinning);
+    KeMemoryBarrier();
+    while(suspend_info->do_spin)
+    {
+      /* we should be able to wait more nicely than this... */
+    }
+    KeMemoryBarrier();
+    InterlockedDecrement((volatile LONG *)&suspend_info->nr_spinning);    
+    KdPrint((__DRIVER_NAME "     ...done spinning\n"));
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n", KeGetCurrentProcessorNumber()));
+    return;
+  }
+  ActiveProcessorCount = KeNumberProcessors;
+
+  KdPrint((__DRIVER_NAME "     waiting for all other processors to spin\n"));
+  while (suspend_info->nr_spinning < ActiveProcessorCount - 1)
+  {
+      /* we should be able to wait more nicely than this... */
+  }
+  KdPrint((__DRIVER_NAME "     all other processors are spinning\n"));
+
+  KeRaiseIrql(HIGH_LEVEL, &OldIrql);
+  KdPrint((__DRIVER_NAME "     calling suspend\n"));
+  cancelled = HYPERVISOR_shutdown(Device, SHUTDOWN_suspend);
+  KdPrint((__DRIVER_NAME "     back from suspend, cancelled = %d\n", cancelled));
+  KeLowerIrql(OldIrql);
+
+  KdPrint((__DRIVER_NAME "     waiting for all other processors to stop spinning\n"));
+  suspend_info->do_spin = 0;
+  while (suspend_info->nr_spinning != 0)
+  {
+      /* we should be able to wait more nicely than this... */
+  }
+  KdPrint((__DRIVER_NAME "     all other processors have stopped spinning\n"));
+
+  // TODO: Enable xenbus
+  // TODO: Enable our IRQ
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n", KeGetCurrentProcessorNumber()));
+}
+
+static VOID
+XenPci_BeginSuspend(WDFDEVICE Device)
+{
+  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+//  KAFFINITY ActiveProcessorMask = 0;
+  ULONG ActiveProcessorCount;
+  ULONG i;
+  PSUSPEND_INFO suspend_info;
+  PKDPC Dpc;
+  KIRQL OldIrql;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME "     Device = %p\n", Device));
+
+  if (!xpdd->suspending)
+  {
+    xpdd->suspending = 1;
+    suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);
+    suspend_info->do_spin = 1;
+    RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO));
+    // TODO: Disable xenbus
+    // TODO: Disable our IRQ
+    //ActiveProcessorCount = KeQueryActiveProcessorCount(&ActiveProcessorMask);
+    ActiveProcessorCount = KeNumberProcessors;
+    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    for (i = 0; i < ActiveProcessorCount; i++)
+    {
+      Dpc = ExAllocatePoolWithTag(NonPagedPool, sizeof(KDPC), XENPCI_POOL_TAG);
+      KeInitializeDpc(Dpc, XenPci_Suspend, Device);
+      KeSetTargetProcessorDpc(Dpc, (CCHAR)i);
+      KeInsertQueueDpc(Dpc, suspend_info, NULL);
+    }
+    KeLowerIrql(OldIrql);
+  }
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
 static void
 XenBus_ShutdownHandler(char *Path, PVOID Data)
 {
@@ -860,15 +958,11 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
   xenbus_transaction_t xbt;
   int retry;
   PSHUTDOWN_MSG_ENTRY Entry;
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-  KAFFINITY ActiveProcessorMask = 0;
-  ULONG ActiveProcessorCount;
-  int i;
-  PSUSPEND_INFO suspend_info;
 
   UNREFERENCED_PARAMETER(Path);
 
-  KdPrint((__DRIVER_NAME " --> XenBus_ShutdownHandler\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME "     Device = %p\n", Device));
 
   res = XenBus_StartTransaction(Device, &xbt);
   if (res)
@@ -921,23 +1015,8 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
   {
     if (strcmp(Value, "suspend") == 0)
     {
-#if 0
-// this won't work this way... 
-// need to create a thread at PASSIVE_LEVEL, turn off xenbus, then go to DISPATCH_LEVEL on all CPU's
-      if (!xpdd->suspending)
-      {
-        suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);
-        RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO);
-        xpdd->suspending = 1;
-        ActiveProcessorCount = KeQueryActiveProcessorCount(&ActiveProcessorMask);
-        for (i = 0; i < ActiveProcessorCount; i++)
-        {
-          Dpc = ExAllocatePoolWithTag(NonPagedPool, sizeof(KDPC), XENPCI_POOL_TAG);
-          KeInitializeDpc(&Dpc, XenPci_Suspend, xpdd);
-          KeSetTargetProcessorDpc(&Dpc, i);
-          KeInsertQueueDpc(&Dpc, suspend_info, NULL);
-        }
-#endif
+      KdPrint((__DRIVER_NAME "     Suspend detected\n"));
+      XenPci_BeginSuspend(Device);
     }
     else
     {
@@ -951,7 +1030,7 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
 
   XenPCI_FreeMem(Value);
 
-  KdPrint((__DRIVER_NAME " <-- XenBus_ShutdownHandler\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static VOID

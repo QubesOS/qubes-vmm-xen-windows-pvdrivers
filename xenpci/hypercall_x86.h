@@ -34,6 +34,22 @@ HYPERVISOR_memory_op(WDFDEVICE Device, int cmd, void *arg)
 }
 
 static __inline int
+HYPERVISOR_sched_op(WDFDEVICE Device, int cmd, void *arg)
+{
+  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
+  long __res;
+  __asm {
+    mov ebx, cmd
+    mov ecx, arg
+    mov eax, hypercall_stubs
+    add eax, (__HYPERVISOR_sched_op * 32)
+    call eax
+    mov [__res], eax
+  }
+  return __res;
+}
+
+static __inline int
 HYPERVISOR_xen_version(WDFDEVICE Device, int cmd, void *arg)
 {
   char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
@@ -149,3 +165,23 @@ hvm_get_parameter(WDFDEVICE Device, int hvm_param)
   KdPrint((__DRIVER_NAME " <-- hvm_get_parameter\n"));
   return a.value;
 }
+
+static __inline int
+HYPERVISOR_shutdown(WDFDEVICE Device, unsigned int reason)
+{
+  struct sched_shutdown ss;
+  int retval;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  ss.reason = reason;
+
+  KdPrint((__DRIVER_NAME "     A\n"));
+
+  retval = HYPERVISOR_sched_op(Device, SCHEDOP_shutdown, &ss);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return retval;
+}
+
