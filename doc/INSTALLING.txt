@@ -14,13 +14,20 @@ machine the tree looks like this:
 
 Xen\install.bat
 Xen\ShutdownMon.exe
-Xen\<os>\xenhide.inf
+Xen\<os>\xenenum.inf
+Xen\<os>\xennet.inf
 Xen\<os>\xenpci.inf
+Xen\<os>\xenscsi.inf
+Xen\<os>\xenstub.inf
 Xen\<os>\xenvbd.inf
 Xen\<os>\DPInst.exe
 Xen\<os>\<arch>\xenaddresource.sys
+Xen\<os>\<arch>\xenenum.sys 
 Xen\<os>\<arch>\xenhide.sys 
+Xen\<os>\<arch>\xennet.sys
 Xen\<os>\<arch>\xenpci.sys
+Xen\<os>\<arch>\xenscsi.sys
+Xen\<os>\<arch>\xenstub.sys
 Xen\<os>\<arch>\xenvbd.sys 
 Xen\<os>\<arch>\WdfCoInstaller01005.dll
 (If you have compiled yourself, you'll need to copy
