@@ -50,6 +50,26 @@ struct _buffer_entry
   PNDIS_BUFFER buffer;
 } typedef buffer_entry_t;
 
+static LARGE_INTEGER ProfTime_TxBufferGC;
+static LARGE_INTEGER ProfTime_TxBufferFree;
+static LARGE_INTEGER ProfTime_RxBufferAlloc;
+static LARGE_INTEGER ProfTime_RxBufferFree;
+static LARGE_INTEGER ProfTime_ReturnPacket;
+static LARGE_INTEGER ProfTime_RxBufferCheck;
+static LARGE_INTEGER ProfTime_Linearize;
+static LARGE_INTEGER ProfTime_SendPackets;
+static LARGE_INTEGER ProfTime_SendQueuedPackets;
+
+static int ProfCount_TxBufferGC;
+static int ProfCount_TxBufferFree;
+static int ProfCount_RxBufferAlloc;
+static int ProfCount_RxBufferFree;
+static int ProfCount_ReturnPacket;
+static int ProfCount_RxBufferCheck;
+static int ProfCount_Linearize;
+static int ProfCount_SendPackets;
+static int ProfCount_SendQueuedPackets;
+
 struct xennet_info
 {
   /* Base device vars */
@@ -192,10 +212,13 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   PMDL pmdl;
   KIRQL OldIrql;
   PVOID ptr;
+  LARGE_INTEGER tsc, dummy;
 
   ASSERT(xi->connected);
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  tsc = KeQueryPerformanceCounter(&dummy);
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
@@ -248,6 +271,9 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   XenNet_SendQueuedPackets(xi);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  ProfTime_TxBufferGC.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
+  ProfCount_TxBufferGC++;
 
   return NDIS_STATUS_SUCCESS;
 }
@@ -313,8 +339,10 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   PLIST_ENTRY entry;
   buffer_entry_t *buffer_entry;
   NDIS_STATUS status;
+  LARGE_INTEGER tsc, dummy;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  tsc = KeQueryPerformanceCounter(&dummy);
 
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
 
@@ -367,6 +395,9 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
+  ProfTime_RxBufferAlloc.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
+  ProfCount_RxBufferAlloc++;
+
   return NDIS_STATUS_SUCCESS;
 }
 
@@ -381,8 +412,11 @@ XenNet_RxBufferFree(struct xennet_info *xi)
   PVOID buff_va;
   PLIST_ENTRY entry;
   int ungranted;
+  LARGE_INTEGER tsc, dummy;
 
   ASSERT(!xi->connected);
+
+  tsc = KeQueryPerformanceCounter(&dummy);
 
   KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
@@ -416,6 +450,9 @@ XenNet_RxBufferFree(struct xennet_info *xi)
   }
 
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
+
+  ProfTime_RxBufferFree.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
+  ProfCount_RxBufferFree++;
 }
 
 VOID
@@ -427,8 +464,11 @@ XenNet_ReturnPacket(
   struct xennet_info *xi = MiniportAdapterContext;
   PNDIS_BUFFER buffer;
   buffer_entry_t *buffer_entry;
+  LARGE_INTEGER tsc, dummy;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  tsc = KeQueryPerformanceCounter(&dummy);
 
   NdisUnchainBufferAtBack(Packet, &buffer);
   while (buffer)
@@ -448,6 +488,9 @@ XenNet_ReturnPacket(
     KeSetEvent(&xi->shutdown_event, 1, FALSE);  
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  ProfTime_ReturnPacket.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
+  ProfCount_ReturnPacket++;
 }
 
 // Called at DISPATCH_LEVEL
@@ -455,20 +498,25 @@ static NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
-  PNDIS_PACKET packet = NULL;
+  PNDIS_PACKET packets[NET_RX_RING_SIZE];
+  ULONG packet_count;
   PNDIS_BUFFER buffer;
   int moretodo;
   KIRQL OldIrql;
   struct netif_rx_response *rxrsp = NULL;
   int more_frags = 0;
   NDIS_STATUS status;
+  LARGE_INTEGER tsc, dummy;
   
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  tsc = KeQueryPerformanceCounter(&dummy);
 
   ASSERT(xi->connected);
 
   KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
+  packet_count = 0;
   do {
     prod = xi->rx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
@@ -486,15 +534,15 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
       if (!more_frags) // handling the packet's 1st buffer
       {
-        NdisAllocatePacket(&status, &packet, xi->packet_pool);
+        NdisAllocatePacket(&status, &packets[packet_count], xi->packet_pool);
         ASSERT(status == NDIS_STATUS_SUCCESS);
-        NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
+        NDIS_SET_PACKET_HEADER_SIZE(packets[packet_count], XN_HDR_SIZE);
       }
 
       buffer = xi->rx_buffers[rxrsp->id];
       xi->rx_buffers[rxrsp->id] = NULL;
       NdisAdjustBufferLength(buffer, rxrsp->status);
-      NdisChainBufferAtBack(packet, buffer);
+      NdisChainBufferAtBack(packets[packet_count], buffer);
       xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
         xi->grant_rx_ref[rxrsp->id]);
       xi->grant_rx_ref[rxrsp->id] = GRANT_INVALID_REF;
@@ -508,8 +556,13 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       {
         xi->stat_rx_ok++;
         InterlockedIncrement(&xi->rx_outstanding);
-        NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
-        NdisMIndicateReceivePacket(xi->adapter_handle, &packet, 1);
+        NDIS_SET_PACKET_STATUS(packets[packet_count], NDIS_STATUS_SUCCESS);
+        packet_count++;
+        if (packet_count == NET_RX_RING_SIZE)
+        {
+          NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
+          packet_count = 0;
+        }
       }
     }
     xi->rx.rsp_cons = prod;
@@ -520,7 +573,12 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   if (more_frags)
   {
     KdPrint((__DRIVER_NAME "     Missing fragments\n"));
-    XenNet_ReturnPacket(xi, packet);
+    XenNet_ReturnPacket(xi, packets[packet_count]);
+  }
+
+  if (packet_count != 0)
+  {
+    NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
   }
 
   /* Give netback more buffers */
@@ -529,6 +587,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  ProfTime_RxBufferCheck.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
+  ProfCount_RxBufferCheck++;
 
   return NDIS_STATUS_SUCCESS;
 }
@@ -1437,8 +1498,13 @@ XenNet_Linearize(PNDIS_PACKET Packet)
   PVOID buff_va;
   UINT buff_len;
   UINT tot_buff_len;
+  LARGE_INTEGER tsc, dummy;
+  KIRQL OldIrql;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);  
+  tsc = KeQueryPerformanceCounter(&dummy);
 
   NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
     &tot_buff_len, NormalPagePriority);
@@ -1469,6 +1535,11 @@ XenNet_Linearize(PNDIS_PACKET Packet)
   }
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  ProfTime_Linearize.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
+  ProfCount_Linearize++;
+
+  KeLowerIrql(OldIrql);
+
   return pmdl;
 }
 
@@ -1483,7 +1554,12 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   int notify;
   PMDL pmdl;
   UINT pkt_size;
+  LARGE_INTEGER tsc, dummy;
+  KIRQL OldIrql2;
 
+  KeRaiseIrql(DISPATCH_LEVEL, &OldIrql2);
+
+  tsc = KeQueryPerformanceCounter(&dummy);
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
@@ -1530,6 +1606,10 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   }
 
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
+  ProfTime_SendQueuedPackets.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
+  ProfCount_SendQueuedPackets++;
+
+  KeLowerIrql(OldIrql2);
 }
 
 VOID
@@ -1545,7 +1625,12 @@ XenNet_SendPackets(
   PMDL pmdl;
   PLIST_ENTRY entry;
   KIRQL OldIrql;
+  LARGE_INTEGER tsc, dummy;
+  KIRQL OldIrql2;
 
+  KeRaiseIrql(DISPATCH_LEVEL, &OldIrql2);
+
+  tsc = KeQueryPerformanceCounter(&dummy);
   //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   for (i = 0; i < NumberOfPackets; i++)
   {
@@ -1575,7 +1660,23 @@ XenNet_SendPackets(
     KeReleaseSpinLock(&xi->tx_lock, OldIrql);
     InterlockedIncrement(&xi->tx_outstanding);
   }
+  ProfTime_SendPackets.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
+  ProfCount_SendPackets++;
+  KeLowerIrql(OldIrql2);
   XenNet_SendQueuedPackets(xi);
+
+  if ((ProfCount_SendPackets & 1023) == 0)
+  {
+    KdPrint((__DRIVER_NAME "     TxBufferGC        Count = %10d, Avg Time = %10ld\n", ProfCount_TxBufferGC, (ProfCount_TxBufferGC == 0)?0:(ProfTime_TxBufferGC.QuadPart / ProfCount_TxBufferGC)));
+    KdPrint((__DRIVER_NAME "     TxBufferFree      Count = %10d, Avg Time = %10ld\n", ProfCount_TxBufferFree, (ProfCount_TxBufferFree == 0)?0:(ProfTime_TxBufferFree.QuadPart / ProfCount_TxBufferFree)));
+    KdPrint((__DRIVER_NAME "     RxBufferAlloc     Count = %10d, Avg Time = %10ld\n", ProfCount_RxBufferAlloc, (ProfCount_RxBufferAlloc == 0)?0:(ProfTime_RxBufferAlloc.QuadPart / ProfCount_RxBufferAlloc)));
+    KdPrint((__DRIVER_NAME "     RxBufferFree      Count = %10d, Avg Time = %10ld\n", ProfCount_RxBufferFree, (ProfCount_RxBufferFree == 0)?0:(ProfTime_RxBufferFree.QuadPart / ProfCount_RxBufferFree)));
+    KdPrint((__DRIVER_NAME "     ReturnPacket      Count = %10d, Avg Time = %10ld\n", ProfCount_ReturnPacket, (ProfCount_ReturnPacket == 0)?0:(ProfTime_ReturnPacket.QuadPart / ProfCount_ReturnPacket)));
+    KdPrint((__DRIVER_NAME "     RxBufferCheck     Count = %10d, Avg Time = %10ld\n", ProfCount_RxBufferCheck, (ProfCount_RxBufferCheck == 0)?0:(ProfTime_RxBufferCheck.QuadPart / ProfCount_RxBufferCheck)));
+    KdPrint((__DRIVER_NAME "     Linearize         Count = %10d, Avg Time = %10ld\n", ProfCount_Linearize, (ProfCount_Linearize == 0)?0:(ProfTime_Linearize.QuadPart / ProfCount_Linearize)));
+    KdPrint((__DRIVER_NAME "     SendPackets       Count = %10d, Avg Time = %10ld\n", ProfCount_SendPackets, (ProfCount_SendPackets == 0)?0:(ProfTime_SendPackets.QuadPart / ProfCount_SendPackets)));
+    KdPrint((__DRIVER_NAME "     SendQueuedPackets Count = %10d, Avg Time = %10ld\n", ProfCount_SendQueuedPackets, (ProfCount_SendQueuedPackets == 0)?0:(ProfTime_SendQueuedPackets.QuadPart / ProfCount_SendQueuedPackets)));
+  }
   //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
@@ -1726,6 +1827,27 @@ DriverEntry(
   WDF_DRIVER_CONFIG config;
   NDIS_HANDLE ndis_wrapper_handle;
   NDIS_MINIPORT_CHARACTERISTICS mini_chars;
+
+
+  ProfTime_TxBufferGC.QuadPart = 0;
+  ProfTime_TxBufferFree.QuadPart = 0;
+  ProfTime_RxBufferAlloc.QuadPart = 0;
+  ProfTime_RxBufferFree.QuadPart = 0;
+  ProfTime_ReturnPacket.QuadPart = 0;
+  ProfTime_RxBufferCheck.QuadPart = 0;
+  ProfTime_Linearize.QuadPart = 0;
+  ProfTime_SendPackets.QuadPart = 0;
+  ProfTime_SendQueuedPackets.QuadPart = 0;
+
+  ProfCount_TxBufferGC = 0;
+  ProfCount_TxBufferFree = 0;
+  ProfCount_RxBufferAlloc = 0;
+  ProfCount_RxBufferFree = 0;
+  ProfCount_ReturnPacket = 0;
+  ProfCount_RxBufferCheck = 0;
+  ProfCount_Linearize = 0;
+  ProfCount_SendPackets = 0;
+  ProfCount_SendQueuedPackets = 0;
 
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));
 
