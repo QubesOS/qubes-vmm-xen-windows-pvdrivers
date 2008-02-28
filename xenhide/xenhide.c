@@ -160,20 +160,32 @@ XenHide_AddDevice(
   PDEVICE_EXTENSION DeviceExtension;
   ULONG Length;
   WCHAR Buffer[1000];
+  size_t StrLen;
+  int Match;
+  PWCHAR Ptr;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   Length = 1000;
-  status = IoGetDeviceProperty(PhysicalDeviceObject, DevicePropertyDeviceDescription, Length, Buffer, &Length);
-//  KdPrint((__DRIVER_NAME " status = %08x, DevicePropertyDeviceDescription = %ws\n", status, Buffer));
-
-  if (!NT_SUCCESS(status) || wcscmp(Buffer, L"PCI bus") != 0)
-  {
-//    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  status = IoGetDeviceProperty(PhysicalDeviceObject, DevicePropertyHardwareID, Length, Buffer, &Length);
+//  KdPrint((__DRIVER_NAME " status = %08x, DevicePropertyHardwareID, = %ws\n", status, Buffer));
+  if (!NT_SUCCESS(status))
     return STATUS_SUCCESS;
-  }
 
-//  KdPrint((__DRIVER_NAME " Found\n")); 
+  Match = 0;
+  StrLen = 0;
+  for (Ptr = Buffer; *Ptr != 0; Ptr += StrLen + 1)
+  {
+    if (wcscmp(Ptr, L"*PNP0A03") == 0) {
+      Match = 1;
+      break;
+    }
+    RtlStringCchLengthW(Ptr, Length, &StrLen);
+  }
+  if (!Match)
+    return STATUS_SUCCESS;
+
+  KdPrint((__DRIVER_NAME " Found\n")); 
 
   status = IoCreateDevice (DriverObject,
     sizeof(DEVICE_EXTENSION),
@@ -262,46 +274,48 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
     break;
   case 1:
     DeviceExtension->InternalState = 2; 
-    for (i = 0; i < Relations->Count; i++)
+    if (Relations != NULL)
     {
-      if (Offset != 0)
-        Relations->Objects[i - Offset] = Relations->Objects[i];
-  
-      Match = 0;
-      for (j = 0; j < 2 && !Match; j++)
+      for (i = 0; i < Relations->Count; i++)
       {
-        Length = sizeof(Buffer);
-        if (j == 0)
-          IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyCompatibleIDs, Length, Buffer, &Length);
-        else
-          IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyHardwareID, Length, Buffer, &Length);
-         StrLen = 0;
-        for (Ptr = Buffer; *Ptr != 0; Ptr += StrLen + 1)
+        if (Offset != 0)
+          Relations->Objects[i - Offset] = Relations->Objects[i];
+    
+        Match = 0;
+        for (j = 0; j < 2 && !Match; j++)
         {
-          // Qemu PCI
-          if (XenHide_StringMatches(Ptr, L"PCI\\VEN_8086&DEV_7010")) {
-            Match = 1;
-            break;
+          Length = sizeof(Buffer);
+          if (j == 0)
+            IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyCompatibleIDs, Length, Buffer, &Length);
+          else
+            IoGetDeviceProperty(Relations->Objects[i - Offset], DevicePropertyHardwareID, Length, Buffer, &Length);
+           StrLen = 0;
+          for (Ptr = Buffer; *Ptr != 0; Ptr += StrLen + 1)
+          {
+            // Qemu PCI
+            if (XenHide_StringMatches(Ptr, L"PCI\\VEN_8086&DEV_7010")) {
+              Match = 1;
+              break;
+            }
+            // Qemu Network
+            if (XenHide_StringMatches(Ptr, L"PCI\\VEN_10EC&DEV_8139")) {
+              Match = 1;
+              break;
+            }
+            RtlStringCchLengthW(Ptr, Length, &StrLen);
           }
-          // Qemu Network
-          if (XenHide_StringMatches(Ptr, L"PCI\\VEN_10EC&DEV_8139")) {
-            Match = 1;
-            break;
-          }
-          RtlStringCchLengthW(Ptr, Length, &StrLen);
+        }
+        if (Match)
+        {
+          Offset++;
         }
       }
-      if (Match)
-      {
-        Offset++;
-      }
+      Relations->Count -= Offset;
+      break;
+    default:
+      break;
     }
-    Relations->Count -= Offset;
-    break;
-  default:
-    break;
-  }
-    
+  }    
 //  KdPrint((__DRIVER_NAME " <-- IoCompletion\n"));
 
   return Irp->IoStatus.Status;
