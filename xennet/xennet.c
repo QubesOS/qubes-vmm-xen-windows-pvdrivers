@@ -59,6 +59,8 @@ static LARGE_INTEGER ProfTime_RxBufferCheck;
 static LARGE_INTEGER ProfTime_Linearize;
 static LARGE_INTEGER ProfTime_SendPackets;
 static LARGE_INTEGER ProfTime_SendQueuedPackets;
+static LARGE_INTEGER ProfTime_GrantAccess;
+static LARGE_INTEGER ProfTime_EndAccess;
 
 static int ProfCount_TxBufferGC;
 static int ProfCount_TxBufferFree;
@@ -69,6 +71,8 @@ static int ProfCount_RxBufferCheck;
 static int ProfCount_Linearize;
 static int ProfCount_SendPackets;
 static int ProfCount_SendQueuedPackets;
+static int ProfCount_GrantAccess;
+static int ProfCount_EndAccess;
 
 struct xennet_info
 {
@@ -114,6 +118,11 @@ struct xennet_info
   struct netif_tx_sring *tx_pgs;
   struct netif_rx_sring *rx_pgs;
 
+  
+  PMDL page_list[NET_TX_RING_SIZE + 1 + NET_RX_RING_SIZE];
+  ULONG page_free;
+  KSPIN_LOCK page_lock;
+
   /* MDLs for the above */
   PMDL tx_mdl;
   PMDL rx_mdl;
@@ -124,9 +133,9 @@ struct xennet_info
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE+1];
   PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
 
-  grant_ref_t gref_tx_head;
+//  grant_ref_t gref_tx_head;
   grant_ref_t grant_tx_ref[NET_TX_RING_SIZE+1];
-  grant_ref_t gref_rx_head;
+//  grant_ref_t gref_rx_head;
   grant_ref_t grant_rx_ref[NET_RX_RING_SIZE];
 
   /* Receive-ring batched refills. */
@@ -199,7 +208,70 @@ get_id_from_freelist(struct xennet_info *xi)
   return id;
 }
 
-VOID
+static PMDL
+get_page_from_freelist(struct xennet_info *xi)
+{
+  PMDL mdl;
+  KIRQL OldIrql;
+
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeAcquireSpinLock(&xi->page_lock, &OldIrql);
+
+  if (xi->page_free == 0)
+  {
+    mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
+    *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = xi->XenInterface.GntTbl_GrantAccess(
+      xi->XenInterface.InterfaceHeader.Context, 0,
+      *MmGetMdlPfnArray(mdl), FALSE);
+//    KdPrint(("New Mdl = %p, MmGetMdlVirtualAddress = %p, MmGetSystemAddressForMdlSafe = %p\n",
+//      mdl, MmGetMdlVirtualAddress(mdl), MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority)));
+  }
+  else
+  {
+    xi->page_free--;
+    mdl = xi->page_list[xi->page_free];
+//    KdPrint(("Old Mdl = %p, MmGetMdlVirtualAddress = %p, MmGetSystemAddressForMdlSafe = %p\n",
+//      mdl, MmGetMdlVirtualAddress(mdl), MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority)));
+  }
+  KeReleaseSpinLock(&xi->page_lock, OldIrql);
+
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return mdl;
+}
+
+static __inline grant_ref_t
+get_grant_ref(PMDL mdl)
+{
+  return *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE));
+}
+
+static VOID
+put_page_on_freelist(struct xennet_info *xi, PMDL mdl)
+{
+  KIRQL OldIrql;
+
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+//  KdPrint(("Mdl = %p\n",  mdl));
+
+  KeAcquireSpinLock(&xi->page_lock, &OldIrql);
+
+  xi->page_list[xi->page_free] = mdl;
+  xi->page_free++;
+
+  KeReleaseSpinLock(&xi->page_lock, OldIrql);
+
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+/*
+  xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
+        *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)));
+*/
+}
+
+static VOID
 XenNet_SendQueuedPackets(struct xennet_info *xi);
 
 // Called at DISPATCH_LEVEL
@@ -209,9 +281,9 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   RING_IDX cons, prod;
   unsigned short id;
   PNDIS_PACKET pkt;
-  PMDL pmdl;
-  PVOID ptr;
   LARGE_INTEGER tsc, dummy;
+  int moretodo;
+//  LARGE_INTEGER gtsc;
 
   ASSERT(xi->connected);
   ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
@@ -235,16 +307,18 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
       id  = txrsp->id;
       pkt = xi->tx_pkts[id];
+/*
+gtsc = KeQueryPerformanceCounter(&dummy);
       xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
         xi->grant_tx_ref[id]);
+ProfTime_EndAccess.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - gtsc.QuadPart;
+ProfCount_EndAccess++;
+*/
       xi->grant_tx_ref[id] = GRANT_INVALID_REF;
       add_id_to_freelist(xi, id);
 
-      /* free linearized data page */
-      pmdl = *(PMDL *)pkt->MiniportReservedEx;
-      ptr = MmGetMdlVirtualAddress(pmdl);
-      IoFreeMdl(pmdl);
-      NdisFreeMemory(ptr, 0, 0); // <= DISPATCH_LEVEL
+      put_page_on_freelist(xi, *(PMDL *)pkt->MiniportReservedEx);
+
       InterlockedDecrement(&xi->tx_outstanding);
       xi->stat_tx_ok++;
       NdisMSendComplete(xi->adapter_handle, pkt, NDIS_STATUS_SUCCESS);
@@ -252,18 +326,8 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
     xi->tx.rsp_cons = prod;
 
-    /*
-     * Set a new event, then check for race with update of tx_cons.
-     * Note that it is essential to schedule a callback, no matter
-     * how few buffers are pending. Even if there is space in the
-     * transmit ring, higher layers may be blocked because too much
-     * data is outstanding: in such cases notification from Xen is
-     * likely to be the only kick that we'll get.
-     */
-    xi->tx.sring->rsp_event =
-      prod + ((xi->tx.sring->req_prod - prod) >> 1) + 1;
-    KeMemoryBarrier();
-  } while ((cons == prod) && (prod != xi->tx.sring->rsp_prod));
+    RING_FINAL_CHECK_FOR_RESPONSES(&xi->tx, moretodo);
+  } while (moretodo);
 
   KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
@@ -295,11 +359,8 @@ XenNet_TxBufferFree(struct xennet_info *xi)
   {
     packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
 
-    /* free linearized data page */
-    pmdl = *(PMDL *)packet->MiniportReservedEx;
-    ptr = MmGetMdlVirtualAddress(pmdl);
-    IoFreeMdl(pmdl);
-    NdisFreeMemory(ptr, 0, 0); // <= DISPATCH_LEVEL
+    put_page_on_freelist(xi, *(PMDL *)packet->MiniportReservedEx);
+
     NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
     entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   }
@@ -310,9 +371,11 @@ XenNet_TxBufferFree(struct xennet_info *xi)
       continue;
 
     packet = xi->tx_pkts[id];
+/*
     xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
       xi->grant_tx_ref[id]);
     xi->grant_tx_ref[id] = GRANT_INVALID_REF;
+*/
     add_id_to_freelist(xi, id);
 
     /* free linearized data page */
@@ -340,6 +403,7 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   buffer_entry_t *buffer_entry;
   NDIS_STATUS status;
   LARGE_INTEGER tsc, dummy;
+  LARGE_INTEGER gtsc;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   tsc = KeQueryPerformanceCounter(&dummy);
@@ -375,9 +439,12 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
     xi->rx_buffers[id] = buffer;
     req = RING_GET_REQUEST(&xi->rx, req_prod + i);
     /* an NDIS_BUFFER is just a MDL, so we can get its pfn array */
+gtsc = KeQueryPerformanceCounter(&dummy);
     ref = xi->XenInterface.GntTbl_GrantAccess(
       xi->XenInterface.InterfaceHeader.Context, 0,
       *MmGetMdlPfnArray(buffer), FALSE);
+ProfTime_GrantAccess.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - gtsc.QuadPart;
+ProfCount_GrantAccess++;
     ASSERT((signed short)ref >= 0);
     xi->grant_rx_ref[id] = ref;
 
@@ -508,6 +575,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   NDIS_STATUS status;
   LARGE_INTEGER tsc, dummy;
   LARGE_INTEGER time_received;
+  LARGE_INTEGER gtsc;
   
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -545,8 +613,12 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       xi->rx_buffers[rxrsp->id] = NULL;
       NdisAdjustBufferLength(buffer, rxrsp->status);
       NdisChainBufferAtBack(packets[packet_count], buffer);
+gtsc = KeQueryPerformanceCounter(&dummy);
       xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
         xi->grant_rx_ref[rxrsp->id]);
+ProfTime_EndAccess.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - gtsc.QuadPart;
+ProfCount_EndAccess++;
+
       xi->grant_rx_ref[rxrsp->id] = GRANT_INVALID_REF;
 
       ASSERT(!(rxrsp->flags & NETRXF_extra_info)); // not used on RX
@@ -778,6 +850,9 @@ XenNet_Init(
 
   InitializeListHead(&xi->rx_free_buf_list);
   InitializeListHead(&xi->tx_waiting_pkt_list);
+
+  KeInitializeSpinLock(&xi->page_lock);
+  xi->page_free = 0;
   
   NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
@@ -1492,10 +1567,9 @@ XenNet_SetInformation(
 }
 
 /* Called at DISPATCH_LEVEL with tx_lock held */
-PMDL
-XenNet_Linearize(PNDIS_PACKET Packet)
+static PMDL
+XenNet_Linearize(struct xennet_info *xi, PNDIS_PACKET Packet)
 {
-  NDIS_STATUS status;
   PMDL pmdl;
   char *start;
   PNDIS_BUFFER buffer;
@@ -1512,21 +1586,14 @@ XenNet_Linearize(PNDIS_PACKET Packet)
     &tot_buff_len, NormalPagePriority);
   ASSERT(tot_buff_len <= XN_MAX_PKT_SIZE);
 
-  status = NdisAllocateMemoryWithTag(&start, PAGE_SIZE, XENNET_POOL_TAG);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint(("Could not allocate memory for linearization\n"));
-    return NULL;
-  }
-
-  pmdl = IoAllocateMdl(start, tot_buff_len, FALSE, FALSE, NULL);
+  pmdl = get_page_from_freelist(xi);
   if (!pmdl)
   {
     KdPrint(("Could not allocate MDL for linearization\n"));
-    NdisFreeMemory(start, 0, 0);
     return NULL;
   }
-  MmBuildMdlForNonPagedPool(pmdl);
+
+  start = MmGetMdlVirtualAddress(pmdl);
 
   while (buffer)
   {
@@ -1543,7 +1610,7 @@ XenNet_Linearize(PNDIS_PACKET Packet)
   return pmdl;
 }
 
-VOID
+static VOID
 XenNet_SendQueuedPackets(struct xennet_info *xi)
 {
   PLIST_ENTRY entry;
@@ -1556,6 +1623,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   UINT pkt_size;
   LARGE_INTEGER tsc, dummy;
   KIRQL OldIrql2;
+//  LARGE_INTEGER gtsc;
 
   KeRaiseIrql(DISPATCH_LEVEL, &OldIrql2);
 
@@ -1582,11 +1650,17 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
 
     tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
     tx->id = id;
+    tx->gref = get_grant_ref(pmdl);
+/*
+gtsc = KeQueryPerformanceCounter(&dummy);
     tx->gref = xi->XenInterface.GntTbl_GrantAccess(
       xi->XenInterface.InterfaceHeader.Context,
       0,
       *MmGetMdlPfnArray(pmdl),
       TRUE);
+ProfTime_GrantAccess.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - gtsc.QuadPart;
+ProfCount_GrantAccess++;
+*/
     xi->grant_tx_ref[id] = tx->gref;
     tx->offset = (uint16_t)MmGetMdlByteOffset(pmdl);
     tx->size = (UINT16)pkt_size;
@@ -1641,7 +1715,7 @@ XenNet_SendPackets(
 
     //KdPrint(("sending pkt, len %d\n", pkt_size));
 
-    pmdl = XenNet_Linearize(curr_packet);
+    pmdl = XenNet_Linearize(xi, curr_packet);
     if (!pmdl)
     {
       KdPrint((__DRIVER_NAME "Couldn't linearize packet!\n"));
@@ -1678,6 +1752,8 @@ XenNet_SendPackets(
     KdPrint((__DRIVER_NAME "     Linearize         Count = %10d, Avg Time = %10ld\n", ProfCount_Linearize, (ProfCount_Linearize == 0)?0:(ProfTime_Linearize.QuadPart / ProfCount_Linearize)));
     KdPrint((__DRIVER_NAME "     SendPackets       Count = %10d, Avg Time = %10ld\n", ProfCount_SendPackets, (ProfCount_SendPackets == 0)?0:(ProfTime_SendPackets.QuadPart / ProfCount_SendPackets)));
     KdPrint((__DRIVER_NAME "     SendQueuedPackets Count = %10d, Avg Time = %10ld\n", ProfCount_SendQueuedPackets, (ProfCount_SendQueuedPackets == 0)?0:(ProfTime_SendQueuedPackets.QuadPart / ProfCount_SendQueuedPackets)));
+    KdPrint((__DRIVER_NAME "     GrantAccess       Count = %10d, Avg Time = %10ld\n", ProfCount_GrantAccess, (ProfCount_GrantAccess == 0)?0:(ProfTime_GrantAccess.QuadPart / ProfCount_GrantAccess)));
+    KdPrint((__DRIVER_NAME "     EndAccess         Count = %10d, Avg Time = %10ld\n", ProfCount_EndAccess, (ProfCount_EndAccess == 0)?0:(ProfTime_EndAccess.QuadPart / ProfCount_EndAccess)));
   }
   //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -1840,6 +1916,8 @@ DriverEntry(
   ProfTime_Linearize.QuadPart = 0;
   ProfTime_SendPackets.QuadPart = 0;
   ProfTime_SendQueuedPackets.QuadPart = 0;
+  ProfTime_GrantAccess.QuadPart = 0;
+  ProfTime_EndAccess.QuadPart = 0;
 
   ProfCount_TxBufferGC = 0;
   ProfCount_TxBufferFree = 0;
@@ -1850,6 +1928,8 @@ DriverEntry(
   ProfCount_Linearize = 0;
   ProfCount_SendPackets = 0;
   ProfCount_SendQueuedPackets = 0;
+  ProfCount_GrantAccess = 0;
+  ProfCount_EndAccess = 0;
 
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));
 

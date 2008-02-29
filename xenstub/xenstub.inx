@@ -19,10 +19,12 @@ ExcludeFromSelect=*
 [XenGplPv.NTx86]
 %XenStub.DRVDESC%=XenStub_Inst, XEN\CONSOLE
 %XenStub.DRVDESC%=XenStub_Inst, XEN\VFB
+%XenStub.DRVDESC%=XenStub_Inst, XEN\VKBD
 
 [XenGplPv.NTamd64]
 %XenStub.DRVDESC%=XenStub_Inst, XEN\CONSOLE
 %XenStub.DRVDESC%=XenStub_Inst, XEN\VFB
+%XenStub.DRVDESC%=XenStub_Inst, XEN\VKBD
 
 [XenStub_Inst.NT]
 CopyFiles=XenStub.CopyFiles
