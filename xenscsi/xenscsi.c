@@ -135,7 +135,7 @@ XenScsi_HwScsiInterruptTarget(PVOID DeviceExtension)
     {
       rep = RING_GET_RESPONSE(&TargetData->Ring, i);
       Srb = TargetData->shadow[rep->rqid].Srb;
-      Srb->ScsiStatus = rep->rslt;
+      Srb->ScsiStatus = (UCHAR)rep->rslt;
       if (!rep->rslt)
         Srb->SrbStatus = SRB_STATUS_SUCCESS;
       else
@@ -675,9 +675,9 @@ XenScsi_PutSrbOnRing(PXENSCSI_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
   memset(shadow->req.cmnd, 0, VSCSIIF_MAX_COMMAND_SIZE);
   memcpy(shadow->req.cmnd, Srb->Cdb, 16);
   shadow->req.cmd_len = Srb->CdbLength;
-  shadow->req.id = TargetData->id;
-  shadow->req.lun = TargetData->lun;
-  shadow->req.channel = TargetData->channel;
+  shadow->req.id = (USHORT)TargetData->id;
+  shadow->req.lun = (USHORT)TargetData->lun;
+  shadow->req.channel = (USHORT)TargetData->channel;
   if (Srb->DataTransferLength && (Srb->SrbFlags & SRB_FLAGS_DATA_IN) && (Srb->SrbFlags & SRB_FLAGS_DATA_OUT))
     shadow->req.sc_data_direction = DMA_BIDIRECTIONAL;
   else if (Srb->DataTransferLength && (Srb->SrbFlags & SRB_FLAGS_DATA_IN))
@@ -703,7 +703,7 @@ XenScsi_PutSrbOnRing(PXENSCSI_TARGET_DATA TargetData, PSCSI_REQUEST_BLOCK Srb)
     }
     else
     {
-      shadow->req.seg[i].length = remaining;
+      shadow->req.seg[i].length = (USHORT)remaining;
       remaining = 0;
     }
 //    KdPrint((__DRIVER_NAME "     sg %d: offset = %d, size = %d\n", i, shadow->req.seg[i].offset, shadow->req.seg[i].length));
@@ -723,7 +723,6 @@ XenScsi_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   PXENSCSI_DEVICE_DATA DeviceData = (PXENSCSI_DEVICE_DATA)DeviceExtension;
   PXENSCSI_TARGET_DATA TargetData;
   int notify;
-  int i;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
 

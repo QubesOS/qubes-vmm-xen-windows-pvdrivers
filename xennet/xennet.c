@@ -210,17 +210,17 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   unsigned short id;
   PNDIS_PACKET pkt;
   PMDL pmdl;
-  KIRQL OldIrql;
   PVOID ptr;
   LARGE_INTEGER tsc, dummy;
 
   ASSERT(xi->connected);
+  ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   tsc = KeQueryPerformanceCounter(&dummy);
 
-  KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
+  KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
   do {
     prod = xi->tx.sring->rsp_prod;
@@ -265,7 +265,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
     KeMemoryBarrier();
   } while ((cons == prod) && (prod != xi->tx.sring->rsp_prod));
 
-  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
+  KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
   /* if queued packets, send them now */
   XenNet_SendQueuedPackets(xi);
@@ -507,6 +507,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   int more_frags = 0;
   NDIS_STATUS status;
   LARGE_INTEGER tsc, dummy;
+  LARGE_INTEGER time_received;
   
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -514,6 +515,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   ASSERT(xi->connected);
 
+  NdisGetCurrentSystemTime(&time_received);
   KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
   packet_count = 0;
@@ -557,6 +559,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         xi->stat_rx_ok++;
         InterlockedIncrement(&xi->rx_outstanding);
         NDIS_SET_PACKET_STATUS(packets[packet_count], NDIS_STATUS_SUCCESS);
+        NDIS_SET_PACKET_TIME_RECEIVED(packets[packet_count], time_received.QuadPart);
         packet_count++;
         if (packet_count == NET_RX_RING_SIZE)
         {
@@ -1488,6 +1491,7 @@ XenNet_SetInformation(
   return status;
 }
 
+/* Called at DISPATCH_LEVEL with tx_lock held */
 PMDL
 XenNet_Linearize(PNDIS_PACKET Packet)
 {
@@ -1499,11 +1503,9 @@ XenNet_Linearize(PNDIS_PACKET Packet)
   UINT buff_len;
   UINT tot_buff_len;
   LARGE_INTEGER tsc, dummy;
-  KIRQL OldIrql;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);  
   tsc = KeQueryPerformanceCounter(&dummy);
 
   NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
@@ -1537,8 +1539,6 @@ XenNet_Linearize(PNDIS_PACKET Packet)
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   ProfTime_Linearize.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
   ProfCount_Linearize++;
-
-  KeLowerIrql(OldIrql);
 
   return pmdl;
 }
@@ -1629,8 +1629,10 @@ XenNet_SendPackets(
   KIRQL OldIrql2;
 
   KeRaiseIrql(DISPATCH_LEVEL, &OldIrql2);
-
   tsc = KeQueryPerformanceCounter(&dummy);
+
+  KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
+
   //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   for (i = 0; i < NumberOfPackets; i++)
   {
@@ -1655,11 +1657,11 @@ XenNet_SendPackets(
     *(PMDL *)&curr_packet->MiniportReservedEx = pmdl;
 
     entry = (PLIST_ENTRY)&curr_packet->MiniportReservedEx[sizeof(PVOID)];
-    KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
     InsertTailList(&xi->tx_waiting_pkt_list, entry);
-    KeReleaseSpinLock(&xi->tx_lock, OldIrql);
     InterlockedIncrement(&xi->tx_outstanding);
   }
+  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
+
   ProfTime_SendPackets.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
   ProfCount_SendPackets++;
   KeLowerIrql(OldIrql2);

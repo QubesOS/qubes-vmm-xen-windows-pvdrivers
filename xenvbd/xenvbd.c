@@ -667,7 +667,7 @@ XenVbd_EnumerateExisting(PXENVBD_DEVICE_DATA DeviceData)
 static PXENPCI_XEN_DEVICE_DATA
 XenVbd_GetXenDeviceData(PPORT_CONFIGURATION_INFORMATION ConfigInfo)
 {
-  int i;
+  ULONG i;
   PACCESS_RANGE AccessRange;
   PXENPCI_XEN_DEVICE_DATA XenDeviceData = NULL;
 
@@ -693,7 +693,7 @@ static VOID
 XenVbd_InitDeviceData(PXENVBD_DEVICE_DATA DeviceData, PPORT_CONFIGURATION_INFORMATION ConfigInfo)
 {
   ULONG i, j;
-  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
+//  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));  
 
@@ -731,9 +731,9 @@ static ULONG
 XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
 {
   ULONG i, j, k;
-  PACCESS_RANGE AccessRange;
+//  PACCESS_RANGE AccessRange;
   PXENVBD_DEVICE_DATA DeviceData; // = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData;
-  ULONG status;
+//  ULONG status;
   PXENPCI_XEN_DEVICE_DATA XenDeviceData;
 
   UNREFERENCED_PARAMETER(HwContext);

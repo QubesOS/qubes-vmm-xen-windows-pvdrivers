@@ -865,6 +865,9 @@ XenPci_Suspend(
   KIRQL OldIrql;
   int cancelled;
 
+  UNREFERENCED_PARAMETER(Dpc);
+  UNREFERENCED_PARAMETER(SystemArgument2);
+
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (CPU = %d)\n", KeGetCurrentProcessorNumber()));
   KdPrint((__DRIVER_NAME "     Device = %p\n", Device));
 
