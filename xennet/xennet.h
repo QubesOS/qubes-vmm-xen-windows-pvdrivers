@@ -72,6 +72,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #pragma warning(disable: 4127) // conditional expression is constant
 
+#define XEN_PROFILE
+
 /* TODO: crank this up if we support higher mtus? */
 #define XN_DATA_SIZE 1500
 #define XN_HDR_SIZE 14
@@ -171,8 +173,6 @@ extern LARGE_INTEGER ProfTime_RxBufferCheck;
 extern LARGE_INTEGER ProfTime_Linearize;
 extern LARGE_INTEGER ProfTime_SendPackets;
 extern LARGE_INTEGER ProfTime_SendQueuedPackets;
-extern LARGE_INTEGER ProfTime_GrantAccess;
-extern LARGE_INTEGER ProfTime_EndAccess;
 
 extern int ProfCount_TxBufferGC;
 extern int ProfCount_TxBufferFree;
@@ -183,8 +183,11 @@ extern int ProfCount_RxBufferCheck;
 extern int ProfCount_Linearize;
 extern int ProfCount_SendPackets;
 extern int ProfCount_SendQueuedPackets;
-extern int ProfCount_GrantAccess;
-extern int ProfCount_EndAccess;
+
+extern int ProfCount_TxPacketsTotal;
+extern int ProfCount_TxPacketsOffload;
+extern int ProfCount_RxPacketsTotal;
+extern int ProfCount_RxPacketsOffload;
 
 NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi);

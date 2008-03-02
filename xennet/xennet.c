@@ -46,6 +46,11 @@ int ProfCount_SendQueuedPackets;
 int ProfCount_GrantAccess;
 int ProfCount_EndAccess;
 
+int ProfCount_TxPacketsTotal;
+int ProfCount_TxPacketsOffload;
+int ProfCount_RxPacketsTotal;
+int ProfCount_RxPacketsOffload;
+
 /* This function copied from linux's lib/vsprintf.c, see it for attribution */
 static unsigned long
 simple_strtoul(const char *cp,char **endp,unsigned int base)
@@ -269,7 +274,7 @@ XenNet_Init(
     {"event-channel", 0},
     {"request-rx-copy", 1},
     {"feature-rx-notify", 1},
-    {"feature-no-csum-offload", 1},
+//    {"feature-no-csum-offload", 1},
     {"feature-sg", 1},
     {"feature-gso-tcpv4", 0},
     {NULL, 0},
@@ -686,6 +691,11 @@ DriverEntry(
   ProfCount_SendQueuedPackets = 0;
   ProfCount_GrantAccess = 0;
   ProfCount_EndAccess = 0;
+
+  ProfCount_TxPacketsTotal = 0;
+  ProfCount_TxPacketsOffload = 0;
+  ProfCount_RxPacketsTotal = 0;
+  ProfCount_RxPacketsOffload = 0;
 
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));
 

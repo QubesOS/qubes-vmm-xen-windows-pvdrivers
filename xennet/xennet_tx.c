@@ -86,12 +86,13 @@ XenNet_Linearize(struct xennet_info *xi, PNDIS_PACKET Packet)
   return pmdl;
 }
 
+/* Called at DISPATCH_LEVEL with tx_lock held */
+
 static VOID
 XenNet_SendQueuedPackets(struct xennet_info *xi)
 {
   PLIST_ENTRY entry;
   PNDIS_PACKET packet;
-  KIRQL OldIrql;
   struct netif_tx_request *tx;
   unsigned short id;
   int notify;
@@ -99,15 +100,12 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   UINT pkt_size;
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
-  KIRQL OldIrql2;
 #endif
+  PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
 
 #if defined(XEN_PROFILE)
-  KeRaiseIrql(DISPATCH_LEVEL, &OldIrql2);
   tsc = KeQueryPerformanceCounter(&dummy);
 #endif
-
-  KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   /* if empty, the above returns head*, not NULL */
@@ -148,8 +146,19 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
     tx->gref = get_grant_ref(pmdl);
     tx->offset = (uint16_t)MmGetMdlByteOffset(pmdl);
     tx->size = (UINT16)pkt_size;
-    // NETTXF_csum_blank should only be used for tcp and udp packets...    
-    tx->flags = 0; //NETTXF_csum_blank;
+    
+    tx->flags = 0;
+#if defined(XEN_PROFILE)
+    ProfCount_TxPacketsTotal++;
+#endif
+    csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo);
+    if (csum_info->Transmit.NdisPacketTcpChecksum || csum_info->Transmit.NdisPacketUdpChecksum)
+    {
+      tx->flags |= NETTXF_csum_blank|NETTXF_data_validated;
+#if defined(XEN_PROFILE)
+      ProfCount_TxPacketsOffload++;
+#endif
+    }
 
     xi->tx.req_prod_pvt++;
 
@@ -163,11 +172,9 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
       xi->event_channel);
   }
 
-  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 #if defined(XEN_PROFILE)
   ProfTime_SendQueuedPackets.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
   ProfCount_SendQueuedPackets++;
-  KeLowerIrql(OldIrql2);
 #endif
 }
 
@@ -198,7 +205,8 @@ XenNet_TxBufferGC(struct xennet_info *xi)
     prod = xi->tx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
-    for (cons = xi->tx.rsp_cons; cons != prod; cons++) {
+    for (cons = xi->tx.rsp_cons; cons != prod; cons++)
+    {
       struct netif_tx_response *txrsp;
 
       txrsp = RING_GET_RESPONSE(&xi->tx, cons);
@@ -220,10 +228,10 @@ XenNet_TxBufferGC(struct xennet_info *xi)
     RING_FINAL_CHECK_FOR_RESPONSES(&xi->tx, moretodo);
   } while (moretodo);
 
-  KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
-
   /* if queued packets, send them now */
   XenNet_SendQueuedPackets(xi);
+
+  KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -268,6 +276,9 @@ XenNet_SendPackets(
     InsertTailList(&xi->tx_waiting_pkt_list, entry);
     InterlockedIncrement(&xi->tx_outstanding);
   }
+
+  XenNet_SendQueuedPackets(xi);
+
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 
 #if defined(XEN_PROFILE)
@@ -276,22 +287,19 @@ XenNet_SendPackets(
   KeLowerIrql(OldIrql2);
 #endif
 
-  XenNet_SendQueuedPackets(xi);
-
 #if defined(XEN_PROFILE)
   if ((ProfCount_SendPackets & 1023) == 0)
   {
-    KdPrint((__DRIVER_NAME "     TxBufferGC        Count = %10d, Avg Time = %10ld\n", ProfCount_TxBufferGC, (ProfCount_TxBufferGC == 0)?0:(ProfTime_TxBufferGC.QuadPart / ProfCount_TxBufferGC)));
-    KdPrint((__DRIVER_NAME "     TxBufferFree      Count = %10d, Avg Time = %10ld\n", ProfCount_TxBufferFree, (ProfCount_TxBufferFree == 0)?0:(ProfTime_TxBufferFree.QuadPart / ProfCount_TxBufferFree)));
+    KdPrint((__DRIVER_NAME "     ***\n"));
     KdPrint((__DRIVER_NAME "     RxBufferAlloc     Count = %10d, Avg Time = %10ld\n", ProfCount_RxBufferAlloc, (ProfCount_RxBufferAlloc == 0)?0:(ProfTime_RxBufferAlloc.QuadPart / ProfCount_RxBufferAlloc)));
-    KdPrint((__DRIVER_NAME "     RxBufferFree      Count = %10d, Avg Time = %10ld\n", ProfCount_RxBufferFree, (ProfCount_RxBufferFree == 0)?0:(ProfTime_RxBufferFree.QuadPart / ProfCount_RxBufferFree)));
     KdPrint((__DRIVER_NAME "     ReturnPacket      Count = %10d, Avg Time = %10ld\n", ProfCount_ReturnPacket, (ProfCount_ReturnPacket == 0)?0:(ProfTime_ReturnPacket.QuadPart / ProfCount_ReturnPacket)));
     KdPrint((__DRIVER_NAME "     RxBufferCheck     Count = %10d, Avg Time = %10ld\n", ProfCount_RxBufferCheck, (ProfCount_RxBufferCheck == 0)?0:(ProfTime_RxBufferCheck.QuadPart / ProfCount_RxBufferCheck)));
     KdPrint((__DRIVER_NAME "     Linearize         Count = %10d, Avg Time = %10ld\n", ProfCount_Linearize, (ProfCount_Linearize == 0)?0:(ProfTime_Linearize.QuadPart / ProfCount_Linearize)));
     KdPrint((__DRIVER_NAME "     SendPackets       Count = %10d, Avg Time = %10ld\n", ProfCount_SendPackets, (ProfCount_SendPackets == 0)?0:(ProfTime_SendPackets.QuadPart / ProfCount_SendPackets)));
     KdPrint((__DRIVER_NAME "     SendQueuedPackets Count = %10d, Avg Time = %10ld\n", ProfCount_SendQueuedPackets, (ProfCount_SendQueuedPackets == 0)?0:(ProfTime_SendQueuedPackets.QuadPart / ProfCount_SendQueuedPackets)));
-    KdPrint((__DRIVER_NAME "     GrantAccess       Count = %10d, Avg Time = %10ld\n", ProfCount_GrantAccess, (ProfCount_GrantAccess == 0)?0:(ProfTime_GrantAccess.QuadPart / ProfCount_GrantAccess)));
-    KdPrint((__DRIVER_NAME "     EndAccess         Count = %10d, Avg Time = %10ld\n", ProfCount_EndAccess, (ProfCount_EndAccess == 0)?0:(ProfTime_EndAccess.QuadPart / ProfCount_EndAccess)));
+    KdPrint((__DRIVER_NAME "     TxBufferGC        Count = %10d, Avg Time = %10ld\n", ProfCount_TxBufferGC, (ProfCount_TxBufferGC == 0)?0:(ProfTime_TxBufferGC.QuadPart / ProfCount_TxBufferGC)));
+    KdPrint((__DRIVER_NAME "     RxPackets         Total = %10d, Offload  = %10d\n", ProfCount_RxPacketsTotal, ProfCount_RxPacketsOffload));
+    KdPrint((__DRIVER_NAME "     TxPackets         Total = %10d, Offload  = %10d\n", ProfCount_TxPacketsTotal, ProfCount_TxPacketsOffload));
   }
 #endif
   //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));

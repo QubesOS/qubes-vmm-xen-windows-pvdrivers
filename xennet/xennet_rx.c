@@ -110,6 +110,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   NDIS_STATUS status;
   LARGE_INTEGER time_received;
   USHORT id;
+  PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
@@ -149,6 +150,16 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         NdisAllocatePacket(&status, &packets[packet_count], xi->packet_pool);
         ASSERT(status == NDIS_STATUS_SUCCESS);
         NDIS_SET_PACKET_HEADER_SIZE(packets[packet_count], XN_HDR_SIZE);
+        if (rxrsp->flags & (NETRXF_csum_blank|NETRXF_data_validated)) // and we are enabled for offload...
+        {
+          csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packets[packet_count], TcpIpChecksumPacketInfo);
+          csum_info->Receive.NdisPacketTcpChecksumSucceeded = 1;
+          csum_info->Receive.NdisPacketUdpChecksumSucceeded = 1;
+          csum_info->Receive.NdisPacketIpChecksumSucceeded = 1;
+#if defined(XEN_PROFILE)
+          ProfCount_RxPacketsOffload++;
+#endif
+        }
       }
 
       NdisAdjustBufferLength(mdl, rxrsp->status);
@@ -161,6 +172,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       /* Packet done, pass it up */
       if (!more_frags)
       {
+#if defined(XEN_PROFILE)
+        ProfCount_RxPacketsTotal++;
+#endif
         xi->stat_rx_ok++;
         InterlockedIncrement(&xi->rx_outstanding);
         NDIS_SET_PACKET_STATUS(packets[packet_count], NDIS_STATUS_SUCCESS);
@@ -203,6 +217,8 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   return NDIS_STATUS_SUCCESS;
 }
+
+/* called at DISPATCH_LEVEL with rx_lock held (as it gets called from IndicateReceived) */
 
 VOID
 XenNet_ReturnPacket(

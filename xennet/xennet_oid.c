@@ -244,16 +244,16 @@ XenNet_QueryInformation(
 
       /* fill in checksum offload struct */
       nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)nto->TaskBuffer;
-      nttic->V4Transmit.IpOptionsSupported = 0;
-      nttic->V4Transmit.TcpOptionsSupported = 0;
-      nttic->V4Transmit.TcpChecksum = 0;
-      nttic->V4Transmit.UdpChecksum = 0;
       nttic->V4Transmit.IpChecksum = 0;
-      nttic->V4Receive.IpOptionsSupported = 1;
-      nttic->V4Receive.TcpOptionsSupported = 1;
+      nttic->V4Transmit.IpOptionsSupported = 0;
+      nttic->V4Transmit.TcpChecksum = 1;
+      nttic->V4Transmit.TcpOptionsSupported = 1;
+      nttic->V4Transmit.UdpChecksum = 1;
+      nttic->V4Receive.IpChecksum = 0;
+      nttic->V4Receive.IpOptionsSupported = 0;
       nttic->V4Receive.TcpChecksum = 1;
+      nttic->V4Receive.TcpOptionsSupported = 1;
       nttic->V4Receive.UdpChecksum = 1;
-      nttic->V4Receive.IpChecksum = 1;
       nttic->V6Transmit.IpOptionsSupported = 0;
       nttic->V6Transmit.TcpOptionsSupported = 0;
       nttic->V6Transmit.TcpChecksum = 0;
