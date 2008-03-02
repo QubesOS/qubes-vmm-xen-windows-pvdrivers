@@ -4,4 +4,4 @@ TARGETTYPE=DRIVER
 INF_NAME=$(TARGETNAME)
 TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\ndis.lib
 MISCFILES=..\Target\$(DDK_TARGET_OS)\$(INF_NAME).inf
-SOURCES=xennet.c
+SOURCES=xennet.c xennet_tx.c xennet_rx.c xennet_oid.c

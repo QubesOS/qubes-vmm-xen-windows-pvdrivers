@@ -47,11 +47,30 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <xen_public.h>
 #include <io/ring.h>
 #include <io/netif.h>
+#include <io/xenbus.h>
+#include <stdlib.h>
 #define XENNET_POOL_TAG (ULONG) 'XenN'
+
+/* Xen macros use these, so they need to be redefined to Win equivs */
+#define wmb() KeMemoryBarrier()
+#define mb() KeMemoryBarrier()
+
+#define GRANT_INVALID_REF 0
 
 #define NAME_SIZE 64
 
 #define ETH_ALEN 6
+
+/* couldn't get regular xen ring macros to work...*/
+#define __NET_RING_SIZE(type, _sz) \
+    (__RD32( \
+    (_sz - sizeof(struct type##_sring) + sizeof(union type##_sring_entry)) \
+    / sizeof(union type##_sring_entry)))
+
+#define NET_TX_RING_SIZE __NET_RING_SIZE(netif_tx, PAGE_SIZE)
+#define NET_RX_RING_SIZE __NET_RING_SIZE(netif_rx, PAGE_SIZE)
+
+#pragma warning(disable: 4127) // conditional expression is constant
 
 /* TODO: crank this up if we support higher mtus? */
 #define XN_DATA_SIZE 1500
@@ -65,3 +84,166 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define XENSOURCE_MAC_HDR 0x00163E
 #define XN_VENDOR_DESC "Xensource"
 #define MAX_XENBUS_STR_LEN 128
+
+struct xennet_info
+{
+  /* Base device vars */
+  PDEVICE_OBJECT pdo;
+  PDEVICE_OBJECT fdo;
+  PDEVICE_OBJECT lower_do;
+  WDFDEVICE wdf_device;
+  WCHAR dev_desc[NAME_SIZE];
+
+  /* NDIS-related vars */
+  NDIS_HANDLE adapter_handle;
+  NDIS_HANDLE packet_pool;
+  NDIS_HANDLE buffer_pool;
+  ULONG packet_filter;
+  int connected;
+  UINT8 perm_mac_addr[ETH_ALEN];
+  UINT8 curr_mac_addr[ETH_ALEN];
+
+  /* Misc. Xen vars */
+  XEN_IFACE XenInterface;
+  PXENPCI_XEN_DEVICE_DATA pdo_data;
+  evtchn_port_t event_channel;
+  ULONG state;
+  KEVENT backend_state_change_event;
+  KEVENT shutdown_event;
+  char backend_path[MAX_XENBUS_STR_LEN];
+  ULONG backend_state;
+
+  /* Xen ring-related vars */
+  KSPIN_LOCK rx_lock;
+
+  /* tx related - protected by tx_lock */
+  KSPIN_LOCK tx_lock;
+  LIST_ENTRY tx_waiting_pkt_list;
+  struct netif_tx_front_ring tx;
+  grant_ref_t tx_ring_ref;
+  struct netif_tx_sring *tx_pgs;
+  PMDL tx_mdl;
+  USHORT tx_id_list[NET_TX_RING_SIZE];
+  ULONG tx_id_free;
+  PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
+
+  /* rx_related - protected by rx_lock */
+  struct netif_rx_front_ring rx;
+  grant_ref_t rx_ring_ref;
+  struct netif_rx_sring *rx_pgs;
+  PMDL rx_mdl;
+  USHORT rx_id_list[NET_RX_RING_SIZE];
+  ULONG rx_id_free;
+  PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
+
+  /* id list - protected by page_lock */
+  PMDL page_list[NET_TX_RING_SIZE + NET_RX_RING_SIZE];
+  ULONG page_free;
+  KSPIN_LOCK page_lock;
+
+  /* Receive-ring batched refills. */
+#define RX_MIN_TARGET 8
+#define RX_DFL_MIN_TARGET 64
+#define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
+  ULONG rx_target;
+  ULONG rx_max_target;
+  ULONG rx_min_target;
+
+  /* how many packets are in the net stack atm */
+  LONG rx_outstanding;
+  LONG tx_outstanding;
+
+  /* stats */
+  ULONG64 stat_tx_ok;
+  ULONG64 stat_rx_ok;
+  ULONG64 stat_tx_error;
+  ULONG64 stat_rx_error;
+  ULONG64 stat_rx_no_buffer;
+} typedef xennet_info_t;
+
+
+extern LARGE_INTEGER ProfTime_TxBufferGC;
+extern LARGE_INTEGER ProfTime_TxBufferFree;
+extern LARGE_INTEGER ProfTime_RxBufferAlloc;
+extern LARGE_INTEGER ProfTime_RxBufferFree;
+extern LARGE_INTEGER ProfTime_ReturnPacket;
+extern LARGE_INTEGER ProfTime_RxBufferCheck;
+extern LARGE_INTEGER ProfTime_Linearize;
+extern LARGE_INTEGER ProfTime_SendPackets;
+extern LARGE_INTEGER ProfTime_SendQueuedPackets;
+extern LARGE_INTEGER ProfTime_GrantAccess;
+extern LARGE_INTEGER ProfTime_EndAccess;
+
+extern int ProfCount_TxBufferGC;
+extern int ProfCount_TxBufferFree;
+extern int ProfCount_RxBufferAlloc;
+extern int ProfCount_RxBufferFree;
+extern int ProfCount_ReturnPacket;
+extern int ProfCount_RxBufferCheck;
+extern int ProfCount_Linearize;
+extern int ProfCount_SendPackets;
+extern int ProfCount_SendQueuedPackets;
+extern int ProfCount_GrantAccess;
+extern int ProfCount_EndAccess;
+
+NDIS_STATUS
+XenNet_RxBufferCheck(struct xennet_info *xi);
+
+VOID
+XenNet_ReturnPacket(
+  IN NDIS_HANDLE MiniportAdapterContext,
+  IN PNDIS_PACKET Packet
+  );
+
+BOOLEAN
+XenNet_RxInit(xennet_info_t *xi);
+
+BOOLEAN
+XenNet_RxShutdown(xennet_info_t *xi);
+
+NDIS_STATUS
+XenNet_TxBufferGC(struct xennet_info *xi);
+
+VOID
+XenNet_SendPackets(
+  IN NDIS_HANDLE MiniportAdapterContext,
+  IN PPNDIS_PACKET PacketArray,
+  IN UINT NumberOfPackets
+  );
+
+BOOLEAN
+XenNet_TxInit(xennet_info_t *xi);
+
+BOOLEAN
+XenNet_TxShutdown(xennet_info_t *xi);
+
+NDIS_STATUS 
+XenNet_QueryInformation(
+  IN NDIS_HANDLE MiniportAdapterContext,
+  IN NDIS_OID Oid,
+  IN PVOID InformationBuffer,
+  IN ULONG InformationBufferLength,
+  OUT PULONG BytesWritten,
+  OUT PULONG BytesNeeded);
+
+NDIS_STATUS 
+XenNet_SetInformation(
+  IN NDIS_HANDLE MiniportAdapterContext,
+  IN NDIS_OID Oid,
+  IN PVOID InformationBuffer,
+  IN ULONG InformationBufferLength,
+  OUT PULONG BytesRead,
+  OUT PULONG BytesNeeded
+  );
+
+static __inline grant_ref_t
+get_grant_ref(PMDL mdl)
+{
+  return *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE));
+}
+
+VOID
+put_page_on_freelist(struct xennet_info *xi, PMDL mdl);
+
+PMDL
+get_page_from_freelist(struct xennet_info *xi);
