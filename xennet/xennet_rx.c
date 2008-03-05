@@ -36,6 +36,70 @@ put_rx_id_on_freelist(struct xennet_info *xi, USHORT id)
   xi->rx_id_free++;
 }
 
+static PMDL
+get_page_from_freelist(struct xennet_info *xi)
+{
+  PMDL mdl;
+
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  if (xi->page_free == 0)
+  {
+    mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
+    *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = xi->XenInterface.GntTbl_GrantAccess(
+      xi->XenInterface.InterfaceHeader.Context, 0,
+      *MmGetMdlPfnArray(mdl), FALSE, 0);
+//    KdPrint(("New Mdl = %p, MmGetMdlVirtualAddress = %p, MmGetSystemAddressForMdlSafe = %p\n",
+//      mdl, MmGetMdlVirtualAddress(mdl), MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority)));
+  }
+  else
+  {
+    xi->page_free--;
+    mdl = xi->page_list[xi->page_free];
+//    KdPrint(("Old Mdl = %p, MmGetMdlVirtualAddress = %p, MmGetSystemAddressForMdlSafe = %p\n",
+//      mdl, MmGetMdlVirtualAddress(mdl), MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority)));
+  }
+
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return mdl;
+}
+
+static VOID
+free_page_freelist(struct xennet_info *xi)
+{
+  PMDL mdl;
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  while(xi->page_free != 0)
+  {
+    xi->page_free--;
+    mdl = xi->page_list[xi->page_free];
+    xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
+      *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
+    FreePages(mdl);
+  }
+}
+
+static VOID
+put_page_on_freelist(struct xennet_info *xi, PMDL mdl)
+{
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+//  KdPrint(("Mdl = %p\n",  mdl));
+
+  xi->page_list[xi->page_free] = mdl;
+  xi->page_free++;
+
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
+static __inline grant_ref_t
+get_grant_ref(PMDL mdl)
+{
+  return *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE));
+}
+
 // Called at DISPATCH_LEVEL with rx lock held
 static NDIS_STATUS
 XenNet_RxBufferAlloc(struct xennet_info *xi)
@@ -104,11 +168,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   ULONG packet_count;
   PMDL mdl;
   int moretodo;
-  KIRQL OldIrql;
   struct netif_rx_response *rxrsp = NULL;
   int more_frags = 0;
   NDIS_STATUS status;
-  LARGE_INTEGER time_received;
   USHORT id;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
 #if defined(XEN_PROFILE)
@@ -123,8 +185,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   ASSERT(xi->connected);
 
-  NdisGetCurrentSystemTime(&time_received);
-  KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
+  KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
 
   packet_count = 0;
   do {
@@ -176,12 +237,11 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         ProfCount_RxPacketsTotal++;
 #endif
         xi->stat_rx_ok++;
-        InterlockedIncrement(&xi->rx_outstanding);
         NDIS_SET_PACKET_STATUS(packets[packet_count], NDIS_STATUS_SUCCESS);
-        NDIS_SET_PACKET_TIME_RECEIVED(packets[packet_count], time_received.QuadPart);
         packet_count++;
         if (packet_count == NET_RX_RING_SIZE)
         {
+          /* A miniport driver must release any spin lock that it is holding before calling NdisMIndicateReceivePacket */
           NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
           packet_count = 0;
         }
@@ -206,7 +266,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   /* Give netback more buffers */
   XenNet_RxBufferAlloc(xi);
 
-  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
+  KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -248,12 +308,6 @@ XenNet_ReturnPacket(
 
   NdisFreePacket(Packet);
   
-  InterlockedDecrement(&xi->rx_outstanding);
-
-  // if we are no longer connected then _halt needs to know when rx_outstanding reaches zero
-  if (!xi->connected && !xi->rx_outstanding)
-    KeSetEvent(&xi->shutdown_event, 1, FALSE);  
-
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
 #if defined(XEN_PROFILE)
@@ -292,13 +346,15 @@ XenNet_RxInit(xennet_info_t *xi)
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+  xi->page_free = 0;
+  
   xi->rx_mdl = AllocatePage();
   xi->rx_pgs = MmGetMdlVirtualAddress(xi->rx_mdl);
   SHARED_RING_INIT(xi->rx_pgs);
   FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
   xi->rx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
     xi->XenInterface.InterfaceHeader.Context, 0,
-    *MmGetMdlPfnArray(xi->rx_mdl), FALSE);
+    *MmGetMdlPfnArray(xi->rx_mdl), FALSE, 0);
   xi->rx_id_free = 0;
   for (i = 0; i < NET_RX_RING_SIZE; i++)
   {
@@ -318,6 +374,17 @@ XenNet_RxShutdown(xennet_info_t *xi)
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   XenNet_RxBufferFree(xi);
+
+  free_page_freelist(xi);
+
+  /* free RX resources */
+  if (xi->XenInterface.GntTbl_EndAccess(
+    xi->XenInterface.InterfaceHeader.Context, xi->rx_ring_ref, 0))
+  {
+    xi->rx_ring_ref = GRANT_INVALID_REF;
+    FreePages(xi->rx_mdl);
+  }
+  xi->rx_pgs = NULL;
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 

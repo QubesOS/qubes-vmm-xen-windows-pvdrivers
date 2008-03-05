@@ -222,8 +222,12 @@ EvtChn_GetXenStoreRingAddr(WDFDEVICE Device);
 VOID
 GntTbl_Init(WDFDEVICE Device);
 grant_ref_t
-GntTbl_GrantAccess(WDFDEVICE Device, domid_t domid, uint32_t, int readonly);
+GntTbl_GrantAccess(WDFDEVICE Device, domid_t domid, uint32_t, int readonly, grant_ref_t ref);
 BOOLEAN
-GntTbl_EndAccess(WDFDEVICE Device, grant_ref_t ref);
+GntTbl_EndAccess(WDFDEVICE Device, grant_ref_t ref, BOOLEAN keepref);
+VOID
+GntTbl_PutRef(WDFDEVICE Device, grant_ref_t ref);
+grant_ref_t
+GntTbl_GetRef(WDFDEVICE Device);
 
 #endif

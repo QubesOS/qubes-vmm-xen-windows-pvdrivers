@@ -19,8 +19,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 
-static void
-put_free_entry(WDFDEVICE Device, grant_ref_t ref)
+VOID
+GntTbl_PutRef(WDFDEVICE Device, grant_ref_t ref)
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   KIRQL OldIrql;
@@ -31,8 +31,8 @@ put_free_entry(WDFDEVICE Device, grant_ref_t ref)
   KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
 }
 
-static grant_ref_t
-get_free_entry(WDFDEVICE Device)
+grant_ref_t
+GntTbl_GetRef(WDFDEVICE Device)
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   unsigned int ref;
@@ -47,7 +47,7 @@ get_free_entry(WDFDEVICE Device)
 }
 
 static int 
-GntTab_Map(WDFDEVICE Device, unsigned int start_idx, unsigned int end_idx)
+GntTbl_Map(WDFDEVICE Device, unsigned int start_idx, unsigned int end_idx)
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   struct xen_add_to_physmap xatp;
@@ -83,7 +83,7 @@ GntTbl_Init(WDFDEVICE Device)
   KeInitializeSpinLock(&xpdd->grant_lock);
 
   for (i = NR_RESERVED_ENTRIES; i < NR_GRANT_ENTRIES; i++)
-    put_free_entry(Device, i);
+    GntTbl_PutRef(Device, i);
 
   xpdd->gnttab_table_physical = XenPCI_AllocMMIO(Device,
     PAGE_SIZE * NR_GRANT_FRAMES);
@@ -94,7 +94,7 @@ GntTbl_Init(WDFDEVICE Device)
     KdPrint((__DRIVER_NAME "     Error Mapping Grant Table Shared Memory\n"));
     return;
   }
-  GntTab_Map(Device, 0, NR_GRANT_FRAMES - 1);
+  GntTbl_Map(Device, 0, NR_GRANT_FRAMES - 1);
 
   //KdPrint((__DRIVER_NAME " <-- GntTbl_Init table mapped at %p\n", gnttab_table));
 }
@@ -104,16 +104,17 @@ GntTbl_GrantAccess(
   WDFDEVICE Device,
   domid_t domid,
   uint32_t frame,
-  int readonly)
+  int readonly,
+  grant_ref_t ref)
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-  grant_ref_t ref;
 
   //KdPrint((__DRIVER_NAME " --> GntTbl_GrantAccess\n"));
 
   //KdPrint((__DRIVER_NAME "     Granting access to frame %08x\n", frame));
 
-  ref = get_free_entry(Device);
+  if (ref == 0)
+    ref = GntTbl_GetRef(Device);
   xpdd->gnttab_table[ref].frame = frame;
   xpdd->gnttab_table[ref].domid = domid;
   KeMemoryBarrier();
@@ -128,7 +129,8 @@ GntTbl_GrantAccess(
 BOOLEAN
 GntTbl_EndAccess(
   WDFDEVICE Device,
-  grant_ref_t ref)
+  grant_ref_t ref,
+  BOOLEAN keepref)
 {
   PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
   unsigned short flags, nflags;
@@ -145,7 +147,8 @@ GntTbl_EndAccess(
   } while ((nflags = InterlockedCompareExchange16(
     (volatile SHORT *)&xpdd->gnttab_table[ref].flags, 0, flags)) != flags);
 
-  put_free_entry(Device, ref);
+  if (!keepref)
+    GntTbl_PutRef(Device, ref);
   //KdPrint((__DRIVER_NAME " <-- GntTbl_EndAccess\n"));
   return TRUE;
 }

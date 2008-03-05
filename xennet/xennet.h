@@ -72,7 +72,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #pragma warning(disable: 4127) // conditional expression is constant
 
-#define XEN_PROFILE
+//#define XEN_PROFILE
 
 /* TODO: crank this up if we support higher mtus? */
 #define XN_DATA_SIZE 1500
@@ -125,9 +125,12 @@ struct xennet_info
   grant_ref_t tx_ring_ref;
   struct netif_tx_sring *tx_pgs;
   PMDL tx_mdl;
-  USHORT tx_id_list[NET_TX_RING_SIZE];
   ULONG tx_id_free;
+  USHORT tx_id_list[NET_TX_RING_SIZE];
+  ULONG tx_gref_free;
+  grant_ref_t tx_gref_list[NET_TX_RING_SIZE];
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
+  grant_ref_t tx_grefs[NET_TX_RING_SIZE];
 
   /* rx_related - protected by rx_lock */
   struct netif_rx_front_ring rx;
@@ -137,11 +140,8 @@ struct xennet_info
   USHORT rx_id_list[NET_RX_RING_SIZE];
   ULONG rx_id_free;
   PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
-
-  /* id list - protected by page_lock */
-  PMDL page_list[NET_TX_RING_SIZE + NET_RX_RING_SIZE];
+  PMDL page_list[NET_RX_RING_SIZE];
   ULONG page_free;
-  KSPIN_LOCK page_lock;
 
   /* Receive-ring batched refills. */
 #define RX_MIN_TARGET 8
@@ -182,6 +182,7 @@ extern int ProfCount_ReturnPacket;
 extern int ProfCount_RxBufferCheck;
 extern int ProfCount_Linearize;
 extern int ProfCount_SendPackets;
+extern int ProfCount_PacketsPerSendPackets;
 extern int ProfCount_SendQueuedPackets;
 
 extern int ProfCount_TxPacketsTotal;
@@ -238,15 +239,3 @@ XenNet_SetInformation(
   OUT PULONG BytesRead,
   OUT PULONG BytesNeeded
   );
-
-static __inline grant_ref_t
-get_grant_ref(PMDL mdl)
-{
-  return *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE));
-}
-
-VOID
-put_page_on_freelist(struct xennet_info *xi, PMDL mdl);
-
-PMDL
-get_page_from_freelist(struct xennet_info *xi);

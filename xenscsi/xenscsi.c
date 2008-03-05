@@ -252,7 +252,7 @@ XenScsi_BackEndStateHandler(char *Path, PVOID Data)
     FRONT_RING_INIT(&TargetData->Ring, SharedRing, PAGE_SIZE);
     ref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
-      0, PFN, FALSE);
+      0, PFN, FALSE, 0);
     ASSERT((signed short)ref >= 0);
     TargetData->ring_detect_state = 0;
     TargetData->shadow = ExAllocatePoolWithTag(NonPagedPool, sizeof(vscsiif_shadow_t) * VSCSIIF_RING_SIZE, XENSCSI_POOL_TAG);
@@ -267,7 +267,7 @@ XenScsi_BackEndStateHandler(char *Path, PVOID Data)
       {
         TargetData->shadow[i].req.seg[j].gref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
           DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
-          0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[i].Mdl)[j], FALSE);
+          0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[i].Mdl)[j], FALSE, 0);
         ASSERT((signed short)TargetData->shadow[i].req.seg[j].gref >= 0);
       }
     }

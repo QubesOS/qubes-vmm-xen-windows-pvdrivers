@@ -257,6 +257,7 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
   size_t StrLen;
   int Match;
   int Offset = 0;
+  int FoundIde = 0;
   PDEVICE_EXTENSION DeviceExtension = (PDEVICE_EXTENSION)Context;
 
   UNREFERENCED_PARAMETER(DeviceObject);
@@ -292,9 +293,10 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
            StrLen = 0;
           for (Ptr = Buffer; *Ptr != 0; Ptr += StrLen + 1)
           {
-            // Qemu PCI
+            // Qemu IDE
             if (XenHide_StringMatches(Ptr, L"PCI\\VEN_8086&DEV_7010")) {
               Match = 1;
+              FoundIde = 1;
               break;
             }
             // Qemu Network
@@ -310,12 +312,21 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
           Offset++;
         }
       }
+      if (!FoundIde)
+      {
+        /*
+        We _must_ not let windows continue if the PV drivers have been
+        activated and we haven't managed to find and hide the IDE device.
+        Throwing a BSoD is the only option at this point.
+        */
+        KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000002, 0x00000000, 0x00000000, 0x00000000);
+      }
       Relations->Count -= Offset;
-      break;
-    default:
-      break;
     }
-  }    
+    break;
+  default:
+    break;
+  }
 //  KdPrint((__DRIVER_NAME " <-- IoCompletion\n"));
 
   return Irp->IoStatus.Status;

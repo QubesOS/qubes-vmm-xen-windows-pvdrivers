@@ -739,7 +739,7 @@ XenPCI_ChildListCreateDevice(
   memcpy(&ChildDeviceData->InterruptTranslated, &InterruptTranslated, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
   
   ChildDeviceData->XenInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->XenInterface);
-  ChildDeviceData->XenInterface.InterfaceHeader.Version = 1;
+  ChildDeviceData->XenInterface.InterfaceHeader.Version = 2;
   ChildDeviceData->XenInterface.InterfaceHeader.Context = WdfPdoGetParent(ChildDevice);
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
@@ -755,6 +755,8 @@ XenPCI_ChildListCreateDevice(
   ChildDeviceData->XenInterface.EvtChn_AllocUnbound = EvtChn_AllocUnbound;
   ChildDeviceData->XenInterface.EvtChn_BindDpc = EvtChn_BindDpc;
 
+  ChildDeviceData->XenInterface.GntTbl_GetRef = GntTbl_GetRef;
+  ChildDeviceData->XenInterface.GntTbl_PutRef = GntTbl_PutRef;
   ChildDeviceData->XenInterface.GntTbl_GrantAccess = GntTbl_GrantAccess;
   ChildDeviceData->XenInterface.GntTbl_EndAccess = GntTbl_EndAccess;
 

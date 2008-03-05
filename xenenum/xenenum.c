@@ -150,7 +150,7 @@ XenEnum_PrepareHardware(
 
   KdPrint((__DRIVER_NAME " --> EvtDevicePrepareHardware\n"));
 
-  status = WdfFdoQueryForInterface(Device, &GUID_XEN_IFACE, (PINTERFACE)&xedd->XenInterface, sizeof(XEN_IFACE), 1, NULL);
+  status = WdfFdoQueryForInterface(Device, &GUID_XEN_IFACE, (PINTERFACE)&xedd->XenInterface, sizeof(XEN_IFACE), 2, NULL);
   if(!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     WdfFdoQueryForInterface (EvtChn) failed with status 0x%08x\n", status));
@@ -442,7 +442,7 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
   strncpy(ChildDeviceData->Path, XenIdentificationDesc->Path, 128);
   
   ChildDeviceData->XenInterface.InterfaceHeader.Size = sizeof(ChildDeviceData->XenInterface);
-  ChildDeviceData->XenInterface.InterfaceHeader.Version = 1;
+  ChildDeviceData->XenInterface.InterfaceHeader.Version = 2;
   ChildDeviceData->XenInterface.InterfaceHeader.Context = xedd->XenInterface.InterfaceHeader.Context;
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
@@ -458,6 +458,8 @@ XenEnum_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_
   ChildDeviceData->XenInterface.EvtChn_AllocUnbound = xedd->XenInterface.EvtChn_AllocUnbound;
   ChildDeviceData->XenInterface.EvtChn_BindDpc = xedd->XenInterface.EvtChn_BindDpc;
 
+  ChildDeviceData->XenInterface.GntTbl_GetRef = xedd->XenInterface.GntTbl_GetRef;
+  ChildDeviceData->XenInterface.GntTbl_PutRef = xedd->XenInterface.GntTbl_PutRef;
   ChildDeviceData->XenInterface.GntTbl_GrantAccess = xedd->XenInterface.GntTbl_GrantAccess;
   ChildDeviceData->XenInterface.GntTbl_EndAccess = xedd->XenInterface.GntTbl_EndAccess;
 

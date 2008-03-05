@@ -51,9 +51,17 @@ typedef evtchn_port_t
 (*PXEN_EVTCHN_ALLOCUNBOUND)(PVOID Context, domid_t Domain);
 
 typedef grant_ref_t
-(*PXEN_GNTTBL_GRANTACCESS)(WDFDEVICE Device, domid_t domid, uint32_t frame, int readonly);
+(*PXEN_GNTTBL_GRANTACCESS)(WDFDEVICE Device, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref);
+
 typedef BOOLEAN
-(*PXEN_GNTTBL_ENDACCESS)(WDFDEVICE Device, grant_ref_t ref);
+(*PXEN_GNTTBL_ENDACCESS)(WDFDEVICE Device, grant_ref_t ref, BOOLEAN keepref);
+
+typedef VOID
+(*PXEN_GNTTBL_PUTREF)(WDFDEVICE Device, grant_ref_t ref);
+
+typedef grant_ref_t
+(*PXEN_GNTTBL_GETREF)(WDFDEVICE Device);
+
 
 typedef VOID
 (*PXENBUS_WATCH_CALLBACK)(char *Path, PVOID ServiceContext);
@@ -96,6 +104,8 @@ typedef struct _XEN_IFACE {
   PXEN_EVTCHN_ALLOCUNBOUND EvtChn_AllocUnbound;
   PXEN_EVTCHN_BIND EvtChn_BindDpc;
 
+  PXEN_GNTTBL_GETREF GntTbl_GetRef;
+  PXEN_GNTTBL_PUTREF GntTbl_PutRef;
   PXEN_GNTTBL_GRANTACCESS GntTbl_GrantAccess;
   PXEN_GNTTBL_ENDACCESS GntTbl_EndAccess;
 

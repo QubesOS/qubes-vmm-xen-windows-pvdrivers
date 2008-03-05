@@ -111,17 +111,11 @@ XenVbd_Interrupt(PKINTERRUPT Interrupt, PVOID DeviceExtension)
 
   UNREFERENCED_PARAMETER(Interrupt);
 
-if (DumpMode)
-{
-  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
-}
+//  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
 
   TargetData->PendingInterrupt = TRUE;
 
-if (DumpMode)
-{
-  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
-}
+//  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
 
   return TRUE;
 }
@@ -150,10 +144,7 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
   PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)TargetData->DeviceData;
   int more_to_do = TRUE;
 
-if (DumpMode)
-{
-  KdPrint((__DRIVER_NAME " --> HwScsiInterruptTarget\n"));
-}
+//  KdPrint((__DRIVER_NAME " --> HwScsiInterruptTarget\n"));
 
   while (more_to_do)
   {
@@ -239,10 +230,7 @@ if (DumpMode)
     }
   }
 
-if (DumpMode)
-{
-  KdPrint((__DRIVER_NAME " <-- HwScsiInterruptTarget\n"));
-}
+//  KdPrint((__DRIVER_NAME " <-- HwScsiInterruptTarget\n"));
 }
 
 static BOOLEAN
@@ -252,10 +240,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   PXENVBD_TARGET_DATA TargetData;
   int i, j;
 
-if (DumpMode)
-{
-  KdPrint((__DRIVER_NAME " --> HwScsiInterrupt\n"));
-}
+//  KdPrint((__DRIVER_NAME " --> HwScsiInterrupt\n"));
 
   DeviceData = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData;
 
@@ -270,10 +255,7 @@ if (DumpMode)
       TargetData->PendingInterrupt = FALSE;
     }
   }
-if (DumpMode)
-{
-  KdPrint((__DRIVER_NAME " <-- HwScsiInterrupt\n"));
-}
+//  KdPrint((__DRIVER_NAME " <-- HwScsiInterrupt\n"));
 
   return FALSE;
 }
@@ -331,7 +313,7 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
     FRONT_RING_INIT(&TargetData->Ring, SharedRing, PAGE_SIZE);
     ref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
-      0, PFN, FALSE);
+      0, PFN, FALSE, 0);
     ASSERT((signed short)ref >= 0);
     TargetData->ring_detect_state = 0;
     TargetData->shadow = ExAllocatePoolWithTag(NonPagedPool, sizeof(blkif_shadow_t) * max(BLK_RING_SIZE, BLK_OTHER_RING_SIZE), XENVBD_POOL_TAG);
@@ -346,7 +328,7 @@ XenVbd_BackEndStateHandler(char *Path, PVOID Data)
       {
         TargetData->shadow[i].req.seg[j].gref = DeviceData->XenDeviceData->XenInterface.GntTbl_GrantAccess(
           DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
-          0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[i].Mdl)[j], FALSE);
+          0, (ULONG)MmGetMdlPfnArray(TargetData->shadow[i].Mdl)[j], FALSE, 0);
         ASSERT((signed short)TargetData->shadow[i].req.seg[j].gref >= 0);
       }
     }
@@ -820,11 +802,9 @@ XenVbd_CheckBusEnumeratedTimer(PVOID DeviceExtension)
 {
   PXENVBD_DEVICE_DATA DeviceData = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData;
 
-if (DumpMode)
-{
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-}
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
   if (DeviceData->EnumeratedDevices >= DeviceData->TotalInitialDevices)
   {
     DeviceData->BusChangePending = 0;
@@ -835,10 +815,7 @@ if (DumpMode)
   {
     ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_CheckBusEnumeratedTimer, 100000);
   }
-if (DumpMode)
-{
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-}
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static VOID 
@@ -1001,11 +978,8 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   unsigned int i;
   int notify;
 
-if (DumpMode)
-{
-  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-}
+//  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
+//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   // If we haven't enumerated all the devices yet then just defer the request
   // A timer will issue a NextRequest to get things started again...
@@ -1041,10 +1015,8 @@ if (DumpMode)
   {
   case SRB_FUNCTION_EXECUTE_SCSI:
     cdb = (PCDB)Srb->Cdb;
-if (DumpMode)
-{
-    KdPrint((__DRIVER_NAME "     SRB_FUNCTION_EXECUTE_SCSI\n"));
-}
+//    KdPrint((__DRIVER_NAME "     SRB_FUNCTION_EXECUTE_SCSI\n"));
+
     switch(cdb->CDB6GENERIC.OperationCode)
     {
     case SCSIOP_TEST_UNIT_READY:
@@ -1205,10 +1177,7 @@ if (DumpMode)
       break;
     case SCSIOP_READ:
     case SCSIOP_WRITE:
-if (DumpMode)
-{
-      KdPrint((__DRIVER_NAME "     Command = READ/WRITE\n"));
-}
+//      KdPrint((__DRIVER_NAME "     Command = READ/WRITE\n"));
       XenVbd_PutSrbOnRing(TargetData, Srb);
       RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&TargetData->Ring, notify);
       if (notify)
@@ -1320,10 +1289,8 @@ if (DumpMode)
     break;
   }
 
-if (DumpMode)
-{
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-}
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
   return TRUE;
 }
 

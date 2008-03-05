@@ -23,28 +23,21 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xennet.h"
 
 LARGE_INTEGER ProfTime_TxBufferGC;
-LARGE_INTEGER ProfTime_TxBufferFree;
 LARGE_INTEGER ProfTime_RxBufferAlloc;
-LARGE_INTEGER ProfTime_RxBufferFree;
 LARGE_INTEGER ProfTime_ReturnPacket;
 LARGE_INTEGER ProfTime_RxBufferCheck;
 LARGE_INTEGER ProfTime_Linearize;
 LARGE_INTEGER ProfTime_SendPackets;
 LARGE_INTEGER ProfTime_SendQueuedPackets;
-LARGE_INTEGER ProfTime_GrantAccess;
-LARGE_INTEGER ProfTime_EndAccess;
 
 int ProfCount_TxBufferGC;
-int ProfCount_TxBufferFree;
 int ProfCount_RxBufferAlloc;
-int ProfCount_RxBufferFree;
 int ProfCount_ReturnPacket;
 int ProfCount_RxBufferCheck;
 int ProfCount_Linearize;
 int ProfCount_SendPackets;
+int ProfCount_PacketsPerSendPackets;
 int ProfCount_SendQueuedPackets;
-int ProfCount_GrantAccess;
-int ProfCount_EndAccess;
 
 int ProfCount_TxPacketsTotal;
 int ProfCount_TxPacketsOffload;
@@ -79,74 +72,6 @@ simple_strtoul(const char *cp,char **endp,unsigned int base)
   if (endp)
   *endp = (char *)cp;
   return result;
-}
-
-PMDL
-get_page_from_freelist(struct xennet_info *xi)
-{
-  PMDL mdl;
-  KIRQL OldIrql;
-
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  KeAcquireSpinLock(&xi->page_lock, &OldIrql);
-
-  if (xi->page_free == 0)
-  {
-    mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
-    *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = xi->XenInterface.GntTbl_GrantAccess(
-      xi->XenInterface.InterfaceHeader.Context, 0,
-      *MmGetMdlPfnArray(mdl), FALSE);
-//    KdPrint(("New Mdl = %p, MmGetMdlVirtualAddress = %p, MmGetSystemAddressForMdlSafe = %p\n",
-//      mdl, MmGetMdlVirtualAddress(mdl), MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority)));
-  }
-  else
-  {
-    xi->page_free--;
-    mdl = xi->page_list[xi->page_free];
-//    KdPrint(("Old Mdl = %p, MmGetMdlVirtualAddress = %p, MmGetSystemAddressForMdlSafe = %p\n",
-//      mdl, MmGetMdlVirtualAddress(mdl), MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority)));
-  }
-  KeReleaseSpinLock(&xi->page_lock, OldIrql);
-
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
-  return mdl;
-}
-
-VOID
-free_page_freelist(struct xennet_info *xi)
-{
-  PMDL mdl;
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  while(xi->page_free != 0)
-  {
-    xi->page_free--;
-    mdl = xi->page_list[xi->page_free];
-    xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
-      *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)));
-    FreePages(mdl);
-  }
-}
-
-VOID
-put_page_on_freelist(struct xennet_info *xi, PMDL mdl)
-{
-  KIRQL OldIrql;
-
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-//  KdPrint(("Mdl = %p\n",  mdl));
-
-  KeAcquireSpinLock(&xi->page_lock, &OldIrql);
-
-  xi->page_list[xi->page_free] = mdl;
-  xi->page_free++;
-
-  KeReleaseSpinLock(&xi->page_lock, OldIrql);
-
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 // Called at DISPATCH_LEVEL
@@ -329,9 +254,6 @@ XenNet_Init(
 
   InitializeListHead(&xi->tx_waiting_pkt_list);
 
-  KeInitializeSpinLock(&xi->page_lock);
-  xi->page_free = 0;
-  
   NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
   if (status != NDIS_STATUS_SUCCESS)
@@ -366,8 +288,16 @@ XenNet_Init(
   }
 
   NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi,
-    0, (NDIS_ATTRIBUTE_DESERIALIZE /*| NDIS_ATTRIBUTE_BUS_MASTER*/),
+    0, (NDIS_ATTRIBUTE_DESERIALIZE | NDIS_ATTRIBUTE_BUS_MASTER),
     NdisInterfaceInternal);
+
+  status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE, XN_MAX_PKT_SIZE);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("NdisMInitializeScatterGatherDma failed with 0x%x\n", status));
+    status = NDIS_STATUS_FAILURE;
+    goto err;
+  }
 
   WDF_OBJECT_ATTRIBUTES_INIT(&wdf_attrs);
 
@@ -383,7 +313,7 @@ XenNet_Init(
   /* get lower (Xen) interfaces */
 
   status = WdfFdoQueryForInterface(xi->wdf_device, &GUID_XEN_IFACE,
-    (PINTERFACE) &xi->XenInterface, sizeof(XEN_IFACE), 1, NULL);
+    (PINTERFACE) &xi->XenInterface, sizeof(XEN_IFACE), 2, NULL);
   if(!NT_SUCCESS(status))
   {
     KdPrint(("WdfFdoQueryForInterface failed with status 0x%08x\n", status));
@@ -598,34 +528,10 @@ XenNet_Halt(
   xi->connected = FALSE;
   KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
 
-  /* wait for all receive buffers to be returned */
-  while (xi->rx_outstanding > 0)
-    KeWaitForSingleObject(&xi->shutdown_event, Executive, KernelMode, FALSE, NULL);
-
   // TODO: remove event channel xenbus entry (how?)
-
-  /* free TX resources */
-  if (xi->XenInterface.GntTbl_EndAccess(if_cxt, xi->tx_ring_ref))
-  {
-    xi->tx_ring_ref = GRANT_INVALID_REF;
-    FreePages(xi->tx_mdl);
-  }
-  /* if EndAccess fails then tx/rx ring pages LEAKED -- it's not safe to reuse
-     pages Dom0 still has access to */
-  xi->tx_pgs = NULL;
-
-  /* free RX resources */
-  if (xi->XenInterface.GntTbl_EndAccess(if_cxt, xi->rx_ring_ref))
-  {
-    xi->rx_ring_ref = GRANT_INVALID_REF;
-    FreePages(xi->rx_mdl);
-  }
-  xi->rx_pgs = NULL;
 
   XenNet_TxShutdown(xi);
   XenNet_RxShutdown(xi);
-
-  free_page_freelist(xi);
 
   /* Remove watch on backend state */
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->backend_path);
@@ -669,28 +575,21 @@ DriverEntry(
 
 
   ProfTime_TxBufferGC.QuadPart = 0;
-  ProfTime_TxBufferFree.QuadPart = 0;
   ProfTime_RxBufferAlloc.QuadPart = 0;
-  ProfTime_RxBufferFree.QuadPart = 0;
   ProfTime_ReturnPacket.QuadPart = 0;
   ProfTime_RxBufferCheck.QuadPart = 0;
   ProfTime_Linearize.QuadPart = 0;
   ProfTime_SendPackets.QuadPart = 0;
   ProfTime_SendQueuedPackets.QuadPart = 0;
-  ProfTime_GrantAccess.QuadPart = 0;
-  ProfTime_EndAccess.QuadPart = 0;
 
   ProfCount_TxBufferGC = 0;
-  ProfCount_TxBufferFree = 0;
   ProfCount_RxBufferAlloc = 0;
-  ProfCount_RxBufferFree = 0;
   ProfCount_ReturnPacket = 0;
   ProfCount_RxBufferCheck = 0;
   ProfCount_Linearize = 0;
   ProfCount_SendPackets = 0;
+  ProfCount_PacketsPerSendPackets = 0;
   ProfCount_SendQueuedPackets = 0;
-  ProfCount_GrantAccess = 0;
-  ProfCount_EndAccess = 0;
 
   ProfCount_TxPacketsTotal = 0;
   ProfCount_TxPacketsOffload = 0;

@@ -21,7 +21,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xennet.h"
 
 static USHORT
-get_tx_id_from_freelist(struct xennet_info *xi)
+get_id_from_freelist(struct xennet_info *xi)
 {
   if (xi->tx_id_free == 0)
     return 0xFFFF;
@@ -30,60 +30,26 @@ get_tx_id_from_freelist(struct xennet_info *xi)
 }
 
 static VOID
-put_tx_id_on_freelist(struct xennet_info *xi, USHORT id)
+put_id_on_freelist(struct xennet_info *xi, USHORT id)
 {
   xi->tx_id_list[xi->tx_id_free] = id;
   xi->tx_id_free++;
 }
 
-/* Called at DISPATCH_LEVEL with tx_lock held */
-static PMDL
-XenNet_Linearize(struct xennet_info *xi, PNDIS_PACKET Packet)
+static grant_ref_t
+get_gref_from_freelist(struct xennet_info *xi)
 {
-  PMDL pmdl;
-  char *start;
-  PNDIS_BUFFER buffer;
-  PVOID buff_va;
-  UINT buff_len;
-  UINT tot_buff_len;
-#if defined(XEN_PROFILE)
-  LARGE_INTEGER tsc, dummy;
-#endif
+  if (xi->tx_gref_free == 0)
+    return 0;
+  xi->tx_gref_free--;
+  return xi->tx_gref_list[xi->tx_gref_free];
+}
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-#if defined(XEN_PROFILE)
-  tsc = KeQueryPerformanceCounter(&dummy);
-#endif
-
-  NdisGetFirstBufferFromPacketSafe(Packet, &buffer, &buff_va, &buff_len,
-    &tot_buff_len, NormalPagePriority);
-  ASSERT(tot_buff_len <= XN_MAX_PKT_SIZE);
-
-  pmdl = get_page_from_freelist(xi);
-  if (!pmdl)
-  {
-    KdPrint(("Could not allocate MDL for linearization\n"));
-    return NULL;
-  }
-
-  start = MmGetMdlVirtualAddress(pmdl);
-
-  while (buffer)
-  {
-    NdisQueryBufferSafe(buffer, &buff_va, &buff_len, NormalPagePriority);
-    RtlCopyMemory(start, buff_va, buff_len);
-    start += buff_len;
-    NdisGetNextBuffer(buffer, &buffer);
-  }
-
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-#if defined(XEN_PROFILE)
-  ProfTime_Linearize.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
-  ProfCount_Linearize++;
-#endif
-
-  return pmdl;
+static VOID
+put_gref_on_freelist(struct xennet_info *xi, grant_ref_t gref)
+{
+  xi->tx_gref_list[xi->tx_gref_free] = gref;
+  xi->tx_gref_free++;
 }
 
 /* Called at DISPATCH_LEVEL with tx_lock held */
@@ -96,12 +62,19 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   struct netif_tx_request *tx;
   unsigned short id;
   int notify;
-  PMDL pmdl;
-  UINT pkt_size;
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
+  ULONG i;
+  PSCATTER_GATHER_LIST sg_list;
+  UINT total_packet_length;
+  USHORT remaining;
+  USHORT offset;
+  USHORT length;
+  ULONGLONG curr_addr;
+  ULONG sg_num;
+  ULONG pfn;
 
 #if defined(XEN_PROFILE)
   tsc = KeQueryPerformanceCounter(&dummy);
@@ -111,57 +84,94 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   /* if empty, the above returns head*, not NULL */
   while (entry != &xi->tx_waiting_pkt_list)
   {
+//KdPrint((__DRIVER_NAME "     Packet ready to send\n"));
     packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
+    sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
 
-    NdisQueryPacket(packet, NULL, NULL, NULL, &pkt_size);
-
-    id = get_tx_id_from_freelist(xi);
+    i = 0;
+    sg_num = 0;
+    remaining = 0;
+    curr_addr = 0;
+    id = 0;
+    while (sg_num < sg_list->NumberOfElements || remaining > 0)
+    {
+      if (remaining == 0)
+      {
+//KdPrint((__DRIVER_NAME "     First Frag in sg...\n"));
+        curr_addr = sg_list->Elements[sg_num].Address.QuadPart;
+        offset = (USHORT)(sg_list->Elements[sg_num].Address.QuadPart & (PAGE_SIZE - 1));
+        remaining = (USHORT)sg_list->Elements[sg_num].Length;
+        length = min(remaining, PAGE_SIZE - offset);
+        sg_num++;
+      }
+      else
+      {
+//KdPrint((__DRIVER_NAME "     Subsequent Frag in sg...\n"));
+        offset = 0;
+        length = min(remaining, PAGE_SIZE);
+      }
+      pfn = (ULONG)(curr_addr >> PAGE_SHIFT);
+      remaining = remaining - length;
+      curr_addr += length;
+      if (i++ < *(ULONG *)&packet->MiniportReservedEx)
+        continue;
+      id = get_id_from_freelist(xi);
+      if (id == 0xFFFF)
+      {
+//KdPrint((__DRIVER_NAME "     But out of space...\n"));
+        /* whups, out of space on the ring. requeue and get out */
+        InsertHeadList(&xi->tx_waiting_pkt_list, entry);
+        break;
+      }
+      ASSERT(xi->tx_pkts[id] == NULL);
+      (*(ULONG *)&packet->MiniportReservedEx)++;
+      tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+      tx->gref = get_gref_from_freelist(xi);
+      ASSERT(tx->gref != 0);
+      ASSERT(xi->tx_grefs[id] == 0);
+      xi->tx_grefs[id] = tx->gref;
+      xi->XenInterface.GntTbl_GrantAccess(
+        xi->XenInterface.InterfaceHeader.Context, 0,
+        pfn, FALSE, tx->gref);
+      tx->id = id;
+      tx->offset = offset;
+      tx->flags = 0;
+      if (i == 1) // we have already incremented i!!!
+      {
+//KdPrint((__DRIVER_NAME "     First Frag in packet...\n"));
+        NdisQueryPacket(packet, NULL, NULL, NULL, &total_packet_length);
+        tx->size = (USHORT)total_packet_length;
+#if defined(XEN_PROFILE)
+        ProfCount_TxPacketsTotal++;
+#endif
+        csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo);
+        if (csum_info->Transmit.NdisPacketTcpChecksum || csum_info->Transmit.NdisPacketUdpChecksum)
+        {
+          tx->flags |= NETTXF_csum_blank|NETTXF_data_validated;
+#if defined(XEN_PROFILE)
+          ProfCount_TxPacketsOffload++;
+#endif
+        }
+      }
+      else
+      {
+//KdPrint((__DRIVER_NAME "     Subsequent Frag in packet...\n"));
+        tx->size = length;
+      }
+      if (sg_num == sg_list->NumberOfElements && remaining == 0)
+      {
+//KdPrint((__DRIVER_NAME "     No more frags\n"));
+        xi->tx_pkts[id] = packet; /* only set the packet on the last buffer */
+      }
+      else
+      {
+//KdPrint((__DRIVER_NAME "     More frags\n"));
+        tx->flags |= NETTXF_more_data;
+      }
+      xi->tx.req_prod_pvt++;
+    }
     if (id == 0xFFFF)
-    {
-      /* whups, out of space on the ring. requeue and get out */
-      InsertHeadList(&xi->tx_waiting_pkt_list, entry);
       break;
-    }
-    //KdPrint(("sending pkt, len %d\n", pkt_size));
-    ASSERT(xi->tx_pkts[id] == NULL);
-    xi->tx_pkts[id] = packet;
-
-    pmdl = XenNet_Linearize(xi, packet);
-    if (!pmdl)
-    {
-      KdPrint((__DRIVER_NAME "Couldn't linearize packet!\n"));
-      NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
-      break;
-    }
-
-    /* NOTE: 
-     * We use the UCHAR[3*sizeof(PVOID)] array in each packet's MiniportReservedEx thusly:
-     * 0: PMDL to linearized data
-     * sizeof(PVOID)+: LIST_ENTRY for placing packet on the waiting pkt list
-     */
-    *(PMDL *)&packet->MiniportReservedEx = pmdl;
-
-    tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
-    tx->id = id;
-    tx->gref = get_grant_ref(pmdl);
-    tx->offset = (uint16_t)MmGetMdlByteOffset(pmdl);
-    tx->size = (UINT16)pkt_size;
-    
-    tx->flags = 0;
-#if defined(XEN_PROFILE)
-    ProfCount_TxPacketsTotal++;
-#endif
-    csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpIpChecksumPacketInfo);
-    if (csum_info->Transmit.NdisPacketTcpChecksum || csum_info->Transmit.NdisPacketUdpChecksum)
-    {
-      tx->flags |= NETTXF_csum_blank|NETTXF_data_validated;
-#if defined(XEN_PROFILE)
-      ProfCount_TxPacketsOffload++;
-#endif
-    }
-
-    xi->tx.req_prod_pvt++;
-
     entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   }
 
@@ -214,10 +224,15 @@ XenNet_TxBufferGC(struct xennet_info *xi)
         continue; // should this happen? what about the page?
       id  = txrsp->id;
       packet = xi->tx_pkts[id];
-      xi->tx_pkts[id] = NULL;
-      put_tx_id_on_freelist(xi, id);
-      put_page_on_freelist(xi, *(PMDL *)packet->MiniportReservedEx);
-      NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_SUCCESS);
+      if (packet)
+      {
+        xi->tx_pkts[id] = NULL;
+        /* TODO: check status and indicate appropriately */
+        NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_SUCCESS);
+      }
+      put_gref_on_freelist(xi, xi->tx_grefs[id]);
+      xi->tx_grefs[id] = 0;
+      put_id_on_freelist(xi, id);
 
       InterlockedDecrement(&xi->tx_outstanding);
       xi->stat_tx_ok++;
@@ -251,7 +266,7 @@ XenNet_SendPackets(
   )
 {
   struct xennet_info *xi = MiniportAdapterContext;
-  PNDIS_PACKET curr_packet;
+  PNDIS_PACKET packet;
   UINT i;
   PLIST_ENTRY entry;
   KIRQL OldIrql;
@@ -270,11 +285,15 @@ XenNet_SendPackets(
   //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   for (i = 0; i < NumberOfPackets; i++)
   {
-    curr_packet = PacketArray[i];
-    ASSERT(curr_packet);
-    entry = (PLIST_ENTRY)&curr_packet->MiniportReservedEx[sizeof(PVOID)];
+    packet = PacketArray[i];
+    ASSERT(packet);
+    *(ULONG *)&packet->MiniportReservedEx = 0;
+    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(&xi->tx_waiting_pkt_list, entry);
     InterlockedIncrement(&xi->tx_outstanding);
+#if defined(XEN_PROFILE)
+    ProfCount_PacketsPerSendPackets++;
+#endif
   }
 
   XenNet_SendQueuedPackets(xi);
@@ -296,6 +315,7 @@ XenNet_SendPackets(
     KdPrint((__DRIVER_NAME "     RxBufferCheck     Count = %10d, Avg Time = %10ld\n", ProfCount_RxBufferCheck, (ProfCount_RxBufferCheck == 0)?0:(ProfTime_RxBufferCheck.QuadPart / ProfCount_RxBufferCheck)));
     KdPrint((__DRIVER_NAME "     Linearize         Count = %10d, Avg Time = %10ld\n", ProfCount_Linearize, (ProfCount_Linearize == 0)?0:(ProfTime_Linearize.QuadPart / ProfCount_Linearize)));
     KdPrint((__DRIVER_NAME "     SendPackets       Count = %10d, Avg Time = %10ld\n", ProfCount_SendPackets, (ProfCount_SendPackets == 0)?0:(ProfTime_SendPackets.QuadPart / ProfCount_SendPackets)));
+    KdPrint((__DRIVER_NAME "     Packets per SendPackets = %10d\n", (ProfCount_SendPackets == 0)?0:(ProfCount_PacketsPerSendPackets / ProfCount_SendPackets)));
     KdPrint((__DRIVER_NAME "     SendQueuedPackets Count = %10d, Avg Time = %10ld\n", ProfCount_SendQueuedPackets, (ProfCount_SendQueuedPackets == 0)?0:(ProfTime_SendQueuedPackets.QuadPart / ProfCount_SendQueuedPackets)));
     KdPrint((__DRIVER_NAME "     TxBufferGC        Count = %10d, Avg Time = %10ld\n", ProfCount_TxBufferGC, (ProfCount_TxBufferGC == 0)?0:(ProfTime_TxBufferGC.QuadPart / ProfCount_TxBufferGC)));
     KdPrint((__DRIVER_NAME "     RxPackets         Total = %10d, Offload  = %10d\n", ProfCount_RxPacketsTotal, ProfCount_RxPacketsOffload));
@@ -310,8 +330,8 @@ XenNet_TxBufferFree(struct xennet_info *xi)
 {
   PLIST_ENTRY entry;
   PNDIS_PACKET packet;
-  PMDL mdl;
   USHORT i;
+  grant_ref_t gref;
 
   ASSERT(!xi->connected);
 
@@ -328,13 +348,12 @@ XenNet_TxBufferFree(struct xennet_info *xi)
   for (i = 0; i < NET_TX_RING_SIZE; i++)
   {
     packet = xi->tx_pkts[i];
-    if (packet == NULL)
-      continue;
-
-    mdl = *(PMDL *)packet->MiniportReservedEx;
-    put_page_on_freelist(xi, mdl);
-
-    NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
+    if (packet != NULL)
+      NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
+    gref = xi->tx_grefs[i];
+    if (gref != 0)
+      xi->XenInterface.GntTbl_EndAccess(
+        xi->XenInterface.InterfaceHeader.Context, gref, TRUE);
   }
 }
 
@@ -349,12 +368,19 @@ XenNet_TxInit(xennet_info_t *xi)
   FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
   xi->tx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
     xi->XenInterface.InterfaceHeader.Context, 0,
-    *MmGetMdlPfnArray(xi->tx_mdl), FALSE);
+    *MmGetMdlPfnArray(xi->tx_mdl), FALSE, 0);
   xi->tx_id_free = 0;
   for (i = 0; i < NET_TX_RING_SIZE; i++)
   {
     xi->tx_pkts[i] = NULL;
-    put_tx_id_on_freelist(xi, i);
+    put_id_on_freelist(xi, i);
+  }
+  xi->tx_gref_free = 0;
+  for (i = 0; i < NET_TX_RING_SIZE; i++)
+  {
+    xi->tx_grefs[i] = 0;
+    put_gref_on_freelist(xi, xi->XenInterface.GntTbl_GetRef(
+      xi->XenInterface.InterfaceHeader.Context));
   }
   return TRUE;
 }
@@ -362,6 +388,26 @@ XenNet_TxInit(xennet_info_t *xi)
 BOOLEAN
 XenNet_TxShutdown(xennet_info_t *xi)
 {
+  ULONG i;
+
   XenNet_TxBufferFree(xi);
+
+  /* free TX resources */
+  if (xi->XenInterface.GntTbl_EndAccess(
+    xi->XenInterface.InterfaceHeader.Context, xi->tx_ring_ref, 0))
+  {
+    xi->tx_ring_ref = GRANT_INVALID_REF;
+    FreePages(xi->tx_mdl);
+  }
+  /* if EndAccess fails then tx/rx ring pages LEAKED -- it's not safe to reuse
+     pages Dom0 still has access to */
+  xi->tx_pgs = NULL;
+
+  for (i = 0; i < NET_TX_RING_SIZE; i++)
+  {
+    xi->XenInterface.GntTbl_PutRef(
+      xi->XenInterface.InterfaceHeader.Context, xi->tx_gref_list[i]);
+  }
+
   return TRUE;
 }
