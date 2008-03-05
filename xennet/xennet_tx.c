@@ -75,6 +75,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   ULONGLONG curr_addr;
   ULONG sg_num;
   ULONG pfn;
+  int cycles = 0;
 
 #if defined(XEN_PROFILE)
   tsc = KeQueryPerformanceCounter(&dummy);
@@ -84,6 +85,8 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   /* if empty, the above returns head*, not NULL */
   while (entry != &xi->tx_waiting_pkt_list)
   {
+    cycles++;
+    ASSERT(cycles < 256);
 //KdPrint((__DRIVER_NAME "     Packet ready to send\n"));
     packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
     sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
@@ -95,6 +98,8 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
     id = 0;
     while (sg_num < sg_list->NumberOfElements || remaining > 0)
     {
+      cycles++;
+      ASSERT(cycles < 256);
       if (remaining == 0)
       {
 //KdPrint((__DRIVER_NAME "     First Frag in sg...\n"));
@@ -196,6 +201,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   unsigned short id;
   PNDIS_PACKET packet;
   int moretodo;
+  int cycles = 0;
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
@@ -212,6 +218,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
   do {
+    ASSERT(cycles++ < 256);
     prod = xi->tx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
@@ -318,7 +325,7 @@ XenNet_SendPackets(
     KdPrint((__DRIVER_NAME "     Packets per SendPackets = %10d\n", (ProfCount_SendPackets == 0)?0:(ProfCount_PacketsPerSendPackets / ProfCount_SendPackets)));
     KdPrint((__DRIVER_NAME "     SendQueuedPackets Count = %10d, Avg Time = %10ld\n", ProfCount_SendQueuedPackets, (ProfCount_SendQueuedPackets == 0)?0:(ProfTime_SendQueuedPackets.QuadPart / ProfCount_SendQueuedPackets)));
     KdPrint((__DRIVER_NAME "     TxBufferGC        Count = %10d, Avg Time = %10ld\n", ProfCount_TxBufferGC, (ProfCount_TxBufferGC == 0)?0:(ProfTime_TxBufferGC.QuadPart / ProfCount_TxBufferGC)));
-    KdPrint((__DRIVER_NAME "     RxPackets         Total = %10d, Offload  = %10d\n", ProfCount_RxPacketsTotal, ProfCount_RxPacketsOffload));
+    KdPrint((__DRIVER_NAME "     RxPackets         Total = %10d, Offload  = %10d, CallsToReceive = %10d\n", ProfCount_RxPacketsTotal, ProfCount_RxPacketsOffload, ProfCount_CallsToIndicateReceive));
     KdPrint((__DRIVER_NAME "     TxPackets         Total = %10d, Offload  = %10d\n", ProfCount_TxPacketsTotal, ProfCount_TxPacketsOffload));
   }
 #endif

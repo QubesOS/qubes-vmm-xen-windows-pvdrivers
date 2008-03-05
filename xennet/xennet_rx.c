@@ -173,6 +173,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   NDIS_STATUS status;
   USHORT id;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
+  int cycles = 0;
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
@@ -189,6 +190,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   packet_count = 0;
   do {
+    ASSERT(cycles++ < 256);
     prod = xi->rx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
@@ -239,12 +241,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         xi->stat_rx_ok++;
         NDIS_SET_PACKET_STATUS(packets[packet_count], NDIS_STATUS_SUCCESS);
         packet_count++;
-        if (packet_count == NET_RX_RING_SIZE)
-        {
-          /* A miniport driver must release any spin lock that it is holding before calling NdisMIndicateReceivePacket */
-          NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
-          packet_count = 0;
-        }
       }
     }
     xi->rx.rsp_cons = prod;
@@ -252,21 +248,26 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, moretodo);
   } while (moretodo);
 
+  /* Give netback more buffers */
+  XenNet_RxBufferAlloc(xi);
+
+  KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
+
+  ASSERT(!more_frags);
+/*
   if (more_frags)
   {
     KdPrint((__DRIVER_NAME "     Missing fragments\n"));
     XenNet_ReturnPacket(xi, packets[packet_count]);
   }
-
+*/
   if (packet_count != 0)
   {
     NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
+#if defined(XEN_PROFILE)
+    ProfCount_CallsToIndicateReceive++;
+#endif
   }
-
-  /* Give netback more buffers */
-  XenNet_RxBufferAlloc(xi);
-
-  KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -278,7 +279,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
-/* called at DISPATCH_LEVEL with rx_lock held (as it gets called from IndicateReceived) */
+/* called at DISPATCH_LEVEL */
 
 VOID
 XenNet_ReturnPacket(
@@ -288,6 +289,7 @@ XenNet_ReturnPacket(
 {
   struct xennet_info *xi = MiniportAdapterContext;
   PMDL mdl;
+  int cycles = 0;
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
@@ -298,15 +300,20 @@ XenNet_ReturnPacket(
   tsc = KeQueryPerformanceCounter(&dummy);
 #endif
 
+  KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
+
   NdisUnchainBufferAtBack(Packet, &mdl);
   while (mdl)
   {
+    ASSERT(cycles++ < 256);
     NdisAdjustBufferLength(mdl, PAGE_SIZE);
     put_page_on_freelist(xi, mdl);
     NdisUnchainBufferAtBack(Packet, &mdl);
   }
 
   NdisFreePacket(Packet);
+
+  KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
   
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 

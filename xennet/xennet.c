@@ -43,6 +43,7 @@ int ProfCount_TxPacketsTotal;
 int ProfCount_TxPacketsOffload;
 int ProfCount_RxPacketsTotal;
 int ProfCount_RxPacketsOffload;
+int ProfCount_CallsToIndicateReceive;
 
 /* This function copied from linux's lib/vsprintf.c, see it for attribution */
 static unsigned long
@@ -595,6 +596,7 @@ DriverEntry(
   ProfCount_TxPacketsOffload = 0;
   ProfCount_RxPacketsTotal = 0;
   ProfCount_RxPacketsOffload = 0;
+  ProfCount_CallsToIndicateReceive = 0;
 
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));
 

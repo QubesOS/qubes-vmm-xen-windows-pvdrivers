@@ -72,7 +72,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #pragma warning(disable: 4127) // conditional expression is constant
 
-//#define XEN_PROFILE
+#define XEN_PROFILE
 
 /* TODO: crank this up if we support higher mtus? */
 #define XN_DATA_SIZE 1500
@@ -189,6 +189,7 @@ extern int ProfCount_TxPacketsTotal;
 extern int ProfCount_TxPacketsOffload;
 extern int ProfCount_RxPacketsTotal;
 extern int ProfCount_RxPacketsOffload;
+extern int ProfCount_CallsToIndicateReceive;
 
 NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi);
