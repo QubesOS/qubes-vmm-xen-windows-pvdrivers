@@ -109,6 +109,7 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   int i, batch_target, notify;
   RING_IDX req_prod = xi->rx.req_prod_pvt;
   netif_rx_request_t *req;
+  int cycles = 0;
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
@@ -122,6 +123,7 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
 
   for (i = 0; i < batch_target; i++)
   {
+    ASSERT(cycles++ < 256);
     mdl = get_page_from_freelist(xi);
     if (mdl == NULL)
       break;
@@ -195,6 +197,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
     for (cons = xi->rx.rsp_cons; cons != prod; cons++) {
+      ASSERT(cycles++ < 256);
 
       rxrsp = RING_GET_RESPONSE(&xi->rx, cons);
       id = rxrsp->id;
@@ -254,13 +257,14 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 
   ASSERT(!more_frags);
-/*
+#if 0
+  /* this must be called at DESPATCH_LEVEL */
   if (more_frags)
   {
     KdPrint((__DRIVER_NAME "     Missing fragments\n"));
     XenNet_ReturnPacket(xi, packets[packet_count]);
   }
-*/
+#endif
   if (packet_count != 0)
   {
     NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);

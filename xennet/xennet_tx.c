@@ -85,8 +85,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   /* if empty, the above returns head*, not NULL */
   while (entry != &xi->tx_waiting_pkt_list)
   {
-    cycles++;
-    ASSERT(cycles < 256);
+    ASSERT(cycles++ < 256);
 //KdPrint((__DRIVER_NAME "     Packet ready to send\n"));
     packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
     sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
@@ -98,8 +97,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
     id = 0;
     while (sg_num < sg_list->NumberOfElements || remaining > 0)
     {
-      cycles++;
-      ASSERT(cycles < 256);
+      ASSERT(cycles++ < 256);
       if (remaining == 0)
       {
 //KdPrint((__DRIVER_NAME "     First Frag in sg...\n"));
@@ -199,8 +197,10 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
   unsigned short id;
-  PNDIS_PACKET packet;
+  PNDIS_PACKET packets[NET_TX_RING_SIZE];
+  ULONG packet_count = 0;
   int moretodo;
+  ULONG i;
   int cycles = 0;
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
@@ -226,16 +226,17 @@ XenNet_TxBufferGC(struct xennet_info *xi)
     {
       struct netif_tx_response *txrsp;
 
+      ASSERT(cycles++ < 256);
+
       txrsp = RING_GET_RESPONSE(&xi->tx, cons);
       if (txrsp->status == NETIF_RSP_NULL)
         continue; // should this happen? what about the page?
       id  = txrsp->id;
-      packet = xi->tx_pkts[id];
-      if (packet)
+      packets[packet_count] = xi->tx_pkts[id];
+      if (packets[packet_count])
       {
         xi->tx_pkts[id] = NULL;
-        /* TODO: check status and indicate appropriately */
-        NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_SUCCESS);
+        packet_count++;
       }
       put_gref_on_freelist(xi, xi->tx_grefs[id]);
       xi->tx_grefs[id] = 0;
@@ -254,6 +255,13 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   XenNet_SendQueuedPackets(xi);
 
   KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
+
+  for (i = 0; i < packet_count; i++)
+  {
+    /* A miniport driver must release any spin lock that it is holding before
+       calling NdisMSendComplete. */
+    NdisMSendComplete(xi->adapter_handle, packets[i], NDIS_STATUS_SUCCESS);
+  }
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
