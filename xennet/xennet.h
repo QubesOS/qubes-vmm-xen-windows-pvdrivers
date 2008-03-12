@@ -73,12 +73,20 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable: 4127) // conditional expression is constant
 
 //#define XEN_PROFILE
+#define OFFLOAD_LARGE_SEND
+#define MIN_LARGE_SEND_SEGMENTS 4
+#define MAX_LARGE_SEND_OFFLOAD 65535
+
 
 /* TODO: crank this up if we support higher mtus? */
 #define XN_DATA_SIZE 1500
 #define XN_HDR_SIZE 14
 #define XN_MIN_PKT_SIZE 60
-#define XN_MAX_PKT_SIZE (XN_HDR_SIZE + XN_DATA_SIZE)
+#if !defined(OFFLOAD_LARGE_SEND)
+  #define XN_MAX_PKT_SIZE (XN_HDR_SIZE + XN_DATA_SIZE)
+#else
+  #define XN_MAX_PKT_SIZE MAX_LARGE_SEND_OFFLOAD
+#endif
 
 #define XN_MAX_SEND_PKTS 16
 
@@ -86,6 +94,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define XENSOURCE_MAC_HDR 0x00163E
 #define XN_VENDOR_DESC "Xensource"
 #define MAX_XENBUS_STR_LEN 128
+
+
+#define RX_MIN_TARGET 8
+#define RX_DFL_MIN_TARGET 128
+#define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
 
 struct xennet_info
 {
@@ -126,6 +139,7 @@ struct xennet_info
   struct netif_tx_sring *tx_pgs;
   PMDL tx_mdl;
   ULONG tx_id_free;
+  ULONG tx_no_id_free;
   USHORT tx_id_list[NET_TX_RING_SIZE];
   ULONG tx_gref_free;
   grant_ref_t tx_gref_list[NET_TX_RING_SIZE];
@@ -137,16 +151,16 @@ struct xennet_info
   grant_ref_t rx_ring_ref;
   struct netif_rx_sring *rx_pgs;
   PMDL rx_mdl;
-  USHORT rx_id_list[NET_RX_RING_SIZE];
   ULONG rx_id_free;
   PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
   PMDL page_list[NET_RX_RING_SIZE];
   ULONG page_free;
+  PNDIS_PACKET rx_current_packet;
+  PMDL rx_first_mdl;
+  USHORT rx_extra_info;
+  USHORT rx_first_buffer_length;
 
   /* Receive-ring batched refills. */
-#define RX_MIN_TARGET 8
-#define RX_DFL_MIN_TARGET 64
-#define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
   ULONG rx_target;
   ULONG rx_max_target;
   ULONG rx_min_target;
@@ -170,6 +184,8 @@ extern LARGE_INTEGER ProfTime_RxBufferAlloc;
 extern LARGE_INTEGER ProfTime_RxBufferFree;
 extern LARGE_INTEGER ProfTime_ReturnPacket;
 extern LARGE_INTEGER ProfTime_RxBufferCheck;
+extern LARGE_INTEGER ProfTime_RxBufferCheckTopHalf;
+extern LARGE_INTEGER ProfTime_RxBufferCheckBotHalf;
 extern LARGE_INTEGER ProfTime_Linearize;
 extern LARGE_INTEGER ProfTime_SendPackets;
 extern LARGE_INTEGER ProfTime_SendQueuedPackets;
@@ -186,9 +202,10 @@ extern int ProfCount_PacketsPerSendPackets;
 extern int ProfCount_SendQueuedPackets;
 
 extern int ProfCount_TxPacketsTotal;
-extern int ProfCount_TxPacketsOffload;
+extern int ProfCount_TxPacketsCsumOffload;
+extern int ProfCount_TxPacketsLargeOffload;
 extern int ProfCount_RxPacketsTotal;
-extern int ProfCount_RxPacketsOffload;
+extern int ProfCount_RxPacketsCsumOffload;
 extern int ProfCount_CallsToIndicateReceive;
 
 NDIS_STATUS

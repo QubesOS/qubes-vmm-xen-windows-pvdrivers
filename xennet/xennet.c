@@ -29,6 +29,8 @@ LARGE_INTEGER ProfTime_RxBufferCheck;
 LARGE_INTEGER ProfTime_Linearize;
 LARGE_INTEGER ProfTime_SendPackets;
 LARGE_INTEGER ProfTime_SendQueuedPackets;
+LARGE_INTEGER ProfTime_RxBufferCheckTopHalf;
+LARGE_INTEGER ProfTime_RxBufferCheckBotHalf;
 
 int ProfCount_TxBufferGC;
 int ProfCount_RxBufferAlloc;
@@ -40,9 +42,10 @@ int ProfCount_PacketsPerSendPackets;
 int ProfCount_SendQueuedPackets;
 
 int ProfCount_TxPacketsTotal;
-int ProfCount_TxPacketsOffload;
+int ProfCount_TxPacketsCsumOffload;
+int ProfCount_TxPacketsLargeOffload;
 int ProfCount_RxPacketsTotal;
-int ProfCount_RxPacketsOffload;
+int ProfCount_RxPacketsCsumOffload;
 int ProfCount_CallsToIndicateReceive;
 
 /* This function copied from linux's lib/vsprintf.c, see it for attribution */
@@ -202,7 +205,9 @@ XenNet_Init(
     {"feature-rx-notify", 1},
 //    {"feature-no-csum-offload", 1},
     {"feature-sg", 1},
-    {"feature-gso-tcpv4", 0},
+#if defined(OFFLOAD_LARGE_SEND)
+    {"feature-gso-tcpv4", 1},
+#endif
     {NULL, 0},
   };
   int retry = 0;
@@ -579,6 +584,8 @@ DriverEntry(
   ProfTime_RxBufferAlloc.QuadPart = 0;
   ProfTime_ReturnPacket.QuadPart = 0;
   ProfTime_RxBufferCheck.QuadPart = 0;
+  ProfTime_RxBufferCheckTopHalf.QuadPart = 0;
+  ProfTime_RxBufferCheckBotHalf.QuadPart = 0;
   ProfTime_Linearize.QuadPart = 0;
   ProfTime_SendPackets.QuadPart = 0;
   ProfTime_SendQueuedPackets.QuadPart = 0;
@@ -593,9 +600,10 @@ DriverEntry(
   ProfCount_SendQueuedPackets = 0;
 
   ProfCount_TxPacketsTotal = 0;
-  ProfCount_TxPacketsOffload = 0;
+  ProfCount_TxPacketsCsumOffload = 0;
+  ProfCount_TxPacketsLargeOffload = 0;
   ProfCount_RxPacketsTotal = 0;
-  ProfCount_RxPacketsOffload = 0;
+  ProfCount_RxPacketsCsumOffload = 0;
   ProfCount_CallsToIndicateReceive = 0;
 
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));

@@ -68,8 +68,6 @@ NDIS_OID supported_oids[] =
     len = 8; \
     } }
 
-//#define OFFLOAD_LARGE_SEND
-
 NDIS_STATUS 
 XenNet_QueryInformation(
   IN NDIS_HANDLE MiniportAdapterContext,
@@ -119,24 +117,26 @@ XenNet_QueryInformation(
     case OID_GEN_MAXIMUM_FRAME_SIZE:
       // According to the specs, OID_GEN_MAXIMUM_FRAME_SIZE does not include the header, so
       // it is XN_DATA_SIZE not XN_MAX_PKT_SIZE
-      temp_data = XN_DATA_SIZE; // XN_MAX_PKT_SIZE;
+      temp_data = XN_DATA_SIZE;
       break;
     case OID_GEN_LINK_SPEED:
       temp_data = 10000000; /* 1Gb */
       break;
     case OID_GEN_TRANSMIT_BUFFER_SPACE:
       /* pkts times sizeof ring, maybe? */
-      temp_data = XN_MAX_PKT_SIZE * NET_TX_RING_SIZE;
+//      temp_data = XN_MAX_PKT_SIZE * NET_TX_RING_SIZE;
+      temp_data = PAGE_SIZE * NET_TX_RING_SIZE;
       break;
     case OID_GEN_RECEIVE_BUFFER_SPACE:
       /* pkts times sizeof ring, maybe? */
-      temp_data = XN_MAX_PKT_SIZE * NET_RX_RING_SIZE;
+//      temp_data = XN_MAX_PKT_SIZE * NET_RX_RING_SIZE;
+      temp_data = PAGE_SIZE * NET_RX_RING_SIZE;
       break;
     case OID_GEN_TRANSMIT_BLOCK_SIZE:
-      temp_data = XN_MAX_PKT_SIZE;
+      temp_data = PAGE_SIZE; //XN_MAX_PKT_SIZE;
       break;
     case OID_GEN_RECEIVE_BLOCK_SIZE:
-      temp_data = XN_MAX_PKT_SIZE;
+      temp_data = PAGE_SIZE; //XN_MAX_PKT_SIZE;
       break;
     case OID_GEN_VENDOR_ID:
       temp_data = 0xFFFFFF; // Not guaranteed to be XENSOURCE_MAC_HDR;
@@ -157,7 +157,11 @@ XenNet_QueryInformation(
       len = 2;
       break;
     case OID_GEN_MAXIMUM_TOTAL_SIZE:
+#if !defined(OFFLOAD_LARGE_SEND)
       temp_data = XN_MAX_PKT_SIZE;
+#else
+      temp_data = MAX_LARGE_SEND_OFFLOAD;
+#endif
       break;
     case OID_GEN_MAC_OPTIONS:
       temp_data = NDIS_MAC_OPTION_COPY_LOOKAHEAD_DATA | 
@@ -269,7 +273,7 @@ XenNet_QueryInformation(
         + nto->TaskBufferLength;
 
       /* fill in second nto */
-      nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + nto->OffsetNextTask);
+      nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
       nto->Version = NDIS_TASK_OFFLOAD_VERSION;
       nto->Size = sizeof(NDIS_TASK_OFFLOAD);
       nto->Task = TcpLargeSendNdisTask;
@@ -278,10 +282,10 @@ XenNet_QueryInformation(
       /* fill in large send struct */
       nttls = (PNDIS_TASK_TCP_LARGE_SEND)nto->TaskBuffer;
       nttls->Version = 0;
-      nttls->MaxOffLoadSize = 1024*64; /* made up, fixme */
-      nttls->MinSegmentCount = 4; /* also made up */
-      nttls->TcpOptions = FALSE;
-      nttls->IpOptions = FALSE;
+      nttls->MaxOffLoadSize = MAX_LARGE_SEND_OFFLOAD;
+      nttls->MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
+      nttls->TcpOptions = TRUE;
+      nttls->IpOptions = TRUE;
 #endif
       nto->OffsetNextTask = 0; /* last one */
 
@@ -333,6 +337,9 @@ XenNet_SetInformation(
   PNDIS_TASK_OFFLOAD_HEADER ntoh;
   PNDIS_TASK_OFFLOAD nto;
   PNDIS_TASK_TCP_IP_CHECKSUM nttic;
+#ifdef OFFLOAD_LARGE_SEND
+  PNDIS_TASK_TCP_LARGE_SEND nttls;
+#endif
   int offset;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
@@ -504,6 +511,15 @@ XenNet_SetInformation(
           KdPrint(("  V6Receive.TcpOptionsSupported  = %d\n", nttic->V6Receive.TcpOptionsSupported));
           KdPrint(("  V6Receive.TcpChecksum          = %d\n", nttic->V6Receive.TcpChecksum));
           KdPrint(("  V6Receive.UdpChecksum          = %d\n", nttic->V6Receive.UdpChecksum));
+          break;
+        case TcpLargeSendNdisTask:
+          *BytesRead += sizeof(NDIS_TASK_TCP_LARGE_SEND);
+          KdPrint(("TcpLargeSendNdisTask\n"));
+          nttls = (PNDIS_TASK_TCP_LARGE_SEND)nto->TaskBuffer;
+          KdPrint(("  MaxOffLoadSize                 = %d\n", nttls->MaxOffLoadSize));
+          KdPrint(("  MinSegmentCount                = %d\n", nttls->MinSegmentCount));
+          KdPrint(("  TcpOptions                     = %d\n", nttls->TcpOptions));
+          KdPrint(("  IpOptions                      = %d\n", nttls->IpOptions));
           break;
         default:
           KdPrint(("  Unknown Task %d\n", nto->Task));
