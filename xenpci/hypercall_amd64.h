@@ -118,6 +118,33 @@ HYPERVISOR_event_channel_op(WDFDEVICE Device, int cmd, void *op)
   return _hypercall2(event_channel_op_func, cmd, op);
 }
 
+static __inline int
+HYPERVISOR_sched_op(WDFDEVICE Device, int cmd, void *arg)
+{
+  PCHAR sched_op_func = GetDeviceData(Device)->hypercall_stubs;
+  sched_op_func += __HYPERVISOR_sched_op * 32;
+  return _hypercall2(sched_op_func, cmd, arg);
+}
+
+static __inline int
+HYPERVISOR_shutdown(WDFDEVICE Device, unsigned int reason)
+{
+  struct sched_shutdown ss;
+  int retval;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  ss.reason = reason;
+
+  KdPrint((__DRIVER_NAME "     A\n"));
+
+  retval = HYPERVISOR_sched_op(Device, SCHEDOP_shutdown, &ss);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return retval;
+}
+
 static __inline ULONGLONG
 hvm_get_parameter(WDFDEVICE Device, int hvm_param)
 {

@@ -200,19 +200,19 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       xi->rx_id_free++;
       if (xi->rx_extra_info)
       {
-KdPrint((__DRIVER_NAME "     RX extra info detected\n"));
+//KdPrint((__DRIVER_NAME "     RX extra info detected\n"));
         put_page_on_freelist(xi, mdl);
         ei = (struct netif_extra_info *)RING_GET_RESPONSE(&xi->rx, cons);
         xi->rx_extra_info = ei->flags & XEN_NETIF_EXTRA_FLAG_MORE;
         switch (ei->type)
         {
         case XEN_NETIF_EXTRA_TYPE_GSO:
-KdPrint((__DRIVER_NAME "     GSO detected - size = %d\n", ei->u.gso.size));
+//KdPrint((__DRIVER_NAME "     GSO detected - size = %d\n", ei->u.gso.size));
           switch (ei->u.gso.type)
           {
           case XEN_NETIF_GSO_TYPE_TCPV4:
-KdPrint((__DRIVER_NAME "     GSO_TYPE_TCPV4 detected\n"));
-            NDIS_PER_PACKET_INFO_FROM_PACKET(packets[packet_count], TcpLargeSendPacketInfo) = (PVOID)(xen_ulong_t)(ei->u.gso.size);
+//KdPrint((__DRIVER_NAME "     GSO_TYPE_TCPV4 detected\n"));
+//            NDIS_PER_PACKET_INFO_FROM_PACKET(packets[packet_count], TcpLargeSendPacketInfo) = (PVOID)(xen_ulong_t)(ei->u.gso.size);
             break;
           default:
             KdPrint((__DRIVER_NAME "     Unknown GSO type (%d) detected\n", ei->u.gso.type));
@@ -220,7 +220,7 @@ KdPrint((__DRIVER_NAME "     GSO_TYPE_TCPV4 detected\n"));
           }
           break;
         default:
-KdPrint((__DRIVER_NAME "     Unknown extra info type (%d) detected\n", ei->type));
+          KdPrint((__DRIVER_NAME "     Unknown extra info type (%d) detected\n", ei->type));
           break;
         }
       }
@@ -253,6 +253,7 @@ KdPrint((__DRIVER_NAME "     Unknown extra info type (%d) detected\n", ei->type)
             ProfCount_RxPacketsCsumOffload++;
 #endif
           }
+          // we also need to manually split gso packets that we receive that originated on our side of the physical interface...
         }
         else
         {

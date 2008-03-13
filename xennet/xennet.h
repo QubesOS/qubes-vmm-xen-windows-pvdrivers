@@ -77,7 +77,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define MIN_LARGE_SEND_SEGMENTS 4
 #define MAX_LARGE_SEND_OFFLOAD 65535
 
-
 /* TODO: crank this up if we support higher mtus? */
 #define XN_DATA_SIZE 1500
 #define XN_HDR_SIZE 14

@@ -150,7 +150,7 @@ XenNet_QueryInformation(
       break;
     case OID_GEN_CURRENT_LOOKAHEAD:
       // TODO: we should store this...
-      temp_data = XN_MAX_PKT_SIZE;
+      temp_data = 54; //XN_MAX_PKT_SIZE;
       break;
     case OID_GEN_DRIVER_VERSION:
       temp_data = (NDIS_MINIPORT_MAJOR_VERSION << 8) | NDIS_MINIPORT_MINOR_VERSION;
