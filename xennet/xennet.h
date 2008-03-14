@@ -73,19 +73,19 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable: 4127) // conditional expression is constant
 
 //#define XEN_PROFILE
-#define OFFLOAD_LARGE_SEND
 #define MIN_LARGE_SEND_SEGMENTS 4
-#define MAX_LARGE_SEND_OFFLOAD 65535
 
 /* TODO: crank this up if we support higher mtus? */
 #define XN_DATA_SIZE 1500
 #define XN_HDR_SIZE 14
 #define XN_MIN_PKT_SIZE 60
+/*
 #if !defined(OFFLOAD_LARGE_SEND)
   #define XN_MAX_PKT_SIZE (XN_HDR_SIZE + XN_DATA_SIZE)
 #else
   #define XN_MAX_PKT_SIZE MAX_LARGE_SEND_OFFLOAD
 #endif
+*/
 
 #define XN_MAX_SEND_PKTS 16
 
@@ -167,6 +167,15 @@ struct xennet_info
   /* how many packets are in the net stack atm */
   LONG rx_outstanding;
   LONG tx_outstanding;
+
+  /* config vars from registry */
+  ULONG config_sg;
+  ULONG config_csum;
+  ULONG config_gso;
+  ULONG config_mtu;
+
+  /* config stuff calculated from the above */
+  ULONG config_max_pkt_size;
 
   /* stats */
   ULONG64 stat_tx_ok;

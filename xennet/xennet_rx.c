@@ -145,6 +145,48 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
+static VOID
+XenNet_SplitRxPacket(
+ PNDIS_PACKET *packets,
+ PULONG packet_count,
+ ULONG total_packet_length
+)
+{
+  ULONG mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packets[*packet_count], TcpLargeSendPacketInfo));
+  ULONG header_length = 54; //TODO: actually calculate this from the TCP header
+  ULONG tcp_length = total_packet_length - header_length;
+  ULONG remaining = tcp_length;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KdPrint((__DRIVER_NAME "     mss = %d\n", mss));
+
+/*
+  while (remaining)
+  {
+    // take the buffers off of the current packet
+    KdPrint((__DRIVER_NAME "     Remaining = %d\n", remaining));
+
+    if (remaining > mss)
+    {
+      // tcp length = mss;
+      remaining -= mss;
+    }
+    else
+    {
+      // tcp length = remaining
+      remaining = 0;
+    }
+    // do some creative stuff here... clone the header of the previous packet and update the various fields
+    // append the remaining data buffers
+    // increment the packet count
+  }
+*/  
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return;
+}
+
 // Called at DISPATCH_LEVEL
 NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi)
@@ -212,7 +254,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
           {
           case XEN_NETIF_GSO_TYPE_TCPV4:
 //KdPrint((__DRIVER_NAME "     GSO_TYPE_TCPV4 detected\n"));
-//            NDIS_PER_PACKET_INFO_FROM_PACKET(packets[packet_count], TcpLargeSendPacketInfo) = (PVOID)(xen_ulong_t)(ei->u.gso.size);
+            NDIS_PER_PACKET_INFO_FROM_PACKET(packets[packet_count], TcpLargeSendPacketInfo) = (PVOID)(xen_ulong_t)(ei->u.gso.size);
             break;
           default:
             KdPrint((__DRIVER_NAME "     Unknown GSO type (%d) detected\n", ei->u.gso.type));
@@ -243,6 +285,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
           NdisAllocatePacket(&status, &packets[packet_count], xi->packet_pool);
           ASSERT(status == NDIS_STATUS_SUCCESS);
           NDIS_SET_PACKET_HEADER_SIZE(packets[packet_count], XN_HDR_SIZE);
+          NDIS_PER_PACKET_INFO_FROM_PACKET(packets[packet_count], TcpLargeSendPacketInfo) = 0;
           if (rxrsp->flags & (NETRXF_csum_blank|NETRXF_data_validated)) // and we are enabled for offload...
           {
             csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(packets[packet_count], TcpIpChecksumPacketInfo);
@@ -253,7 +296,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
             ProfCount_RxPacketsCsumOffload++;
 #endif
           }
-          // we also need to manually split gso packets that we receive that originated on our side of the physical interface...
         }
         else
         {
@@ -279,6 +321,13 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 #endif
         xi->stat_rx_ok++;
         NDIS_SET_PACKET_STATUS(packets[packet_count], NDIS_STATUS_SUCCESS);
+
+        if (total_packet_length > xi->config_mtu + XN_HDR_SIZE)
+        {
+          KdPrint((__DRIVER_NAME "     total_packet_length %d, config_mtu = %d\n", total_packet_length, xi->config_mtu));
+          XenNet_SplitRxPacket(packets, &packet_count, total_packet_length);
+        }
+
         packet_count++;
       }
     }

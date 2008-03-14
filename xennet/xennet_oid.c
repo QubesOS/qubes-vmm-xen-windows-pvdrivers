@@ -87,9 +87,7 @@ XenNet_QueryInformation(
   PNDIS_TASK_OFFLOAD_HEADER ntoh;
   PNDIS_TASK_OFFLOAD nto;
   PNDIS_TASK_TCP_IP_CHECKSUM nttic;
-#ifdef OFFLOAD_LARGE_SEND
   PNDIS_TASK_TCP_LARGE_SEND nttls;
-#endif
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -157,11 +155,7 @@ XenNet_QueryInformation(
       len = 2;
       break;
     case OID_GEN_MAXIMUM_TOTAL_SIZE:
-#if !defined(OFFLOAD_LARGE_SEND)
-      temp_data = XN_MAX_PKT_SIZE;
-#else
-      temp_data = MAX_LARGE_SEND_OFFLOAD;
-#endif
+      temp_data = xi->config_max_pkt_size;
       break;
     case OID_GEN_MAC_OPTIONS:
       temp_data = NDIS_MAC_OPTION_COPY_LOOKAHEAD_DATA | 
@@ -219,10 +213,12 @@ XenNet_QueryInformation(
 
       len += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
         + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
-#ifdef OFFLOAD_LARGE_SEND
-      len += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
-        + sizeof(NDIS_TASK_TCP_LARGE_SEND);
-#endif
+
+      if (xi->config_gso)
+      {
+        len += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+          + sizeof(NDIS_TASK_TCP_LARGE_SEND);
+      }
 
       if (len > InformationBufferLength)
       {
@@ -267,26 +263,28 @@ XenNet_QueryInformation(
       nttic->V6Receive.TcpChecksum = 0;
       nttic->V6Receive.UdpChecksum = 0;
 
-#ifdef OFFLOAD_LARGE_SEND
-      /* offset from start of current NTO to start of next NTO */
-      nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
-        + nto->TaskBufferLength;
+      if (xi->config_gso)
+      {
+        /* offset from start of current NTO to start of next NTO */
+        nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+          + nto->TaskBufferLength;
+  
+        /* fill in second nto */
+        nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
+        nto->Version = NDIS_TASK_OFFLOAD_VERSION;
+        nto->Size = sizeof(NDIS_TASK_OFFLOAD);
+        nto->Task = TcpLargeSendNdisTask;
+        nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_LARGE_SEND);
+  
+        /* fill in large send struct */
+        nttls = (PNDIS_TASK_TCP_LARGE_SEND)nto->TaskBuffer;
+        nttls->Version = 0;
+        nttls->MaxOffLoadSize = xi->config_gso;
+        nttls->MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
+        nttls->TcpOptions = TRUE;
+        nttls->IpOptions = TRUE;
+      }
 
-      /* fill in second nto */
-      nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
-      nto->Version = NDIS_TASK_OFFLOAD_VERSION;
-      nto->Size = sizeof(NDIS_TASK_OFFLOAD);
-      nto->Task = TcpLargeSendNdisTask;
-      nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_LARGE_SEND);
-
-      /* fill in large send struct */
-      nttls = (PNDIS_TASK_TCP_LARGE_SEND)nto->TaskBuffer;
-      nttls->Version = 0;
-      nttls->MaxOffLoadSize = MAX_LARGE_SEND_OFFLOAD;
-      nttls->MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
-      nttls->TcpOptions = TRUE;
-      nttls->IpOptions = TRUE;
-#endif
       nto->OffsetNextTask = 0; /* last one */
 
       used_temp_buffer = FALSE;
@@ -337,9 +335,7 @@ XenNet_SetInformation(
   PNDIS_TASK_OFFLOAD_HEADER ntoh;
   PNDIS_TASK_OFFLOAD nto;
   PNDIS_TASK_TCP_IP_CHECKSUM nttic;
-#ifdef OFFLOAD_LARGE_SEND
   PNDIS_TASK_TCP_LARGE_SEND nttls;
-#endif
   int offset;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));

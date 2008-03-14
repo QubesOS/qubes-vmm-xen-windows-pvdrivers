@@ -40,12 +40,42 @@ ExcludeFromSelect=*
 [XenNet_Inst.NT]
 CopyFiles=XenNet.CopyFiles
 Characteristics = 0x1 ; NCF_VIRTUAL
-AddReg = XenNet_Reg
+AddReg = XenNet_Reg, XenNet_Params
 
 [XenNet_Reg]
 HKR, Ndi, Service, 0, "XenNet"
 HKR, Ndi\Interfaces, UpperRange, 0, "ndis5"
 HKR, Ndi\Interfaces, LowerRange, 0, "ethernet"
+
+[XenNet_Params]
+HKR, Ndi\Params\MTU, ParamDesc, , "MTU"
+HKR, Ndi\Params\MTU, default, , "1500"
+HKR, Ndi\Params\MTU, type, , "dword"
+HKR, Ndi\Params\MTU, min, , "1500"
+HKR, Ndi\Params\MTU, max, , "9000"
+HKR, Ndi\Params\MTU, step, , "500"
+HKR, Ndi\Params\MTU, base, , "10"
+
+HKR, Ndi\Params\ChecksumOffload, ParamDesc, , "Checksum Offload"
+HKR, Ndi\Params\ChecksumOffload, default, , "1"
+HKR, Ndi\Params\ChecksumOffload, type, , "enum"
+HKR, Ndi\Params\ChecksumOffload\enum, 0, , "Disabled"
+HKR, Ndi\Params\ChecksumOffload\enum, 1, , "Enabled"
+
+HKR, Ndi\Params\LargeSendOffload, ParamDesc, , "Large Send Offload"
+HKR, Ndi\Params\LargeSendOffload, default, , "65535"
+HKR, Ndi\Params\LargeSendOffload, type, , "enum"
+HKR, Ndi\Params\LargeSendOffload\enum, 0, , "Disabled"
+HKR, Ndi\Params\LargeSendOffload\enum, 8192, , "8192"
+HKR, Ndi\Params\LargeSendOffload\enum, 16384, , "16384"
+HKR, Ndi\Params\LargeSendOffload\enum, 32768, , "32768"
+HKR, Ndi\Params\LargeSendOffload\enum, 61440, , "61440"
+
+HKR, Ndi\Params\ScatterGather, ParamDesc, , "Scatter/Gather"
+HKR, Ndi\Params\ScatterGather, default, , "1"
+HKR, Ndi\Params\ScatterGather, type, , "enum"
+HKR, Ndi\Params\ScatterGather\enum, 0, , "Disabled"
+HKR, Ndi\Params\ScatterGather\enum, 1, , "Enabled"
 
 [XenNet.CopyFiles]
 xennet.sys

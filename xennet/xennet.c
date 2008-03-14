@@ -201,21 +201,21 @@ XenNet_Init(
     {"tx-ring-ref", 0},
     {"rx-ring-ref", 0},
     {"event-channel", 0},
+    {"feature-no-csum-offload", 1},
+    {"feature-sg", 1},
+    {"feature-gso-tcpv4", 1},
     {"request-rx-copy", 1},
     {"feature-rx-notify", 1},
-//    {"feature-no-csum-offload", 1},
-    {"feature-sg", 1},
-#if defined(OFFLOAD_LARGE_SEND)
-    {"feature-gso-tcpv4", 1},
-#endif
     {NULL, 0},
   };
   int retry = 0;
   char *err;
   xenbus_transaction_t xbt = 0;
+  NDIS_HANDLE config_handle;
+  NDIS_STRING config_param_name;
+  PNDIS_CONFIGURATION_PARAMETER config_param;
 
   UNREFERENCED_PARAMETER(OpenErrorStatus);
-  UNREFERENCED_PARAMETER(WrapperConfigurationContext);
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
@@ -251,6 +251,70 @@ XenNet_Init(
   xi->rx_target     = RX_DFL_MIN_TARGET;
   xi->rx_min_target = RX_DFL_MIN_TARGET;
   xi->rx_max_target = RX_MAX_TARGET;
+
+  NdisOpenConfiguration(&status, &config_handle, WrapperConfigurationContext);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Could not open config in registry (%08x)\n", status));
+    goto err;
+  }
+
+  NdisInitUnicodeString(&config_param_name, L"ScatterGather");
+  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Could not read ScatterGather value (%08x)\n", status));
+    xi->config_sg = 1;
+  }
+  else
+  {
+    KdPrint(("ScatterGather = %d\n", config_param->ParameterData.IntegerData));
+    xi->config_sg = config_param->ParameterData.IntegerData;
+  }
+  
+  NdisInitUnicodeString(&config_param_name, L"LargeSendOffload");
+  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Could not read LargeSendOffload value (%08x)\n", status));
+    xi->config_gso = 1;
+  }
+  else
+  {
+    KdPrint(("LargeSendOffload = %d\n", config_param->ParameterData.IntegerData));
+    xi->config_gso = config_param->ParameterData.IntegerData;
+    ASSERT(xi->config_gso <= 61440);
+  }
+
+  NdisInitUnicodeString(&config_param_name, L"ChecksumOffload");
+  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Could not read ChecksumOffload value (%08x)\n", status));
+    xi->config_csum = 1;
+  }
+  else
+  {
+    KdPrint(("ChecksumOffload = %d\n", config_param->ParameterData.IntegerData));
+    xi->config_csum = config_param->ParameterData.IntegerData;
+  }
+
+  NdisInitUnicodeString(&config_param_name, L"MTU");
+  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);  
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Could not read MTU value (%08x)\n", status));
+    xi->config_mtu = 1500;
+  }
+  else
+  {
+    KdPrint(("MTU = %d\n", config_param->ParameterData.IntegerData));
+    xi->config_mtu = config_param->ParameterData.IntegerData;
+  }
+
+  xi->config_max_pkt_size = max(xi->config_mtu + XN_HDR_SIZE, xi->config_gso + XN_HDR_SIZE);
+  
+  NdisCloseConfiguration(config_handle);
 
   xi->state = XenbusStateUnknown;
   xi->backend_state = XenbusStateUnknown;
@@ -297,14 +361,16 @@ XenNet_Init(
     0, (NDIS_ATTRIBUTE_DESERIALIZE | NDIS_ATTRIBUTE_BUS_MASTER),
     NdisInterfaceInternal);
 
-  status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE, XN_MAX_PKT_SIZE);
-  if (!NT_SUCCESS(status))
+  if (xi->config_sg)
   {
-    KdPrint(("NdisMInitializeScatterGatherDma failed with 0x%x\n", status));
-    status = NDIS_STATUS_FAILURE;
-    goto err;
+    status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE, xi->config_max_pkt_size);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint(("NdisMInitializeScatterGatherDma failed with 0x%x\n", status));
+      status = NDIS_STATUS_FAILURE;
+      goto err;
+    }
   }
-
   WDF_OBJECT_ATTRIBUTES_INIT(&wdf_attrs);
 
   status = WdfDeviceMiniportCreate(WdfGetDriver(), &wdf_attrs, xi->fdo,
@@ -371,6 +437,9 @@ XenNet_Init(
   params[0].value = xi->tx_ring_ref;
   params[1].value = xi->rx_ring_ref;
   params[2].value = xi->event_channel;
+  params[3].value = !xi->config_csum;
+  params[4].value = xi->config_sg;
+  params[5].value = !!xi->config_gso;
   xi->XenInterface.XenBus_StartTransaction(
     xi->XenInterface.InterfaceHeader.Context, &xbt);
 
