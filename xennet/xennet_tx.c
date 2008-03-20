@@ -376,7 +376,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       put_gref_on_freelist(xi, xi->tx_grefs[id]);
       xi->tx_grefs[id] = 0;
       put_id_on_freelist(xi, id);
-      xi->tx_outstanding++;
+      xi->tx_outstanding--;
     }
 
     xi->tx.rsp_cons = prod;
@@ -438,7 +438,7 @@ XenNet_SendPackets(
     *(ULONG *)&packet->MiniportReservedEx = 0;
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(&xi->tx_waiting_pkt_list, entry);
-    xi->tx_outstanding--;
+    xi->tx_outstanding++;
 #if defined(XEN_PROFILE)
     ProfCount_PacketsPerSendPackets++;
 #endif
