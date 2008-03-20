@@ -146,16 +146,11 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   while (entry != &xi->tx_waiting_pkt_list)
   {
     ASSERT(cycles++ < 256);
-//KdPrint((__DRIVER_NAME "     Packet ready to send\n"));
+    //KdPrint((__DRIVER_NAME "     Packet ready to send\n"));
     packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
     NdisQueryPacket(packet, NULL, NULL, &first_buffer, &total_packet_length);
     sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
-/*
-    for (i = 0; i < sg_list->NumberOfElements; i++)
-    {
-      KdPrint((__DRIVER_NAME "     sg entry %d - start = %08x, length = %d\n", i, sg_list->Elements[i].Address.LowPart, sg_list->Elements[i].Length));
-    }
-*/
+
     i = 0;
     sg_num = 0;
     remaining = 0;
@@ -165,36 +160,38 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
     offset = 0;
     while (sg_num < sg_list->NumberOfElements || remaining || (i == 1 && mss))
     {
-//KdPrint((__DRIVER_NAME "     i = %d\n", i));
+      //KdPrint((__DRIVER_NAME "     i = %d\n", i));
       ASSERT(cycles++ < 256);
       if (i == 1 && mss)
       {
-//KdPrint((__DRIVER_NAME "     Start of loop - Large Send...\n"));
+        //KdPrint((__DRIVER_NAME "     Start of loop - Large Send...\n"));
         length = 0;
       }
       else if (remaining == 0)
       {
         mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
         if (total_packet_length <= mss)
+        {
           mss = 0;
-//if (mss)
-//KdPrint((__DRIVER_NAME "     Start of loop - First Frag in sg...\n"));
+        }
+        //if (mss)
+        //KdPrint((__DRIVER_NAME "     Start of loop - First Frag in sg...\n"));
         curr_addr = sg_list->Elements[sg_num].Address.QuadPart;
         offset = (USHORT)(sg_list->Elements[sg_num].Address.QuadPart & (PAGE_SIZE - 1));
         remaining = (USHORT)sg_list->Elements[sg_num].Length;
         length = min(remaining, PAGE_SIZE - offset);
-//if (mss)
-//KdPrint((__DRIVER_NAME "     sg entry %d - start = %08x, length = %d\n", sg_num, (ULONG)curr_addr, length));
+        //if (mss)
+        //KdPrint((__DRIVER_NAME "     sg entry %d - start = %08x, length = %d\n", sg_num, (ULONG)curr_addr, length));
         sg_num++;
       }
       else
       {
-//if (mss)
-//KdPrint((__DRIVER_NAME "     Start of loop - Subsequent Frag in sg...\n"));
+        //if (mss)
+        //KdPrint((__DRIVER_NAME "     Start of loop - Subsequent Frag in sg...\n"));
         offset = 0;
         length = min(remaining, PAGE_SIZE);
-//if (mss)
-//KdPrint((__DRIVER_NAME "     sg entry %d - start = %08x, length = %d\n", sg_num, (ULONG)curr_addr, length));
+        //if (mss)
+        //KdPrint((__DRIVER_NAME "     sg entry %d - start = %08x, length = %d\n", sg_num, (ULONG)curr_addr, length));
       }
       remaining = remaining - length;
       pfn = (ULONG)(curr_addr >> PAGE_SHIFT);
@@ -207,7 +204,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
         id = get_id_from_freelist(xi);
         if (id == 0xFFFF)
         {
-KdPrint((__DRIVER_NAME "     Out of space...\n"));
+          KdPrint((__DRIVER_NAME "     Out of space...\n"));
           /* whups, out of space on the ring. requeue and get out */
           InsertHeadList(&xi->tx_waiting_pkt_list, entry);
           break;
@@ -229,8 +226,8 @@ KdPrint((__DRIVER_NAME "     Out of space...\n"));
         tx->flags = 0;
         if (i == 1) // we have already incremented i!!!
         {
-//if (mss)
-//KdPrint((__DRIVER_NAME "     First Frag in packet...\n"));
+          //if (mss)
+          //KdPrint((__DRIVER_NAME "     First Frag in packet...\n"));
           tx->size = (USHORT)total_packet_length;
 #if defined(XEN_PROFILE)
           ProfCount_TxPacketsTotal++;
@@ -246,7 +243,7 @@ KdPrint((__DRIVER_NAME "     Out of space...\n"));
           if (mss)
           {
             XenNet_SumHeader(first_buffer);
-//KdPrint((__DRIVER_NAME "     Large Send Offload - mss = %d, length = %d\n", mss, total_packet_length));
+            //KdPrint((__DRIVER_NAME "     Large Send Offload - mss = %d, length = %d\n", mss, total_packet_length));
             tx->flags |= NETTXF_extra_info|NETTXF_csum_blank|NETTXF_data_validated;
 #if defined(XEN_PROFILE)
             ProfCount_TxPacketsLargeOffload++;
@@ -255,20 +252,20 @@ KdPrint((__DRIVER_NAME "     Out of space...\n"));
         }
         else
         {
-//if (mss)
-//KdPrint((__DRIVER_NAME "     Subsequent Frag in packet...\n"));
+          //if (mss)
+          //KdPrint((__DRIVER_NAME "     Subsequent Frag in packet...\n"));
           tx->size = length;
         }
         if (sg_num == sg_list->NumberOfElements && remaining == 0)
         {
-//if (mss)
-//KdPrint((__DRIVER_NAME "     No more frags\n"));
+          //if (mss)
+          //KdPrint((__DRIVER_NAME "     No more frags\n"));
           xi->tx_pkts[id] = packet; /* only set the packet on the last buffer */
         }
         else
         {
-//if (mss)
-//KdPrint((__DRIVER_NAME "     More frags\n"));
+          //if (mss)
+          //KdPrint((__DRIVER_NAME "     More frags\n"));
           tx->flags |= NETTXF_more_data;
         }
       }
@@ -277,13 +274,13 @@ KdPrint((__DRIVER_NAME "     Out of space...\n"));
         id = get_no_id_from_freelist(xi);
         if (id == 0xFFFF)
         {
-KdPrint((__DRIVER_NAME "     Out of space...\n"));
+          KdPrint((__DRIVER_NAME "     Out of space...\n"));
           /* whups, out of space on the ring. requeue and get out */
           InsertHeadList(&xi->tx_waiting_pkt_list, entry);
           break;
         }
-//if (mss)
-//KdPrint((__DRIVER_NAME "     Extra Info...\n"));
+        //if (mss)
+        //KdPrint((__DRIVER_NAME "     Extra Info...\n"));
         (*(ULONG *)&packet->MiniportReservedEx)++;
         ei = (struct netif_extra_info *)RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
         ei->type = XEN_NETIF_EXTRA_TYPE_GSO;
