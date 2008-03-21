@@ -159,28 +159,29 @@ XenHide_AddDevice(
   PDEVICE_OBJECT deviceObject = NULL;
   PDEVICE_EXTENSION DeviceExtension;
   ULONG Length;
-  WCHAR Buffer[1000];
+  WCHAR Buffer[256];
   size_t StrLen;
   int Match;
   PWCHAR Ptr;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  Length = 1000;
+  Length = sizeof(Buffer);
   status = IoGetDeviceProperty(PhysicalDeviceObject, DevicePropertyHardwareID, Length, Buffer, &Length);
 //  KdPrint((__DRIVER_NAME " status = %08x, DevicePropertyHardwareID, = %ws\n", status, Buffer));
   if (!NT_SUCCESS(status))
     return STATUS_SUCCESS;
 
+  /* does end of HwID match PNP0A03? */
   Match = 0;
-  StrLen = 0;
-  for (Ptr = Buffer; *Ptr != 0; Ptr += StrLen + 1)
+  RtlStringCchLengthW(Buffer, Length/2, &StrLen); // get strlen in wchars
+  if (StrLen >= 7)
   {
-    if (wcscmp(Ptr, L"*PNP0A03") == 0) {
+    Ptr = Buffer + (StrLen - 7);
+    if (wcscmp(Ptr, L"PNP0A03") == 0)
+    {
       Match = 1;
-      break;
     }
-    RtlStringCchLengthW(Ptr, Length, &StrLen);
   }
   if (!Match)
     return STATUS_SUCCESS;
@@ -251,7 +252,7 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
 {
   ULONG i, j;
   PDEVICE_RELATIONS Relations;
-  WCHAR Buffer[1000];
+  WCHAR Buffer[256];
   PWCHAR Ptr;
   ULONG Length;
   size_t StrLen;
