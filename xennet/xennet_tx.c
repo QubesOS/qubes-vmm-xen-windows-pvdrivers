@@ -71,9 +71,9 @@ put_gref_on_freelist(struct xennet_info *xi, grant_ref_t gref)
 #define SWAP_USHORT(x) (USHORT)((((x & 0xFF) << 8)|((x >> 8) & 0xFF)))
 
 /*
- * Windows assumes that if we can do large send offload then we can
- * do IP header csum offload, so we have to fake it!
- */
+ Windows assumes that if we can do large send offload then we can
+ do IP header csum offload, so we have to fake it!
+*/
 VOID
 XenNet_SumHeader(
  PMDL mdl /* first buffer of the packet - containing the header */
