@@ -94,10 +94,29 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define XN_VENDOR_DESC "Xensource"
 #define MAX_XENBUS_STR_LEN 128
 
-
 #define RX_MIN_TARGET 8
 #define RX_DFL_MIN_TARGET 128
 #define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
+
+#define MAX_BUFFERS_PER_PACKET 32
+
+
+typedef struct {
+  PNDIS_BUFFER mdls[MAX_BUFFERS_PER_PACKET];
+  ULONG mdl_count;
+  USHORT mss;
+  NDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
+  BOOLEAN csum_calc_required;
+  BOOLEAN split_required;
+  UCHAR ip_version;
+  USHORT total_length;
+  USHORT ip4_header_length;
+  USHORT ip4_length;
+  USHORT tcp_header_length;
+  USHORT tcp_length;
+  BOOLEAN extra_info;
+  BOOLEAN more_frags;
+} rx_packet_info_t;
 
 struct xennet_info
 {
@@ -154,10 +173,14 @@ struct xennet_info
   PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
   PMDL page_list[NET_RX_RING_SIZE];
   ULONG page_free;
+
+  rx_packet_info_t rx;
+/*
   PNDIS_PACKET rx_current_packet;
   PMDL rx_first_mdl;
   USHORT rx_extra_info;
   USHORT rx_first_buffer_length;
+*/
 
   /* Receive-ring batched refills. */
   ULONG rx_target;
