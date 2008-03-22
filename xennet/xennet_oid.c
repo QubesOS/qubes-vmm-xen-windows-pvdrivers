@@ -291,7 +291,6 @@ XenNet_QueryInformation(
         }
   
         /* fill in second nto */
-        nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
         nto->Version = NDIS_TASK_OFFLOAD_VERSION;
         nto->Size = sizeof(NDIS_TASK_OFFLOAD);
         nto->Task = TcpLargeSendNdisTask;

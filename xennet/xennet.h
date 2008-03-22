@@ -104,11 +104,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 typedef struct {
   PNDIS_BUFFER mdls[MAX_BUFFERS_PER_PACKET];
   ULONG mdl_count;
+  USHORT curr_mdl;
+  USHORT curr_mdl_offset;
   USHORT mss;
   NDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
   BOOLEAN csum_calc_required;
   BOOLEAN split_required;
   UCHAR ip_version;
+  UCHAR ip_proto;
   USHORT total_length;
   USHORT ip4_header_length;
   USHORT ip4_length;
@@ -174,7 +177,7 @@ struct xennet_info
   PMDL page_list[NET_RX_RING_SIZE];
   ULONG page_free;
 
-  rx_packet_info_t rx;
+  rx_packet_info_t rxpi;
 /*
   PNDIS_PACKET rx_current_packet;
   PMDL rx_first_mdl;
