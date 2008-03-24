@@ -111,12 +111,15 @@ typedef struct {
   BOOLEAN csum_calc_required;
   BOOLEAN split_required;
   UCHAR ip_version;
+  PUCHAR header;
   UCHAR ip_proto;
   USHORT total_length;
   USHORT ip4_header_length;
   USHORT ip4_length;
   USHORT tcp_header_length;
   USHORT tcp_length;
+  USHORT tcp_remaining;
+  ULONG tcp_seq;
   BOOLEAN extra_info;
   BOOLEAN more_frags;
 } rx_packet_info_t;
