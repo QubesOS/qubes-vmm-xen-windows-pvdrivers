@@ -147,8 +147,12 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
 
 #define __NET_USHORT_BYTE_0(x) ((USHORT)(x & 0xFF))
 #define __NET_USHORT_BYTE_1(x) ((USHORT)((PUCHAR)&x)[1] & 0xFF)
-#define NET_USHORT(x) ((__NET_USHORT_BYTE_0(x) << 8) | __NET_USHORT_BYTE_1(x))
-#define NET_ULONG(x) ((NET_USHORT(x) << 16) | NET_USHORT(((PUCHAR)&x)[2]))
+
+#define GET_NET_USHORT(x) ((__NET_USHORT_BYTE_0(x) << 8) | __NET_USHORT_BYTE_1(x))
+#define SET_NET_USHORT(y, x) *((USHORT *)&(y)) = ((__NET_USHORT_BYTE_0(x) << 8) | __NET_USHORT_BYTE_1(x))
+
+#define GET_NET_ULONG(x) ((GET_NET_USHORT(x) << 16) | GET_NET_USHORT(((PUCHAR)&x)[2]))
+#define SET_NET_ULONG(y, x) *((ULONG *)&(y)) = ((GET_NET_USHORT(x) << 16) | GET_NET_USHORT(((PUCHAR)&x)[2]))
 
 static VOID
 XenNet_ParseHeader(
@@ -170,7 +174,7 @@ XenNet_ParseHeader(
     return;
   }
   
-  switch (NET_USHORT(xi->rxpi.header[12])) // L2 protocol field
+  switch (GET_NET_USHORT(xi->rxpi.header[12])) // L2 protocol field
   {
   case 0x0800:
     xi->rxpi.ip_version = (xi->rxpi.header[XN_HDR_SIZE + 0] & 0xF0) >> 4;
@@ -200,11 +204,11 @@ XenNet_ParseHeader(
   default:
     return;
   }
-  xi->rxpi.ip4_length = NET_USHORT(xi->rxpi.header[XN_HDR_SIZE + 2]);
+  xi->rxpi.ip4_length = GET_NET_USHORT(xi->rxpi.header[XN_HDR_SIZE + 2]);
   xi->rxpi.tcp_header_length = (xi->rxpi.header[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 12] & 0xf0) >> 2;
-  xi->rxpi.tcp_length = xi->rxpi.ip4_length - xi->rxpi.tcp_header_length;
+  xi->rxpi.tcp_length = xi->rxpi.ip4_length - xi->rxpi.ip4_header_length - xi->rxpi.tcp_header_length;
   xi->rxpi.tcp_remaining = xi->rxpi.tcp_length;
-  xi->rxpi.tcp_seq = NET_ULONG(xi->rxpi.header[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4]);
+  xi->rxpi.tcp_seq = GET_NET_ULONG(xi->rxpi.header[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4]);
   if (xi->rxpi.mss > 0 && xi->rxpi.tcp_length > xi->rxpi.mss)
     xi->rxpi.split_required = TRUE;
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
@@ -250,8 +254,8 @@ XenNet_SumPacket(
   remaining = xi->rxpi.ip4_length - xi->rxpi.ip4_header_length - xi->rxpi.tcp_header_length;
   // TODO: pre-calc a sum of the header...
   pre_csum = 0;
-  pre_csum += NET_USHORT(buffer[XN_HDR_SIZE + 12]) + NET_USHORT(buffer[XN_HDR_SIZE + 14]);
-  pre_csum += NET_USHORT(buffer[XN_HDR_SIZE + 16]) + NET_USHORT(buffer[XN_HDR_SIZE + 18]);
+  pre_csum += GET_NET_USHORT(buffer[XN_HDR_SIZE + 12]) + GET_NET_USHORT(buffer[XN_HDR_SIZE + 14]);
+  pre_csum += GET_NET_USHORT(buffer[XN_HDR_SIZE + 16]) + GET_NET_USHORT(buffer[XN_HDR_SIZE + 18]);
   pre_csum += ((USHORT)buffer[XN_HDR_SIZE + 9]);
 
   remaining = xi->rxpi.ip4_length - xi->rxpi.ip4_header_length;
@@ -288,8 +292,8 @@ XenNet_SumPacket(
         NdisQueryBufferSafe(mdl, &buffer, &buffer_length, NormalPagePriority);
         buffer_offset = 0;
       }
-      csum += NET_USHORT(buffer[buffer_offset]);
-//KdPrint((__DRIVER_NAME "     %04X\n", NET_USHORT(buffer[buffer_offset])));
+      csum += GET_NET_USHORT(buffer[buffer_offset]);
+//KdPrint((__DRIVER_NAME "     %04X\n", GET_NET_USHORT(buffer[buffer_offset])));
     }
   }
   if (i != total_length) // last odd byte
@@ -299,7 +303,7 @@ XenNet_SumPacket(
   }
   while (csum & 0xFFFF0000)
     csum = (csum & 0xFFFF) + (csum >> 16);
-  *csum_ptr = (USHORT)~NET_USHORT(csum);
+  *csum_ptr = (USHORT)~GET_NET_USHORT(csum);
 
   KdPrint((__DRIVER_NAME "     csum = %04x\n", *csum_ptr));
 
@@ -319,6 +323,8 @@ XenNet_GetData(
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   *length = min(req_length, MmGetMdlByteCount(mdl) - xi->rxpi.curr_mdl_offset);
+
+  KdPrint((__DRIVER_NAME "     req_length = %d, length = %d\n", req_length, *length));
 
   xi->rxpi.curr_mdl_offset += *length;
   if (xi->rxpi.curr_mdl_offset == MmGetMdlByteCount(mdl))
@@ -344,6 +350,7 @@ XenNet_MakePacket(
   USHORT out_offset;
   USHORT out_remaining;
   USHORT length;
+  USHORT new_ip4_length;
   NDIS_STATUS status;
   int i;
 
@@ -361,15 +368,15 @@ XenNet_MakePacket(
   }
   else
   {
-    KdPrint((__DRIVER_NAME "     splitting packet\n"));
     out_mdl = get_page_from_freelist(xi);
     out_buffer = MmGetMdlVirtualAddress(out_mdl);
     out_offset = XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
     out_remaining = min(xi->rxpi.mss, xi->rxpi.tcp_remaining);
     NdisAdjustBufferLength(out_mdl, out_offset + out_remaining);
     memcpy(out_buffer, xi->rxpi.header, out_offset);
-    out_buffer[XN_HDR_SIZE + 2] = NET_USHORT(out_remaining);
-    *((PULONG)&out_buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4]) = NET_ULONG(xi->rxpi.tcp_seq);
+    new_ip4_length = out_remaining + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
+    SET_NET_USHORT(out_buffer[XN_HDR_SIZE + 2], new_ip4_length);
+    SET_NET_ULONG(out_buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4], xi->rxpi.tcp_seq);
     xi->rxpi.tcp_seq += out_remaining;
     xi->rxpi.tcp_remaining -= out_remaining;
     do 
@@ -383,7 +390,8 @@ XenNet_MakePacket(
     NdisChainBufferAtBack(packet, out_mdl);
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (%p)\n", packet));
   return packet;
 }
 
@@ -409,7 +417,7 @@ XenNet_MakePackets(
   ULONG total_in_remaining;
   ULONG buffer_in_remaining;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "(packets = %p, packet_count = %d)\n", packets, *packet_count_p));
 
   XenNet_ParseHeader(xi);
   switch (xi->rxpi.ip_proto)
@@ -431,6 +439,7 @@ XenNet_MakePackets(
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (Other)\n"));
     return;
   }
+  KdPrint((__DRIVER_NAME "     splitting packet\n"));
   xi->rxpi.tcp_remaining = xi->rxpi.tcp_length;
   if (MmGetMdlByteCount(xi->rxpi.mdls[0]) > XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length)
     xi->rxpi.curr_mdl_offset = XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
@@ -439,14 +448,16 @@ XenNet_MakePackets(
 
   while (xi->rxpi.tcp_remaining)
   {
+    KdPrint((__DRIVER_NAME "     tcp_remaining = %d\n", xi->rxpi.tcp_remaining));
     packets[*packet_count_p] = XenNet_MakePacket(xi);
     XenNet_SumPacket(xi, packets[*packet_count_p]);
     (*packet_count_p)++;
   }
+  KdPrint((__DRIVER_NAME "     tcp_remaining = %d\n", xi->rxpi.tcp_remaining));
   // TODO: restore psh status to last packet
   for (i = 0; i < mdl_count; i++)
   {
-    NdisAdjustBufferLength(mdl, PAGE_SIZE);
+    NdisAdjustBufferLength(mdls[i], PAGE_SIZE);
     put_page_on_freelist(xi, mdls[i]);
   }
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (split)\n"));
@@ -551,7 +562,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       {
         XenNet_MakePackets(xi, packets, &packet_count);
         RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));
-        packet_count++;
       }
     }
     xi->rx.rsp_cons = prod;
@@ -603,7 +613,7 @@ XenNet_ReturnPacket(
   LARGE_INTEGER tsc, dummy;
 #endif
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (%p)\n", Packet));
 
 #if defined(XEN_PROFILE)
   tsc = KeQueryPerformanceCounter(&dummy);

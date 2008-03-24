@@ -211,8 +211,11 @@ XenNet_QueryInformation(
 
       len = sizeof(NDIS_TASK_OFFLOAD_HEADER);
 
-      len += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
-        + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+      if (xi->config_csum)
+      {
+        len += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+          + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+      }
 
       if (xi->config_gso)
       {
@@ -224,8 +227,11 @@ XenNet_QueryInformation(
       {
           break;
       }
+      KdPrint(("InformationBuffer = %p\n", InformationBuffer));
+      KdPrint(("len = %d\n", len));
 
       ntoh = (PNDIS_TASK_OFFLOAD_HEADER)InformationBuffer;
+      KdPrint(("ntoh = %p\n", ntoh));
       if (ntoh->Version != NDIS_TASK_OFFLOAD_VERSION
         || ntoh->Size != sizeof(*ntoh)
         || ntoh->EncapsulationFormat.Encapsulation != IEEE_802_3_Encapsulation)
@@ -238,6 +244,7 @@ XenNet_QueryInformation(
 
       if (xi->config_csum)
       {
+        KdPrint(("config_csum enabled\n"));
         if (ntoh->OffsetFirstTask == 0)
         {
           ntoh->OffsetFirstTask = ntoh->Size;
@@ -249,6 +256,7 @@ XenNet_QueryInformation(
             + nto->TaskBufferLength;
           nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
         }
+        KdPrint(("nto = %p\n", nto));
         /* fill in first nto */
         nto->Version = NDIS_TASK_OFFLOAD_VERSION;
         nto->Size = sizeof(NDIS_TASK_OFFLOAD);
@@ -278,6 +286,7 @@ XenNet_QueryInformation(
       }
       if (xi->config_gso)
       {
+        KdPrint(("config_gso enabled\n"));
         if (ntoh->OffsetFirstTask == 0)
         {
           ntoh->OffsetFirstTask = ntoh->Size;
@@ -289,6 +298,7 @@ XenNet_QueryInformation(
             + nto->TaskBufferLength;
           nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
         }
+        KdPrint(("nto = %p\n", nto));
   
         /* fill in second nto */
         nto->Version = NDIS_TASK_OFFLOAD_VERSION;
