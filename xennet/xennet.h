@@ -181,12 +181,6 @@ struct xennet_info
   ULONG page_free;
 
   rx_packet_info_t rxpi;
-/*
-  PNDIS_PACKET rx_current_packet;
-  PMDL rx_first_mdl;
-  USHORT rx_extra_info;
-  USHORT rx_first_buffer_length;
-*/
 
   /* Receive-ring batched refills. */
   ULONG rx_target;

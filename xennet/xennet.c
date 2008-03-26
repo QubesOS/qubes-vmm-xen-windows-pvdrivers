@@ -325,7 +325,7 @@ XenNet_Init(
 
   InitializeListHead(&xi->tx_waiting_pkt_list);
 
-  NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN,
+  NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN * 8,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
   if (status != NDIS_STATUS_SUCCESS)
   {

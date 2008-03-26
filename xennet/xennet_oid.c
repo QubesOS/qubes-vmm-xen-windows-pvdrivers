@@ -231,7 +231,6 @@ XenNet_QueryInformation(
       KdPrint(("len = %d\n", len));
 
       ntoh = (PNDIS_TASK_OFFLOAD_HEADER)InformationBuffer;
-      KdPrint(("ntoh = %p\n", ntoh));
       if (ntoh->Version != NDIS_TASK_OFFLOAD_VERSION
         || ntoh->Size != sizeof(*ntoh)
         || ntoh->EncapsulationFormat.Encapsulation != IEEE_802_3_Encapsulation)
@@ -239,29 +238,36 @@ XenNet_QueryInformation(
         status = NDIS_STATUS_NOT_SUPPORTED;
         break;
       }
+      KdPrint(("ntoh = %p\n", ntoh));
+      KdPrint(("ntoh->Size = %d\n", ntoh->Size));
       ntoh->OffsetFirstTask = 0; 
       nto = NULL;
 
       if (xi->config_csum)
       {
-        KdPrint(("config_csum enabled\n"));
         if (ntoh->OffsetFirstTask == 0)
         {
           ntoh->OffsetFirstTask = ntoh->Size;
+          KdPrint(("ntoh->OffsetFirstTask = %d\n", ntoh->OffsetFirstTask));
           nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + ntoh->OffsetFirstTask);
         }
         else
         {
           nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
             + nto->TaskBufferLength;
+          KdPrint(("nto->OffsetNextTask = %d\n", nto->OffsetNextTask));
           nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
         }
-        KdPrint(("nto = %p\n", nto));
         /* fill in first nto */
         nto->Version = NDIS_TASK_OFFLOAD_VERSION;
         nto->Size = sizeof(NDIS_TASK_OFFLOAD);
         nto->Task = TcpIpChecksumNdisTask;
         nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+
+        KdPrint(("config_csum enabled\n"));
+        KdPrint(("nto = %p\n", nto));
+        KdPrint(("nto->Size = %d\n", nto->Size));
+        KdPrint(("nto->TaskBufferLength = %d\n", nto->TaskBufferLength));
 
         /* fill in checksum offload struct */
         nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)nto->TaskBuffer;
@@ -286,25 +292,30 @@ XenNet_QueryInformation(
       }
       if (xi->config_gso)
       {
-        KdPrint(("config_gso enabled\n"));
         if (ntoh->OffsetFirstTask == 0)
         {
           ntoh->OffsetFirstTask = ntoh->Size;
+          KdPrint(("ntoh->OffsetFirstTask = %d\n", ntoh->OffsetFirstTask));
           nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + ntoh->OffsetFirstTask);
         }
         else
         {
           nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
             + nto->TaskBufferLength;
+          KdPrint(("nto->OffsetNextTask = %d\n", nto->OffsetNextTask));
           nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
         }
-        KdPrint(("nto = %p\n", nto));
   
         /* fill in second nto */
         nto->Version = NDIS_TASK_OFFLOAD_VERSION;
         nto->Size = sizeof(NDIS_TASK_OFFLOAD);
         nto->Task = TcpLargeSendNdisTask;
         nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_LARGE_SEND);
+
+        KdPrint(("config_gso enabled\n"));
+        KdPrint(("nto = %p\n", nto));
+        KdPrint(("nto->Size = %d\n", nto->Size));
+        KdPrint(("nto->TaskBufferLength = %d\n", nto->TaskBufferLength));
   
         /* fill in large send struct */
         nttls = (PNDIS_TASK_TCP_LARGE_SEND)nto->TaskBuffer;
@@ -369,7 +380,7 @@ XenNet_SetInformation(
   PNDIS_TASK_TCP_LARGE_SEND nttls;
   int offset;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
   UNREFERENCED_PARAMETER(InformationBufferLength);
@@ -502,7 +513,6 @@ XenNet_SetInformation(
       KdPrint(("Unsupported set OID_802_3_MAXIMUM_LIST_SIZE\n"));
       break;
     case OID_TCP_TASK_OFFLOAD:
-      // Just fake this for now... ultimately we need to manually calc rx checksum if offload is disabled by windows
       status = NDIS_STATUS_SUCCESS;
       KdPrint(("Set OID_TCP_TASK_OFFLOAD\n"));
       // we should disable everything here, then enable what has been set
@@ -559,6 +569,6 @@ XenNet_SetInformation(
       status = NDIS_STATUS_NOT_SUPPORTED;
       break;
   }
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
 }
