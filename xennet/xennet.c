@@ -278,13 +278,17 @@ XenNet_Init(
   if (!NT_SUCCESS(status))
   {
     KdPrint(("Could not read LargeSendOffload value (%08x)\n", status));
-    xi->config_gso = 1;
+    xi->config_gso = 0;
   }
   else
   {
     KdPrint(("LargeSendOffload = %d\n", config_param->ParameterData.IntegerData));
     xi->config_gso = config_param->ParameterData.IntegerData;
-    ASSERT(xi->config_gso <= 61440);
+    if (xi->config_gso > 61440)
+    {
+      xi->config_gso = 61440;
+      KdPrint(("(clipped to %d)\n", xi->config_gso));
+    }
   }
 
   NdisInitUnicodeString(&config_param_name, L"ChecksumOffload");
