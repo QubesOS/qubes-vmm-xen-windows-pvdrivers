@@ -28,6 +28,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define PC_INC(var)
 #endif
 
+static ULONG
+free_requests(struct xennet_info *xi)
+{
+  return xi->tx_id_free;
+}
+
 static USHORT
 get_id_from_freelist(struct xennet_info *xi)
 {
@@ -116,6 +122,34 @@ XenNet_SumHeader(
   ushorts[5] = SWAP_USHORT(~csum);
 }
 
+/* How many requests on the TX ring will this packet take? */
+static ULONG
+XenNet_RequestsNeeded(PNDIS_PACKET packet)
+{
+  int count = 0;
+  ULONG mss;
+  ULONG sg_num;
+  PSCATTER_GATHER_LIST sg_list;
+
+  mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
+  if (mss > 0)
+  {
+    count++; // extra_info
+  }
+
+  sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
+  ASSERT(ADDRESS_AND_SIZE_TO_SPAN_PAGES(sg_list->Elements[0].Address.QuadPart,
+    sg_list->Elements[0].Length) == 1);
+  for (sg_num = 0; sg_num < sg_list->NumberOfElements; sg_num++)
+  {
+    count += ADDRESS_AND_SIZE_TO_SPAN_PAGES(
+      sg_list->Elements[sg_num].Address.QuadPart,
+      sg_list->Elements[sg_num].Length);
+  }
+
+  return count;
+}
+
 /* Place a buffer on tx ring. */
 static struct netif_tx_request*
 XenNet_PutOnTxRing(struct xennet_info *xi, ULONGLONG addr, size_t len, uint16_t flags)
@@ -147,9 +181,7 @@ XenNet_PutOnTxRing(struct xennet_info *xi, ULONGLONG addr, size_t len, uint16_t 
   return tx;
 }
 
-
 /* Called at DISPATCH_LEVEL with tx_lock held */
-
 /*
  * Send one NDIS_PACKET. This may involve multiple entries on TX ring.
  */
@@ -161,7 +193,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
   PSCATTER_GATHER_LIST sg_list;
   UINT total_packet_length;
-  ULONG sg_num = 0;
+  ULONG sg_num;
   ULONG mss; // 0 if not using large send
   PMDL first_buffer;
   int cycles = 0;
@@ -170,7 +202,8 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   ULONG sg_elem_pages;
   ULONG sg_elem_page;
   ULONG chunk_len;
-  uint16_t flags;
+  uint16_t flags = NETTXF_more_data;
+  uint16_t csum_flags = 0;
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 
@@ -179,24 +212,37 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 
   NdisQueryPacket(packet, NULL, NULL, &first_buffer, &total_packet_length);
 
-  flags = NETTXF_more_data;
+  if (XenNet_RequestsNeeded(packet) > free_requests(xi))
+  {
+    return FALSE;
+  }
+
+  csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
+    packet, TcpIpChecksumPacketInfo);
+  if (csum_info->Transmit.NdisPacketTcpChecksum
+    || csum_info->Transmit.NdisPacketUdpChecksum)
+  {
+    csum_flags = NETTXF_csum_blank | NETTXF_data_validated;
+    PC_INC(ProfCount_TxPacketsCsumOffload);
+  }
+
   mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
   if (mss > 0)
   {
-    flags |= NETTXF_extra_info | NETTXF_csum_blank | NETTXF_data_validated;
+    flags |= NETTXF_extra_info;
     XenNet_SumHeader(first_buffer);
     PC_INC(ProfCount_TxPacketsLargeOffload);
   }
 
-  sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
-
   /*
-   * See io/netif.h. Must put (A) 1st packet, then (B) optional extra_info, then
-   * (C) rest of packets on the ring.
+   * See io/netif.h. Must put (A) 1st request, then (B) optional extra_info, then
+   * (C) rest of requests on the ring.
    */
+  sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
   /* (A) */
   tx = XenNet_PutOnTxRing(xi, sg_list->Elements[0].Address.QuadPart,
-    sg_list->Elements[0].Length, flags);
+    sg_list->Elements[0].Length, flags | csum_flags);
+  tx->size = (uint16_t)total_packet_length; /* 1st req size always tot pkt len */
   xi->tx.req_prod_pvt++;
 
   /* (B) */
@@ -227,17 +273,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     {
       chunk_len = min(sg_elem_len, PAGE_SIZE - BYTE_OFFSET(sg_elem_addr));
 
-      flags = NETTXF_more_data;
-      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
-        packet, TcpIpChecksumPacketInfo);
-      if (csum_info->Transmit.NdisPacketTcpChecksum
-        || csum_info->Transmit.NdisPacketUdpChecksum)
-      {
-        flags |= NETTXF_csum_blank | NETTXF_data_validated;
-        PC_INC(ProfCount_TxPacketsCsumOffload);
-      }
-
-      tx = XenNet_PutOnTxRing(xi, sg_elem_addr, chunk_len, flags);
+      tx = XenNet_PutOnTxRing(xi, sg_elem_addr, chunk_len, NETTXF_more_data | csum_flags);
 
       sg_elem_addr += chunk_len;
       sg_elem_len -= chunk_len;
