@@ -1,6 +1,6 @@
 @ECHO OFF
 
-ver | find "Version 5.0." > nul
+ver | find "Version 5.00." > nul
 if %ERRORLEVEL% == 0 goto ver_2k
 
 ver | find "Version 5.1." > nul

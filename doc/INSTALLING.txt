@@ -2,11 +2,17 @@ Please follow the steps here exactly. If you don't, you may be left with
 an unbootable machine (although 'Last known good configuration' should 
 make it bootable again). 
 
-0. If you are installing over a previous version where you installed the xenhide
+0a. If you are installing over a previous version where you installed the xenhide
 driver over the top of the windows PCI driver, make sure you install the system
 PCI driver back again. doing an Update Driver on xenhide and just clicking next
 should do this. It's probably a good idea to also uninstall all the xen drivers
 too before upgrading... ymmv.
+
+0b. If you are upgrading from a more recent version than the above, do the
+following (until I get upgrading definitely working properly):
+    i. Boot into non-GPLPV mode
+    ii. Remove C:\windows\system32\drivers\xen*.sys (*** EXCEPT xenhide.sys ***)
+    iii. Reboot, back into non-GPLPV mode again
 
 1. Copy the driver files that you built by following the BUILDING.txt 
 steps (or that you got from a binary dist), so that on your testing 
@@ -72,9 +78,9 @@ specifying /gplpv and doing something like the following in Dom0:
 xm block-attach mywindowsdomain phy:/dev/someblockdevice /dev/hdc w
 " 
 
-You need to specify the 'phy:' in your xen config file and in the
-block-attach line otherwise the backend doesn't seem to publish the block
-and sector sizes correctly. 
+For physical devices only, you need to specify the 'phy:' in your xen
+config file and in the block-attach line otherwise the backend doesn't
+seem to publish the block and sector sizes correctly.
 
 If you do the block-attach, then your block device should show up under 
 windows, and you can partition it etc. 
