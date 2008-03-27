@@ -211,8 +211,11 @@ XenNet_QueryInformation(
 
       len = sizeof(NDIS_TASK_OFFLOAD_HEADER);
 
-      len += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
-        + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+      if (xi->config_csum)
+      {
+        len += FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+          + sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+      }
 
       if (xi->config_gso)
       {
@@ -224,6 +227,8 @@ XenNet_QueryInformation(
       {
           break;
       }
+      KdPrint(("InformationBuffer = %p\n", InformationBuffer));
+      KdPrint(("len = %d\n", len));
 
       ntoh = (PNDIS_TASK_OFFLOAD_HEADER)InformationBuffer;
       if (ntoh->Version != NDIS_TASK_OFFLOAD_VERSION
@@ -233,48 +238,84 @@ XenNet_QueryInformation(
         status = NDIS_STATUS_NOT_SUPPORTED;
         break;
       }
-      ntoh->OffsetFirstTask = ntoh->Size;
+      KdPrint(("ntoh = %p\n", ntoh));
+      KdPrint(("ntoh->Size = %d\n", ntoh->Size));
+      ntoh->OffsetFirstTask = 0; 
+      nto = NULL;
 
-      /* fill in first nto */
-      nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + ntoh->OffsetFirstTask);
-      nto->Version = NDIS_TASK_OFFLOAD_VERSION;
-      nto->Size = sizeof(NDIS_TASK_OFFLOAD);
-      nto->Task = TcpIpChecksumNdisTask;
-      nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
+      if (xi->config_csum)
+      {
+        if (ntoh->OffsetFirstTask == 0)
+        {
+          ntoh->OffsetFirstTask = ntoh->Size;
+          KdPrint(("ntoh->OffsetFirstTask = %d\n", ntoh->OffsetFirstTask));
+          nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + ntoh->OffsetFirstTask);
+        }
+        else
+        {
+          nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+            + nto->TaskBufferLength;
+          KdPrint(("nto->OffsetNextTask = %d\n", nto->OffsetNextTask));
+          nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
+        }
+        /* fill in first nto */
+        nto->Version = NDIS_TASK_OFFLOAD_VERSION;
+        nto->Size = sizeof(NDIS_TASK_OFFLOAD);
+        nto->Task = TcpIpChecksumNdisTask;
+        nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
 
-      /* fill in checksum offload struct */
-      nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)nto->TaskBuffer;
-      nttic->V4Transmit.IpChecksum = 0;
-      nttic->V4Transmit.IpOptionsSupported = 0;
-      nttic->V4Transmit.TcpChecksum = 1;
-      nttic->V4Transmit.TcpOptionsSupported = 1;
-      nttic->V4Transmit.UdpChecksum = 1;
-      nttic->V4Receive.IpChecksum = 0;
-      nttic->V4Receive.IpOptionsSupported = 0;
-      nttic->V4Receive.TcpChecksum = 1;
-      nttic->V4Receive.TcpOptionsSupported = 1;
-      nttic->V4Receive.UdpChecksum = 1;
-      nttic->V6Transmit.IpOptionsSupported = 0;
-      nttic->V6Transmit.TcpOptionsSupported = 0;
-      nttic->V6Transmit.TcpChecksum = 0;
-      nttic->V6Transmit.UdpChecksum = 0;
-      nttic->V6Receive.IpOptionsSupported = 0;
-      nttic->V6Receive.TcpOptionsSupported = 0;
-      nttic->V6Receive.TcpChecksum = 0;
-      nttic->V6Receive.UdpChecksum = 0;
+        KdPrint(("config_csum enabled\n"));
+        KdPrint(("nto = %p\n", nto));
+        KdPrint(("nto->Size = %d\n", nto->Size));
+        KdPrint(("nto->TaskBufferLength = %d\n", nto->TaskBufferLength));
 
+        /* fill in checksum offload struct */
+        nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)nto->TaskBuffer;
+        nttic->V4Transmit.IpChecksum = 0;
+        nttic->V4Transmit.IpOptionsSupported = 0;
+        nttic->V4Transmit.TcpChecksum = 1;
+        nttic->V4Transmit.TcpOptionsSupported = 1;
+        nttic->V4Transmit.UdpChecksum = 1;
+        nttic->V4Receive.IpChecksum = 1;
+        nttic->V4Receive.IpOptionsSupported = 1;
+        nttic->V4Receive.TcpChecksum = 1;
+        nttic->V4Receive.TcpOptionsSupported = 1;
+        nttic->V4Receive.UdpChecksum = 1;
+        nttic->V6Transmit.IpOptionsSupported = 0;
+        nttic->V6Transmit.TcpOptionsSupported = 0;
+        nttic->V6Transmit.TcpChecksum = 0;
+        nttic->V6Transmit.UdpChecksum = 0;
+        nttic->V6Receive.IpOptionsSupported = 0;
+        nttic->V6Receive.TcpOptionsSupported = 0;
+        nttic->V6Receive.TcpChecksum = 0;
+        nttic->V6Receive.UdpChecksum = 0;
+      }
       if (xi->config_gso)
       {
-        /* offset from start of current NTO to start of next NTO */
-        nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
-          + nto->TaskBufferLength;
+        if (ntoh->OffsetFirstTask == 0)
+        {
+          ntoh->OffsetFirstTask = ntoh->Size;
+          KdPrint(("ntoh->OffsetFirstTask = %d\n", ntoh->OffsetFirstTask));
+          nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + ntoh->OffsetFirstTask);
+        }
+        else
+        {
+          nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
+            + nto->TaskBufferLength;
+          KdPrint(("nto->OffsetNextTask = %d\n", nto->OffsetNextTask));
+          nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
+        }
   
         /* fill in second nto */
-        nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
         nto->Version = NDIS_TASK_OFFLOAD_VERSION;
         nto->Size = sizeof(NDIS_TASK_OFFLOAD);
         nto->Task = TcpLargeSendNdisTask;
         nto->TaskBufferLength = sizeof(NDIS_TASK_TCP_LARGE_SEND);
+
+        KdPrint(("config_gso enabled\n"));
+        KdPrint(("nto = %p\n", nto));
+        KdPrint(("nto->Size = %d\n", nto->Size));
+        KdPrint(("nto->TaskBufferLength = %d\n", nto->TaskBufferLength));
   
         /* fill in large send struct */
         nttls = (PNDIS_TASK_TCP_LARGE_SEND)nto->TaskBuffer;
@@ -285,7 +326,8 @@ XenNet_QueryInformation(
         nttls->IpOptions = TRUE;
       }
 
-      nto->OffsetNextTask = 0; /* last one */
+      if (!nto)
+        nto->OffsetNextTask = 0; /* last one */
 
       used_temp_buffer = FALSE;
       break;
@@ -338,7 +380,7 @@ XenNet_SetInformation(
   PNDIS_TASK_TCP_LARGE_SEND nttls;
   int offset;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
   UNREFERENCED_PARAMETER(InformationBufferLength);
@@ -471,7 +513,6 @@ XenNet_SetInformation(
       KdPrint(("Unsupported set OID_802_3_MAXIMUM_LIST_SIZE\n"));
       break;
     case OID_TCP_TASK_OFFLOAD:
-      // Just fake this for now... ultimately we need to manually calc rx checksum if offload is disabled by windows
       status = NDIS_STATUS_SUCCESS;
       KdPrint(("Set OID_TCP_TASK_OFFLOAD\n"));
       // we should disable everything here, then enable what has been set
@@ -528,6 +569,6 @@ XenNet_SetInformation(
       status = NDIS_STATUS_NOT_SUPPORTED;
       break;
   }
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
 }

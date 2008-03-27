@@ -186,6 +186,7 @@ XenNet_Init(
   )
 {
   NDIS_STATUS status;
+  LARGE_INTEGER timeout;
   UINT i;
   BOOLEAN medium_found = FALSE;
   struct xennet_info *xi = NULL;
@@ -277,13 +278,17 @@ XenNet_Init(
   if (!NT_SUCCESS(status))
   {
     KdPrint(("Could not read LargeSendOffload value (%08x)\n", status));
-    xi->config_gso = 1;
+    xi->config_gso = 0;
   }
   else
   {
     KdPrint(("LargeSendOffload = %d\n", config_param->ParameterData.IntegerData));
     xi->config_gso = config_param->ParameterData.IntegerData;
-    ASSERT(xi->config_gso <= 61440);
+    if (xi->config_gso > 61440)
+    {
+      xi->config_gso = 61440;
+      KdPrint(("(clipped to %d)\n", xi->config_gso));
+    }
   }
 
   NdisInitUnicodeString(&config_param_name, L"ChecksumOffload");
@@ -324,7 +329,7 @@ XenNet_Init(
 
   InitializeListHead(&xi->tx_waiting_pkt_list);
 
-  NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN,
+  NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN * 8,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
   if (status != NDIS_STATUS_SUCCESS)
   {
@@ -478,9 +483,13 @@ XenNet_Init(
 
   // wait here for signal that we are all set up
   while (xi->backend_state != XenbusStateConnected)
-    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
+  {
+    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
+    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
+      KdPrint((__DRIVER_NAME "     Still Waiting for Connected...\n"));
+  }
 
-  KdPrint((__DRIVER_NAME "     Connected\n"));
+  KdPrint((__DRIVER_NAME "     Backend Connected\n"));
 
   /* get mac address */
   RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->backend_path);
@@ -562,6 +571,7 @@ XenNet_Halt(
   struct xennet_info *xi = MiniportAdapterContext;
   CHAR TmpPath[MAX_XENBUS_STR_LEN];
   PVOID if_cxt = xi->XenInterface.InterfaceHeader.Context;
+  LARGE_INTEGER timeout;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
@@ -574,8 +584,11 @@ XenNet_Halt(
   // wait for backend to set 'Closing' state
 
   while (xi->backend_state != XenbusStateClosing)
-    KeWaitForSingleObject(&xi->backend_state_change_event, Executive,
-      KernelMode, FALSE, NULL);
+  {
+    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
+    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
+      KdPrint((__DRIVER_NAME "     Still Waiting for Closing...\n"));
+  }
 
   // set frontend state to 'closed'
   xi->state = XenbusStateClosed;
@@ -584,8 +597,11 @@ XenNet_Halt(
 
   // wait for backend to set 'Closed' state
   while (xi->backend_state != XenbusStateClosed)
-    KeWaitForSingleObject(&xi->backend_state_change_event, Executive,
-      KernelMode, FALSE, NULL);
+  {
+    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
+    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
+      KdPrint((__DRIVER_NAME "     Still Waiting for Closed...\n"));
+  }
 
   // set frontend state to 'Initialising'
   xi->state = XenbusStateInitialising;
@@ -594,8 +610,11 @@ XenNet_Halt(
 
   // wait for backend to set 'InitWait' state
   while (xi->backend_state != XenbusStateInitWait)
-    KeWaitForSingleObject(&xi->backend_state_change_event, Executive,
-      KernelMode, FALSE, NULL);
+  {
+    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
+    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
+      KdPrint((__DRIVER_NAME "     Still Waiting for InitWait...\n"));
+  }
 
   // Disables the interrupt
   XenNet_Shutdown(xi);
