@@ -20,11 +20,19 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xennet.h"
 
+#define FREELIST_ID_ERROR 0xFFFF
+
+#ifdef XEN_PROFILE
+#define PC_INC(var) var++
+#else
+#define PC_INC(var)
+#endif
+
 static USHORT
 get_id_from_freelist(struct xennet_info *xi)
 {
   if (xi->tx_id_free - xi->tx_no_id_free == 0)
-    return 0xFFFF;
+    return FREELIST_ID_ERROR;
   xi->tx_id_free--;
   return xi->tx_id_list[xi->tx_id_free];
 }
@@ -33,7 +41,7 @@ static USHORT
 get_no_id_from_freelist(struct xennet_info *xi)
 {
   if (xi->tx_id_free - xi->tx_no_id_free == 0)
-    return 0xFFFF;
+    return FREELIST_ID_ERROR;
   xi->tx_no_id_free--;
   return 0;
 }
@@ -108,186 +116,147 @@ XenNet_SumHeader(
   ushorts[5] = SWAP_USHORT(~csum);
 }
 
+/* Place a buffer on tx ring. */
+static struct netif_tx_request*
+XenNet_PutOnTxRing(struct xennet_info *xi, ULONGLONG addr, size_t len, uint16_t flags)
+{
+  struct netif_tx_request *tx;
+  unsigned short id;
+  PFN_NUMBER pfn = (PFN_NUMBER)(addr >> PAGE_SHIFT);
+  ULONG offset = BYTE_OFFSET(addr);
+
+  id = get_id_from_freelist(xi);
+  /* TODO: check id against FREELIST_ID_ERROR */
+  ASSERT(xi->tx_pkts[id] == NULL);
+  tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+
+  tx->gref = get_gref_from_freelist(xi);
+  ASSERT(tx->gref != 0);
+  ASSERT(xi->tx_grefs[id] == 0);
+  xi->tx_grefs[id] = tx->gref;
+
+  xi->XenInterface.GntTbl_GrantAccess(
+    xi->XenInterface.InterfaceHeader.Context, 0,
+    pfn, FALSE, tx->gref);
+  tx->id = id;
+  tx->offset = (uint16_t)offset;
+  tx->size = (uint16_t)len;
+  tx->flags = flags;
+  PC_INC(ProfCount_TxPacketsTotal);
+
+  return tx;
+}
+
+
 /* Called at DISPATCH_LEVEL with tx_lock held */
 
+/*
+ * Send one NDIS_PACKET. This may involve multiple entries on TX ring.
+ */
 static BOOLEAN
 XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 {
-  struct netif_tx_request *tx;
+  struct netif_tx_request *tx = NULL;
   struct netif_extra_info *ei;
-  unsigned short id;
-#if defined(XEN_PROFILE)
-  LARGE_INTEGER tsc, dummy;
-#endif
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
-  
-  ULONG i = 0;
   PSCATTER_GATHER_LIST sg_list;
   UINT total_packet_length;
-  USHORT remaining = 0;
-  USHORT offset = 0;
-  USHORT length;
-  ULONGLONG curr_addr = 0;
   ULONG sg_num = 0;
-  ULONG pfn;
-  ULONG mss = 0;
+  ULONG mss; // 0 if not using large send
   PMDL first_buffer;
   int cycles = 0;
-
+  ULONGLONG sg_elem_addr;
+  ULONG sg_elem_len;
+  ULONG sg_elem_pages;
+  ULONG sg_elem_page;
+  ULONG chunk_len;
+  uint16_t flags;
 #if defined(XEN_PROFILE)
+  LARGE_INTEGER tsc, dummy;
+
   tsc = KeQueryPerformanceCounter(&dummy);
 #endif
 
   NdisQueryPacket(packet, NULL, NULL, &first_buffer, &total_packet_length);
+
+  flags = NETTXF_more_data;
+  mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
+  if (mss > 0)
+  {
+    flags |= NETTXF_extra_info | NETTXF_csum_blank | NETTXF_data_validated;
+    XenNet_SumHeader(first_buffer);
+    PC_INC(ProfCount_TxPacketsLargeOffload);
+  }
+
   sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
 
-  while (sg_num < sg_list->NumberOfElements || remaining || (i == 1 && mss))
+  /*
+   * See io/netif.h. Must put (A) 1st packet, then (B) optional extra_info, then
+   * (C) rest of packets on the ring.
+   */
+  /* (A) */
+  tx = XenNet_PutOnTxRing(xi, sg_list->Elements[0].Address.QuadPart,
+    sg_list->Elements[0].Length, flags);
+  xi->tx.req_prod_pvt++;
+
+  /* (B) */
+  if (mss > 0)
+  {
+    get_no_id_from_freelist(xi);
+    ei = (struct netif_extra_info *)RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+    ei->type = XEN_NETIF_EXTRA_TYPE_GSO;
+    ei->flags = NETTXF_more_data;
+    ei->u.gso.size = (USHORT) mss;
+    ei->u.gso.type = XEN_NETIF_GSO_TYPE_TCPV4;
+    ei->u.gso.pad = 0;
+    ei->u.gso.features = 0;
+
+    xi->tx.req_prod_pvt++;
+  }
+
+  /* (C) */
+  for (sg_num = 1; sg_num < sg_list->NumberOfElements; sg_num++)
   {
     //KdPrint((__DRIVER_NAME "     i = %d\n", i));
     ASSERT(cycles++ < 256);
-    if (i == 1 && mss)
-    {
-      //KdPrint((__DRIVER_NAME "     Start of loop - Large Send...\n"));
-      length = 0;
-    }
-    else if (remaining == 0)
-    {
-      mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
-      if (total_packet_length <= mss)
-      {
-        mss = 0;
-      }
-      //if (mss)
-      //KdPrint((__DRIVER_NAME "     Start of loop - First Frag in sg...\n"));
-      curr_addr = sg_list->Elements[sg_num].Address.QuadPart;
-      offset = (USHORT)(sg_list->Elements[sg_num].Address.QuadPart & (PAGE_SIZE - 1));
-      remaining = (USHORT)sg_list->Elements[sg_num].Length;
-      length = min(remaining, PAGE_SIZE - offset);
-      //if (mss)
-      //KdPrint((__DRIVER_NAME "     sg entry %d - start = %08x, length = %d\n", sg_num, (ULONG)curr_addr, length));
-      sg_num++;
-    }
-    else
-    {
-      //if (mss)
-      //KdPrint((__DRIVER_NAME "     Start of loop - Subsequent Frag in sg...\n"));
-      offset = 0;
-      length = min(remaining, PAGE_SIZE);
-      //if (mss)
-      //KdPrint((__DRIVER_NAME "     sg entry %d - start = %08x, length = %d\n", sg_num, (ULONG)curr_addr, length));
-    }
-    remaining = remaining - length;
-    pfn = (ULONG)(curr_addr >> PAGE_SHIFT);
-    curr_addr += length;
 
-    if (i++ < *(ULONG *)&packet->MiniportReservedEx)
-      continue;
-    if (length > 0)
+    sg_elem_addr = sg_list->Elements[sg_num].Address.QuadPart;
+    sg_elem_len = sg_list->Elements[sg_num].Length;
+    sg_elem_pages = ADDRESS_AND_SIZE_TO_SPAN_PAGES(sg_elem_addr, sg_elem_len);
+    for (sg_elem_page = 0; sg_elem_page < sg_elem_pages; sg_elem_page++)
     {
-      id = get_id_from_freelist(xi);
-      if (id == 0xFFFF)
-      {
-        KdPrint((__DRIVER_NAME "     Out of space...\n"));
-        /* whups, out of space on the ring. requeue and get out */
-        /* TODO: preallocate all ids so we can exit cleanly here? */
-        return FALSE;
-        //InsertHeadList(&xi->tx_waiting_pkt_list, entry);
-        //break;
-      }
-      ASSERT(xi->tx_pkts[id] == NULL);
-      (*(ULONG *)&packet->MiniportReservedEx)++;
-      tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+      chunk_len = min(sg_elem_len, PAGE_SIZE - BYTE_OFFSET(sg_elem_addr));
 
-      tx->gref = get_gref_from_freelist(xi);
-      ASSERT(tx->gref != 0);
-      ASSERT(xi->tx_grefs[id] == 0);
-      xi->tx_grefs[id] = tx->gref;
-
-      xi->XenInterface.GntTbl_GrantAccess(
-        xi->XenInterface.InterfaceHeader.Context, 0,
-        pfn, FALSE, tx->gref);
-      tx->id = id;
-      tx->offset = offset;
-      tx->flags = 0;
-      if (i != 1)
+      flags = NETTXF_more_data;
+      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
+        packet, TcpIpChecksumPacketInfo);
+      if (csum_info->Transmit.NdisPacketTcpChecksum
+        || csum_info->Transmit.NdisPacketUdpChecksum)
       {
-        //if (mss)
-        //KdPrint((__DRIVER_NAME "     Subsequent Frag in packet...\n"));
-        tx->size = length;
-      }
-      else // we have already incremented i!!!
-      {
-        //if (mss)
-        //KdPrint((__DRIVER_NAME "     First Frag in packet...\n"));
-        tx->size = (USHORT)total_packet_length;
-#if defined(XEN_PROFILE)
-        ProfCount_TxPacketsTotal++;
-#endif
-        csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
-          packet, TcpIpChecksumPacketInfo);
-        if (csum_info->Transmit.NdisPacketTcpChecksum
-          || csum_info->Transmit.NdisPacketUdpChecksum)
-        {
-          tx->flags |= NETTXF_csum_blank|NETTXF_data_validated;
-#if defined(XEN_PROFILE)
-          ProfCount_TxPacketsCsumOffload++;
-#endif
-        }
-
-        if (mss)
-        {
-          XenNet_SumHeader(first_buffer);
-          //KdPrint((__DRIVER_NAME "     Large Send Offload - mss = %d, length = %d\n", mss, total_packet_length));
-          tx->flags |= NETTXF_extra_info|NETTXF_csum_blank|NETTXF_data_validated;
-#if defined(XEN_PROFILE)
-          ProfCount_TxPacketsLargeOffload++;
-#endif
-        }
+        flags |= NETTXF_csum_blank | NETTXF_data_validated;
+        PC_INC(ProfCount_TxPacketsCsumOffload);
       }
 
-      if (sg_num == sg_list->NumberOfElements && remaining == 0)
-      {
-        //if (mss)
-        //KdPrint((__DRIVER_NAME "     No more frags\n"));
-        xi->tx_pkts[id] = packet; /* only set the packet on the last buffer */
-      }
-      else
-      {
-        //if (mss)
-        //KdPrint((__DRIVER_NAME "     More frags\n"));
-        tx->flags |= NETTXF_more_data;
-      }
+      tx = XenNet_PutOnTxRing(xi, sg_elem_addr, chunk_len, flags);
+
+      sg_elem_addr += chunk_len;
+      sg_elem_len -= chunk_len;
+
+      xi->tx.req_prod_pvt++;
     }
-    else
-    {
-      id = get_no_id_from_freelist(xi);
-      if (id == 0xFFFF)
-      {
-        KdPrint((__DRIVER_NAME "     Out of space...\n"));
-        /* whups, out of space on the ring. requeue and get out */
-        /* TODO: preallocate all ids so we can exit cleanly here? */
-        return FALSE;
-        //InsertHeadList(&xi->tx_waiting_pkt_list, entry);
-        //break;
-      }
-      //if (mss)
-      //KdPrint((__DRIVER_NAME "     Extra Info...\n"));
-      (*(ULONG *)&packet->MiniportReservedEx)++;
-      ei = (struct netif_extra_info *)RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
-      ei->type = XEN_NETIF_EXTRA_TYPE_GSO;
-      ei->flags = 0;
-      ei->u.gso.size = (USHORT)mss;
-      ei->u.gso.type = XEN_NETIF_GSO_TYPE_TCPV4;
-      ei->u.gso.pad = 0;
-      ei->u.gso.features = 0;
-    }
-    xi->tx.req_prod_pvt++;
   }
+
+  /* only set the packet on the last buffer, clear more_data */
+  ASSERT(tx);
+  ASSERT(tx->id);
+  xi->tx_pkts[tx->id] = packet;
+  tx->flags &= ~NETTXF_more_data;
 
   return TRUE;
 }
 
 /* Called at DISPATCH_LEVEL with tx_lock held */
+/* TODO: calc tx ring slots beforehand and abort if not enough available */
 
 static VOID
 XenNet_SendQueuedPackets(struct xennet_info *xi)
