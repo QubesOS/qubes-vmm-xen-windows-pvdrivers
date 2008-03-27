@@ -89,6 +89,9 @@ XenNet_QueryInformation(
   PNDIS_TASK_TCP_IP_CHECKSUM nttic;
   PNDIS_TASK_TCP_LARGE_SEND nttls;
 
+  *BytesNeeded = 0;
+  *BytesWritten = 0;
+
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   switch(Oid)
@@ -223,10 +226,13 @@ XenNet_QueryInformation(
           + sizeof(NDIS_TASK_TCP_LARGE_SEND);
       }
 
+      //len += 1024;
+
       if (len > InformationBufferLength)
       {
           break;
       }
+
       KdPrint(("InformationBuffer = %p\n", InformationBuffer));
       KdPrint(("len = %d\n", len));
 
@@ -324,9 +330,11 @@ XenNet_QueryInformation(
         nttls->MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
         nttls->TcpOptions = TRUE;
         nttls->IpOptions = TRUE;
+        KdPrint(("&(nttls->IpOptions) = %p\n", &(nttls->IpOptions)));
+        
       }
 
-      if (!nto)
+      if (nto)
         nto->OffsetNextTask = 0; /* last one */
 
       used_temp_buffer = FALSE;
@@ -345,7 +353,7 @@ XenNet_QueryInformation(
   if (len > InformationBufferLength)
   {
     *BytesNeeded = len;
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (BUFFER_TOO_SHORT)\n"));
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (BUFFER_TOO_SHORT %d > %d)\n", len, InformationBufferLength));
     return NDIS_STATUS_BUFFER_TOO_SHORT;
   }
 

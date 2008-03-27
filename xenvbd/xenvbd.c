@@ -534,7 +534,7 @@ XenVbd_WatchHandler(char *Path, PVOID DeviceExtension)
   KIRQL OldIrql;
   int i;
 
-  KdPrint((__DRIVER_NAME " --> WatchHandler (DeviceData = %p)\n", DeviceData));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "(DeviceData = %p)\n", DeviceData));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   KdPrint((__DRIVER_NAME "     Path = %s\n", Path));
@@ -554,7 +554,7 @@ XenVbd_WatchHandler(char *Path, PVOID DeviceExtension)
 
     KeAcquireSpinLock(&DeviceData->Lock, &OldIrql);
 
-    for (VacantTarget = NULL,i = 0; i < SCSI_BUSES * SCSI_TARGETS_PER_BUS; i++)
+    for (VacantTarget = NULL, i = 0; i < SCSI_BUSES * SCSI_TARGETS_PER_BUS; i++)
     {
       CurrentBus = i / SCSI_TARGETS_PER_BUS;
       CurrentTarget = i % SCSI_TARGETS_PER_BUS;
@@ -616,7 +616,7 @@ XenVbd_WatchHandler(char *Path, PVOID DeviceExtension)
   
   FreeSplitString(Bits, Count);
 
-  KdPrint((__DRIVER_NAME " <-- WatchHandler\n"));  
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));  
 
   return;
 }
