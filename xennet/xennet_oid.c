@@ -334,7 +334,7 @@ XenNet_QueryInformation(
         
       }
 
-      if (!nto)
+      if (nto)
         nto->OffsetNextTask = 0; /* last one */
 
       used_temp_buffer = FALSE;
