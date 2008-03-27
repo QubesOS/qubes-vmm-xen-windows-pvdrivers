@@ -292,7 +292,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 }
 
 /* Called at DISPATCH_LEVEL with tx_lock held */
-/* TODO: calc tx ring slots beforehand and abort if not enough available */
 
 static VOID
 XenNet_SendQueuedPackets(struct xennet_info *xi)
