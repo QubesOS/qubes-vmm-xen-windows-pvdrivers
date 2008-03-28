@@ -538,6 +538,7 @@ XenNet_SetInformation(
           *BytesRead += sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
           KdPrint(("TcpIpChecksumNdisTask\n"));
           nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)nto->TaskBuffer;
+          xi->setting_csum = *nttic;
           KdPrint(("  V4Transmit.IpOptionsSupported  = %d\n", nttic->V4Transmit.IpOptionsSupported));
           KdPrint(("  V4Transmit.TcpOptionsSupported = %d\n", nttic->V4Transmit.TcpOptionsSupported));
           KdPrint(("  V4Transmit.TcpChecksum         = %d\n", nttic->V4Transmit.TcpChecksum));
@@ -561,6 +562,7 @@ XenNet_SetInformation(
           *BytesRead += sizeof(NDIS_TASK_TCP_LARGE_SEND);
           KdPrint(("TcpLargeSendNdisTask\n"));
           nttls = (PNDIS_TASK_TCP_LARGE_SEND)nto->TaskBuffer;
+          xi->setting_max_offload = nttls->MaxOffLoadSize;
           KdPrint(("  MaxOffLoadSize                 = %d\n", nttls->MaxOffLoadSize));
           KdPrint(("  MinSegmentCount                = %d\n", nttls->MinSegmentCount));
           KdPrint(("  TcpOptions                     = %d\n", nttls->TcpOptions));

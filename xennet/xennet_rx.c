@@ -251,7 +251,7 @@ XenNet_SumIpHeader(
  This is only for TCP and UDP packets. IP checksums appear to be correct anyways.
 */
 static VOID
-XenNet_SumTcpPacket(
+XenNet_SumPacketData(
   struct xennet_info *xi,  
   PNDIS_PACKET packet
 )
@@ -283,12 +283,24 @@ XenNet_SumTcpPacket(
     KdPrint((__DRIVER_NAME "     Size Mismatch %d (ip4_length + XN_HDR_SIZE) != %d (total_length)\n", ip4_length + XN_HDR_SIZE, total_length));
   }
 
-  csum_ptr = (USHORT *)&buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 16];
+  switch (xi->rxpi.ip_proto)
+  {
+  case 6:
+    csum_ptr = (USHORT *)&buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 16];
+    break;
+  case 17:
+    csum_ptr = (USHORT *)&buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 6];
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     Don't know how to calc sum for IP Proto %d\n", xi->rxpi.ip_proto));
+    return;
+  }
+    
   *csum_ptr = 0;
 
   csum = 0;
-  csum += GET_NET_USHORT(buffer[XN_HDR_SIZE + 12]) + GET_NET_USHORT(buffer[XN_HDR_SIZE + 14]); // seq
-  csum += GET_NET_USHORT(buffer[XN_HDR_SIZE + 16]) + GET_NET_USHORT(buffer[XN_HDR_SIZE + 18]); // ack
+  csum += GET_NET_USHORT(buffer[XN_HDR_SIZE + 12]) + GET_NET_USHORT(buffer[XN_HDR_SIZE + 14]); // src
+  csum += GET_NET_USHORT(buffer[XN_HDR_SIZE + 16]) + GET_NET_USHORT(buffer[XN_HDR_SIZE + 18]); // dst
   csum += ((USHORT)buffer[XN_HDR_SIZE + 9]);
 
   remaining = ip4_length - xi->rxpi.ip4_header_length;
@@ -326,12 +338,10 @@ XenNet_SumTcpPacket(
         buffer_offset = 0;
       }
       csum += GET_NET_USHORT(buffer[buffer_offset]);
-//KdPrint((__DRIVER_NAME "     %04X\n", GET_NET_USHORT(buffer[buffer_offset])));
     }
   }
   if (i != total_length) // last odd byte
   {
-//KdPrint((__DRIVER_NAME "    *%04X\n", (USHORT)buffer[buffer_offset] << 8));
     csum += ((USHORT)buffer[buffer_offset] << 8);
   }
   while (csum & 0xFFFF0000)
@@ -451,7 +461,7 @@ XenNet_MakePackets(
   case 17:  // UDP
     packets[*packet_count_p] = XenNet_MakePacket(xi);
     if (xi->rxpi.csum_calc_required)
-      XenNet_SumTcpPacket(xi, packets[*packet_count_p]);
+      XenNet_SumPacketData(xi, packets[*packet_count_p]);
     (*packet_count_p)++;
 //    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (TCP/UDP)\n"));
     return;
@@ -472,7 +482,7 @@ XenNet_MakePackets(
   {
 //    KdPrint((__DRIVER_NAME "     tcp_remaining = %d\n", xi->rxpi.tcp_remaining));
     packets[*packet_count_p] = XenNet_MakePacket(xi);
-    XenNet_SumTcpPacket(xi, packets[*packet_count_p]);
+    XenNet_SumPacketData(xi, packets[*packet_count_p]);
     (*packet_count_p)++;
   }
   ASSERT(xi->rxpi.curr_mdl == xi->rxpi.mdl_count);
@@ -564,13 +574,16 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         ASSERT(rxrsp->id == id);
         if (!xi->rxpi.more_frags) // handling the packet's 1st buffer
         {
-          
+          if (rxrsp->flags & NETRXF_csum_blank)
+            xi->rxpi.csum_calc_required = TRUE;
+#if 0
           if (rxrsp->flags & (NETRXF_csum_blank|NETRXF_data_validated) && xi->config_csum)
           {
             //KdPrint((__DRIVER_NAME "     RX csum blank = %d, validated = %d\n", !!(rxrsp->flags & NETRXF_csum_blank), !!(rxrsp->flags & NETRXF_data_validated)));
             if (rxrsp->flags & NETRXF_csum_blank)
               xi->rxpi.csum_calc_required = TRUE;
           }
+#endif
         }
         NdisAdjustBufferLength(mdl, rxrsp->status);
         xi->rxpi.mdls[xi->rxpi.mdl_count++] = mdl;

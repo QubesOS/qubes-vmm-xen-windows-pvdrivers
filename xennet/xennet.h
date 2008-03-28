@@ -197,6 +197,9 @@ struct xennet_info
   ULONG config_gso;
   ULONG config_mtu;
 
+  NDIS_TASK_TCP_IP_CHECKSUM setting_csum;
+  ULONG setting_max_offload;
+
   /* config stuff calculated from the above */
   ULONG config_max_pkt_size;
 
