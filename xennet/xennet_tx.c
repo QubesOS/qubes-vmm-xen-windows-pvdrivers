@@ -89,7 +89,7 @@ put_gref_on_freelist(struct xennet_info *xi, grant_ref_t gref)
  * do IP header csum offload, so we have to fake it!
  */
 VOID
-XenNet_SumHeader(
+XenNet_SumIpHeader(
  PMDL mdl /* first buffer of the packet - containing the header */
 )
 {
@@ -122,42 +122,58 @@ XenNet_SumHeader(
   ushorts[5] = SWAP_USHORT(~csum);
 }
 
-/* How many requests on the TX ring will this packet take? */
-static ULONG
-XenNet_RequestsNeeded(PNDIS_PACKET packet)
+typedef struct
 {
-  int count = 0;
-  ULONG mss;
-  ULONG sg_num;
-  PSCATTER_GATHER_LIST sg_list;
+  PFN_NUMBER pfn;
+  USHORT offset;
+  USHORT length;
+} page_element_t;
+  
 
-  mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
-  if (mss > 0)
-  {
-    count++; // extra_info
-  }
+static VOID
+XenNet_BuildPageList(PNDIS_PACKET packet, page_element_t *elements, PUSHORT num_elements)
+{
+  PSCATTER_GATHER_LIST sg_list;
+  USHORT sg_num;
+  USHORT element_num;
+  PFN_NUMBER pfn;
+  USHORT offset;
+  USHORT remaining;
+  USHORT pages;
+  USHORT page;
 
   sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
-  ASSERT(ADDRESS_AND_SIZE_TO_SPAN_PAGES(sg_list->Elements[0].Address.QuadPart,
-    sg_list->Elements[0].Length) == 1);
-  for (sg_num = 0; sg_num < sg_list->NumberOfElements; sg_num++)
+  for (sg_num = 0, element_num = 0; sg_num < sg_list->NumberOfElements; sg_num++)
   {
-    count += ADDRESS_AND_SIZE_TO_SPAN_PAGES(
-      sg_list->Elements[sg_num].Address.QuadPart,
-      sg_list->Elements[sg_num].Length);
+    pfn = (PFN_NUMBER)(sg_list->Elements[sg_num].Address.QuadPart >> PAGE_SHIFT);
+    remaining = (USHORT)sg_list->Elements[sg_num].Length;
+    pages = (USHORT)ADDRESS_AND_SIZE_TO_SPAN_PAGES(sg_list->Elements[sg_num].Address.QuadPart, remaining);
+    offset = (USHORT)sg_list->Elements[sg_num].Address.LowPart & (PAGE_SIZE - 1);
+    for (page = 0; page < pages; page++, element_num++)
+    {
+      ASSERT(element_num < *num_elements);
+      elements[element_num].pfn = pfn + page;
+      elements[element_num].offset = offset;
+      elements[element_num].length = min(remaining, PAGE_SIZE - offset);
+      offset = 0;
+      remaining = remaining - (USHORT)elements[element_num].length;
+    }
+    ASSERT(remaining == 0);
   }
-
-  return count;
+  *num_elements = element_num;
 }
 
 /* Place a buffer on tx ring. */
 static struct netif_tx_request*
-XenNet_PutOnTxRing(struct xennet_info *xi, ULONGLONG addr, size_t len, uint16_t flags)
+XenNet_PutOnTxRing(
+  struct xennet_info *xi,
+  PFN_NUMBER pfn,
+  USHORT offset,
+  USHORT len,
+  uint16_t flags)
 {
   struct netif_tx_request *tx;
   unsigned short id;
-  PFN_NUMBER pfn = (PFN_NUMBER)(addr >> PAGE_SHIFT);
-  ULONG offset = BYTE_OFFSET(addr);
 
   id = get_id_from_freelist(xi);
   /* TODO: check id against FREELIST_ID_ERROR */
@@ -191,19 +207,14 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   struct netif_tx_request *tx = NULL;
   struct netif_extra_info *ei;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
-  PSCATTER_GATHER_LIST sg_list;
   UINT total_packet_length;
-  ULONG sg_num;
   ULONG mss; // 0 if not using large send
   PMDL first_buffer;
-  int cycles = 0;
-  ULONGLONG sg_elem_addr;
-  ULONG sg_elem_len;
-  ULONG sg_elem_pages;
-  ULONG sg_elem_page;
-  ULONG chunk_len;
   uint16_t flags = NETTXF_more_data;
-  uint16_t csum_flags = 0;
+  page_element_t elements[NET_TX_RING_SIZE];
+  USHORT num_elements;
+  USHORT element_num;
+  
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 
@@ -212,36 +223,35 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 
   NdisQueryPacket(packet, NULL, NULL, &first_buffer, &total_packet_length);
 
-  if (XenNet_RequestsNeeded(packet) > free_requests(xi))
-  {
+  num_elements = NET_TX_RING_SIZE;
+  XenNet_BuildPageList(packet, elements, &num_elements);
+  mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
+
+  if (num_elements + !!mss > (int)free_requests(xi))
     return FALSE;
-  }
 
   csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
     packet, TcpIpChecksumPacketInfo);
   if (csum_info->Transmit.NdisPacketTcpChecksum
     || csum_info->Transmit.NdisPacketUdpChecksum)
   {
-    csum_flags = NETTXF_csum_blank | NETTXF_data_validated;
+    flags |= NETTXF_csum_blank | NETTXF_data_validated;
     PC_INC(ProfCount_TxPacketsCsumOffload);
   }
 
-  mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
   if (mss > 0)
   {
     flags |= NETTXF_extra_info;
-    XenNet_SumHeader(first_buffer);
+    XenNet_SumIpHeader(first_buffer);
     PC_INC(ProfCount_TxPacketsLargeOffload);
   }
 
   /*
    * See io/netif.h. Must put (A) 1st request, then (B) optional extra_info, then
-   * (C) rest of requests on the ring.
+   * (C) rest of requests on the ring. Only (A) has csum flags.
    */
-  sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
   /* (A) */
-  tx = XenNet_PutOnTxRing(xi, sg_list->Elements[0].Address.QuadPart,
-    sg_list->Elements[0].Length, flags | csum_flags);
+  tx = XenNet_PutOnTxRing(xi, elements[0].pfn, elements[0].offset, elements[0].length, flags);
   tx->size = (uint16_t)total_packet_length; /* 1st req size always tot pkt len */
   xi->tx.req_prod_pvt++;
 
@@ -251,7 +261,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     get_no_id_from_freelist(xi);
     ei = (struct netif_extra_info *)RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
     ei->type = XEN_NETIF_EXTRA_TYPE_GSO;
-    ei->flags = NETTXF_more_data;
+    ei->flags = 0;
     ei->u.gso.size = (USHORT) mss;
     ei->u.gso.type = XEN_NETIF_GSO_TYPE_TCPV4;
     ei->u.gso.pad = 0;
@@ -261,25 +271,13 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   }
 
   /* (C) */
-  for (sg_num = 1; sg_num < sg_list->NumberOfElements; sg_num++)
+  for (element_num = 1; element_num < num_elements; element_num++)
   {
     //KdPrint((__DRIVER_NAME "     i = %d\n", i));
-    ASSERT(cycles++ < 256);
-
-    sg_elem_addr = sg_list->Elements[sg_num].Address.QuadPart;
-    sg_elem_len = sg_list->Elements[sg_num].Length;
-    sg_elem_pages = ADDRESS_AND_SIZE_TO_SPAN_PAGES(sg_elem_addr, sg_elem_len);
-    for (sg_elem_page = 0; sg_elem_page < sg_elem_pages; sg_elem_page++)
-    {
-      chunk_len = min(sg_elem_len, PAGE_SIZE - BYTE_OFFSET(sg_elem_addr));
-
-      tx = XenNet_PutOnTxRing(xi, sg_elem_addr, chunk_len, NETTXF_more_data | csum_flags);
-
-      sg_elem_addr += chunk_len;
-      sg_elem_len -= chunk_len;
-
-      xi->tx.req_prod_pvt++;
-    }
+    tx = XenNet_PutOnTxRing(xi, elements[element_num].pfn,
+      elements[element_num].offset, elements[element_num].length,
+      NETTXF_more_data);
+    xi->tx.req_prod_pvt++;
   }
 
   /* only set the packet on the last buffer, clear more_data */
