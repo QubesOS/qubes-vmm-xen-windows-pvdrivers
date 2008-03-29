@@ -766,9 +766,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
 
   DeviceData->DeviceExtension = DeviceExtension;
 
-#if defined(__x86_64__)
-  ConfigInfo->Master = TRUE; // Won't work under x64 without this...
-#endif
+  ConfigInfo->Master = TRUE; // Won't work under x64 or on x32 with >4G memory without this...
   ConfigInfo->MaximumTransferLength = BLKIF_MAX_SEGMENTS_PER_REQUEST * PAGE_SIZE;
   ConfigInfo->NumberOfPhysicalBreaks = BLKIF_MAX_SEGMENTS_PER_REQUEST - 1;
   ConfigInfo->ScatterGather = TRUE;
