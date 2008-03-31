@@ -133,32 +133,36 @@ typedef struct
 static VOID
 XenNet_BuildPageList(PNDIS_PACKET packet, page_element_t *elements, PUSHORT num_elements)
 {
-  PSCATTER_GATHER_LIST sg_list;
-  USHORT sg_num;
-  USHORT element_num;
-  PFN_NUMBER pfn;
-  USHORT offset;
-  USHORT remaining;
-  USHORT pages;
+  USHORT element_num = 0;
+  UINT offset;
+  PVOID addr;
+  UINT remaining;
+  ULONG pages;
   USHORT page;
+  PMDL buffer;
+  PPFN_NUMBER pfns;
 
-  sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
-  for (sg_num = 0, element_num = 0; sg_num < sg_list->NumberOfElements; sg_num++)
+  NdisQueryPacket(packet, NULL, NULL, &buffer, NULL);
+
+//  sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
+  while (buffer != NULL)
   {
-    pfn = (PFN_NUMBER)(sg_list->Elements[sg_num].Address.QuadPart >> PAGE_SHIFT);
-    remaining = (USHORT)sg_list->Elements[sg_num].Length;
-    pages = (USHORT)ADDRESS_AND_SIZE_TO_SPAN_PAGES(sg_list->Elements[sg_num].Address.QuadPart, remaining);
-    offset = (USHORT)sg_list->Elements[sg_num].Address.LowPart & (PAGE_SIZE - 1);
+    addr = MmGetSystemAddressForMdlSafe(buffer, NormalPagePriority);
+    offset = MmGetMdlByteOffset(buffer);
+    remaining = MmGetMdlByteCount(buffer);
+    pages = ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(buffer), remaining);
+    pfns = MmGetMdlPfnArray(buffer);
     for (page = 0; page < pages; page++, element_num++)
     {
       ASSERT(element_num < *num_elements);
-      elements[element_num].pfn = pfn + page;
-      elements[element_num].offset = offset;
-      elements[element_num].length = min(remaining, PAGE_SIZE - offset);
+      elements[element_num].pfn = pfns[page];
+      elements[element_num].offset = (USHORT)offset;
+      elements[element_num].length = (USHORT)min(remaining, PAGE_SIZE - offset);
       offset = 0;
-      remaining = remaining - (USHORT)elements[element_num].length;
+      remaining -= elements[element_num].length;
     }
     ASSERT(remaining == 0);
+    NdisGetNextBuffer(buffer, &buffer);
   }
   *num_elements = element_num;
 }

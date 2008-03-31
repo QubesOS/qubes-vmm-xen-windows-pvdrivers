@@ -363,9 +363,10 @@ XenNet_Init(
   }
 
   NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi,
-    0, (NDIS_ATTRIBUTE_DESERIALIZE | NDIS_ATTRIBUTE_BUS_MASTER),
+    0, NDIS_ATTRIBUTE_DESERIALIZE, // | NDIS_ATTRIBUTE_BUS_MASTER),
     NdisInterfaceInternal);
 
+#if 0
   if (xi->config_sg)
   {
     status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE, xi->config_max_pkt_size);
@@ -376,6 +377,8 @@ XenNet_Init(
       goto err;
     }
   }
+#endif
+
   WDF_OBJECT_ATTRIBUTES_INIT(&wdf_attrs);
 
   status = WdfDeviceMiniportCreate(WdfGetDriver(), &wdf_attrs, xi->fdo,

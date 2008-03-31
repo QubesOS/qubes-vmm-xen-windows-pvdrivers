@@ -63,7 +63,7 @@ HKR, Ndi\Params\ChecksumOffload\enum, 0, , "Disabled"
 HKR, Ndi\Params\ChecksumOffload\enum, 1, , "Enabled"
 
 HKR, Ndi\Params\LargeSendOffload, ParamDesc, , "Large Send Offload"
-HKR, Ndi\Params\LargeSendOffload, default, , "65535"
+HKR, Ndi\Params\LargeSendOffload, default, , "61440"
 HKR, Ndi\Params\LargeSendOffload, type, , "enum"
 HKR, Ndi\Params\LargeSendOffload\enum, 0, , "Disabled"
 HKR, Ndi\Params\LargeSendOffload\enum, 8192, , "8192"
