@@ -1,15 +1,15 @@
 @ECHO OFF
 
-ver | find /I "Version 5.00." > nul
+ver | find " 5.00." > nul
 if %ERRORLEVEL% == 0 goto ver_2k
 
-ver | find /I "Version 5.1." > nul
+ver | find " 5.1." > nul
 if %ERRORLEVEL% == 0 goto ver_xp
 
-ver | find /I "Version 5.2." > nul
+ver | find " 5.2." > nul
 if %ERRORLEVEL% == 0 goto ver_2k3
 
-ver | find /I "Version 6.0." > nul
+ver | find " 6.0." > nul
 if %ERRORLEVEL% == 0 goto ver_2k8
 
 echo No automatic install available or machine not supported.

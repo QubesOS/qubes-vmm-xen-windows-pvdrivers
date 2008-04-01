@@ -180,7 +180,7 @@ XenNet_PutOnTxRing(
   unsigned short id;
 
   id = get_id_from_freelist(xi);
-  /* TODO: check id against FREELIST_ID_ERROR */
+  ASSERT(id != FREELIST_ID_ERROR);
   ASSERT(xi->tx_pkts[id] == NULL);
   tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
 
@@ -286,7 +286,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 
   /* only set the packet on the last buffer, clear more_data */
   ASSERT(tx);
-  ASSERT(tx->id);
   xi->tx_pkts[tx->id] = packet;
   tx->flags &= ~NETTXF_more_data;
 
@@ -316,7 +315,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   /* if empty, the above returns head*, not NULL */
   while (entry != &xi->tx_waiting_pkt_list)
   {
-    ASSERT(cycles++ < 256);
+    ASSERT(cycles++ < 65536);
     //KdPrint((__DRIVER_NAME "     Packet ready to send\n"));
     packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
     success = XenNet_HWSendPacket(xi, packet);
@@ -366,7 +365,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
   do {
-    ASSERT(cycles++ < 256);
+    ASSERT(cycles++ < 65536);
     prod = xi->tx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
@@ -374,7 +373,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
     {
       struct netif_tx_response *txrsp;
 
-      ASSERT(cycles++ < 256);
+      ASSERT(cycles++ < 65536);
 
       txrsp = RING_GET_RESPONSE(&xi->tx, cons);
       if (txrsp->status == NETIF_RSP_NULL)
@@ -401,7 +400,6 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       put_gref_on_freelist(xi, xi->tx_grefs[id]);
       xi->tx_grefs[id] = 0;
       put_id_on_freelist(xi, id);
-      xi->tx_outstanding--;
     }
 
     xi->tx.rsp_cons = prod;
@@ -419,6 +417,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
     /* A miniport driver must release any spin lock that it is holding before
        calling NdisMSendComplete. */
     NdisMSendComplete(xi->adapter_handle, packets[i], NDIS_STATUS_SUCCESS);
+    xi->tx_outstanding--;
   }
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
@@ -578,6 +577,9 @@ XenNet_TxShutdown(xennet_info_t *xi)
   /* if EndAccess fails then tx/rx ring pages LEAKED -- it's not safe to reuse
      pages Dom0 still has access to */
   xi->tx_pgs = NULL;
+
+  /* I think that NDIS takes care of this for us... */
+  ASSERT(xi->tx_outstanding == 0);
 
   for (i = 0; i < NET_TX_RING_SIZE; i++)
   {

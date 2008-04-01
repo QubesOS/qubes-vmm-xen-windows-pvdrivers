@@ -114,7 +114,6 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
     if (mdl == NULL)
     {
       KdPrint((__DRIVER_NAME "     Added %d out of %d buffers to rx ring\n", i, batch_target));
-      KdPrint((__DRIVER_NAME "     (rx_outstanding = %d)\n", xi->rx_outstanding));
       break;
     }
     xi->rx_id_free--;
@@ -622,8 +621,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 #endif
   }
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (rx_outstanding = %d)\n", xi->rx_outstanding));
-
 #if defined(XEN_PROFILE)
   ProfTime_RxBufferCheck.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
   ProfTime_RxBufferCheckBotHalf.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc2.QuadPart;
@@ -665,8 +662,8 @@ XenNet_ReturnPacket(
     NdisUnchainBufferAtBack(Packet, &mdl);
   }
 
-  xi->rx_outstanding--;
   NdisFreePacket(Packet);
+  xi->rx_outstanding--;
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
   
@@ -747,6 +744,8 @@ XenNet_RxShutdown(xennet_info_t *xi)
     FreePages(xi->rx_mdl);
   }
   xi->rx_pgs = NULL;
+
+  ASSERT(xi->rx_outstanding == 0);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
