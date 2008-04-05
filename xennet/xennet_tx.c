@@ -142,52 +142,35 @@ typedef struct
 } page_element_t;
 
 static VOID
-XenNet_BuildPageList(PNDIS_PACKET packet, page_element_t *elements, PUSHORT num_elements)
+XenNet_BuildPageList(packet_info_t *pi, page_element_t *elements, PUSHORT num_elements)
 {
   USHORT element_num = 0;
   UINT offset;
   UINT remaining;
   ULONG pages;
   USHORT page;
-  PMDL buffer;
   PPFN_NUMBER pfns;
+  ULONG i;
 
-  buffer = NDIS_PACKET_FIRST_NDIS_BUFFER(packet);
-
-  while (buffer != NULL)
+  for (i = 0; i < pi->mdl_count; i++)
   {
-    offset = MmGetMdlByteOffset(buffer);
-    remaining = MmGetMdlByteCount(buffer);
-    pages = ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(buffer), remaining);
-    pfns = MmGetMdlPfnArray(buffer);
+    offset = MmGetMdlByteOffset(pi->mdls[i]);
+    remaining = MmGetMdlByteCount(pi->mdls[i]);
+    pages = ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(pi->mdls[i]), remaining);
+    pfns = MmGetMdlPfnArray(pi->mdls[i]);
     for (page = 0; page < pages; page++, element_num++)
     {
       ASSERT(element_num < *num_elements);
       elements[element_num].pfn = pfns[page];
       elements[element_num].offset = (USHORT)offset;
       elements[element_num].length = (USHORT)min(remaining, PAGE_SIZE - offset);
+//KdPrint((__DRIVER_NAME "     adding to page list size = %d, pfn = %08x, offset = %04x\n", elements[element_num].length, elements[element_num].pfn, elements[element_num].offset));
       offset = 0;
       remaining -= elements[element_num].length;
     }
     ASSERT(remaining == 0);
-    NdisGetNextBuffer(buffer, &buffer);
   }
   *num_elements = element_num;
-#if 0
-  if (is_csum_offload && elements[0].length < 54)
-  {
-    element_num = 0;
-    if (min(remaining, PAGE_SIZE - offset) < 54) /* first page must contain full header */
-    {
-      // allocate a new page
-      first_page_len = 0;
-      do {
-        page_len = 
-        // copy data to 
-      } while (first_page_len <= 54)
-    }
-  }
-#endif
 }
 
 /* Place a buffer on tx ring. */
@@ -236,11 +219,15 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
   UINT total_packet_length;
   ULONG mss; // 0 if not using large send
-  PMDL first_buffer;
+  PMDL buffer;
   uint16_t flags = NETTXF_more_data;
   page_element_t elements[NET_TX_RING_SIZE];
   USHORT num_elements;
   USHORT element_num;
+  packet_info_t pi;
+  PUCHAR address = NULL;
+  PMDL merged_buffer = NULL;
+  ULONG length = 0;
   
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
@@ -248,21 +235,51 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   tsc = KeQueryPerformanceCounter(&dummy);
 #endif
 
-  NdisQueryPacket(packet, NULL, NULL, &first_buffer, &total_packet_length);
+  RtlZeroMemory(&pi, sizeof(pi));
 
+  csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
+    packet, TcpIpChecksumPacketInfo);
+
+  NdisQueryPacket(packet, NULL, NULL, &buffer, &total_packet_length);
+
+  pi.mdls[0] = buffer;
+  pi.mdl_count = 1;
+  // only if csum offload
+  if ((csum_info->Transmit.NdisPacketTcpChecksum
+    || csum_info->Transmit.NdisPacketUdpChecksum)
+    && XenNet_ParsePacketHeader(&pi) == PARSE_TOO_SMALL)
+  {
+    pi.mdls[0] = merged_buffer = AllocatePage();
+    address = MmGetMdlVirtualAddress(pi.mdls[0]);
+    memcpy(address, MmGetSystemAddressForMdlSafe(buffer, NormalPagePriority), MmGetMdlByteCount(buffer));
+    length = MmGetMdlByteCount(buffer);
+    NdisAdjustBufferLength(pi.mdls[0], length); /* do this here so that ParsePacketHeader works */
+    while (buffer->Next != NULL && XenNet_ParsePacketHeader(&pi) == PARSE_TOO_SMALL)
+    {
+      buffer = buffer->Next;
+      ASSERT(length + MmGetMdlByteCount(buffer) <= PAGE_SIZE); // I think this could happen
+      memcpy(&address[length], MmGetSystemAddressForMdlSafe(buffer, NormalPagePriority), MmGetMdlByteCount(buffer));
+      length += MmGetMdlByteCount(buffer);
+      NdisAdjustBufferLength(pi.mdls[0], length); /* do this here so that ParsePacketHeader works */
+    }
+  }
+  NdisGetNextBuffer(buffer, &buffer);
+  while (buffer != NULL)
+  {
+    pi.mdls[pi.mdl_count++] = buffer;
+    NdisGetNextBuffer(buffer, &buffer);
+  }
+  
   num_elements = NET_TX_RING_SIZE;
-  XenNet_BuildPageList(packet, elements, &num_elements);
+  XenNet_BuildPageList(&pi, elements, &num_elements);
   mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
 
   if (num_elements + !!mss > (int)free_requests(xi))
     return FALSE;
 
-  csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
-    packet, TcpIpChecksumPacketInfo);
   if (csum_info->Transmit.NdisPacketTcpChecksum
     || csum_info->Transmit.NdisPacketUdpChecksum)
   {
-KdPrint((__DRIVER_NAME "     TxCsumOffload - size = %d, pfn = %08x, offset = %04x\n", elements[0].length, elements[0].pfn, elements[0].offset));
     flags |= NETTXF_csum_blank | NETTXF_data_validated;
     PC_INC(ProfCount_TxPacketsCsumOffload);
   }
@@ -300,8 +317,8 @@ KdPrint((__DRIVER_NAME "     TxCsumOffload - size = %d, pfn = %08x, offset = %04
   /* (C) */
   for (element_num = 1; element_num < num_elements; element_num++)
   {
-if (csum_info->Transmit.NdisPacketTcpChecksum || csum_info->Transmit.NdisPacketUdpChecksum)
-KdPrint((__DRIVER_NAME "                   - size = %d, pfn = %08x, offset = %04x\n", elements[element_num].length, elements[element_num].pfn, elements[element_num].offset));
+//if (csum_info->Transmit.NdisPacketTcpChecksum || csum_info->Transmit.NdisPacketUdpChecksum)
+//KdPrint((__DRIVER_NAME "                   - size = %d, pfn = %08x, offset = %04x\n", elements[element_num].length, elements[element_num].pfn, elements[element_num].offset));
     //KdPrint((__DRIVER_NAME "     i = %d\n", i));
     tx = XenNet_PutOnTxRing(xi, elements[element_num].pfn,
       elements[element_num].offset, elements[element_num].length,
@@ -312,6 +329,7 @@ KdPrint((__DRIVER_NAME "                   - size = %d, pfn = %08x, offset = %04
   /* only set the packet on the last buffer, clear more_data */
   ASSERT(tx);
   xi->tx_pkts[tx->id] = packet;
+  xi->tx_mdls[tx->id] = merged_buffer;
   tx->flags &= ~NETTXF_more_data;
 
   return TRUE;
@@ -421,6 +439,11 @@ XenNet_TxBufferGC(struct xennet_info *xi)
         xi->tx_pkts[id] = NULL;
         packet_count++;
         xi->stat_tx_ok++;
+      }
+      if (xi->tx_mdls[id])
+      {
+        FreePages(xi->tx_mdls[id]);
+        xi->tx_mdls[id] = NULL;
       }
       put_gref_on_freelist(xi, xi->tx_grefs[id]);
       xi->tx_grefs[id] = 0;

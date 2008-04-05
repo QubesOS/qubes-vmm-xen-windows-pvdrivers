@@ -301,13 +301,13 @@ XenNet_MakePacket(
     do 
     {
       ASSERT(xi->rxpi.curr_mdl < xi->rxpi.mdl_count);
-      in_buffer = XenNet_GetData(xi, out_remaining, &length);
+      in_buffer = XenNet_GetData(&xi->rxpi, out_remaining, &length);
       memcpy(&out_buffer[out_offset], in_buffer, length);
       out_remaining = out_remaining - length;
       out_offset = out_offset + length;
     } while (out_remaining != 0); // && in_buffer != NULL);
     NdisChainBufferAtBack(packet, out_mdl);
-    XenNet_SumIpHeader(xi, packet);
+    XenNet_SumIpHeader(&xi->rxpi, packet);
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
 
@@ -326,7 +326,7 @@ XenNet_MakePackets(
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "(packets = %p, packet_count = %d)\n", packets, *packet_count_p));
 
-  XenNet_ParsePacketHeader(xi);
+  XenNet_ParsePacketHeader(&xi->rxpi);
   switch (xi->rxpi.ip_proto)
   {
   case 6:  // TCP
@@ -336,7 +336,7 @@ XenNet_MakePackets(
   case 17:  // UDP
     packets[*packet_count_p] = XenNet_MakePacket(xi);
     if (xi->rxpi.csum_calc_required)
-      XenNet_SumPacketData(xi, packets[*packet_count_p]);
+      XenNet_SumPacketData(&xi->rxpi, packets[*packet_count_p]);
     (*packet_count_p)++;
 //    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (TCP/UDP)\n"));
     return;
@@ -357,7 +357,7 @@ XenNet_MakePackets(
   {
 //    KdPrint((__DRIVER_NAME "     tcp_remaining = %d\n", xi->rxpi.tcp_remaining));
     packets[*packet_count_p] = XenNet_MakePacket(xi);
-    XenNet_SumPacketData(xi, packets[*packet_count_p]);
+    XenNet_SumPacketData(&xi->rxpi, packets[*packet_count_p]);
     (*packet_count_p)++;
   }
   ASSERT(xi->rxpi.curr_mdl == xi->rxpi.mdl_count);

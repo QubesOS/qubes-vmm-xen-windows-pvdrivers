@@ -179,6 +179,7 @@ struct xennet_info
   ULONG tx_gref_free;
   grant_ref_t tx_gref_list[NET_TX_RING_SIZE];
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
+  PNDIS_BUFFER tx_mdls[NET_TX_RING_SIZE];
   grant_ref_t tx_grefs[NET_TX_RING_SIZE];
 
   /* rx_related - protected by rx_lock */
