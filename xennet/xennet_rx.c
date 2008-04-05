@@ -307,7 +307,7 @@ XenNet_MakePacket(
       out_offset = out_offset + length;
     } while (out_remaining != 0); // && in_buffer != NULL);
     NdisChainBufferAtBack(packet, out_mdl);
-    XenNet_SumIpHeader(&xi->rxpi, packet);
+    XenNet_SumIpHeader(out_buffer, xi->rxpi.ip4_header_length);
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
 

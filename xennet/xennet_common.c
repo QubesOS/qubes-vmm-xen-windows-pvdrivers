@@ -81,30 +81,23 @@ XenNet_ParsePacketHeader(
 
 VOID
 XenNet_SumIpHeader(
-  packet_info_t *pi,  
-  PNDIS_PACKET packet
+  PUCHAR header,
+  USHORT ip4_header_length
 )
 {
-  PMDL mdl;
-  UINT total_length;
-  UINT buffer_length;
-  PUCHAR buffer;
   ULONG csum = 0;
   USHORT i;
 
-  NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);
-  ASSERT(mdl);
-
-  buffer[XN_HDR_SIZE + 10] = 0;
-  buffer[XN_HDR_SIZE + 11] = 0;
-  for (i = 0; i < pi->ip4_header_length; i += 2)
+  header[XN_HDR_SIZE + 10] = 0;
+  header[XN_HDR_SIZE + 11] = 0;
+  for (i = 0; i < ip4_header_length; i += 2)
   {
-    csum += GET_NET_USHORT(buffer[XN_HDR_SIZE + i]);
+    csum += GET_NET_USHORT(header[XN_HDR_SIZE + i]);
   }
   while (csum & 0xFFFF0000)
     csum = (csum & 0xFFFF) + (csum >> 16);
   csum = ~csum;
-  SET_NET_USHORT(buffer[XN_HDR_SIZE + 10], csum);
+  SET_NET_USHORT(header[XN_HDR_SIZE + 10], csum);
 }
 
 PUCHAR

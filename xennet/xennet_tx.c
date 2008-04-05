@@ -84,56 +84,6 @@ put_gref_on_freelist(struct xennet_info *xi, grant_ref_t gref)
 
 #define SWAP_USHORT(x) (USHORT)((((x & 0xFF) << 8)|((x >> 8) & 0xFF)))
 
-#if 0
-/*
- * Windows assumes that if we can do large send offload then we can
- * do IP header csum offload, so we have to fake it!
- */
-VOID
-XenNet_SumIpHeader(
- PMDL mdl /* first buffer of the packet - containing the header */
-)
-{
-  PVOID buffer = MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority);
-  USHORT buffer_length = (USHORT)MmGetMdlByteCount(mdl);
-  PUSHORT ushorts = (PUSHORT)buffer;
-
-  USHORT length_in_ushorts;
-  USHORT i;
-  ULONG csum = 0;
-
-  ASSERT(buffer);
-  switch (SWAP_USHORT(ushorts[6]))
-  {
-  case 0x0800:
-    if (buffer_length < XN_HDR_SIZE + 20)
-    {
-      KdPrint((__DRIVER_NAME "     tx packet too small for ip header - only %d bytes long but needs %d bytes\n", buffer_length, XN_HDR_SIZE + 20));
-      return;
-    }
-    /* check if buffer is long enough to contain ethernet header + minimum ip header */
-    ushorts = &ushorts[0x07];
-    length_in_ushorts = ((SWAP_USHORT(ushorts[0]) >> 8) & 0x0F) * 2;
-    if (buffer_length < XN_HDR_SIZE + length_in_ushorts * 2)
-    {
-      KdPrint((__DRIVER_NAME "     tx packet too small for ip header + options - only %d bytes long but needs %d bytes\n", buffer_length, XN_HDR_SIZE + length_in_ushorts));
-      return;
-    }
-    break;
-  default:
-    return;
-  }
-  ushorts[5] = 0;
-  for (i = 0; i < length_in_ushorts; i++)
-  {
-    csum += SWAP_USHORT(ushorts[i]);
-  }
-  while (csum & 0xFFFF0000)
-    csum = (csum & 0xFFFF) + (csum >> 16);
-  ushorts[5] = SWAP_USHORT(~csum);
-}
-#endif
-
 typedef struct
 {
   PFN_NUMBER pfn;
@@ -239,6 +189,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 
   csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
     packet, TcpIpChecksumPacketInfo);
+  mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
 
   NdisQueryPacket(packet, NULL, NULL, &buffer, &total_packet_length);
 
@@ -246,7 +197,8 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   pi.mdl_count = 1;
   // only if csum offload
   if ((csum_info->Transmit.NdisPacketTcpChecksum
-    || csum_info->Transmit.NdisPacketUdpChecksum)
+    || csum_info->Transmit.NdisPacketUdpChecksum
+    || mss > 0)
     && XenNet_ParsePacketHeader(&pi) == PARSE_TOO_SMALL)
   {
     pi.mdls[0] = merged_buffer = AllocatePage();
@@ -272,7 +224,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   
   num_elements = NET_TX_RING_SIZE;
   XenNet_BuildPageList(&pi, elements, &num_elements);
-  mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
 
   if (num_elements + !!mss > (int)free_requests(xi))
     return FALSE;
@@ -287,7 +238,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   if (mss > 0)
   {
     flags |= NETTXF_extra_info;
-//    XenNet_SumIpHeader(first_buffer);
+    XenNet_SumIpHeader(MmGetSystemAddressForMdlSafe(pi.mdls[0], NormalPagePriority), pi.ip4_header_length);
     PC_INC(ProfCount_TxPacketsLargeOffload);
   }
 

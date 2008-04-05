@@ -324,6 +324,6 @@ XenNet_ParsePacketHeader(
 
 VOID
 XenNet_SumIpHeader(
-  packet_info_t *pi,  
-  PNDIS_PACKET packet
+  PUCHAR header,
+  USHORT ip4_header_length
 );
