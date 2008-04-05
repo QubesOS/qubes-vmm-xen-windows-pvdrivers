@@ -61,6 +61,17 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define ETH_ALEN 6
 
+
+#define __NET_USHORT_BYTE_0(x) ((USHORT)(x & 0xFF))
+#define __NET_USHORT_BYTE_1(x) ((USHORT)((PUCHAR)&x)[1] & 0xFF)
+
+#define GET_NET_USHORT(x) ((__NET_USHORT_BYTE_0(x) << 8) | __NET_USHORT_BYTE_1(x))
+#define SET_NET_USHORT(y, x) *((USHORT *)&(y)) = ((__NET_USHORT_BYTE_0(x) << 8) | __NET_USHORT_BYTE_1(x))
+
+#define GET_NET_ULONG(x) ((GET_NET_USHORT(x) << 16) | GET_NET_USHORT(((PUCHAR)&x)[2]))
+#define SET_NET_ULONG(y, x) *((ULONG *)&(y)) = ((GET_NET_USHORT(x) << 16) | GET_NET_USHORT(((PUCHAR)&x)[2]))
+
+
 /* couldn't get regular xen ring macros to work...*/
 #define __NET_RING_SIZE(type, _sz) \
     (__RD32( \
@@ -122,7 +133,7 @@ typedef struct {
   ULONG tcp_seq;
   BOOLEAN extra_info;
   BOOLEAN more_frags;
-} rx_packet_info_t;
+} packet_info_t;
 
 struct xennet_info
 {
@@ -180,7 +191,7 @@ struct xennet_info
   PMDL page_list[NET_RX_RING_SIZE];
   ULONG page_free;
 
-  rx_packet_info_t rxpi;
+  packet_info_t rxpi;
 
   /* Receive-ring batched refills. */
   ULONG rx_target;
@@ -291,3 +302,27 @@ XenNet_SetInformation(
   OUT PULONG BytesRead,
   OUT PULONG BytesNeeded
   );
+
+PUCHAR
+XenNet_GetData(
+  packet_info_t *pi,
+  USHORT req_length,
+  PUSHORT length
+);
+
+
+/* return values */
+#define PARSE_OK 0
+#define PARSE_TOO_SMALL 1 /* first buffer is too small */
+#define PARSE_UNKNOWN_TYPE 2
+
+ULONG
+XenNet_ParsePacketHeader(
+  packet_info_t *pi
+);
+
+VOID
+XenNet_SumIpHeader(
+  packet_info_t *pi,  
+  PNDIS_PACKET packet
+);

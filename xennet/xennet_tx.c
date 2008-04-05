@@ -84,6 +84,7 @@ put_gref_on_freelist(struct xennet_info *xi, grant_ref_t gref)
 
 #define SWAP_USHORT(x) (USHORT)((((x & 0xFF) << 8)|((x >> 8) & 0xFF)))
 
+#if 0
 /*
  * Windows assumes that if we can do large send offload then we can
  * do IP header csum offload, so we have to fake it!
@@ -94,6 +95,7 @@ XenNet_SumIpHeader(
 )
 {
   PVOID buffer = MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority);
+  USHORT buffer_length = (USHORT)MmGetMdlByteCount(mdl);
   PUSHORT ushorts = (PUSHORT)buffer;
 
   USHORT length_in_ushorts;
@@ -104,10 +106,19 @@ XenNet_SumIpHeader(
   switch (SWAP_USHORT(ushorts[6]))
   {
   case 0x0800:
+    if (buffer_length < XN_HDR_SIZE + 20)
+    {
+      KdPrint((__DRIVER_NAME "     tx packet too small for ip header - only %d bytes long but needs %d bytes\n", buffer_length, XN_HDR_SIZE + 20));
+      return;
+    }
     /* check if buffer is long enough to contain ethernet header + minimum ip header */
     ushorts = &ushorts[0x07];
     length_in_ushorts = ((SWAP_USHORT(ushorts[0]) >> 8) & 0x0F) * 2;
-    /* check if buffer is long enough to contain options too */
+    if (buffer_length < XN_HDR_SIZE + length_in_ushorts * 2)
+    {
+      KdPrint((__DRIVER_NAME "     tx packet too small for ip header + options - only %d bytes long but needs %d bytes\n", buffer_length, XN_HDR_SIZE + length_in_ushorts));
+      return;
+    }
     break;
   default:
     return;
@@ -121,6 +132,7 @@ XenNet_SumIpHeader(
     csum = (csum & 0xFFFF) + (csum >> 16);
   ushorts[5] = SWAP_USHORT(~csum);
 }
+#endif
 
 typedef struct
 {
@@ -128,26 +140,22 @@ typedef struct
   USHORT offset;
   USHORT length;
 } page_element_t;
-  
 
 static VOID
 XenNet_BuildPageList(PNDIS_PACKET packet, page_element_t *elements, PUSHORT num_elements)
 {
   USHORT element_num = 0;
   UINT offset;
-  PVOID addr;
   UINT remaining;
   ULONG pages;
   USHORT page;
   PMDL buffer;
   PPFN_NUMBER pfns;
 
-  NdisQueryPacket(packet, NULL, NULL, &buffer, NULL);
+  buffer = NDIS_PACKET_FIRST_NDIS_BUFFER(packet);
 
-//  sg_list = NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
   while (buffer != NULL)
   {
-    addr = MmGetSystemAddressForMdlSafe(buffer, NormalPagePriority);
     offset = MmGetMdlByteOffset(buffer);
     remaining = MmGetMdlByteCount(buffer);
     pages = ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(buffer), remaining);
@@ -165,6 +173,21 @@ XenNet_BuildPageList(PNDIS_PACKET packet, page_element_t *elements, PUSHORT num_
     NdisGetNextBuffer(buffer, &buffer);
   }
   *num_elements = element_num;
+#if 0
+  if (is_csum_offload && elements[0].length < 54)
+  {
+    element_num = 0;
+    if (min(remaining, PAGE_SIZE - offset) < 54) /* first page must contain full header */
+    {
+      // allocate a new page
+      first_page_len = 0;
+      do {
+        page_len = 
+        // copy data to 
+      } while (first_page_len <= 54)
+    }
+  }
+#endif
 }
 
 /* Place a buffer on tx ring. */
@@ -239,6 +262,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   if (csum_info->Transmit.NdisPacketTcpChecksum
     || csum_info->Transmit.NdisPacketUdpChecksum)
   {
+KdPrint((__DRIVER_NAME "     TxCsumOffload - size = %d, pfn = %08x, offset = %04x\n", elements[0].length, elements[0].pfn, elements[0].offset));
     flags |= NETTXF_csum_blank | NETTXF_data_validated;
     PC_INC(ProfCount_TxPacketsCsumOffload);
   }
@@ -246,7 +270,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   if (mss > 0)
   {
     flags |= NETTXF_extra_info;
-    XenNet_SumIpHeader(first_buffer);
+//    XenNet_SumIpHeader(first_buffer);
     PC_INC(ProfCount_TxPacketsLargeOffload);
   }
 
@@ -255,8 +279,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
    * (C) rest of requests on the ring. Only (A) has csum flags.
    */
   /* (A) */
-  tx = XenNet_PutOnTxRing(xi, elements[0].pfn, elements[0].offset, elements[0].length, flags);
-  tx->size = (uint16_t)total_packet_length; /* 1st req size always tot pkt len */
+  tx = XenNet_PutOnTxRing(xi, elements[0].pfn, elements[0].offset, (USHORT)total_packet_length, flags);
   xi->tx.req_prod_pvt++;
 
   /* (B) */
@@ -277,6 +300,8 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   /* (C) */
   for (element_num = 1; element_num < num_elements; element_num++)
   {
+if (csum_info->Transmit.NdisPacketTcpChecksum || csum_info->Transmit.NdisPacketUdpChecksum)
+KdPrint((__DRIVER_NAME "                   - size = %d, pfn = %08x, offset = %04x\n", elements[element_num].length, elements[element_num].pfn, elements[element_num].offset));
     //KdPrint((__DRIVER_NAME "     i = %d\n", i));
     tx = XenNet_PutOnTxRing(xi, elements[element_num].pfn,
       elements[element_num].offset, elements[element_num].length,

@@ -766,7 +766,6 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
 
   DeviceData->DeviceExtension = DeviceExtension;
 
-  ConfigInfo->Master = TRUE; // Won't work under x64 or on x32 with >4G memory without this...
   ConfigInfo->MaximumTransferLength = BLKIF_MAX_SEGMENTS_PER_REQUEST * PAGE_SIZE;
   ConfigInfo->NumberOfPhysicalBreaks = BLKIF_MAX_SEGMENTS_PER_REQUEST - 1;
   ConfigInfo->ScatterGather = TRUE;
@@ -779,7 +778,16 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   ConfigInfo->MaximumNumberOfLogicalUnits = 1;
   ConfigInfo->MaximumNumberOfTargets = SCSI_TARGETS_PER_BUS;
   if (ConfigInfo->Dma64BitAddresses == SCSI_DMA64_SYSTEM_SUPPORTED)
+  {
+    ConfigInfo->Master = TRUE;
     ConfigInfo->Dma64BitAddresses = SCSI_DMA64_MINIPORT_SUPPORTED;
+    KdPrint((__DRIVER_NAME "     Dma64BitAddresses supported\n"));
+  }
+  else
+  {
+    ConfigInfo->Master = FALSE;
+    KdPrint((__DRIVER_NAME "     Dma64BitAddresses not supported\n"));
+  }
 
   // This all has to be initialized here as the real Initialize routine
   // is called at DIRQL, and the XenBus stuff has to be called at
