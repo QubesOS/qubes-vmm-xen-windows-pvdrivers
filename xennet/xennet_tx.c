@@ -578,6 +578,7 @@ XenNet_TxShutdown(xennet_info_t *xi)
   xi->tx_pgs = NULL;
 
   /* I think that NDIS takes care of this for us... */
+  /* no it doesn't - this needs handling properly */
   ASSERT(xi->tx_outstanding == 0);
 
   for (i = 0; i < NET_TX_RING_SIZE; i++)

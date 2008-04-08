@@ -169,6 +169,7 @@ XenNet_SumPacketData(
   PUSHORT csum_ptr;
   USHORT remaining;
   USHORT ip4_length;
+ULONG seq;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -206,6 +207,7 @@ XenNet_SumPacketData(
   csum += GET_NET_USHORT(buffer[XN_HDR_SIZE + 16]) + GET_NET_USHORT(buffer[XN_HDR_SIZE + 18]); // dst
   csum += ((USHORT)buffer[XN_HDR_SIZE + 9]);
 
+seq = GET_NET_ULONG(buffer[XN_HDR_SIZE + pi->ip4_header_length + 4]);
   remaining = ip4_length - pi->ip4_header_length;
 
   csum += remaining;
@@ -222,7 +224,7 @@ XenNet_SumPacketData(
         return;
       }
       NdisQueryBufferSafe(mdl, &buffer, &buffer_length, NormalPagePriority);
-//      KdPrint((__DRIVER_NAME "     New buffer - unaligned...\n"));
+//KdPrint((__DRIVER_NAME "     New buffer - unaligned... seq = %x\n", seq));
       csum += ((USHORT)buffer[0]);
       buffer_offset = (USHORT)-1;
     }
@@ -245,6 +247,7 @@ XenNet_SumPacketData(
   }
   if (i != total_length) // last odd byte
   {
+//    KdPrint((__DRIVER_NAME "     odd final byte... seq = %x\n", seq));
     csum += ((USHORT)buffer[buffer_offset] << 8);
   }
   while (csum & 0xFFFF0000)
@@ -323,6 +326,7 @@ XenNet_MakePackets(
 )
 {
   USHORT i;
+  int pc;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "(packets = %p, packet_count = %d)\n", packets, *packet_count_p));
 
@@ -353,14 +357,17 @@ XenNet_MakePackets(
   else
     xi->rxpi.curr_mdl = 1;
 
+pc = 0;
   while (xi->rxpi.tcp_remaining)
   {
 //    KdPrint((__DRIVER_NAME "     tcp_remaining = %d\n", xi->rxpi.tcp_remaining));
     packets[*packet_count_p] = XenNet_MakePacket(xi);
     XenNet_SumPacketData(&xi->rxpi, packets[*packet_count_p]);
     (*packet_count_p)++;
+pc++;
   }
   ASSERT(xi->rxpi.curr_mdl == xi->rxpi.mdl_count);
+//KdPrint((__DRIVER_NAME "     split %d bytes into %d packets\n", xi->rxpi.tcp_length, pc));
 //  KdPrint((__DRIVER_NAME "     tcp_remaining = %d\n", xi->rxpi.tcp_remaining));
   // TODO: restore psh status to last packet
   for (i = 0; i < xi->rxpi.mdl_count; i++)
