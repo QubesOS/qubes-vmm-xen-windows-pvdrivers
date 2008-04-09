@@ -110,7 +110,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define RX_DFL_MIN_TARGET 128
 #define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
 
-#define MAX_BUFFERS_PER_PACKET 32
+#define MAX_BUFFERS_PER_PACKET 64
 
 
 typedef struct {
@@ -177,11 +177,16 @@ struct xennet_info
   ULONG tx_id_free;
   ULONG tx_no_id_free;
   USHORT tx_id_list[NET_TX_RING_SIZE];
-  ULONG tx_gref_free;
   grant_ref_t tx_gref_list[NET_TX_RING_SIZE];
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
   PNDIS_BUFFER tx_mdls[NET_TX_RING_SIZE];
   grant_ref_t tx_grefs[NET_TX_RING_SIZE];
+  ULONG tx_gref_free;
+  ULONG tx_gref_free_lowest;
+  PMDL tx_page_list[NET_RX_RING_SIZE];
+  ULONG tx_page_free;
+  ULONG tx_page_free_lowest;
+  NDIS_MINIPORT_TIMER tx_timer;
 
   /* rx_related - protected by rx_lock */
   struct netif_rx_front_ring rx;
@@ -190,8 +195,10 @@ struct xennet_info
   PMDL rx_mdl;
   ULONG rx_id_free;
   PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
-  PMDL page_list[NET_RX_RING_SIZE];
-  ULONG page_free;
+  PMDL rx_page_list[NET_RX_RING_SIZE];
+  ULONG rx_page_free;
+  ULONG rx_page_free_lowest;
+  NDIS_MINIPORT_TIMER rx_timer;
 
   packet_info_t rxpi;
 

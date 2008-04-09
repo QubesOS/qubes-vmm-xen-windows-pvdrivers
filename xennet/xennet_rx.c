@@ -27,7 +27,7 @@ get_page_from_freelist(struct xennet_info *xi)
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  if (xi->page_free == 0)
+  if (xi->rx_page_free == 0)
   {
     mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
     *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = xi->XenInterface.GntTbl_GrantAccess(
@@ -38,8 +38,10 @@ get_page_from_freelist(struct xennet_info *xi)
   }
   else
   {
-    xi->page_free--;
-    mdl = xi->page_list[xi->page_free];
+    xi->rx_page_free--;
+    if (xi->rx_page_free < xi->rx_page_free_lowest)
+      xi->rx_page_free_lowest = xi->rx_page_free;
+    mdl = xi->rx_page_list[xi->rx_page_free];
 //    KdPrint(("Old Mdl = %p, MmGetMdlVirtualAddress = %p, MmGetSystemAddressForMdlSafe = %p\n",
 //      mdl, MmGetMdlVirtualAddress(mdl), MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority)));
   }
@@ -55,10 +57,10 @@ free_page_freelist(struct xennet_info *xi)
   PMDL mdl;
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  while(xi->page_free != 0)
+  while(xi->rx_page_free != 0)
   {
-    xi->page_free--;
-    mdl = xi->page_list[xi->page_free];
+    xi->rx_page_free--;
+    mdl = xi->rx_page_list[xi->rx_page_free];
     xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
       *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
     FreePages(mdl);
@@ -72,8 +74,8 @@ put_page_on_freelist(struct xennet_info *xi, PMDL mdl)
 
 //  KdPrint(("Mdl = %p\n",  mdl));
 
-  xi->page_list[xi->page_free] = mdl;
-  xi->page_free++;
+  xi->rx_page_list[xi->rx_page_free] = mdl;
+  xi->rx_page_free++;
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -415,6 +417,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     {
       ASSERT(cycles++ < 256);
       id = (USHORT)(cons & (NET_RX_RING_SIZE - 1));
+      ASSERT(xi->rx_buffers[id]);
       mdl = xi->rx_buffers[id];
       xi->rx_buffers[id] = NULL;
       xi->rx_id_free++;
@@ -450,6 +453,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         {
           KdPrint((__DRIVER_NAME ": Error: rxrsp offset %d, size %d\n",
             rxrsp->offset, rxrsp->status));
+          ASSERT(!xi->rxpi.extra_info);
           put_page_on_freelist(xi, mdl);
           continue;
         }
@@ -458,14 +462,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         {
           if (rxrsp->flags & NETRXF_csum_blank)
             xi->rxpi.csum_calc_required = TRUE;
-#if 0
-          if (rxrsp->flags & (NETRXF_csum_blank|NETRXF_data_validated) && xi->config_csum)
-          {
-            //KdPrint((__DRIVER_NAME "     RX csum blank = %d, validated = %d\n", !!(rxrsp->flags & NETRXF_csum_blank), !!(rxrsp->flags & NETRXF_data_validated)));
-            if (rxrsp->flags & NETRXF_csum_blank)
-              xi->rxpi.csum_calc_required = TRUE;
-          }
-#endif
         }
         NdisAdjustBufferLength(mdl, rxrsp->status);
         xi->rxpi.mdls[xi->rxpi.mdl_count++] = mdl;
@@ -558,6 +554,44 @@ XenNet_ReturnPacket(
 #endif
 }
 
+static VOID 
+XenNet_RxTimer(
+  PVOID SystemSpecific1,
+  PVOID FunctionContext,
+  PVOID SystemSpecific2,
+  PVOID SystemSpecific3
+)
+{
+  struct xennet_info *xi = (struct xennet_info *)FunctionContext;
+  PMDL mdl;
+  int i;
+
+  UNREFERENCED_PARAMETER(SystemSpecific1);
+  UNREFERENCED_PARAMETER(SystemSpecific2);
+  UNREFERENCED_PARAMETER(SystemSpecific3);
+
+  KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
+
+  KdPrint((__DRIVER_NAME " --- rx_timer - lowest = %d\n", xi->rx_page_free_lowest));
+
+  if (xi->rx_page_free_lowest > max(RX_DFL_MIN_TARGET / 4, 16)) // lots of potential for tuning here
+  {
+    for (i = 0; i < 16; i++)
+    {
+      mdl = get_page_from_freelist(xi);
+      xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
+        *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
+      FreePages(mdl);
+    }
+  }
+
+  xi->rx_page_free_lowest = xi->rx_page_free;
+
+  KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
+
+  return;
+}
+
 /*
    Free all Rx buffers (on halt, for example) 
    The ring must be stopped at this point.
@@ -604,6 +638,9 @@ XenNet_RxInit(xennet_info_t *xi)
 
   xi->rx_outstanding = 0;
   XenNet_RxBufferAlloc(xi);
+
+  NdisMInitializeTimer(&xi->rx_timer, xi->adapter_handle, XenNet_RxTimer, xi);
+  NdisMSetPeriodicTimer(&xi->rx_timer, 1000);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 

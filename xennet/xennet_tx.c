@@ -77,8 +77,63 @@ get_gref_from_freelist(struct xennet_info *xi)
 static VOID
 put_gref_on_freelist(struct xennet_info *xi, grant_ref_t gref)
 {
+  ASSERT(xi->tx_page_list[xi->tx_page_free] == NULL);
   xi->tx_gref_list[xi->tx_gref_free] = gref;
   xi->tx_gref_free++;
+}
+
+static PMDL
+get_page_from_freelist(struct xennet_info *xi)
+{
+  PMDL mdl;
+
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  if (xi->tx_page_free == 0)
+  {
+    mdl = AllocatePage();
+  }
+  else
+  {
+    xi->tx_page_free--;
+    if (xi->tx_page_free < xi->tx_page_free_lowest)
+      xi->tx_page_free_lowest = xi->tx_page_free;
+    mdl = xi->tx_page_list[xi->tx_page_free];
+//    KdPrint(("Old Mdl = %p, MmGetMdlVirtualAddress = %p, MmGetSystemAddressForMdlSafe = %p\n",
+//      mdl, MmGetMdlVirtualAddress(mdl), MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority)));
+    xi->tx_page_list[xi->tx_page_free] = NULL;
+  }
+
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return mdl;
+}
+
+static VOID
+free_page_freelist(struct xennet_info *xi)
+{
+  PMDL mdl;
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  while(xi->tx_page_free != 0)
+  {
+    xi->tx_page_free--;
+    mdl = xi->tx_page_list[xi->tx_page_free];
+    FreePages(mdl);
+  }
+}
+
+static VOID
+put_page_on_freelist(struct xennet_info *xi, PMDL mdl)
+{
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+//  KdPrint(("Mdl = %p\n",  mdl));
+
+  xi->tx_page_list[xi->tx_page_free] = mdl;
+  xi->tx_page_free++;
+
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 
@@ -201,7 +256,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     || mss > 0)
     && XenNet_ParsePacketHeader(&pi) == PARSE_TOO_SMALL)
   {
-    pi.mdls[0] = merged_buffer = AllocatePage();
+    pi.mdls[0] = merged_buffer = get_page_from_freelist(xi);
     address = MmGetMdlVirtualAddress(pi.mdls[0]);
     memcpy(address, MmGetSystemAddressForMdlSafe(buffer, NormalPagePriority), MmGetMdlByteCount(buffer));
     length = MmGetMdlByteCount(buffer);
@@ -215,9 +270,11 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       NdisAdjustBufferLength(pi.mdls[0], length); /* do this here so that ParsePacketHeader works */
     }
   }
+  ASSERT(buffer != NULL);
   NdisGetNextBuffer(buffer, &buffer);
   while (buffer != NULL)
   {
+    ASSERT(pi.mdl_count < MAX_BUFFERS_PER_PACKET);
     pi.mdls[pi.mdl_count++] = buffer;
     NdisGetNextBuffer(buffer, &buffer);
   }
@@ -393,7 +450,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       }
       if (xi->tx_mdls[id])
       {
-        FreePages(xi->tx_mdls[id]);
+        put_page_on_freelist(xi, xi->tx_mdls[id]);
         xi->tx_mdls[id] = NULL;
       }
       put_gref_on_freelist(xi, xi->tx_grefs[id]);
@@ -498,6 +555,46 @@ XenNet_SendPackets(
   //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
+static VOID 
+XenNet_TxTimer(
+  PVOID SystemSpecific1,
+  PVOID FunctionContext,
+  PVOID SystemSpecific2,
+  PVOID SystemSpecific3
+)
+{
+  struct xennet_info *xi = (struct xennet_info *)FunctionContext;
+//  PMDL mdl;
+//  int i;
+
+  UNREFERENCED_PARAMETER(SystemSpecific1);
+  UNREFERENCED_PARAMETER(SystemSpecific2);
+  UNREFERENCED_PARAMETER(SystemSpecific3);
+
+  KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
+
+  KdPrint((__DRIVER_NAME " --- tx_timer - lowest = %d\n", xi->tx_page_free_lowest));
+
+#if 0
+  if (xi->tx_page_free_lowest > max(RX_DFL_MIN_TARGET / 4, 16)) // lots of potential for tuning here
+  {
+    for (i = 0; i < 16; i++)
+    {
+      mdl = get_page_from_freelist(xi);
+      xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
+        *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
+      FreePages(mdl);
+    }
+  }
+#endif
+
+  xi->tx_page_free_lowest = xi->tx_page_free;
+
+  KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
+
+  return;
+}
+
 static void
 XenNet_TxBufferFree(struct xennet_info *xi)
 {
@@ -556,13 +653,22 @@ XenNet_TxInit(xennet_info_t *xi)
     put_gref_on_freelist(xi, xi->XenInterface.GntTbl_GetRef(
       xi->XenInterface.InterfaceHeader.Context));
   }
+
+  NdisMInitializeTimer(&xi->tx_timer, xi->adapter_handle, XenNet_TxTimer, xi);
+  NdisMSetPeriodicTimer(&xi->tx_timer, 1000);
+
   return TRUE;
 }
 
 BOOLEAN
 XenNet_TxShutdown(xennet_info_t *xi)
 {
+  KIRQL OldIrql;
   ULONG i;
+
+  KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
+  NdisMSetPeriodicTimer(&xi->tx_timer, 1000);
+  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 
   XenNet_TxBufferFree(xi);
 
@@ -576,6 +682,8 @@ XenNet_TxShutdown(xennet_info_t *xi)
   /* if EndAccess fails then tx/rx ring pages LEAKED -- it's not safe to reuse
      pages Dom0 still has access to */
   xi->tx_pgs = NULL;
+
+  free_page_freelist(xi);
 
   /* I think that NDIS takes care of this for us... */
   /* no it doesn't - this needs handling properly */
