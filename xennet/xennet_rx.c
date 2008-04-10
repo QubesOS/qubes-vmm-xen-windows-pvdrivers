@@ -380,13 +380,17 @@ pc++;
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (split)\n"));
 }
 
+#define MAXIMUM_PACKETS_PER_INTERRUPT 64
+#define MAXIMUM_PACKETS_PER_INDICATE 8
+
 // Called at DISPATCH_LEVEL
 NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
   PNDIS_PACKET packets[NET_RX_RING_SIZE];
-  ULONG packet_count;
+  ULONG packet_count = 0;
+  ULONG total_packets = 0;
   PMDL mdl;
   int moretodo;
   struct netif_rx_response *rxrsp = NULL;
@@ -394,23 +398,22 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   USHORT id;
   int cycles = 0;
 #if defined(XEN_PROFILE)
-  LARGE_INTEGER tsc, tsc2, dummy;
+  LARGE_INTEGER tsc, dummy;
 #endif
   
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
 #if defined(XEN_PROFILE)
-  tsc = tsc2 = KeQueryPerformanceCounter(&dummy);
+  tsc = KeQueryPerformanceCounter(&dummy);
 #endif
 
   ASSERT(xi->connected);
 
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
 
-  packet_count = 0;
   do {
     ASSERT(cycles++ < 256);
-    prod = xi->rx.sring->rsp_prod;
+    prod = min(xi->rx.sring->rsp_prod, xi->rx.rsp_cons + MAXIMUM_PACKETS_PER_INDICATE);
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
     for (cons = xi->rx.rsp_cons; cons != prod; cons++)
@@ -479,8 +482,21 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     }
     ASSERT(packet_count < NET_RX_RING_SIZE);
     xi->rx.rsp_cons = prod;
+
+    if (packet_count > 0)
+    {
+      KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
+      NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
+#if defined(XEN_PROFILE)
+      ProfCount_CallsToIndicateReceive++;
+#endif
+      KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
+      total_packets += packet_count;
+      packet_count = 0;
+    }
+
     RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, moretodo);
-  } while (moretodo);
+  } while (moretodo && total_packets < MAXIMUM_PACKETS_PER_INTERRUPT);
 
   /* Give netback more buffers */
   XenNet_RxBufferAlloc(xi);
@@ -488,21 +504,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 
 #if defined(XEN_PROFILE)
-  ProfTime_RxBufferCheckTopHalf.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc2.QuadPart;
-  tsc2 = KeQueryPerformanceCounter(&dummy);
-#endif
-
-  if (packet_count > 0)
-  {
-    NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
-#if defined(XEN_PROFILE)
-    ProfCount_CallsToIndicateReceive++;
-#endif
-  }
-
-#if defined(XEN_PROFILE)
   ProfTime_RxBufferCheck.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
-  ProfTime_RxBufferCheckBotHalf.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc2.QuadPart;
   ProfCount_RxBufferCheck++;
 #endif
 

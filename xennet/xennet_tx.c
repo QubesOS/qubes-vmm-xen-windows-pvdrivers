@@ -665,6 +665,7 @@ XenNet_TxShutdown(xennet_info_t *xi)
 {
   KIRQL OldIrql;
   ULONG i;
+  LARGE_INTEGER Interval;
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
   NdisMSetPeriodicTimer(&xi->tx_timer, 1000);
@@ -687,6 +688,16 @@ XenNet_TxShutdown(xennet_info_t *xi)
 
   /* I think that NDIS takes care of this for us... */
   /* no it doesn't - this needs handling properly */
+  
+  KdPrint((__DRIVER_NAME "     Waiting for tx_outstanding\n"));
+  while (xi->tx_outstanding)
+  {
+    KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
+    Interval.QuadPart = -1000000;
+    KeDelayExecutionThread(KernelMode, FALSE, &Interval);
+  }
+  KdPrint((__DRIVER_NAME "     Done\n"));
+
   ASSERT(xi->tx_outstanding == 0);
 
   for (i = 0; i < NET_TX_RING_SIZE; i++)
