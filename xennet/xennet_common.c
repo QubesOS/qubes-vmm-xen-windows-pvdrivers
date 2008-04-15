@@ -33,6 +33,11 @@ XenNet_ParsePacketHeader(
   
   NdisQueryBufferSafe(pi->mdls[0], &pi->header, &header_length, NormalPagePriority);
 
+// what about if the buffer isn't completely on one page???
+  if (ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(pi->mdls[0]), header_length) != 1)
+    KdPrint((__DRIVER_NAME "     header crosses a page!\n"));
+
+
   if (header_length < XN_HDR_SIZE + 20 + 20) // minimum size of first buffer is ETH + IP + TCP header
   {
     return PARSE_TOO_SMALL;
@@ -50,7 +55,7 @@ XenNet_ParsePacketHeader(
     pi->ip4_header_length = (pi->header[XN_HDR_SIZE + 0] & 0x0F) << 2;
     if (header_length < (ULONG)(pi->ip4_header_length + 20))
     {
-      KdPrint((__DRIVER_NAME "     first packet is only %d long, must be >= %d\n", XN_HDR_SIZE + header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)));
+      KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d\n", XN_HDR_SIZE + header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)));
       // we need to do something conclusive here...
       return PARSE_TOO_SMALL;
     }

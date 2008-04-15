@@ -110,7 +110,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define RX_DFL_MIN_TARGET 128
 #define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
 
-#define MAX_BUFFERS_PER_PACKET 64
+#define MAX_BUFFERS_PER_PACKET 128
 
 
 typedef struct {

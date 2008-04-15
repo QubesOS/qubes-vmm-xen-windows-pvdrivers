@@ -250,12 +250,13 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 
   pi.mdls[0] = buffer;
   pi.mdl_count = 1;
-  // only if csum offload
+  // only if some offload function is in use
   if ((csum_info->Transmit.NdisPacketTcpChecksum
     || csum_info->Transmit.NdisPacketUdpChecksum
     || mss > 0)
     && XenNet_ParsePacketHeader(&pi) == PARSE_TOO_SMALL)
   {
+KdPrint((__DRIVER_NAME "     Split header - merging\n"));
     pi.mdls[0] = merged_buffer = get_page_from_freelist(xi);
     address = MmGetMdlVirtualAddress(pi.mdls[0]);
     memcpy(address, MmGetSystemAddressForMdlSafe(buffer, NormalPagePriority), MmGetMdlByteCount(buffer));
@@ -268,8 +269,11 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       memcpy(&address[length], MmGetSystemAddressForMdlSafe(buffer, NormalPagePriority), MmGetMdlByteCount(buffer));
       length += MmGetMdlByteCount(buffer);
       NdisAdjustBufferLength(pi.mdls[0], length); /* do this here so that ParsePacketHeader works */
+KdPrint((__DRIVER_NAME "     length = %d\n", length));
     }
   }
+  if (mss > 0 && mss < pi.tcp_length)
+    mss = 0;
   ASSERT(buffer != NULL);
   NdisGetNextBuffer(buffer, &buffer);
   while (buffer != NULL)
@@ -283,7 +287,12 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   XenNet_BuildPageList(&pi, elements, &num_elements);
 
   if (num_elements + !!mss > (int)free_requests(xi))
+  {
+    KdPrint((__DRIVER_NAME "     Full on send - required = %d, available = %d\n", num_elements + !!mss, (int)free_requests(xi)));
+    if (merged_buffer)
+      FreePages(merged_buffer);
     return FALSE;
+  }
 
   if (csum_info->Transmit.NdisPacketTcpChecksum
     || csum_info->Transmit.NdisPacketUdpChecksum)
@@ -294,7 +303,9 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 
   if (mss > 0)
   {
-    flags |= NETTXF_extra_info;
+    if (!csum_info->Transmit.NdisPacketTcpChecksum)
+      KdPrint((__DRIVER_NAME "     strange... mss set but checksum offload not set\n"));
+    flags |= NETTXF_extra_info | NETTXF_csum_blank | NETTXF_data_validated;
     XenNet_SumIpHeader(MmGetSystemAddressForMdlSafe(pi.mdls[0], NormalPagePriority), pi.ip4_header_length);
     PC_INC(ProfCount_TxPacketsLargeOffload);
   }
@@ -325,20 +336,35 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   /* (C) */
   for (element_num = 1; element_num < num_elements; element_num++)
   {
-//if (csum_info->Transmit.NdisPacketTcpChecksum || csum_info->Transmit.NdisPacketUdpChecksum)
-//KdPrint((__DRIVER_NAME "                   - size = %d, pfn = %08x, offset = %04x\n", elements[element_num].length, elements[element_num].pfn, elements[element_num].offset));
-    //KdPrint((__DRIVER_NAME "     i = %d\n", i));
     tx = XenNet_PutOnTxRing(xi, elements[element_num].pfn,
       elements[element_num].offset, elements[element_num].length,
       NETTXF_more_data);
     xi->tx.req_prod_pvt++;
   }
 
+for (element_num = 0, length = 0; element_num < num_elements; element_num++)
+{
+  if (elements[element_num].length == 0 || elements[element_num].pfn == 0)
+    KdPrint((__DRIVER_NAME "     strange page length = %d, pfn = %08x, offset = %04x\n", elements[element_num].length, elements[element_num].pfn, elements[element_num].offset));
+  length += elements[element_num].length;
+}
+if (length != total_packet_length) {
+  KdPrint((__DRIVER_NAME "     length (%d) != total_packet_length (%d)\n", length, total_packet_length));
+}
+
+
   /* only set the packet on the last buffer, clear more_data */
   ASSERT(tx);
   xi->tx_pkts[tx->id] = packet;
   xi->tx_mdls[tx->id] = merged_buffer;
   tx->flags &= ~NETTXF_more_data;
+
+  if (mss)
+  {
+    NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo) = UlongToPtr(pi.tcp_length);
+  }
+
+  xi->tx_outstanding++;
 
   return TRUE;
 }
@@ -371,7 +397,10 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
     packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
     success = XenNet_HWSendPacket(xi, packet);
     if (!success)
+    {
+      InsertHeadList(&xi->tx_waiting_pkt_list, entry);
       break;
+    }
     entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   }
 
@@ -398,7 +427,6 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   ULONG packet_count = 0;
   int moretodo;
   ULONG i;
-  UINT total_packet_length;
   int cycles = 0;
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
@@ -438,12 +466,6 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       packets[packet_count] = xi->tx_pkts[id];
       if (packets[packet_count])
       {
-        NdisQueryPacket(packets[packet_count], NULL, NULL, NULL, &total_packet_length);
-        if (NDIS_PER_PACKET_INFO_FROM_PACKET(packets[packet_count], TcpLargeSendPacketInfo) != 0)
-        {
-          NDIS_PER_PACKET_INFO_FROM_PACKET(packets[packet_count], TcpLargeSendPacketInfo) = UlongToPtr(total_packet_length);
-//KdPrint((__DRIVER_NAME "     Large Send Response = %d\n", NDIS_PER_PACKET_INFO_FROM_PACKET(packets[packet_count], TcpLargeSendPacketInfo)));
-        }
         xi->tx_pkts[id] = NULL;
         packet_count++;
         xi->stat_tx_ok++;
@@ -518,7 +540,6 @@ XenNet_SendPackets(
     *(ULONG *)&packet->MiniportReservedEx = 0;
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(&xi->tx_waiting_pkt_list, entry);
-    xi->tx_outstanding++;
 #if defined(XEN_PROFILE)
     ProfCount_PacketsPerSendPackets++;
 #endif
@@ -573,7 +594,9 @@ XenNet_TxTimer(
 
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
-  KdPrint((__DRIVER_NAME " --- tx_timer - lowest = %d\n", xi->tx_page_free_lowest));
+//  KdPrint((__DRIVER_NAME " --- tx_timer - lowest = %d\n", xi->tx_page_free_lowest));
+
+  KdPrint((__DRIVER_NAME " --- tx_outstanding = %d\n", xi->tx_outstanding));
 
 #if 0
   if (xi->tx_page_free_lowest > max(RX_DFL_MIN_TARGET / 4, 16)) // lots of potential for tuning here
@@ -666,12 +689,24 @@ XenNet_TxShutdown(xennet_info_t *xi)
   KIRQL OldIrql;
   ULONG i;
   LARGE_INTEGER Interval;
+  BOOLEAN TimerCancelled;
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
-  NdisMSetPeriodicTimer(&xi->tx_timer, 1000);
-  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
+
+  NdisMCancelTimer(&xi->tx_timer, &TimerCancelled);
 
   XenNet_TxBufferFree(xi);
+
+  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
+
+  KdPrint((__DRIVER_NAME "     Waiting for tx_outstanding\n"));
+  while (xi->tx_outstanding)
+  {
+    KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
+    Interval.QuadPart = -10000000;
+    KeDelayExecutionThread(KernelMode, FALSE, &Interval);
+  }
+  KdPrint((__DRIVER_NAME "     Done\n"));
 
   /* free TX resources */
   if (xi->XenInterface.GntTbl_EndAccess(
@@ -685,18 +720,6 @@ XenNet_TxShutdown(xennet_info_t *xi)
   xi->tx_pgs = NULL;
 
   free_page_freelist(xi);
-
-  /* I think that NDIS takes care of this for us... */
-  /* no it doesn't - this needs handling properly */
-  
-  KdPrint((__DRIVER_NAME "     Waiting for tx_outstanding\n"));
-  while (xi->tx_outstanding)
-  {
-    KdPrint((__DRIVER_NAME "     tx_outstanding = %d\n", xi->tx_outstanding));
-    Interval.QuadPart = -1000000;
-    KeDelayExecutionThread(KernelMode, FALSE, &Interval);
-  }
-  KdPrint((__DRIVER_NAME "     Done\n"));
 
   ASSERT(xi->tx_outstanding == 0);
 
