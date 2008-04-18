@@ -570,8 +570,8 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInfor
   DeviceData->EnumeratedDevices = 0;
   DeviceData->TotalInitialDevices = 0;
 
-  if (DeviceData->XenDeviceData->AutoEnumerate)
-  {
+//  if (DeviceData->XenDeviceData->AutoEnumerate)
+//  {
     msg = DeviceData->XenDeviceData->XenInterface.XenBus_List(
       DeviceData->XenDeviceData->XenInterface.InterfaceHeader.Context,
       XBT_NIL, "device/vscsi", &ScsiDevices);
@@ -585,7 +585,7 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInfor
         DeviceData->TotalInitialDevices++;
       }  
     }
-  }
+//  }
 
   *Again = FALSE;
 

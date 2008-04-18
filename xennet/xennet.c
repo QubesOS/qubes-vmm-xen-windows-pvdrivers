@@ -324,7 +324,6 @@ XenNet_Init(
   xi->state = XenbusStateUnknown;
   xi->backend_state = XenbusStateUnknown;
 
-  KeInitializeSpinLock(&xi->tx_lock);
   KeInitializeSpinLock(&xi->rx_lock);
 
   InitializeListHead(&xi->tx_waiting_pkt_list);

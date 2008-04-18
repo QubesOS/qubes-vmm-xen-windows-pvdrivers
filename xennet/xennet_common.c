@@ -75,6 +75,13 @@ XenNet_ParsePacketHeader(
   }
   pi->ip4_length = GET_NET_USHORT(pi->header[XN_HDR_SIZE + 2]);
   pi->tcp_header_length = (pi->header[XN_HDR_SIZE + pi->ip4_header_length + 12] & 0xf0) >> 2;
+
+  if (header_length < (ULONG)(pi->ip4_header_length + pi->tcp_header_length))
+  {
+    KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d\n", XN_HDR_SIZE + header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)));
+    return PARSE_TOO_SMALL;
+  }
+
   pi->tcp_length = pi->ip4_length - pi->ip4_header_length - pi->tcp_header_length;
   pi->tcp_remaining = pi->tcp_length;
   pi->tcp_seq = GET_NET_ULONG(pi->header[XN_HDR_SIZE + pi->ip4_header_length + 4]);

@@ -31,13 +31,13 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 static ULONG
 free_requests(struct xennet_info *xi)
 {
-  return xi->tx_id_free;
+  return xi->tx_id_free - xi->tx_no_id_used;
 }
 
 static USHORT
 get_id_from_freelist(struct xennet_info *xi)
 {
-  if (xi->tx_id_free - xi->tx_no_id_free == 0)
+  if (xi->tx_id_free - xi->tx_no_id_used == 0)
     return FREELIST_ID_ERROR;
   xi->tx_id_free--;
   return xi->tx_id_list[xi->tx_id_free];
@@ -46,9 +46,9 @@ get_id_from_freelist(struct xennet_info *xi)
 static USHORT
 get_no_id_from_freelist(struct xennet_info *xi)
 {
-  if (xi->tx_id_free - xi->tx_no_id_free == 0)
+  if (xi->tx_id_free - xi->tx_no_id_used == 0)
     return FREELIST_ID_ERROR;
-  xi->tx_no_id_free--;
+  xi->tx_no_id_used++;
   return 0;
 }
 
@@ -62,7 +62,7 @@ put_id_on_freelist(struct xennet_info *xi, USHORT id)
 static VOID
 put_no_id_on_freelist(struct xennet_info *xi)
 {
-  xi->tx_no_id_free++;
+  xi->tx_no_id_used--;
 }
 
 static grant_ref_t
@@ -212,6 +212,8 @@ XenNet_PutOnTxRing(
   return tx;
 }
 
+static ULONG full_count = 0;
+
 /* Called at DISPATCH_LEVEL with tx_lock held */
 /*
  * Send one NDIS_PACKET. This may involve multiple entries on TX ring.
@@ -272,8 +274,10 @@ KdPrint((__DRIVER_NAME "     Split header - merging\n"));
 KdPrint((__DRIVER_NAME "     length = %d\n", length));
     }
   }
-  if (mss > 0 && mss < pi.tcp_length)
+  if (mss > 0 && pi.tcp_length < mss)
+  {
     mss = 0;
+  }
   ASSERT(buffer != NULL);
   NdisGetNextBuffer(buffer, &buffer);
   while (buffer != NULL)
@@ -286,9 +290,15 @@ KdPrint((__DRIVER_NAME "     length = %d\n", length));
   num_elements = NET_TX_RING_SIZE;
   XenNet_BuildPageList(&pi, elements, &num_elements);
 
+  if (num_elements < pi.mdl_count)
+  {
+    KdPrint((__DRIVER_NAME "     Less buffers (%d) than mdls (%d)\n", num_elements, pi.mdl_count));
+  }
+
   if (num_elements + !!mss > (int)free_requests(xi))
   {
-    KdPrint((__DRIVER_NAME "     Full on send - required = %d, available = %d\n", num_elements + !!mss, (int)free_requests(xi)));
+//    KdPrint((__DRIVER_NAME "     Full on send - required = %d, available = %d\n", num_elements + !!mss, (int)free_requests(xi)));
+    full_count++;
     if (merged_buffer)
       FreePages(merged_buffer);
     return FALSE;
@@ -303,8 +313,8 @@ KdPrint((__DRIVER_NAME "     length = %d\n", length));
 
   if (mss > 0)
   {
-    if (!csum_info->Transmit.NdisPacketTcpChecksum)
-      KdPrint((__DRIVER_NAME "     strange... mss set but checksum offload not set\n"));
+//    if (!csum_info->Transmit.NdisPacketTcpChecksum)
+//      KdPrint((__DRIVER_NAME "     strange... mss set but checksum offload not set\n"));
     flags |= NETTXF_extra_info | NETTXF_csum_blank | NETTXF_data_validated;
     XenNet_SumIpHeader(MmGetSystemAddressForMdlSafe(pi.mdls[0], NormalPagePriority), pi.ip4_header_length);
     PC_INC(ProfCount_TxPacketsLargeOffload);
@@ -351,7 +361,6 @@ for (element_num = 0, length = 0; element_num < num_elements; element_num++)
 if (length != total_packet_length) {
   KdPrint((__DRIVER_NAME "     length (%d) != total_packet_length (%d)\n", length, total_packet_length));
 }
-
 
   /* only set the packet on the last buffer, clear more_data */
   ASSERT(tx);
@@ -417,6 +426,8 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
 #endif
 }
 
+static ULONG ndis_outstanding = 0;
+
 // Called at DISPATCH_LEVEL
 NDIS_STATUS
 XenNet_TxBufferGC(struct xennet_info *xi)
@@ -462,13 +473,14 @@ XenNet_TxBufferGC(struct xennet_info *xi)
         continue; // This would be the response to an extra_info packet
       }
 
-      id  = txrsp->id;
+      id = txrsp->id;
       packets[packet_count] = xi->tx_pkts[id];
       if (packets[packet_count])
       {
         xi->tx_pkts[id] = NULL;
         packet_count++;
         xi->stat_tx_ok++;
+        xi->tx_outstanding--;
       }
       if (xi->tx_mdls[id])
       {
@@ -495,7 +507,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
     /* A miniport driver must release any spin lock that it is holding before
        calling NdisMSendComplete. */
     NdisMSendComplete(xi->adapter_handle, packets[i], NDIS_STATUS_SUCCESS);
-    xi->tx_outstanding--;
+ndis_outstanding--;
   }
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
@@ -543,6 +555,7 @@ XenNet_SendPackets(
 #if defined(XEN_PROFILE)
     ProfCount_PacketsPerSendPackets++;
 #endif
+ndis_outstanding++;
   }
 
   XenNet_SendQueuedPackets(xi);
@@ -592,11 +605,14 @@ XenNet_TxTimer(
   UNREFERENCED_PARAMETER(SystemSpecific2);
   UNREFERENCED_PARAMETER(SystemSpecific3);
 
+  ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
 //  KdPrint((__DRIVER_NAME " --- tx_timer - lowest = %d\n", xi->tx_page_free_lowest));
 
-  KdPrint((__DRIVER_NAME " --- tx_outstanding = %d\n", xi->tx_outstanding));
+  KdPrint((__DRIVER_NAME " --- tx_outstanding = %d, ndis_outstanding = %d, full_count = %d\n", xi->tx_outstanding, ndis_outstanding, full_count));
+  KdPrint((__DRIVER_NAME " --- tx_id_free = %d, xi->tx_no_id_used = %d\n", xi->tx_id_free, xi->tx_no_id_used));
+
 
 #if 0
   if (xi->tx_page_free_lowest > max(RX_DFL_MIN_TARGET / 4, 16)) // lots of potential for tuning here
@@ -655,6 +671,8 @@ XenNet_TxInit(xennet_info_t *xi)
 {
   USHORT i;
 
+  KeInitializeSpinLock(&xi->tx_lock);
+
   xi->tx_mdl = AllocatePage();
   xi->tx_pgs = MmGetMdlVirtualAddress(xi->tx_mdl);
   SHARED_RING_INIT(xi->tx_pgs);
@@ -663,7 +681,7 @@ XenNet_TxInit(xennet_info_t *xi)
     xi->XenInterface.InterfaceHeader.Context, 0,
     *MmGetMdlPfnArray(xi->tx_mdl), FALSE, 0);
   xi->tx_id_free = 0;
-  xi->tx_no_id_free = 0;
+  xi->tx_no_id_used = 0;
   for (i = 0; i < NET_TX_RING_SIZE; i++)
   {
     xi->tx_pkts[i] = NULL;

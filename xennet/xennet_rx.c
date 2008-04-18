@@ -111,11 +111,14 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   {
     ASSERT(cycles++ < 256);
     if (xi->rx_id_free == 0)
+    {
+      KdPrint((__DRIVER_NAME "     Added %d out of %d buffers to rx ring (ran out of id's)\n", i, batch_target));
       break;
+    }
     mdl = get_page_from_freelist(xi);
     if (mdl == NULL)
     {
-      KdPrint((__DRIVER_NAME "     Added %d out of %d buffers to rx ring\n", i, batch_target));
+      KdPrint((__DRIVER_NAME "     Added %d out of %d buffers to rx ring (no free pages)\n", i, batch_target));
       break;
     }
     xi->rx_id_free--;
@@ -403,7 +406,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   do {
     ASSERT(cycles++ < 256);
-    prod = min(xi->rx.sring->rsp_prod, xi->rx.rsp_cons + MAXIMUM_PACKETS_PER_INDICATE);
+    prod = xi->rx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
     for (cons = xi->rx.rsp_cons; cons != prod; cons++)
@@ -468,6 +471,8 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       {
         XenNet_MakePackets(xi, packets, &packet_count);
         RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));
+//        if (packet_count >= MAXIMUM_PACKETS_PER_INDICATE)
+//          break;
       }
     }
     ASSERT(packet_count < NET_RX_RING_SIZE);
@@ -490,6 +495,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   /* Give netback more buffers */
   XenNet_RxBufferAlloc(xi);
+
+if (xi->rxpi.more_frags || xi->rxpi.extra_info)
+  KdPrint(("Partial receive (more_frags = %d, extra_info = %d, total_length = %d, mdl_count = %d)\n", xi->rxpi.more_frags, xi->rxpi.extra_info, xi->rxpi.total_length, xi->rxpi.mdl_count));
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 

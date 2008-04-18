@@ -112,7 +112,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define MAX_BUFFERS_PER_PACKET 128
 
-
 typedef struct {
   PNDIS_BUFFER mdls[MAX_BUFFERS_PER_PACKET];
   ULONG mdl_count;
@@ -175,7 +174,7 @@ struct xennet_info
   struct netif_tx_sring *tx_pgs;
   PMDL tx_mdl;
   ULONG tx_id_free;
-  ULONG tx_no_id_free;
+  ULONG tx_no_id_used;
   USHORT tx_id_list[NET_TX_RING_SIZE];
   grant_ref_t tx_gref_list[NET_TX_RING_SIZE];
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
