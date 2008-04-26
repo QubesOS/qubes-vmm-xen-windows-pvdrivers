@@ -25,16 +25,12 @@ get_page_from_freelist(struct xennet_info *xi)
 {
   PMDL mdl;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
   if (xi->rx_page_free == 0)
   {
     mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
     *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = xi->XenInterface.GntTbl_GrantAccess(
       xi->XenInterface.InterfaceHeader.Context, 0,
       *MmGetMdlPfnArray(mdl), FALSE, 0);
-//    KdPrint(("New Mdl = %p, MmGetMdlVirtualAddress = %p, MmGetSystemAddressForMdlSafe = %p\n",
-//      mdl, MmGetMdlVirtualAddress(mdl), MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority)));
   }
   else
   {
@@ -42,21 +38,22 @@ get_page_from_freelist(struct xennet_info *xi)
     if (xi->rx_page_free < xi->rx_page_free_lowest)
       xi->rx_page_free_lowest = xi->rx_page_free;
     mdl = xi->rx_page_list[xi->rx_page_free];
-//    KdPrint(("Old Mdl = %p, MmGetMdlVirtualAddress = %p, MmGetSystemAddressForMdlSafe = %p\n",
-//      mdl, MmGetMdlVirtualAddress(mdl), MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority)));
   }
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
   return mdl;
+}
+
+static VOID
+put_page_on_freelist(struct xennet_info *xi, PMDL mdl)
+{
+  xi->rx_page_list[xi->rx_page_free] = mdl;
+  xi->rx_page_free++;
 }
 
 static VOID
 free_page_freelist(struct xennet_info *xi)
 {
   PMDL mdl;
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
   while(xi->rx_page_free != 0)
   {
     xi->rx_page_free--;
@@ -65,19 +62,6 @@ free_page_freelist(struct xennet_info *xi)
       *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
     FreePages(mdl);
   }
-}
-
-static VOID
-put_page_on_freelist(struct xennet_info *xi, PMDL mdl)
-{
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-//  KdPrint(("Mdl = %p\n",  mdl));
-
-  xi->rx_page_list[xi->rx_page_free] = mdl;
-  xi->rx_page_free++;
-
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static __inline grant_ref_t
@@ -363,6 +347,7 @@ XenNet_MakePackets(
     XenNet_SumPacketData(&xi->rxpi, packets[*packet_count_p]);
     (*packet_count_p)++;
   }
+
   ASSERT(xi->rxpi.curr_mdl == xi->rxpi.mdl_count);
   // TODO: restore psh status to last packet
   for (i = 0; i < xi->rxpi.mdl_count; i++)
@@ -409,7 +394,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     prod = xi->rx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
-    for (cons = xi->rx.rsp_cons; cons != prod; cons++)
+    for (cons = xi->rx.rsp_cons; cons != prod && packet_count < MAXIMUM_PACKETS_PER_INDICATE; cons++)
     {
       ASSERT(cycles++ < 256);
       id = (USHORT)(cons & (NET_RX_RING_SIZE - 1));
@@ -476,7 +461,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       }
     }
     ASSERT(packet_count < NET_RX_RING_SIZE);
-    xi->rx.rsp_cons = prod;
+    xi->rx.rsp_cons = cons;
 
     if (packet_count > 0)
     {
@@ -572,7 +557,8 @@ XenNet_RxTimer(
 
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
 
-//  KdPrint((__DRIVER_NAME " --- rx_timer - lowest = %d\n", xi->rx_page_free_lowest));
+  KdPrint((__DRIVER_NAME " --- rx_timer - rx_page_free_lowest = %d\n", xi->rx_page_free_lowest));
+//  KdPrint((__DRIVER_NAME " --- rx_outstanding = %d, rx_id_free = %d\n", xi->rx_outstanding, xi->rx_id_free));
 
   if (xi->rx_page_free_lowest > max(RX_DFL_MIN_TARGET / 4, 16)) // lots of potential for tuning here
   {

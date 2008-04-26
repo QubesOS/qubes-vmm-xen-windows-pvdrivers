@@ -88,7 +88,7 @@ GntTbl_Init(WDFDEVICE Device)
   xpdd->gnttab_table_physical = XenPCI_AllocMMIO(Device,
     PAGE_SIZE * NR_GRANT_FRAMES);
   xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical,
-    PAGE_SIZE * NR_GRANT_FRAMES, MmNonCached);
+    PAGE_SIZE * NR_GRANT_FRAMES, MmCached);
   if (!xpdd->gnttab_table)
   {
     KdPrint((__DRIVER_NAME "     Error Mapping Grant Table Shared Memory\n"));
@@ -117,6 +117,10 @@ GntTbl_GrantAccess(
     ref = GntTbl_GetRef(Device);
   xpdd->gnttab_table[ref].frame = frame;
   xpdd->gnttab_table[ref].domid = domid;
+
+  if (xpdd->gnttab_table[ref].flags)
+    KdPrint((__DRIVER_NAME "     WARNING: Attempting to re-use grant entry that is already in use!\n"));
+
   KeMemoryBarrier();
   readonly *= GTF_readonly;
   xpdd->gnttab_table[ref].flags = GTF_permit_access | (uint16_t)readonly;

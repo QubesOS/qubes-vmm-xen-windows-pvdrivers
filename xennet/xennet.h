@@ -176,12 +176,8 @@ struct xennet_info
   ULONG tx_id_free;
   ULONG tx_no_id_used;
   USHORT tx_id_list[NET_TX_RING_SIZE];
-  grant_ref_t tx_gref_list[NET_TX_RING_SIZE];
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
   PNDIS_BUFFER tx_mdls[NET_TX_RING_SIZE];
-  grant_ref_t tx_grefs[NET_TX_RING_SIZE];
-  ULONG tx_gref_free;
-  ULONG tx_gref_free_lowest;
   PMDL tx_page_list[NET_RX_RING_SIZE];
   ULONG tx_page_free;
   ULONG tx_page_free_lowest;
@@ -208,7 +204,6 @@ struct xennet_info
 
   /* how many packets are in the net stack atm */
   LONG rx_outstanding;
-  LONG tx_outstanding;
 
   /* config vars from registry */
   ULONG config_sg;

@@ -100,6 +100,9 @@ XenNet_SumIpHeader(
   ULONG csum = 0;
   USHORT i;
 
+  ASSERT(ip4_header_length > 12);
+  ASSERT(!(ip4_header_length & 1));
+
   header[XN_HDR_SIZE + 10] = 0;
   header[XN_HDR_SIZE + 11] = 0;
   for (i = 0; i < ip4_header_length; i += 2)

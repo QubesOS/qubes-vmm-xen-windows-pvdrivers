@@ -268,7 +268,7 @@ EvtChn_GetXenStoreRingAddr(WDFDEVICE Device)
   xen_store_mfn = (xen_ulong_t)hvm_get_parameter(Device, HVM_PARAM_STORE_PFN);
 
   pa_xen_store_interface.QuadPart = xen_store_mfn << PAGE_SHIFT;
-  xen_store_interface = MmMapIoSpace(pa_xen_store_interface, PAGE_SIZE, MmNonCached);
+  xen_store_interface = MmMapIoSpace(pa_xen_store_interface, PAGE_SIZE, MmCached);
 
   KdPrint((__DRIVER_NAME " xen_store_mfn = %08x\n", xen_store_mfn));
   //KdPrint((__DRIVER_NAME " xen_store_evtchn = %08x\n", xen_store_evtchn));

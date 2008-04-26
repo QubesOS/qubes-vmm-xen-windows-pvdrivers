@@ -888,7 +888,7 @@ XenPci_Suspend(
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n", KeGetCurrentProcessorNumber()));
     return;
   }
-  ActiveProcessorCount = KeNumberProcessors;
+  ActiveProcessorCount = (ULONG)KeNumberProcessors;
 
   KdPrint((__DRIVER_NAME "     waiting for all other processors to spin\n"));
   while (suspend_info->nr_spinning < ActiveProcessorCount - 1)
@@ -940,7 +940,7 @@ XenPci_BeginSuspend(WDFDEVICE Device)
     // TODO: Disable xenbus
     // TODO: Disable our IRQ
     //ActiveProcessorCount = KeQueryActiveProcessorCount(&ActiveProcessorMask);
-    ActiveProcessorCount = KeNumberProcessors;
+    ActiveProcessorCount = (ULONG)KeNumberProcessors;
     KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
     for (i = 0; i < ActiveProcessorCount; i++)
     {
