@@ -135,6 +135,17 @@ typedef struct {
   BOOLEAN more_frags;
 } packet_info_t;
 
+typedef struct
+{
+  struct xennet_info *xi;
+  PMDL page_list[NET_RX_RING_SIZE];
+  ULONG page_free;
+  ULONG page_free_lowest;
+  ULONG page_free_target;
+  NDIS_MINIPORT_TIMER timer;
+  PKSPIN_LOCK lock;
+} freelist_t;
+
 struct xennet_info
 {
   /* Base device vars */
@@ -178,10 +189,7 @@ struct xennet_info
   USHORT tx_id_list[NET_TX_RING_SIZE];
   PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
   PNDIS_BUFFER tx_mdls[NET_TX_RING_SIZE];
-  PMDL tx_page_list[NET_RX_RING_SIZE];
-  ULONG tx_page_free;
-  ULONG tx_page_free_lowest;
-  NDIS_MINIPORT_TIMER tx_timer;
+  freelist_t tx_freelist;
 
   /* rx_related - protected by rx_lock */
   struct netif_rx_front_ring rx;
@@ -190,11 +198,7 @@ struct xennet_info
   PMDL rx_mdl;
   ULONG rx_id_free;
   PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
-  PMDL rx_page_list[NET_RX_RING_SIZE];
-  ULONG rx_page_free;
-  ULONG rx_page_free_lowest;
-  NDIS_MINIPORT_TIMER rx_timer;
-
+  freelist_t rx_freelist;
   packet_info_t rxpi;
 
   /* Receive-ring batched refills. */
@@ -329,3 +333,18 @@ XenNet_SumIpHeader(
   PUCHAR header,
   USHORT ip4_header_length
 );
+
+static __inline grant_ref_t
+get_grant_ref(PMDL mdl)
+{
+  return *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE));
+}
+
+VOID
+XenFreelist_Init(struct xennet_info *xi, freelist_t *fl, PKSPIN_LOCK lock);
+PMDL
+XenFreelist_GetPage(freelist_t *fl);
+VOID
+XenFreelist_PutPage(freelist_t *fl, PMDL mdl);
+VOID
+XenFreelist_Dispose(freelist_t *fl);

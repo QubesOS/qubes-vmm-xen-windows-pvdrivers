@@ -20,56 +20,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xennet.h"
 
-static PMDL
-get_page_from_freelist(struct xennet_info *xi)
-{
-  PMDL mdl;
-
-  if (xi->rx_page_free == 0)
-  {
-    mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
-    *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = xi->XenInterface.GntTbl_GrantAccess(
-      xi->XenInterface.InterfaceHeader.Context, 0,
-      *MmGetMdlPfnArray(mdl), FALSE, 0);
-  }
-  else
-  {
-    xi->rx_page_free--;
-    if (xi->rx_page_free < xi->rx_page_free_lowest)
-      xi->rx_page_free_lowest = xi->rx_page_free;
-    mdl = xi->rx_page_list[xi->rx_page_free];
-  }
-
-  return mdl;
-}
-
-static VOID
-put_page_on_freelist(struct xennet_info *xi, PMDL mdl)
-{
-  xi->rx_page_list[xi->rx_page_free] = mdl;
-  xi->rx_page_free++;
-}
-
-static VOID
-free_page_freelist(struct xennet_info *xi)
-{
-  PMDL mdl;
-  while(xi->rx_page_free != 0)
-  {
-    xi->rx_page_free--;
-    mdl = xi->rx_page_list[xi->rx_page_free];
-    xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
-      *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
-    FreePages(mdl);
-  }
-}
-
-static __inline grant_ref_t
-get_grant_ref(PMDL mdl)
-{
-  return *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE));
-}
-
 // Called at DISPATCH_LEVEL with rx lock held
 static NDIS_STATUS
 XenNet_RxBufferAlloc(struct xennet_info *xi)
@@ -99,7 +49,7 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
       KdPrint((__DRIVER_NAME "     Added %d out of %d buffers to rx ring (ran out of id's)\n", i, batch_target));
       break;
     }
-    mdl = get_page_from_freelist(xi);
+    mdl = XenFreelist_GetPage(&xi->rx_freelist);
     if (mdl == NULL)
     {
       KdPrint((__DRIVER_NAME "     Added %d out of %d buffers to rx ring (no free pages)\n", i, batch_target));
@@ -277,7 +227,7 @@ XenNet_MakePacket(
   }
   else
   {
-    out_mdl = get_page_from_freelist(xi);
+    out_mdl = XenFreelist_GetPage(&xi->rx_freelist);
     out_buffer = MmGetMdlVirtualAddress(out_mdl);
     out_offset = XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
     out_remaining = min(xi->rxpi.mss, xi->rxpi.tcp_remaining);
@@ -353,7 +303,7 @@ XenNet_MakePackets(
   for (i = 0; i < xi->rxpi.mdl_count; i++)
   {
     NdisAdjustBufferLength(xi->rxpi.mdls[i], PAGE_SIZE);
-    put_page_on_freelist(xi, xi->rxpi.mdls[i]);
+    XenFreelist_PutPage(&xi->rx_freelist, xi->rxpi.mdls[i]);
   }
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (split)\n"));
 }
@@ -404,7 +354,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       xi->rx_id_free++;
       if (xi->rxpi.extra_info)
       {
-        put_page_on_freelist(xi, mdl);
+        XenFreelist_PutPage(&xi->rx_freelist, mdl);
         ei = (struct netif_extra_info *)RING_GET_RESPONSE(&xi->rx, cons);
         xi->rxpi.extra_info = (BOOLEAN)!!(ei->flags & XEN_NETIF_EXTRA_FLAG_MORE);
         switch (ei->type)
@@ -435,7 +385,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
           KdPrint((__DRIVER_NAME ": Error: rxrsp offset %d, size %d\n",
             rxrsp->offset, rxrsp->status));
           ASSERT(!xi->rxpi.extra_info);
-          put_page_on_freelist(xi, mdl);
+          XenFreelist_PutPage(&xi->rx_freelist, mdl);
           continue;
         }
         ASSERT(rxrsp->id == id);
@@ -522,7 +472,7 @@ XenNet_ReturnPacket(
   {
     ASSERT(cycles++ < 256);
     NdisAdjustBufferLength(mdl, PAGE_SIZE);
-    put_page_on_freelist(xi, mdl);
+    XenFreelist_PutPage(&xi->rx_freelist, mdl);
     NdisUnchainBufferAtBack(Packet, &mdl);
   }
 
@@ -539,50 +489,11 @@ XenNet_ReturnPacket(
 #endif
 }
 
-static VOID 
-XenNet_RxTimer(
-  PVOID SystemSpecific1,
-  PVOID FunctionContext,
-  PVOID SystemSpecific2,
-  PVOID SystemSpecific3
-)
-{
-  struct xennet_info *xi = (struct xennet_info *)FunctionContext;
-  PMDL mdl;
-  int i;
-
-  UNREFERENCED_PARAMETER(SystemSpecific1);
-  UNREFERENCED_PARAMETER(SystemSpecific2);
-  UNREFERENCED_PARAMETER(SystemSpecific3);
-
-  KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
-
-  KdPrint((__DRIVER_NAME " --- rx_timer - rx_page_free_lowest = %d\n", xi->rx_page_free_lowest));
-//  KdPrint((__DRIVER_NAME " --- rx_outstanding = %d, rx_id_free = %d\n", xi->rx_outstanding, xi->rx_id_free));
-
-  if (xi->rx_page_free_lowest > max(RX_DFL_MIN_TARGET / 4, 16)) // lots of potential for tuning here
-  {
-    for (i = 0; i < 16; i++)
-    {
-      mdl = get_page_from_freelist(xi);
-      xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
-        *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
-      FreePages(mdl);
-    }
-    KdPrint((__DRIVER_NAME " --- rx_timer - freed %d pages\n", i));
-  }
-
-  xi->rx_page_free_lowest = xi->rx_page_free;
-
-  KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
-
-  return;
-}
-
 /*
    Free all Rx buffers (on halt, for example) 
    The ring must be stopped at this point.
 */
+
 static void
 XenNet_RxBufferFree(struct xennet_info *xi)
 {
@@ -598,7 +509,7 @@ XenNet_RxBufferFree(struct xennet_info *xi)
 
     mdl = xi->rx_buffers[i];
     NdisAdjustBufferLength(mdl, PAGE_SIZE);
-    put_page_on_freelist(xi, mdl);
+    XenFreelist_PutPage(&xi->rx_freelist, mdl);
   }
 }
 
@@ -624,10 +535,10 @@ XenNet_RxInit(xennet_info_t *xi)
   }
 
   xi->rx_outstanding = 0;
-  XenNet_RxBufferAlloc(xi);
 
-  NdisMInitializeTimer(&xi->rx_timer, xi->adapter_handle, XenNet_RxTimer, xi);
-  NdisMSetPeriodicTimer(&xi->rx_timer, 1000);
+  XenFreelist_Init(xi, &xi->rx_freelist, &xi->rx_lock);
+
+  XenNet_RxBufferAlloc(xi);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -638,28 +549,24 @@ BOOLEAN
 XenNet_RxShutdown(xennet_info_t *xi)
 {
   KIRQL OldIrql;
-  BOOLEAN TimerCancelled;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
-  NdisMCancelTimer(&xi->rx_timer, &TimerCancelled);
-  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
   XenNet_RxBufferFree(xi);
 
-  free_page_freelist(xi);
+  XenFreelist_Dispose(&xi->rx_freelist);
 
   /* free RX resources */
-  if (xi->XenInterface.GntTbl_EndAccess(
-    xi->XenInterface.InterfaceHeader.Context, xi->rx_ring_ref, 0))
-  {
-    xi->rx_ring_ref = GRANT_INVALID_REF;
-    FreePages(xi->rx_mdl);
-  }
+  ASSERT(xi->XenInterface.GntTbl_EndAccess(
+    xi->XenInterface.InterfaceHeader.Context, xi->rx_ring_ref, 0));
+  FreePages(xi->rx_mdl);
   xi->rx_pgs = NULL;
 
   ASSERT(xi->rx_outstanding == 0);
+
+  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 

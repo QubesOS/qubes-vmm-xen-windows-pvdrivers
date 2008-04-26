@@ -142,3 +142,104 @@ XenNet_GetData(
 
   return buffer;
 }
+
+
+static VOID 
+XenFreelist_Timer(
+  PVOID SystemSpecific1,
+  PVOID FunctionContext,
+  PVOID SystemSpecific2,
+  PVOID SystemSpecific3
+)
+{
+  freelist_t *fl = (freelist_t *)FunctionContext;
+  PMDL mdl;
+  int i;
+
+  UNREFERENCED_PARAMETER(SystemSpecific1);
+  UNREFERENCED_PARAMETER(SystemSpecific2);
+  UNREFERENCED_PARAMETER(SystemSpecific3);
+
+  KeAcquireSpinLockAtDpcLevel(fl->lock);
+
+  KdPrint((__DRIVER_NAME " --- timer - page_free_lowest = %d\n", fl->page_free_lowest));
+//  KdPrint((__DRIVER_NAME " --- rx_outstanding = %d, rx_id_free = %d\n", xi->rx_outstanding, xi->rx_id_free));
+
+  if (fl->page_free_lowest > fl->page_free_target) // lots of potential for tuning here
+  {
+    for (i = 0; i < (int)min(16, fl->page_free_lowest - fl->page_free_target); i++)
+    {
+      mdl = XenFreelist_GetPage(fl);
+      fl->xi->XenInterface.GntTbl_EndAccess(fl->xi->XenInterface.InterfaceHeader.Context,
+        *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
+      FreePages(mdl);
+    }
+    KdPrint((__DRIVER_NAME " --- timer - freed %d pages\n", i));
+  }
+
+  fl->page_free_lowest = fl->page_free;
+
+  KeReleaseSpinLockFromDpcLevel(fl->lock);
+
+  return;
+}
+
+VOID
+XenFreelist_Init(struct xennet_info *xi, freelist_t *fl, PKSPIN_LOCK lock)
+{
+  fl->xi = xi;
+  fl->lock = lock;
+  fl->page_free = 0;
+  fl->page_free_lowest = 0;
+  fl->page_free_target = 16; /* tune this */
+  NdisMInitializeTimer(&fl->timer, fl->xi->adapter_handle, XenFreelist_Timer, fl);
+  NdisMSetPeriodicTimer(&fl->timer, 1000);
+}
+
+PMDL
+XenFreelist_GetPage(freelist_t *fl)
+{
+  PMDL mdl;
+
+  if (fl->page_free == 0)
+  {
+    mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
+    *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->XenInterface.GntTbl_GrantAccess(
+      fl->xi->XenInterface.InterfaceHeader.Context, 0,
+      *MmGetMdlPfnArray(mdl), FALSE, 0);
+  }
+  else
+  {
+    fl->page_free--;
+    if (fl->page_free < fl->page_free_lowest)
+      fl->page_free_lowest = fl->page_free;
+    mdl = fl->page_list[fl->page_free];
+  }
+
+  return mdl;
+}
+
+VOID
+XenFreelist_PutPage(freelist_t *fl, PMDL mdl)
+{
+  fl->page_list[fl->page_free] = mdl;
+  fl->page_free++;
+}
+
+VOID
+XenFreelist_Dispose(freelist_t *fl)
+{
+  PMDL mdl;
+  BOOLEAN TimerCancelled;
+
+  NdisMCancelTimer(&fl->timer, &TimerCancelled);
+
+  while(fl->page_free != 0)
+  {
+    fl->page_free--;
+    mdl = fl->page_list[fl->page_free];
+    fl->xi->XenInterface.GntTbl_EndAccess(fl->xi->XenInterface.InterfaceHeader.Context,
+      *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
+    FreePages(mdl);
+  }
+}

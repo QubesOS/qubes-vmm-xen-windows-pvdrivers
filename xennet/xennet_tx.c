@@ -71,57 +71,6 @@ put_no_id_on_freelist(struct xennet_info *xi)
 {
   xi->tx_no_id_used--;
 }
-
-static PMDL
-get_page_from_freelist(struct xennet_info *xi)
-{
-  PMDL mdl;
-
-  if (xi->tx_page_free == 0)
-  {
-    mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
-    *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = xi->XenInterface.GntTbl_GrantAccess(
-      xi->XenInterface.InterfaceHeader.Context, 0,
-      *MmGetMdlPfnArray(mdl), FALSE, 0);
-  }
-  else
-  {
-    xi->tx_page_free--;
-    if (xi->tx_page_free < xi->tx_page_free_lowest)
-      xi->tx_page_free_lowest = xi->tx_page_free;
-    mdl = xi->tx_page_list[xi->tx_page_free];
-  }
-
-  return mdl;
-}
-
-static VOID
-put_page_on_freelist(struct xennet_info *xi, PMDL mdl)
-{
-  xi->tx_page_list[xi->tx_page_free] = mdl;
-  xi->tx_page_free++;
-}
-
-static VOID
-free_page_freelist(struct xennet_info *xi)
-{
-  PMDL mdl;
-  while(xi->tx_page_free != 0)
-  {
-    xi->tx_page_free--;
-    mdl = xi->tx_page_list[xi->tx_page_free];
-    xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
-      *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
-    FreePages(mdl);
-  }
-}
-
-static __inline grant_ref_t
-get_grant_ref(PMDL mdl)
-{
-  return *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE));
-}
-
 #define SWAP_USHORT(x) (USHORT)((((x & 0xFF) << 8)|((x >> 8) & 0xFF)))
 
 /* Place a buffer on tx ring. */
@@ -202,7 +151,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 
   for (page_num = 0, in_remaining = 0; page_num < pages_required; page_num++)
   {
-    pi.mdls[page_num] = get_page_from_freelist(xi);
+    pi.mdls[page_num] = XenFreelist_GetPage(&xi->tx_freelist);
     out_buffer = MmGetMdlVirtualAddress(pi.mdls[page_num]);
     out_remaining = (USHORT)min(PAGE_SIZE, total_packet_length - page_num * PAGE_SIZE);
     NdisAdjustBufferLength(pi.mdls[page_num], out_remaining);
@@ -396,7 +345,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       if (xi->tx_mdls[id])
       {
         NdisAdjustBufferLength(xi->tx_mdls[id], PAGE_SIZE);
-        put_page_on_freelist(xi, xi->tx_mdls[id]);
+        XenFreelist_PutPage(&xi->tx_freelist, xi->tx_mdls[id]);
         xi->tx_mdls[id] = NULL;
       }
       put_id_on_freelist(xi, id);
@@ -497,49 +446,6 @@ XenNet_SendPackets(
   //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
-static VOID 
-XenNet_TxTimer(
-  PVOID SystemSpecific1,
-  PVOID FunctionContext,
-  PVOID SystemSpecific2,
-  PVOID SystemSpecific3
-)
-{
-  struct xennet_info *xi = (struct xennet_info *)FunctionContext;
-//  PMDL mdl;
-//  int i;
-
-  UNREFERENCED_PARAMETER(SystemSpecific1);
-  UNREFERENCED_PARAMETER(SystemSpecific2);
-  UNREFERENCED_PARAMETER(SystemSpecific3);
-
-  ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
-  KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
-
-  KdPrint((__DRIVER_NAME " --- tx_timer - tx_page_free_lowest = %d\n", xi->tx_page_free_lowest));
-
-//  KdPrint((__DRIVER_NAME " --- tx_id_free = %d, xi->tx_no_id_used = %d\n", xi->tx_id_free, xi->tx_no_id_used));
-
-#if 0
-  if (xi->tx_page_free_lowest > max(RX_DFL_MIN_TARGET / 4, 16)) // lots of potential for tuning here
-  {
-    for (i = 0; i < 16; i++)
-    {
-      mdl = get_page_from_freelist(xi);
-      xi->XenInterface.GntTbl_EndAccess(xi->XenInterface.InterfaceHeader.Context,
-        *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
-      FreePages(mdl);
-    }
-  }
-#endif
-
-  xi->tx_page_free_lowest = xi->tx_page_free;
-
-  KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
-
-  return;
-}
-
 BOOLEAN
 XenNet_TxInit(xennet_info_t *xi)
 {
@@ -561,15 +467,15 @@ XenNet_TxInit(xennet_info_t *xi)
     put_id_on_freelist(xi, i);
   }
 
-  NdisMInitializeTimer(&xi->tx_timer, xi->adapter_handle, XenNet_TxTimer, xi);
-  NdisMSetPeriodicTimer(&xi->tx_timer, 1000);
+  XenFreelist_Init(xi, &xi->tx_freelist, &xi->tx_lock);
 
   return TRUE;
 }
 
 /*
 The ring is completely closed down now. We just need to empty anything left
-on our freelists and harvest anything left on the rings.
+on our freelists and harvest anything left on the rings. The freelist timer
+will still be running though.
 */
 
 BOOLEAN
@@ -579,14 +485,13 @@ XenNet_TxShutdown(xennet_info_t *xi)
   PNDIS_PACKET packet;
   PMDL mdl;
   ULONG i;
-  BOOLEAN TimerCancelled;
+  KIRQL OldIrql;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  NdisMCancelTimer(&xi->tx_timer, &TimerCancelled);
-
   ASSERT(!xi->connected);
 
+  KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
   /* Free packets in tx queue */
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   while (entry != &xi->tx_waiting_pkt_list)
@@ -604,16 +509,18 @@ XenNet_TxShutdown(xennet_info_t *xi)
       NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
     mdl = xi->tx_mdls[i];
     if (mdl)
-      put_page_on_freelist(xi, xi->tx_mdls[i]);
+      XenFreelist_PutPage(&xi->tx_freelist, xi->tx_mdls[i]);
   }
 
-  free_page_freelist(xi);
+  XenFreelist_Dispose(&xi->tx_freelist);
 
   /* free TX resources */
   ASSERT(xi->XenInterface.GntTbl_EndAccess(
     xi->XenInterface.InterfaceHeader.Context, xi->tx_ring_ref, 0));
   FreePages(xi->tx_mdl);
   xi->tx_pgs = NULL;
+
+  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
