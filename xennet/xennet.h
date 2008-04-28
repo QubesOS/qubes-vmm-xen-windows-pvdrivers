@@ -83,7 +83,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #pragma warning(disable: 4127) // conditional expression is constant
 
-//#define XEN_PROFILE
+#define XEN_PROFILE
 
 #define MIN_LARGE_SEND_SEGMENTS 4
 
@@ -107,7 +107,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define MAX_XENBUS_STR_LEN 128
 
 #define RX_MIN_TARGET 8
-#define RX_DFL_MIN_TARGET 128
+#define RX_DFL_MIN_TARGET 256
 #define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
 
 #define MAX_BUFFERS_PER_PACKET 128
@@ -200,6 +200,8 @@ struct xennet_info
   PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
   freelist_t rx_freelist;
   packet_info_t rxpi;
+  PNDIS_PACKET rx_packet_list[NET_RX_RING_SIZE * 2];
+  ULONG rx_packet_free;
 
   /* Receive-ring batched refills. */
   ULONG rx_target;

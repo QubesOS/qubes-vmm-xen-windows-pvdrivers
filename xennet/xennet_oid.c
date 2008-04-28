@@ -125,8 +125,9 @@ XenNet_QueryInformation(
       break;
     case OID_GEN_TRANSMIT_BUFFER_SPACE:
       /* pkts times sizeof ring, maybe? */
+      /* multiply this by some small number as we can queue additional packets */
 //      temp_data = XN_MAX_PKT_SIZE * NET_TX_RING_SIZE;
-      temp_data = PAGE_SIZE * NET_TX_RING_SIZE;
+      temp_data = PAGE_SIZE * NET_TX_RING_SIZE * 4;
       break;
     case OID_GEN_RECEIVE_BUFFER_SPACE:
       /* pkts times sizeof ring, maybe? */
@@ -172,7 +173,8 @@ XenNet_QueryInformation(
         temp_data = NdisMediaStateDisconnected;
       break;
     case OID_GEN_MAXIMUM_SEND_PACKETS:
-      temp_data = XN_MAX_SEND_PKTS;
+      /* this is actually ignored for deserialised drivers like us */
+      temp_data = 0; //XN_MAX_SEND_PKTS;
       break;
     case OID_GEN_XMIT_OK:
       temp_data = xi->stat_tx_ok;

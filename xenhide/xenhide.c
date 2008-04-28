@@ -265,7 +265,6 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
   UNREFERENCED_PARAMETER(Context);
 
 //  KdPrint((__DRIVER_NAME " --> IoCompletion\n"));
-//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   Relations = (PDEVICE_RELATIONS)Irp->IoStatus.Information;
 
@@ -273,6 +272,10 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
   {
   case 0:
     DeviceExtension->InternalState = 1;
+    for (i = 0; i < Relations->Count; i++)
+    {
+      KdPrint((__DRIVER_NAME "     i = %d, DeviceType = 0x%08x\n", i, Relations->Objects[i]->DeviceType));
+    }
     break;
   case 1:
     DeviceExtension->InternalState = 2; 
@@ -310,6 +313,7 @@ XenHide_IoCompletion(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Context)
         }
         if (Match)
         {
+          KdPrint((__DRIVER_NAME "     Match at i = %d\n", i));
           Offset++;
         }
       }

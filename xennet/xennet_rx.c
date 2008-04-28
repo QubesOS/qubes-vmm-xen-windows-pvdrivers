@@ -194,7 +194,43 @@ XenNet_SumPacketData(
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
-static ULONG debug_length;
+static PNDIS_PACKET
+get_packet_from_freelist(struct xennet_info *xi)
+{
+  NDIS_STATUS status;
+  PNDIS_PACKET packet;
+
+  if (!xi->rx_packet_free)
+  {
+    NdisAllocatePacket(&status, &packet, xi->packet_pool);
+    ASSERT(status == NDIS_STATUS_SUCCESS);
+    NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
+  }
+  else
+  {
+    xi->rx_packet_free--;
+    packet = xi->rx_packet_list[xi->rx_packet_free];
+  }
+  return packet;
+}
+
+static VOID
+put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
+{
+  NdisReinitializePacket(packet);
+  xi->rx_packet_list[xi->rx_packet_free] = packet;
+  xi->rx_packet_free++;
+}
+
+static VOID
+packet_freelist_dispose(struct xennet_info *xi)
+{
+  while(xi->rx_packet_free != 0)
+  {
+    xi->rx_packet_free--;
+    NdisFreePacket(xi->rx_packet_list[xi->rx_packet_free]);
+  }
+}
 
 static PNDIS_PACKET
 XenNet_MakePacket(
@@ -209,15 +245,13 @@ XenNet_MakePacket(
   USHORT out_remaining;
   USHORT length;
   USHORT new_ip4_length;
-  NDIS_STATUS status;
+  //NDIS_STATUS status;
   USHORT i;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  NdisAllocatePacket(&status, &packet, xi->packet_pool);
-  ASSERT(status == NDIS_STATUS_SUCCESS);
+  packet = get_packet_from_freelist(xi);
   xi->rx_outstanding++;
-  NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
 
   if (!xi->rxpi.split_required)
   {
@@ -274,12 +308,14 @@ XenNet_MakePackets(
       break;
     // fallthrough
   case 17:  // UDP
+    ASSERT(*packet_count_p < NET_RX_RING_SIZE);
     packets[*packet_count_p] = XenNet_MakePacket(xi);
     if (xi->rxpi.csum_calc_required)
       XenNet_SumPacketData(&xi->rxpi, packets[*packet_count_p]);
     (*packet_count_p)++;
     return;
   default:
+    ASSERT(*packet_count_p < NET_RX_RING_SIZE);
     packets[*packet_count_p] = XenNet_MakePacket(xi);
     (*packet_count_p)++;
     return;
@@ -293,6 +329,7 @@ XenNet_MakePackets(
 
   while (xi->rxpi.tcp_remaining)
   {
+    ASSERT(*packet_count_p < NET_RX_RING_SIZE);
     packets[*packet_count_p] = XenNet_MakePacket(xi);
     XenNet_SumPacketData(&xi->rxpi, packets[*packet_count_p]);
     (*packet_count_p)++;
@@ -308,14 +345,17 @@ XenNet_MakePackets(
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (split)\n"));
 }
 
-#define MAXIMUM_PACKETS_PER_INTERRUPT 64
-#define MAXIMUM_PACKETS_PER_INDICATE 8
+#define MAXIMUM_PACKETS_PER_INTERRUPT 128
+#define MAXIMUM_PACKETS_PER_INDICATE 32
 
 // Called at DISPATCH_LEVEL
 NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
+  /* the highest number of packets we receive could be (65535 - header) / mss
+     for a low mss this could be even higher than NET_RX_RING_SIZE...
+     what can we do? */
   PNDIS_PACKET packets[NET_RX_RING_SIZE];
   ULONG packet_count = 0;
   ULONG total_packets = 0;
@@ -404,14 +444,16 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       /* Packet done, add it to the list */
       if (!xi->rxpi.more_frags && !xi->rxpi.extra_info)
       {
+        /* we should probably check here and make sure that we have enough
+           space for these packets, and if we don't, defer MakePackets until
+           we have Indicated the current packets... */
         XenNet_MakePackets(xi, packets, &packet_count);
         RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));
-//        if (packet_count >= MAXIMUM_PACKETS_PER_INDICATE)
-//          break;
       }
     }
-    ASSERT(packet_count < NET_RX_RING_SIZE);
     xi->rx.rsp_cons = cons;
+
+    XenNet_RxBufferAlloc(xi);
 
     if (packet_count > 0)
     {
@@ -476,7 +518,7 @@ XenNet_ReturnPacket(
     NdisUnchainBufferAtBack(Packet, &mdl);
   }
 
-  NdisFreePacket(Packet);
+  put_packet_on_freelist(xi, Packet);
   xi->rx_outstanding--;
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
@@ -557,6 +599,8 @@ XenNet_RxShutdown(xennet_info_t *xi)
   XenNet_RxBufferFree(xi);
 
   XenFreelist_Dispose(&xi->rx_freelist);
+
+  packet_freelist_dispose(xi);
 
   /* free RX resources */
   ASSERT(xi->XenInterface.GntTbl_EndAccess(
