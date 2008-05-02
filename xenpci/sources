@@ -1,7 +1,9 @@
 !INCLUDE ..\common.inc
+!UNDEF KMDF_VERSION
+!UNDEF KMDF_VERSION_MAJOR
 TARGETNAME=xenpci
 TARGETTYPE=DRIVER
 INF_NAME=$(TARGETNAME)
 MISCFILES=..\Target\$(DDK_TARGET_OS)\$(INF_NAME).inf
 AMD64_SOURCES=hypercall.asm
-SOURCES=xenpci.c xenbus.c gnttbl.c evtchn.c
+SOURCES=xenpci.c evtchn.c gnttbl.c xenbus.c

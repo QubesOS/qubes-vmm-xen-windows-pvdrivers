@@ -7,7 +7,6 @@ Provider=%XenGplPv%
 [DestinationDirs]
 DefaultDestDir = 12
 ClassInstall32_CopyFiles=11
-CoInstaller_CopyFiles = 11
 
 [ControlFlags]
 ExcludeFromSelect=*
@@ -32,7 +31,6 @@ xenhide.sys
 [SourceDisksFiles]
 xenpci.sys=1
 xenhide.sys=1
-WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll=1,,
 
 [SourceDisksNames.x86]
 1 = %DISK_NAME%,,,\i386
@@ -59,26 +57,10 @@ StartType      = 0
 ErrorControl   = 1
 LoadOrderGroup = Boot Bus Extender
 ServiceBinary  = %12%\xenhide.sys
-AddReg         = XenHide_Service_AddReg
+;AddReg         = XenHide_Service_AddReg
 
-[XenHide_Service_AddReg]
-HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97D-E325-11CE-BFC1-08002BE10318},LowerFilters,0x00010008,XenHide
-
-[XenPCI_Inst.NT.CoInstallers]
-AddReg=CoInstaller_AddReg
-CopyFiles=CoInstaller_CopyFiles
-
-[CoInstaller_CopyFiles]
-WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll,,,2
-
-[CoInstaller_AddReg]
-HKR,,CoInstallers32,0x00010000, "WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll,WdfCoInstaller"
-
-[XenPCI_Inst.NT.Wdf]
-KmdfService = xenpci, xenpci_wdfsect
-
-[xenpci_wdfsect]
-KmdfLibraryVersion = $KMDFVERSION$
+;[XenHide_Service_AddReg]
+;HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97D-E325-11CE-BFC1-08002BE10318},LowerFilters,0x00010008,XenHide
 
 [Strings]
 XenGplPv = "Xen GPL PV Driver Developers"

@@ -32,20 +32,23 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #endif
 
 static VOID
-EvtChn_DpcBounce(WDFDPC Dpc)
+EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemArgument2)
 {
-  ev_action_t *Action;
+  ev_action_t *action = Context;
 
-  Action = GetEvtChnDeviceData(Dpc)->Action;
-  Action->ServiceRoutine(NULL, Action->ServiceContext);
+  UNREFERENCED_PARAMETER(Dpc);
+  UNREFERENCED_PARAMETER(SystemArgument1);
+  UNREFERENCED_PARAMETER(SystemArgument2);
+
+  action->ServiceRoutine(NULL, action->ServiceContext);
 }
 
-BOOLEAN
-EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
+static BOOLEAN
+EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
 {
   int cpu = KeGetCurrentProcessorNumber() & (MAX_VIRT_CPUS - 1);
   vcpu_info_t *vcpu_info;
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(WdfInterruptGetDevice(Interrupt));
+  PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)Context;
   shared_info_t *shared_info_area = xpdd->shared_info_area;
   xen_ulong_t evt_words;
   unsigned long evt_word;
@@ -53,9 +56,9 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
   unsigned int port;
   ev_action_t *ev_action;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
-  UNREFERENCED_PARAMETER(MessageID);
+  UNREFERENCED_PARAMETER(Interrupt);
 
   vcpu_info = &shared_info_area->vcpu_info[cpu];
 
@@ -78,8 +81,8 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
       {
         if (ev_action->DpcFlag)
         {
-//          KdPrint((__DRIVER_NAME " --- Scheduling Dpc\n"));
-          WdfDpcEnqueue(ev_action->Dpc);
+          KdPrint((__DRIVER_NAME "     Scheduling Dpc\n"));
+          KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
         }
         else
         {
@@ -90,7 +93,7 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
     }
   }
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   /* Need to return FALSE so we can fall through to the scsiport ISR. */
   return FALSE;
@@ -99,10 +102,8 @@ EvtChn_Interrupt(WDFINTERRUPT Interrupt, ULONG MessageID)
 NTSTATUS
 EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
-  WDFDEVICE Device = Context;
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-
-  KdPrint((__DRIVER_NAME " --> EvtChn_Bind (ServiceRoutine = %08X, ServiceContext = %08x)\n", ServiceRoutine, ServiceContext));
+  PXENPCI_DEVICE_DATA xpdd = Context;
+  //KdPrint((__DRIVER_NAME " --> EvtChn_Bind (ServiceRoutine = %08X, ServiceContext = %08x)\n", ServiceRoutine, ServiceContext));
 
   if(xpdd->ev_actions[Port].ServiceRoutine != NULL)
   {
@@ -116,7 +117,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
   KeMemoryBarrier();
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
 
-  EvtChn_Unmask(Device, Port);
+  EvtChn_Unmask(Context, Port);
 
   KdPrint((__DRIVER_NAME " <-- EvtChn_Bind\n"));
 
@@ -126,10 +127,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
 NTSTATUS
 EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
-  WDFDEVICE Device = Context;
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-  WDF_DPC_CONFIG DpcConfig;
-  WDF_OBJECT_ATTRIBUTES DpcObjectAttributes;
+  PXENPCI_DEVICE_DATA xpdd = Context;
 
   KdPrint((__DRIVER_NAME " --> EvtChn_BindDpc\n"));
 
@@ -143,16 +141,12 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRouti
   xpdd->ev_actions[Port].ServiceContext = ServiceContext;
   xpdd->ev_actions[Port].DpcFlag = TRUE;
 
-  WDF_DPC_CONFIG_INIT(&DpcConfig, EvtChn_DpcBounce);
-  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DpcObjectAttributes, EVTCHN_DEVICE_DATA);
-  DpcObjectAttributes.ParentObject = Device;
-  WdfDpcCreate(&DpcConfig, &DpcObjectAttributes, &xpdd->ev_actions[Port].Dpc);
-  GetEvtChnDeviceData(xpdd->ev_actions[Port].Dpc)->Action = &xpdd->ev_actions[Port];
+  KeInitializeDpc(&xpdd->ev_actions[Port].Dpc, EvtChn_DpcBounce, &xpdd->ev_actions[Port]);
 
   KeMemoryBarrier(); // make sure that the new service routine is only called once the context is set up
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
 
-  EvtChn_Unmask(Device, Port);
+  EvtChn_Unmask(Context, Port);
 
   KdPrint((__DRIVER_NAME " <-- EvtChn_BindDpc\n"));
 
@@ -162,16 +156,15 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRouti
 NTSTATUS
 EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
 {
-  WDFDEVICE Device = Context;
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-
+  PXENPCI_DEVICE_DATA xpdd = Context;
+  
   EvtChn_Mask(Context, Port);
   xpdd->ev_actions[Port].ServiceRoutine = NULL;
   KeMemoryBarrier();
   xpdd->ev_actions[Port].ServiceContext = NULL;
 
   if (xpdd->ev_actions[Port].DpcFlag)
-    WdfDpcCancel(xpdd->ev_actions[Port].Dpc, TRUE);
+    KeRemoveQueueDpc(&xpdd->ev_actions[Port].Dpc);
   
   //KdPrint((__DRIVER_NAME " <-- EvtChn_UnBind\n"));
 
@@ -179,115 +172,53 @@ EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
 }
 
 NTSTATUS
-EvtChn_Mask(PVOID Context, evtchn_port_t Port)
+EvtChn_Mask(PXENPCI_DEVICE_DATA xpdd, evtchn_port_t Port)
 {
-  WDFDEVICE Device = Context;
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-  //KdPrint((__DRIVER_NAME " --> EvtChn_Mask\n"));
-
   synch_set_bit(Port,
     (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[0]);
-
-  //KdPrint((__DRIVER_NAME " <-- EvtChn_Mask\n"));
-
   return STATUS_SUCCESS;
 }
 
 NTSTATUS
-EvtChn_Unmask(PVOID Context, evtchn_port_t Port)
+EvtChn_Unmask(PXENPCI_DEVICE_DATA xpdd , evtchn_port_t Port)
 {
-  WDFDEVICE Device = Context;
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-  //KdPrint((__DRIVER_NAME " --> EvtChn_Unmask\n"));
-
   synch_clear_bit(Port,
     (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[0]);
-  // should we kick off pending interrupts here too???
-
-  //KdPrint((__DRIVER_NAME " <-- EvtChn_Unmask\n"));
-
   return STATUS_SUCCESS;
 }
 
 NTSTATUS
-EvtChn_Notify(PVOID Context, evtchn_port_t Port)
+EvtChn_Notify(PXENPCI_DEVICE_DATA xpdd, evtchn_port_t Port)
 {
   struct evtchn_send send;
 
-  //KdPrint((__DRIVER_NAME " --> EvtChn_Notify\n"));
-
   send.port = Port;
-
-  (void)HYPERVISOR_event_channel_op(Context, EVTCHNOP_send, &send);
-
-  //KdPrint((__DRIVER_NAME " <-- EvtChn_Notify\n"));
-
+  (void)HYPERVISOR_event_channel_op(xpdd, EVTCHNOP_send, &send);
   return STATUS_SUCCESS;
 }
 
 evtchn_port_t
 EvtChn_AllocUnbound(PVOID Context, domid_t Domain)
 {
+  PXENPCI_DEVICE_DATA xpdd = Context;
   evtchn_alloc_unbound_t op;
-
-  //KdPrint((__DRIVER_NAME " --> AllocUnbound\n"));
-
   op.dom = DOMID_SELF;
   op.remote_dom = Domain;
-  HYPERVISOR_event_channel_op(Context, EVTCHNOP_alloc_unbound, &op);
-
-  //KdPrint((__DRIVER_NAME " <-- AllocUnbound\n"));
-
+  HYPERVISOR_event_channel_op(xpdd, EVTCHNOP_alloc_unbound, &op);
   return op.port;
 }
 
-evtchn_port_t
-EvtChn_GetXenStorePort(WDFDEVICE Device)
-{
-  evtchn_port_t Port;  
-
-  KdPrint((__DRIVER_NAME " --> EvtChn_GetStorePort\n"));
-
-  Port = (evtchn_port_t)hvm_get_parameter(Device, HVM_PARAM_STORE_EVTCHN);
-
-  KdPrint((__DRIVER_NAME " <-- EvtChn_GetStorePort\n"));
-
-  return Port;
-}
-
-PVOID
-EvtChn_GetXenStoreRingAddr(WDFDEVICE Device)
-{
-  PHYSICAL_ADDRESS pa_xen_store_interface;
-  PVOID xen_store_interface;
-
-  xen_ulong_t xen_store_mfn;
-
-  KdPrint((__DRIVER_NAME " --> EvtChn_GetRingAddr\n"));
-
-  xen_store_mfn = (xen_ulong_t)hvm_get_parameter(Device, HVM_PARAM_STORE_PFN);
-
-  pa_xen_store_interface.QuadPart = xen_store_mfn << PAGE_SHIFT;
-  xen_store_interface = MmMapIoSpace(pa_xen_store_interface, PAGE_SIZE, MmCached);
-
-  KdPrint((__DRIVER_NAME " xen_store_mfn = %08x\n", xen_store_mfn));
-  //KdPrint((__DRIVER_NAME " xen_store_evtchn = %08x\n", xen_store_evtchn));
-  KdPrint((__DRIVER_NAME " xen_store_interface = %08x\n", xen_store_interface));
-
-  KdPrint((__DRIVER_NAME " <-- EvtChn_GetRingAddr\n"));
-
-  return xen_store_interface;
-}
-
 NTSTATUS
-EvtChn_Init(WDFDEVICE Device)
+EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 {
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  NTSTATUS status;
   int i;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   for (i = 0; i < NR_EVENTS; i++)
   {
-    EvtChn_Mask(Device, i);
+    EvtChn_Mask(xpdd, i);
     xpdd->ev_actions[i].ServiceRoutine = NULL;
     xpdd->ev_actions[i].ServiceContext = NULL;
     xpdd->ev_actions[i].Count = 0;
@@ -302,7 +233,44 @@ EvtChn_Init(WDFDEVICE Device)
   {
     xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_pending = 0;
     xpdd->shared_info_area->vcpu_info[i].evtchn_pending_sel = 0;
+    xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
   }
+
+  status = IoConnectInterrupt(
+    &xpdd->interrupt,
+	EvtChn_Interrupt,
+	xpdd,
+	NULL,
+	xpdd->irq_vector,
+	xpdd->irq_level,
+	xpdd->irq_level,
+	LevelSensitive,
+	TRUE, /* this is a bit of a hack to make xenvbd work */
+	xpdd->irq_affinity,
+	FALSE);
+  
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     IoConnectInterrupt failed 0x%08x\n", status));
+    return status;
+  }
+
+  hvm_set_parameter(xpdd, HVM_PARAM_CALLBACK_IRQ, xpdd->irq_number);
+
+  for (i = 0; i < MAX_VIRT_CPUS; i++)
+  {
+    xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 0;
+  }
+  
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  return status;
+}
+
+NTSTATUS
+EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd)
+{
+  UNREFERENCED_PARAMETER(xpdd);
 
   return STATUS_SUCCESS;
 }

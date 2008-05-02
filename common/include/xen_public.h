@@ -51,16 +51,16 @@ typedef evtchn_port_t
 (*PXEN_EVTCHN_ALLOCUNBOUND)(PVOID Context, domid_t Domain);
 
 typedef grant_ref_t
-(*PXEN_GNTTBL_GRANTACCESS)(WDFDEVICE Device, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref);
+(*PXEN_GNTTBL_GRANTACCESS)(PVOID Context, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref);
 
 typedef BOOLEAN
-(*PXEN_GNTTBL_ENDACCESS)(WDFDEVICE Device, grant_ref_t ref, BOOLEAN keepref);
+(*PXEN_GNTTBL_ENDACCESS)(PVOID Context, grant_ref_t ref, BOOLEAN keepref);
 
 typedef VOID
-(*PXEN_GNTTBL_PUTREF)(WDFDEVICE Device, grant_ref_t ref);
+(*PXEN_GNTTBL_PUTREF)(PVOID Context, grant_ref_t ref);
 
 typedef grant_ref_t
-(*PXEN_GNTTBL_GETREF)(WDFDEVICE Device);
+(*PXEN_GNTTBL_GETREF)(PVOID Context);
 
 
 typedef VOID
@@ -121,6 +121,7 @@ typedef struct _XEN_IFACE {
 
 #define XEN_DATA_MAGIC 0x12345678
 
+#if 0
 typedef struct _XENPCI_IDENTIFICATION_DESCRIPTION
 {
   WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Header;
@@ -142,5 +143,6 @@ typedef struct {
 } XENPCI_XEN_DEVICE_DATA, *PXENPCI_XEN_DEVICE_DATA;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_XEN_DEVICE_DATA, GetXenDeviceData);
+#endif
 
 #endif
