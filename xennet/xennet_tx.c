@@ -251,8 +251,10 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
-  
+
+#ifdef DEBUG
   int cycles = 0;
+#endif
   BOOLEAN success;
 
 #if defined(XEN_PROFILE)
@@ -298,7 +300,9 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   ULONG packet_count = 0;
   int moretodo;
   ULONG i;
+#ifdef DEBUG
   int cycles = 0;
+#endif
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
