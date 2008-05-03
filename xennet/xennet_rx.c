@@ -29,7 +29,7 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   int i, batch_target, notify;
   RING_IDX req_prod = xi->rx.req_prod_pvt;
   netif_rx_request_t *req;
-#ifdef DEBUG
+#if DBG
   int cycles = 0;
 #endif
 #if defined(XEN_PROFILE)
@@ -366,7 +366,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   struct netif_rx_response *rxrsp = NULL;
   struct netif_extra_info *ei;
   USHORT id;
-#ifdef DEBUG
+#if DBG
   int cycles = 0;
 #endif
 #if defined(XEN_PROFILE)
@@ -500,7 +500,7 @@ XenNet_ReturnPacket(
 {
   struct xennet_info *xi = MiniportAdapterContext;
   PMDL mdl;
-#ifdef DEBUG
+#if DBG
   int cycles = 0;
 #endif
 #if defined(XEN_PROFILE)
