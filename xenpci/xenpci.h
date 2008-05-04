@@ -93,21 +93,22 @@ typedef struct _XENBUS_WATCH_ENTRY {
 #define NR_XB_REQS 32
 #define MAX_WATCH_ENTRIES 128
 
-#define CHILD_STATE_DELETED 0
-#define CHILD_STATE_ADDED 1
+#define CHILD_STATE_EMPTY 0
+#define CHILD_STATE_DELETED 1
+#define CHILD_STATE_ADDED 2
+
+// TODO: tidy up & organize this struct
 
 typedef struct
 {
-  DEVICE_OBJECT pdo;
-  int state;
-  PCHAR path;
-} XEN_CHILD, *PXEN_CHILD;
-
-// TODO: tidy up & organize this struct
-typedef struct {
   PDEVICE_OBJECT fdo;
   PDEVICE_OBJECT pdo;
   PDEVICE_OBJECT lower_do;
+} XENPCI_COMMON, *PXENPCI_COMMON;
+
+typedef struct {  
+  XENPCI_COMMON common;
+  
   BOOLEAN XenBus_ShuttingDown;
 
   PKINTERRUPT interrupt;
@@ -154,20 +155,46 @@ typedef struct {
 
   KGUARDED_MUTEX WatchHandlerMutex;
 
-  int child_count;
-  XEN_CHILD child_devices[16];
+  LIST_ENTRY child_list;
   
   int suspending;
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
-//WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_DATA, GetDeviceData);
+typedef struct {  
+  XENPCI_COMMON common;
+  char path[128];
+  ULONG index;
+} XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
+typedef struct
+{
+  LIST_ENTRY entry;
+  int state;
+  PXENPCI_PDO_DEVICE_DATA context;
+} XEN_CHILD, *PXEN_CHILD;
+  
 #include "hypercall.h"
 
 typedef unsigned long xenbus_transaction_t;
 typedef uint32_t XENSTORE_RING_IDX;
 
 #define XBT_NIL ((xenbus_transaction_t)0)
+
+NTSTATUS
+XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Dummy_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
+
+NTSTATUS
+XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Dummy_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+
+
 
 char *
 XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value);

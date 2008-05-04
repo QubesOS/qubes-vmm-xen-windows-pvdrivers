@@ -6,4 +6,4 @@ TARGETTYPE=DRIVER
 INF_NAME=$(TARGETNAME)
 MISCFILES=..\Target\$(DDK_TARGET_OS)\$(INF_NAME).inf
 AMD64_SOURCES=hypercall.asm
-SOURCES=xenpci.c evtchn.c gnttbl.c xenbus.c
+SOURCES=xenpci.c xenpci_fdo.c xenpci_pdo.c evtchn.c gnttbl.c xenbus.c
