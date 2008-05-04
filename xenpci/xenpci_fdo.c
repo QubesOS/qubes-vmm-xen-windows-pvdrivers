@@ -542,7 +542,7 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
         KdPrint((__DRIVER_NAME "     New device %s\n", Types[i]));
         child = ExAllocatePoolWithTag(NonPagedPool, sizeof(XEN_CHILD), XENPCI_POOL_TAG);
         child->state = CHILD_STATE_ADDED;
-        status = IoCreateDevice(xpdd->common.fdo->DriverObject, sizeof(XENPCI_COMMON), NULL, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &pdo);
+        status = IoCreateDevice(xpdd->common.fdo->DriverObject, sizeof(XENPCI_PDO_DEVICE_DATA), NULL, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &pdo);
         if (!NT_SUCCESS(status))
           KdPrint((__DRIVER_NAME "     IoCreateDevice status = %08X\n", status));
         child->context = (PXENPCI_PDO_DEVICE_DATA)pdo->DeviceExtension;
@@ -551,6 +551,7 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
         child->context->common.lower_do = NULL;
         strcpy(child->context->path, Types[i]);
         child->context->index = 0;
+        child->context->mmio_phys = XenPci_AllocMMIO(xpdd, PAGE_SIZE);
         InsertTailList(&xpdd->child_list, (PLIST_ENTRY)child);
         devices++;
       }
@@ -597,6 +598,57 @@ XenPci_Pnp_QueryBusRelations(PDEVICE_OBJECT device_object, PIRP irp)
   status = XenPci_SendAndWaitForIrp(device_object, irp);
 
   XenPci_QueueWorkItem(device_object, XenPci_Pnp_QueryBusRelationsCallback, irp);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return STATUS_PENDING;
+}
+
+static VOID
+XenPci_Pnp_FilterResourceRequirementsCallback(PDEVICE_OBJECT device_object, PVOID context)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  //PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+  PIRP irp = context;
+  PIO_RESOURCE_REQUIREMENTS_LIST irrl;
+  ULONG irl;
+  ULONG ird;
+    
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  
+  irrl = (PIO_RESOURCE_REQUIREMENTS_LIST)irp->IoStatus.Information;
+  for (irl = 0; irl < irrl->AlternativeLists; irl++)
+  {
+    for (ird = 0; ird < irrl->List[irl].Count; ird++)
+    {
+      if (irrl->List[irl].Descriptors[ird].Type == CmResourceTypeMemory)
+      {
+        irrl->List[irl].Descriptors[ird].ShareDisposition = CmResourceShareShared;
+      }
+    }
+  }
+  irp->IoStatus.Status = status;
+  IoCompleteRequest (irp, IO_NO_INCREMENT);
+  
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return;
+}
+ 
+static NTSTATUS
+XenPci_Pnp_FilterResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  IoMarkIrpPending(irp);
+
+  status = XenPci_SendAndWaitForIrp(device_object, irp);
+
+  XenPci_QueueWorkItem(device_object, XenPci_Pnp_FilterResourceRequirementsCallback, irp);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
@@ -680,6 +732,10 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
       break;  
     }
     break;
+    
+  case IRP_MN_FILTER_RESOURCE_REQUIREMENTS:
+    KdPrint((__DRIVER_NAME "     IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n"));
+    return XenPci_Pnp_FilterResourceRequirements(device_object, irp);
 
   default:
     KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));

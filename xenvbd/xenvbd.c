@@ -260,6 +260,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   return FALSE;
 }
 
+#if 0
 static VOID
 XenVbd_BackEndStateHandler(char *Path, PVOID Data)
 {
@@ -709,6 +710,7 @@ XenVbd_InitDeviceData(PXENVBD_DEVICE_DATA DeviceData, PPORT_CONFIGURATION_INFORM
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
+#endif
 static ULONG
 XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
 {
@@ -716,7 +718,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
 //  PACCESS_RANGE AccessRange;
   PXENVBD_DEVICE_DATA DeviceData; // = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData;
 //  ULONG status;
-  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
+//  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
 
   UNREFERENCED_PARAMETER(HwContext);
   UNREFERENCED_PARAMETER(BusInformation);
@@ -733,10 +735,11 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   if (KeGetCurrentIrql() == PASSIVE_LEVEL)
   {
     DeviceData = ((PXENVBD_DEVICE_EXTENSION)DeviceExtension)->XenVbdDeviceData = ExAllocatePoolWithTag(NonPagedPool, sizeof(XENVBD_DEVICE_DATA), XENVBD_POOL_TAG);
-    XenVbd_InitDeviceData(DeviceData, ConfigInfo);
-    if (DeviceData->XenDeviceData->Magic != XEN_DATA_MAGIC)
-      return SP_RETURN_NOT_FOUND;
+//    XenVbd_InitDeviceData(DeviceData, ConfigInfo);
+//    if (DeviceData->XenDeviceData->Magic != XEN_DATA_MAGIC)
+//      return SP_RETURN_NOT_FOUND;
   }
+#if 0
   else
   {
     DumpMode = TRUE;
@@ -763,6 +766,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
     }
   }
   KdPrint((__DRIVER_NAME "     DeviceData = %p\n", DeviceData));
+#endif
 
   DeviceData->DeviceExtension = DeviceExtension;
 
@@ -984,6 +988,11 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   unsigned int i;
   int notify;
 
+Srb->SrbStatus = SRB_STATUS_NO_DEVICE;
+ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
+ScsiPortNotification(NextRequest, DeviceExtension, NULL);
+
+#if 0
 //  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
 //  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
@@ -1296,7 +1305,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   }
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
+#endif
   return TRUE;
 }
 

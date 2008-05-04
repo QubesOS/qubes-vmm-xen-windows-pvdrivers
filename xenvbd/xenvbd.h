@@ -4,7 +4,6 @@
 #include <ntifs.h>
 #include <ntddk.h>
 #include <wdm.h>
-#include <wdf.h>
 #include <initguid.h>
 #include <ntdddisk.h>
 #include <srb.h>
@@ -109,7 +108,7 @@ struct
 
 struct
 {
-  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
+//  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
   XENVBD_BUS_DATA BusData[SCSI_BUSES];
 
   KSPIN_LOCK Lock;

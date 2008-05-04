@@ -164,6 +164,7 @@ typedef struct {
   XENPCI_COMMON common;
   char path[128];
   ULONG index;
+  PHYSICAL_ADDRESS mmio_phys;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 typedef struct
