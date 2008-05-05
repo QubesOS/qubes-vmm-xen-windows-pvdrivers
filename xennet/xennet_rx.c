@@ -565,16 +565,18 @@ BOOLEAN
 XenNet_RxInit(xennet_info_t *xi)
 {
   int i;
+  PFN_NUMBER pfn;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   xi->rx_mdl = AllocatePage();
+  pfn = *MmGetMdlPfnArray(xi->rx_mdl);
   xi->rx_pgs = MmGetMdlVirtualAddress(xi->rx_mdl);
   SHARED_RING_INIT(xi->rx_pgs);
   FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
   xi->rx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
     xi->XenInterface.InterfaceHeader.Context, 0,
-    *MmGetMdlPfnArray(xi->rx_mdl), FALSE, 0);
+    (uint32_t)pfn, FALSE, 0);
   xi->rx_id_free = NET_RX_RING_SIZE;
 
   for (i = 0; i < NET_RX_RING_SIZE; i++)

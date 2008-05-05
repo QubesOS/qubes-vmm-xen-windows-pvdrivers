@@ -51,7 +51,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   ULONG BufLen = 200;
   PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
   int State = 0;
-  int StartPos = 0;
+  size_t StartPos = 0;
   WCHAR *SystemStartOptions;
   size_t SystemStartOptionsLen;
   size_t i;

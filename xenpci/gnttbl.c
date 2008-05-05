@@ -103,7 +103,7 @@ grant_ref_t
 GntTbl_GrantAccess(
   WDFDEVICE Device,
   domid_t domid,
-  uint32_t frame,
+  uint32_t frame, // xen api limits pfn to 32bit, so no guests over 8TB
   int readonly,
   grant_ref_t ref)
 {

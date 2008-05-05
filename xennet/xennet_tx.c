@@ -454,16 +454,18 @@ BOOLEAN
 XenNet_TxInit(xennet_info_t *xi)
 {
   USHORT i;
+  PFN_NUMBER pfn;
 
   KeInitializeSpinLock(&xi->tx_lock);
 
   xi->tx_mdl = AllocatePage();
+  pfn = *MmGetMdlPfnArray(xi->tx_mdl);
   xi->tx_pgs = MmGetMdlVirtualAddress(xi->tx_mdl);
   SHARED_RING_INIT(xi->tx_pgs);
   FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
   xi->tx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
     xi->XenInterface.InterfaceHeader.Context, 0,
-    *MmGetMdlPfnArray(xi->tx_mdl), FALSE, 0);
+    (uint32_t)pfn, FALSE, 0);
   xi->tx_id_free = 0;
   xi->tx_no_id_used = 0;
   for (i = 0; i < NET_TX_RING_SIZE; i++)

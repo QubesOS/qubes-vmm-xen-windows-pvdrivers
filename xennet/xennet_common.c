@@ -200,13 +200,15 @@ PMDL
 XenFreelist_GetPage(freelist_t *fl)
 {
   PMDL mdl;
+  PFN_NUMBER pfn;
 
   if (fl->page_free == 0)
   {
     mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
+    pfn = *MmGetMdlPfnArray(mdl);
     *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->XenInterface.GntTbl_GrantAccess(
       fl->xi->XenInterface.InterfaceHeader.Context, 0,
-      *MmGetMdlPfnArray(mdl), FALSE, 0);
+      (uint32_t)pfn, FALSE, 0);
   }
   else
   {
