@@ -162,6 +162,7 @@ typedef struct {
 
 typedef struct {  
   XENPCI_COMMON common;
+  PDEVICE_OBJECT bus_fdo;
   char path[128];
   ULONG index;
   PHYSICAL_ADDRESS mmio_phys;

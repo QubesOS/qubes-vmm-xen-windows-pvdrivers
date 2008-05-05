@@ -549,6 +549,7 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
         child->context->common.fdo = NULL;
         child->context->common.pdo = pdo;
         child->context->common.lower_do = NULL;
+        child->context->bus_fdo = device_object;
         strcpy(child->context->path, Types[i]);
         child->context->index = 0;
         child->context->mmio_phys = XenPci_AllocMMIO(xpdd, PAGE_SIZE);
