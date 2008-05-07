@@ -38,6 +38,48 @@ XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 }
 
 static NTSTATUS
+XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PIO_STACK_LOCATION stack;
+  PCM_PARTIAL_RESOURCE_LIST res_list;
+  PCM_PARTIAL_RESOURCE_DESCRIPTOR res_descriptor;
+  ULONG i;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  stack = IoGetCurrentIrpStackLocation(irp);
+
+  res_list = &stack->Parameters.StartDevice.AllocatedResources->List[0].PartialResourceList;
+  for (i = 0; i < res_list->Count; i++)
+  {
+    res_descriptor = &res_list->PartialDescriptors[i];
+    switch (res_descriptor->Type)
+    {
+    case CmResourceTypeInterrupt:
+      KdPrint((__DRIVER_NAME "     irq_number = %d\n", res_descriptor->u.Interrupt.Vector));
+      break;
+    }
+  }
+
+  res_list = &stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList;
+  for (i = 0; i < res_list->Count; i++)
+  {
+    res_descriptor = &res_list->PartialDescriptors[i];
+    switch (res_descriptor->Type) {
+    case CmResourceTypeInterrupt:
+      KdPrint((__DRIVER_NAME "     irq_vector = %d\n", res_descriptor->u.Interrupt.Vector));
+      break;
+    }
+  }
+  
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
 {
   PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
@@ -47,7 +89,7 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   
   length = FIELD_OFFSET(IO_RESOURCE_REQUIREMENTS_LIST, List) +
     FIELD_OFFSET(IO_RESOURCE_LIST, Descriptors) +
-    sizeof(IO_RESOURCE_DESCRIPTOR) * 2;
+    sizeof(IO_RESOURCE_DESCRIPTOR) * 3;
   irrl = ExAllocatePoolWithTag(PagedPool,
     length,
     XENPCI_POOL_TAG);
@@ -59,7 +101,7 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   irrl->AlternativeLists = 1;
   irrl->List[0].Version = 1;
   irrl->List[0].Revision = 1;
-  irrl->List[0].Count = 2;
+  irrl->List[0].Count = 3;
 
   ird = &irrl->List[0].Descriptors[0];
   ird->Option = 0;
@@ -67,13 +109,29 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   ird->ShareDisposition = CmResourceShareDeviceExclusive;
   ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
   ird->u.Interrupt.MinimumVector = 1;
-  ird->u.Interrupt.MaximumVector = 63;
+  ird->u.Interrupt.MaximumVector = 6;
 
   ird = &irrl->List[0].Descriptors[1];
+  ird->Option = IO_RESOURCE_ALTERNATIVE;
+  ird->Type = CmResourceTypeInterrupt;
+  ird->ShareDisposition = CmResourceShareDeviceExclusive;
+  ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+  ird->u.Interrupt.MinimumVector = 8;
+  ird->u.Interrupt.MaximumVector = 14;
+
+  //irq 7 = 0x93
+  //irq 11 = 0x81
+  //irq ? = 0x52 mouse
+  //irq ? = 0xb3 keybouard
+  //irq ? = 0x72 atapi
+  //irq ? = 0x92 atappi
+  //irq 28 = 0x83 xen - 0x183
+  
+  ird = &irrl->List[0].Descriptors[2];
   ird->Option = 0;
   ird->Type = CmResourceTypeMemory;
   ird->ShareDisposition = CmResourceShareShared;
-  ird->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
+  ird->Flags = CM_RESOURCE_MEMORY_READ_WRITE; //|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
   ird->u.Memory.Length = PAGE_SIZE;
   ird->u.Memory.Alignment = PAGE_SIZE;
   ird->u.Memory.MinimumAddress.QuadPart = xppdd->mmio_phys.QuadPart;
@@ -143,6 +201,7 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   unsigned int i;
   PPNP_BUS_INFORMATION pbi;
   PCM_RESOURCE_LIST crl;
+KIRQL old_irql;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -152,7 +211,7 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   {
   case IRP_MN_START_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE (status = %08x)\n", irp->IoStatus.Status));
-    status = STATUS_SUCCESS;
+    status = XenPci_Pnp_StartDevice(device_object, irp);
     break;
     
   case IRP_MN_QUERY_STOP_DEVICE:
@@ -287,12 +346,12 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
     
   case IRP_MN_QUERY_RESOURCE_REQUIREMENTS:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_RESOURCE_REQUIREMENTS (status = %08x)\n", irp->IoStatus.Status));
-    status = irp->IoStatus.Status; //XenPci_QueryResourceRequirements(device_object, irp);
+    status = XenPci_QueryResourceRequirements(device_object, irp);
     break;
 
   case IRP_MN_QUERY_CAPABILITIES:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_CAPABILITIES (status = %08x)\n", irp->IoStatus.Status));
-    status = irp->IoStatus.Status; //XenPci_Pnp_QueryCapabilities(device_object, irp);
+    status = XenPci_Pnp_QueryCapabilities(device_object, irp);
     break;
 
   case IRP_MN_QUERY_BUS_INFORMATION:
@@ -336,6 +395,22 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
       status = XenPci_Pnp_QueryTargetRelations(device_object, irp);
       break;  
     default:
+KeRaiseIrql(7, &old_irql);
+KdPrint((__DRIVER_NAME "     int 0x81 (xenvbd) (from xenpci)"));
+__asm {
+  int 0x81
+};
+KeLowerIrql(old_irql);
+
+KeRaiseIrql(7, &old_irql);
+KdPrint((__DRIVER_NAME "     int 0x81 (xenvbd) (from xenpci)"));
+__asm {
+  cli
+  int 0x81
+  sti
+};
+KeLowerIrql(old_irql);
+    
       status = irp->IoStatus.Status;
       break;
     }

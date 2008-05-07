@@ -111,11 +111,11 @@ XenVbd_Interrupt(PKINTERRUPT Interrupt, PVOID DeviceExtension)
 
   UNREFERENCED_PARAMETER(Interrupt);
 
-//  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
+  KdPrint((__DRIVER_NAME " --> Interrupt\n"));
 
   TargetData->PendingInterrupt = TRUE;
 
-//  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
+  KdPrint((__DRIVER_NAME " <-- Interrupt\n"));
 
   return TRUE;
 }
@@ -144,8 +144,9 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
   PXENVBD_DEVICE_DATA DeviceData = (PXENVBD_DEVICE_DATA)TargetData->DeviceData;
   int more_to_do = TRUE;
 
-//  KdPrint((__DRIVER_NAME " --> HwScsiInterruptTarget\n"));
+  KdPrint((__DRIVER_NAME " --> HwScsiInterruptTarget\n"));
 
+#if 0
   while (more_to_do)
   {
     rp = TargetData->Ring.sring->rsp_prod;
@@ -230,7 +231,9 @@ XenVbd_HwScsiInterruptTarget(PVOID DeviceExtension)
     }
   }
 
-//  KdPrint((__DRIVER_NAME " <-- HwScsiInterruptTarget\n"));
+#endif
+
+  KdPrint((__DRIVER_NAME " <-- HwScsiInterruptTarget\n"));
 }
 
 static BOOLEAN
@@ -988,12 +991,14 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   unsigned int i;
   int notify;
 
+  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
+
+__asm { int 0x91 };
 Srb->SrbStatus = SRB_STATUS_NO_DEVICE;
 ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
 ScsiPortNotification(NextRequest, DeviceExtension, NULL);
 
 #if 0
-//  KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
 //  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   // If we haven't enumerated all the devices yet then just defer the request
@@ -1303,9 +1308,9 @@ ScsiPortNotification(NextRequest, DeviceExtension, NULL);
     ScsiPortNotification(NextRequest, DeviceExtension, NULL);
     break;
   }
-
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 #endif
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return TRUE;
 }
 
@@ -1345,11 +1350,48 @@ XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Con
 {
   SCSI_ADAPTER_CONTROL_STATUS Status = ScsiAdapterControlSuccess;
   PSCSI_SUPPORTED_CONTROL_TYPE_LIST SupportedControlTypeList;
+  KIRQL OldIrql;
 
   UNREFERENCED_PARAMETER(DeviceExtension);
 
   KdPrint((__DRIVER_NAME " --> HwScsiAdapterControl\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
+  //KdBreakPoint();
+
+  KdPrint((__DRIVER_NAME "     int 0x81 (xenvbd)"));
+  __asm {
+    cli
+    int 0x81
+    sti
+  };
+  
+  KeRaiseIrql(7, &OldIrql);
+  KdPrint((__DRIVER_NAME "     int 0x81 (xenvbd)"));
+  __asm {
+    int 0x81
+  };
+  KeLowerIrql(OldIrql);
+
+  KeRaiseIrql(7, &OldIrql);
+  KdPrint((__DRIVER_NAME "     int 0x81 (xenvbd)"));
+  __asm {
+    cli
+    int 0x81
+    sti
+  };
+  KeLowerIrql(OldIrql);
+
+  /*
+  KdPrint((__DRIVER_NAME "     int 0x07"));
+  __asm { int 0x07 };
+
+  KdPrint((__DRIVER_NAME "     int 0x37"));
+  __asm { int 0x37 };
+  */
+  
+//  KdPrint((__DRIVER_NAME "     int 0x83 (xenpci)"));
+//  __asm { int 0x83 };
 
   switch (ControlType)
   {
