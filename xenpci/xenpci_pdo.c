@@ -19,8 +19,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 #include <stdlib.h>
+#include <io/ring.h>
 
 #pragma warning(disable : 4200) // zero-sized array
+#pragma warning(disable: 4127) // conditional expression is constant
 
 NTSTATUS
 XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
@@ -37,19 +39,137 @@ XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   return irp->IoStatus.Status;
 }
 
+static VOID
+XenPci_BackEndStateHandler(char *Path, PVOID Context)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)Context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  char *value;
+  char *err;
+  ULONG new_backend_state;
+  char path[128];
+
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  /* check that path == device/id/state */
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
+  err = XenBus_Read(xpdd, XBT_NIL, Path, &value);
+  if (err)
+  {
+    KdPrint(("Failed to read %s\n", path, err));
+    return;
+  }
+  new_backend_state = atoi(value);
+  XenPci_FreeMem(value);
+
+  if (xppdd->backend_state == new_backend_state)
+  {
+    KdPrint((__DRIVER_NAME "     state unchanged\n"));
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+    return;
+  }    
+
+  xppdd->backend_state = new_backend_state;
+
+  switch (xppdd->backend_state)
+  {
+  case XenbusStateUnknown:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Unknown\n"));  
+    break;
+
+  case XenbusStateInitialising:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialising\n"));  
+    break;
+
+  case XenbusStateInitWait:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait\n"));  
+    break;
+
+  case XenbusStateInitialised:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialised\n"));
+    break;
+
+  case XenbusStateConnected:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Connected\n"));  
+    break;
+
+  case XenbusStateClosing:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));  
+    /* check our current PNP statue - this may be a surprise removal... */
+    break;
+
+  case XenbusStateClosed:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closed\n"));  
+    break;
+
+  default:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d\n", xppdd->backend_state));
+    break;
+  }
+
+  KeSetEvent(&xppdd->backend_state_event, 1, FALSE);
+
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return;
+}
+
+struct dummy_sring {
+    RING_IDX req_prod, req_event;
+    RING_IDX rsp_prod, rsp_event;
+    uint8_t  pad[48];
+};
+
 static NTSTATUS
 XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 {
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
   PIO_STACK_LOCATION stack;
   PCM_PARTIAL_RESOURCE_LIST res_list;
   PCM_PARTIAL_RESOURCE_DESCRIPTOR res_descriptor;
   ULONG i;
+  char path[128];
+  PCHAR setting, value;
+  PCHAR res;
+  PMDL mdl;
+  PVOID address;
+  grant_ref_t gref;
+  evtchn_port_t event_channel;
+  UCHAR type;
+  PUCHAR in_ptr = NULL, in_start = NULL;
+  PUCHAR out_ptr, out_start = NULL;
+  XENPCI_VECTORS vectors;
 
   UNREFERENCED_PARAMETER(device_object);
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   stack = IoGetCurrentIrpStackLocation(irp);
+
+  /* Get backend path */
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path),
+    "%s/backend", xppdd->path);
+  res = XenBus_Read(xpdd, XBT_NIL, path, &value);
+  if (res)
+  {
+    KdPrint((__DRIVER_NAME "    Failed to read backend path\n"));
+    XenPci_FreeMem(res);
+  }
+  RtlStringCbCopyA(xppdd->backend_path, ARRAY_SIZE(xppdd->backend_path), value);
+  XenPci_FreeMem(value);
+
+  /* Add watch on backend state */
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+  XenBus_AddWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+
+  /* Tell backend we're coming up */
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
+  XenBus_Printf(xpdd, XBT_NIL, path, "%d", XenbusStateInitialising);
+
+  // wait here for signal that we are all set up - we should probably add a timeout to make sure we don't hang forever
+  while (xppdd->backend_state != XenbusStateInitWait)
+    KeWaitForSingleObject(&xppdd->backend_state_event, Executive, KernelMode, FALSE, NULL);
 
   res_list = &stack->Parameters.StartDevice.AllocatedResources->List[0].PartialResourceList;
   for (i = 0; i < res_list->Count; i++)
@@ -59,6 +179,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     {
     case CmResourceTypeInterrupt:
       KdPrint((__DRIVER_NAME "     irq_number = %d\n", res_descriptor->u.Interrupt.Vector));
+      KdPrint((__DRIVER_NAME "     irq_level = %03x\n", res_descriptor->u.Interrupt.Level));
       break;
     }
   }
@@ -69,8 +190,122 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     res_descriptor = &res_list->PartialDescriptors[i];
     switch (res_descriptor->Type) {
     case CmResourceTypeInterrupt:
-      KdPrint((__DRIVER_NAME "     irq_vector = %d\n", res_descriptor->u.Interrupt.Vector));
+      KdPrint((__DRIVER_NAME "     CmResourceTypeInterrupt\n"));
+      KdPrint((__DRIVER_NAME "     irq_vector = %03x\n", res_descriptor->u.Interrupt.Vector));
+      KdPrint((__DRIVER_NAME "     irq_level = %d\n", res_descriptor->u.Interrupt.Level));
+      xppdd->irq_vector = res_descriptor->u.Interrupt.Vector;
+      xppdd->irq_level = (KIRQL)res_descriptor->u.Interrupt.Level;
       break;
+    case CmResourceTypeMemory:
+      KdPrint((__DRIVER_NAME "     CmResourceTypeMemory\n"));
+      KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", res_descriptor->u.Memory.Start.LowPart, res_descriptor->u.Memory.Length));
+      out_ptr = out_start = MmMapIoSpace(res_descriptor->u.Memory.Start, res_descriptor->u.Memory.Length, MmNonCached);
+      in_ptr = in_start = ExAllocatePoolWithTag(PagedPool, res_descriptor->u.Memory.Length, XENPCI_POOL_TAG);
+      memcpy(in_ptr, out_ptr, res_descriptor->u.Memory.Length);
+      
+      while((type = GET_XEN_INIT_REQ(&in_ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+      {
+        switch (type)
+        {
+        case XEN_INIT_TYPE_WRITE_STRING: /* frontend setting = value */
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_WRITE_STRING - %s = %s\n", setting, value));
+          RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
+          XenBus_Printf(xpdd, XBT_NIL, path, "%s", value);
+          break;
+        case XEN_INIT_TYPE_RING: /* frontend ring */
+          /* we only allocate and do the SHARED_RING_INIT here */
+          mdl = AllocatePage();
+          address = MmGetMdlVirtualAddress(mdl);
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, address));
+          SHARED_RING_INIT((struct dummy_sring *)address);
+          gref = GntTbl_GrantAccess(xpdd, 0, *MmGetMdlPfnArray(mdl), FALSE, 0);
+          RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
+          XenBus_Printf(xpdd, XBT_NIL, path, "%d", gref);
+          ADD_XEN_INIT_RSP(&out_ptr, type, setting, address);
+          break;
+        case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+        case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
+          event_channel = EvtChn_AllocUnbound(xpdd, 0);
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, event_channel));
+          RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
+          XenBus_Printf(xpdd, XBT_NIL, path, "%d", event_channel);
+          ADD_XEN_INIT_RSP(&out_ptr, type, setting, UlongToPtr(event_channel));
+          if (type == XEN_INIT_TYPE_EVENT_CHANNEL_IRQ)
+            EvtChn_BindIrq(xpdd, event_channel, xppdd->irq_vector);
+          break;
+        }
+      }
+    }
+  }
+
+  /* We are all ready to go */
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
+  XenBus_Printf(xpdd, XBT_NIL, path, "%d", XenbusStateConnected);
+
+  // wait here for signal that we are all set up - we should probably add a timeout to make sure we don't hang forever
+  while (xppdd->backend_state != XenbusStateConnected)
+    KeWaitForSingleObject(&xppdd->backend_state_event, Executive, KernelMode, FALSE, NULL);
+
+  res_list = &stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList;
+  for (i = 0; i < res_list->Count; i++)
+  {
+    res_descriptor = &res_list->PartialDescriptors[i];
+    switch (res_descriptor->Type) {
+    case CmResourceTypeMemory:
+      in_ptr = in_start;
+      while((type = GET_XEN_INIT_REQ(&in_ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+      {
+        switch(type)
+        {
+        case XEN_INIT_TYPE_READ_STRING_BACK:
+        case XEN_INIT_TYPE_READ_STRING_FRONT:
+          if (type == XEN_INIT_TYPE_READ_STRING_FRONT)
+            RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
+          else
+            RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->backend_path, setting);
+          res = XenBus_Read(xpdd, XBT_NIL, path, &value);
+          if (res)
+          {
+            KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = <failed>\n", setting));
+            XenPci_FreeMem(res);
+            ADD_XEN_INIT_RSP(&out_ptr, type, setting, NULL);
+          }
+          else
+          {
+            KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
+            ADD_XEN_INIT_RSP(&out_ptr, type, setting, value);
+            XenPci_FreeMem(value);
+          }
+          break;
+        case XEN_INIT_TYPE_VECTORS:
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
+          vectors.magic = XEN_DATA_MAGIC;
+          vectors.length = sizeof(XENPCI_VECTORS);
+          vectors.context = xpdd;
+          vectors.EvtChn_Bind = EvtChn_Bind;
+          vectors.EvtChn_BindDpc = EvtChn_BindDpc;
+          vectors.EvtChn_Unbind = EvtChn_Unbind;
+          vectors.EvtChn_Mask = EvtChn_Mask;
+          vectors.EvtChn_Unmask = EvtChn_Unmask;
+          vectors.EvtChn_Notify = EvtChn_Notify;
+          vectors.GntTbl_GetRef = GntTbl_GetRef;
+          vectors.GntTbl_PutRef = GntTbl_PutRef;
+          vectors.GntTbl_GrantAccess = GntTbl_GrantAccess;
+          vectors.GntTbl_EndAccess = GntTbl_EndAccess;
+          ADD_XEN_INIT_RSP(&out_ptr, type, NULL, &vectors);
+          break;
+        case XEN_INIT_TYPE_GRANT_ENTRIES:
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(setting)));
+          __ADD_XEN_INIT_UCHAR(&out_ptr, type);
+          __ADD_XEN_INIT_ULONG(&out_ptr, PtrToUlong(setting));
+          for (i = 0; i < PtrToUlong(setting); i++)
+            __ADD_XEN_INIT_ULONG(&out_ptr, GntTbl_GetRef(xpdd));
+          break;
+        }
+      }
+      ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_END, NULL, NULL);
+      MmUnmapIoSpace(out_start, res_descriptor->u.Memory.Length);
+      ExFreePoolWithTag(in_start, XENPCI_POOL_TAG);
     }
   }
   
@@ -82,10 +317,13 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 static NTSTATUS
 XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
 {
-  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  //PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
   PIO_RESOURCE_REQUIREMENTS_LIST irrl;
   PIO_RESOURCE_DESCRIPTOR ird;
   ULONG length;
+  
+  UNREFERENCED_PARAMETER(device_object);
   
   length = FIELD_OFFSET(IO_RESOURCE_REQUIREMENTS_LIST, List) +
     FIELD_OFFSET(IO_RESOURCE_LIST, Descriptors) +
@@ -101,42 +339,24 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   irrl->AlternativeLists = 1;
   irrl->List[0].Version = 1;
   irrl->List[0].Revision = 1;
-  irrl->List[0].Count = 3;
+  irrl->List[0].Count = 0;
 
-  ird = &irrl->List[0].Descriptors[0];
+  ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
   ird->Option = 0;
   ird->Type = CmResourceTypeInterrupt;
-  ird->ShareDisposition = CmResourceShareDeviceExclusive;
+  ird->ShareDisposition = CmResourceShareShared; //CmResourceShareDeviceExclusive;
   ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
   ird->u.Interrupt.MinimumVector = 1;
   ird->u.Interrupt.MaximumVector = 6;
 
-  ird = &irrl->List[0].Descriptors[1];
+  ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
   ird->Option = IO_RESOURCE_ALTERNATIVE;
   ird->Type = CmResourceTypeInterrupt;
-  ird->ShareDisposition = CmResourceShareDeviceExclusive;
+  ird->ShareDisposition = CmResourceShareShared; //CmResourceShareDeviceExclusive;
   ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
-  ird->u.Interrupt.MinimumVector = 8;
+  ird->u.Interrupt.MinimumVector = 10;
   ird->u.Interrupt.MaximumVector = 14;
 
-  //irq 7 = 0x93
-  //irq 11 = 0x81
-  //irq ? = 0x52 mouse
-  //irq ? = 0xb3 keybouard
-  //irq ? = 0x72 atapi
-  //irq ? = 0x92 atappi
-  //irq 28 = 0x83 xen - 0x183
-  
-  ird = &irrl->List[0].Descriptors[2];
-  ird->Option = 0;
-  ird->Type = CmResourceTypeMemory;
-  ird->ShareDisposition = CmResourceShareShared;
-  ird->Flags = CM_RESOURCE_MEMORY_READ_WRITE; //|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
-  ird->u.Memory.Length = PAGE_SIZE;
-  ird->u.Memory.Alignment = PAGE_SIZE;
-  ird->u.Memory.MinimumAddress.QuadPart = xppdd->mmio_phys.QuadPart;
-  ird->u.Memory.MaximumAddress.QuadPart = xppdd->mmio_phys.QuadPart + PAGE_SIZE - 1;
-  
   irp->IoStatus.Information = (ULONG_PTR)irrl;
   return STATUS_SUCCESS;
 }
@@ -200,8 +420,6 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   WCHAR widebuf[256];
   unsigned int i;
   PPNP_BUS_INFORMATION pbi;
-  PCM_RESOURCE_LIST crl;
-KIRQL old_irql;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -261,8 +479,8 @@ KIRQL old_irql;
     case BusQueryDeviceID: /* REG_SZ */
       KdPrint((__DRIVER_NAME "     BusQueryDeviceID\n"));
       buffer = ExAllocatePoolWithTag(PagedPool, 512, XENPCI_POOL_TAG);
-      for (i = 0; i < strlen(xppdd->path); i++)
-        widebuf[i] = xppdd->path[i];
+      for (i = 0; i < strlen(xppdd->device); i++)
+        widebuf[i] = xppdd->device[i];
       widebuf[i] = 0;
       RtlStringCbPrintfW(buffer, 512, L"Xen\\%ws", widebuf);
       KdPrint((__DRIVER_NAME "     %ls\n", buffer));
@@ -272,8 +490,8 @@ KIRQL old_irql;
     case BusQueryHardwareIDs: /* REG_MULTI_SZ */
       KdPrint((__DRIVER_NAME "     BusQueryHardwareIDs\n"));
       buffer = ExAllocatePoolWithTag(PagedPool, 512, XENPCI_POOL_TAG);
-      for (i = 0; i < strlen(xppdd->path); i++)
-        widebuf[i] = xppdd->path[i];
+      for (i = 0; i < strlen(xppdd->device); i++)
+        widebuf[i] = xppdd->device[i];
       widebuf[i] = 0;
       RtlStringCbPrintfW(buffer, 512, L"Xen\\%ws", widebuf);
       for (i = 0; buffer[i] != 0; i++);
@@ -287,8 +505,8 @@ KIRQL old_irql;
     case BusQueryCompatibleIDs: /* REG_MULTI_SZ */
       KdPrint((__DRIVER_NAME "     BusQueryCompatibleIDs\n"));
       buffer = ExAllocatePoolWithTag(PagedPool, 512, XENPCI_POOL_TAG);
-      for (i = 0; i < strlen(xppdd->path); i++)
-        widebuf[i] = xppdd->path[i];
+      for (i = 0; i < strlen(xppdd->device); i++)
+        widebuf[i] = xppdd->device[i];
       widebuf[i] = 0;
       RtlStringCbPrintfW(buffer, 512, L"Xen\\%ws", widebuf);
       for (i = 0; buffer[i] != 0; i++);
@@ -320,8 +538,8 @@ KIRQL old_irql;
     case DeviceTextDescription:
       KdPrint((__DRIVER_NAME "     DeviceTextDescription\n"));
       buffer = ExAllocatePoolWithTag(PagedPool, 512, XENPCI_POOL_TAG);
-      for (i = 0; i < strlen(xppdd->path); i++)
-        widebuf[i] = xppdd->path[i];
+      for (i = 0; i < strlen(xppdd->device); i++)
+        widebuf[i] = xppdd->device[i];
       widebuf[i] = 0;
       RtlStringCbPrintfW(buffer, 512, L"Xen %ws device #%d", widebuf, xppdd->index);
       KdPrint((__DRIVER_NAME "     %ls\n", buffer));
@@ -395,22 +613,13 @@ KIRQL old_irql;
       status = XenPci_Pnp_QueryTargetRelations(device_object, irp);
       break;  
     default:
-KeRaiseIrql(7, &old_irql);
-KdPrint((__DRIVER_NAME "     int 0x81 (xenvbd) (from xenpci)"));
+/*
+KdPrint((__DRIVER_NAME "     int 0xb1 (xenvbd) (from xenpci)"));
 __asm {
   int 0x81
+  int 0xb1
 };
-KeLowerIrql(old_irql);
-
-KeRaiseIrql(7, &old_irql);
-KdPrint((__DRIVER_NAME "     int 0x81 (xenvbd) (from xenpci)"));
-__asm {
-  cli
-  int 0x81
-  sti
-};
-KeLowerIrql(old_irql);
-    
+*/
       status = irp->IoStatus.Status;
       break;
     }

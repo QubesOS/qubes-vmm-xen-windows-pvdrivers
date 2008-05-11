@@ -40,7 +40,10 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
   UNREFERENCED_PARAMETER(SystemArgument1);
   UNREFERENCED_PARAMETER(SystemArgument2);
 
-  action->ServiceRoutine(NULL, action->ServiceContext);
+  if (action->type == EVT_ACTION_TYPE_IRQ)
+    sw_interrupt((UCHAR)action->vector);
+  else
+    action->ServiceRoutine(NULL, action->ServiceContext);
 }
 
 static BOOLEAN
@@ -56,7 +59,7 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
   unsigned int port;
   ev_action_t *ev_action;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
   UNREFERENCED_PARAMETER(Interrupt);
 
@@ -73,53 +76,50 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
     {
       port = (evt_word << 5) + evt_bit;
       ev_action = &xpdd->ev_actions[port];
-      if (ev_action->ServiceRoutine == NULL)
+      switch (ev_action->type)
       {
+      case EVT_ACTION_TYPE_NORMAL:
+        ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
+        break;
+      case EVT_ACTION_TYPE_DPC:
+      case EVT_ACTION_TYPE_IRQ: /* we have to call the IRQ from DPC or we risk mucking up IRQLs */
+        KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
+        break;
+      default:
         KdPrint((__DRIVER_NAME "     Unhandled Event!!!\n"));
-      }
-      else
-      {
-        if (ev_action->DpcFlag)
-        {
-          KdPrint((__DRIVER_NAME "     Scheduling Dpc\n"));
-          KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
-        }
-        else
-        {
-          ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
-        }
+        break;
       }
       synch_clear_bit(port, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
     }
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-  /* Need to return FALSE so we can fall through to the scsiport ISR. */
-  return FALSE;
+  return TRUE;
 }
 
 NTSTATUS
 EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
-  //KdPrint((__DRIVER_NAME " --> EvtChn_Bind (ServiceRoutine = %08X, ServiceContext = %08x)\n", ServiceRoutine, ServiceContext));
 
-  if(xpdd->ev_actions[Port].ServiceRoutine != NULL)
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  
+  if (xpdd->ev_actions[Port].type != EVT_ACTION_TYPE_EMPTY)
   {
-    xpdd->ev_actions[Port].ServiceRoutine = NULL;
+    xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_EMPTY;
     KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
     KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
   }
 
-  xpdd->ev_actions[Port].DpcFlag = FALSE;
+  xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
   xpdd->ev_actions[Port].ServiceContext = ServiceContext;
   KeMemoryBarrier();
-  xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
+  xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_NORMAL;
 
   EvtChn_Unmask(Context, Port);
 
-  KdPrint((__DRIVER_NAME " <-- EvtChn_Bind\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return STATUS_SUCCESS;
 }
@@ -129,26 +129,50 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRouti
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 
-  KdPrint((__DRIVER_NAME " --> EvtChn_BindDpc\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  if(xpdd->ev_actions[Port].ServiceRoutine != NULL)
+  if (xpdd->ev_actions[Port].type != EVT_ACTION_TYPE_EMPTY)
   {
-    KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
-    xpdd->ev_actions[Port].ServiceRoutine = NULL;
+    xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_EMPTY;
     KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
+    KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
   }
 
-  xpdd->ev_actions[Port].ServiceContext = ServiceContext;
-  xpdd->ev_actions[Port].DpcFlag = TRUE;
-
-  KeInitializeDpc(&xpdd->ev_actions[Port].Dpc, EvtChn_DpcBounce, &xpdd->ev_actions[Port]);
-
-  KeMemoryBarrier(); // make sure that the new service routine is only called once the context is set up
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
+  xpdd->ev_actions[Port].ServiceContext = ServiceContext;
+  KeInitializeDpc(&xpdd->ev_actions[Port].Dpc, EvtChn_DpcBounce, &xpdd->ev_actions[Port]);
+  KeMemoryBarrier(); // make sure that the new service routine is only called once the context is set up
+  xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_DPC;
 
   EvtChn_Unmask(Context, Port);
 
-  KdPrint((__DRIVER_NAME " <-- EvtChn_BindDpc\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return STATUS_SUCCESS;
+}
+
+NTSTATUS
+EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector)
+{
+  PXENPCI_DEVICE_DATA xpdd = Context;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  if (xpdd->ev_actions[Port].type != EVT_ACTION_TYPE_EMPTY)
+  {
+    xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_EMPTY;
+    KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
+    KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
+  }
+
+  KeInitializeDpc(&xpdd->ev_actions[Port].Dpc, EvtChn_DpcBounce, &xpdd->ev_actions[Port]);
+  xpdd->ev_actions[Port].vector = vector;
+  KeMemoryBarrier();
+  xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_IRQ;
+
+  EvtChn_Unmask(Context, Port);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return STATUS_SUCCESS;
 }
@@ -163,11 +187,9 @@ EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
   KeMemoryBarrier();
   xpdd->ev_actions[Port].ServiceContext = NULL;
 
-  if (xpdd->ev_actions[Port].DpcFlag)
+  if (xpdd->ev_actions[Port].type == EVT_ACTION_TYPE_DPC)
     KeRemoveQueueDpc(&xpdd->ev_actions[Port].Dpc);
   
-  //KdPrint((__DRIVER_NAME " <-- EvtChn_UnBind\n"));
-
   return STATUS_SUCCESS;
 }
 
@@ -219,8 +241,7 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
   for (i = 0; i < NR_EVENTS; i++)
   {
     EvtChn_Mask(xpdd, i);
-    xpdd->ev_actions[i].ServiceRoutine = NULL;
-    xpdd->ev_actions[i].ServiceContext = NULL;
+    xpdd->ev_actions[i].type = EVT_ACTION_TYPE_EMPTY;
     xpdd->ev_actions[i].Count = 0;
   }
 

@@ -46,6 +46,9 @@ typedef uint32_t XENSTORE_RING_IDX;
 
 #define SPLITSTRING_POOL_TAG (ULONG) 'SSPT'
 
+#define wmb() KeMemoryBarrier()
+#define mb() KeMemoryBarrier()
+
 static char **
 SplitString(char *String, char Split, int MaxParts, int *Count)
 {

@@ -25,6 +25,7 @@ GntTbl_PutRef(PVOID Context, grant_ref_t ref)
   PXENPCI_DEVICE_DATA xpdd = Context;
   KIRQL OldIrql;
 
+  ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
   KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
   xpdd->gnttab_list[ref] = xpdd->gnttab_list[0];
   xpdd->gnttab_list[0]  = ref;
@@ -38,6 +39,7 @@ GntTbl_GetRef(PVOID Context)
   unsigned int ref;
   KIRQL OldIrql;
 
+  ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
   KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
   ref = xpdd->gnttab_list[0];
   xpdd->gnttab_list[0] = xpdd->gnttab_list[ref];
@@ -141,7 +143,7 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
   xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd,
     PAGE_SIZE * NR_GRANT_FRAMES);
   xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical,
-    PAGE_SIZE * NR_GRANT_FRAMES, MmCached);
+    PAGE_SIZE * NR_GRANT_FRAMES, MmNonCached);
   if (!xpdd->gnttab_table)
   {
     KdPrint((__DRIVER_NAME "     Error Mapping Grant Table Shared Memory\n"));

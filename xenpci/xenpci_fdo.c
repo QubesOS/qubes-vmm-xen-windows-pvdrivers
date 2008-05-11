@@ -25,45 +25,13 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define SHUTDOWN_PATH "control/shutdown"
 #define BALLOON_PATH "memory/target"
 
-#if 0
-static NTSTATUS
-XenPCI_PrepareHardware(WDFDEVICE hDevice, WDFCMRESLIST Resources, WDFCMRESLIST ResourcesTranslated);
-static NTSTATUS
-XenPCI_ReleaseHardware(WDFDEVICE Device, WDFCMRESLIST ResourcesTranslated);
-static NTSTATUS
-XenPCI_D0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState);
-static NTSTATUS
-XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE  Device, WDF_POWER_DEVICE_STATE PreviousState);
-static NTSTATUS
-XenPCI_D0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState);
-static NTSTATUS
-XenPCI_D0ExitPreInterruptsDisabled(WDFDEVICE  Device, WDF_POWER_DEVICE_STATE TargetState);
-static VOID
-XenPCI_IoDefault(WDFQUEUE Queue, WDFREQUEST Request);
-static VOID 
-XenPCI_IoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length);
-static NTSTATUS
-XenPCI_InterruptEnable(WDFINTERRUPT Interrupt, WDFDEVICE AssociatedDevice);
-static NTSTATUS
-XenPCI_InterruptDisable(WDFINTERRUPT Interrupt, WDFDEVICE AssociatedDevice);
-static NTSTATUS
-XenPCI_ChildListCreateDevice(WDFCHILDLIST ChildList, PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER IdentificationDescription, PWDFDEVICE_INIT ChildInit);
-static NTSTATUS
-XenPCI_DeviceResourceRequirementsQuery(WDFDEVICE Device, WDFIORESREQLIST IoResourceRequirementsList);
-static NTSTATUS
-XenPCI_FilterRemoveResourceRequirements(WDFDEVICE Device, WDFIORESREQLIST IoResourceRequirementsList);
-static NTSTATUS
-XenPCI_FilterAddResourceRequirements(WDFDEVICE Device, WDFIORESREQLIST RequirementsList);
-static NTSTATUS
-XenPCI_RemoveAddedResources(WDFDEVICE Device, WDFCMRESLIST ResourcesRaw, WDFCMRESLIST ResourcesTranslated);
-#endif
-
 static VOID
 XenBus_SysrqHandler(char *Path, PVOID Data);
 static VOID
 XenBus_ShutdownHandler(char *Path, PVOID Data);
 static VOID
 XenBus_BalloonHandler(char *Path, PVOID Data);
+
 /*
 static VOID
 XenPCI_XenBusWatchHandler(char *Path, PVOID Data);
@@ -126,16 +94,6 @@ XenPci_Dummy_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
 }
 
 /*
- * Many XEN_IFACE functions allocate memory. Clients must use this to free it.
- * (Xenbus_Read, XenBus_List, XenBus_AddWatch, XenBus_RemWatch)
- */
-static void
-XenPCI_FreeMem(PVOID Ptr)
-{
-  ExFreePoolWithTag(Ptr, XENPCI_POOL_TAG);
-}
-
-/*
  * Alloc MMIO from the device's MMIO region. There is no corresponding free() fn
  */
 PHYSICAL_ADDRESS
@@ -175,7 +133,7 @@ XenPci_Init(PXENPCI_DEVICE_DATA xpdd)
   ret = HYPERVISOR_memory_op(xpdd, XENMEM_add_to_physmap, &xatp);
   KdPrint((__DRIVER_NAME " hypervisor memory op ret = %d\n", ret));
   xpdd->shared_info_area = MmMapIoSpace(shared_info_area_unmapped,
-    PAGE_SIZE, MmCached);
+    PAGE_SIZE, MmNonCached);
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return STATUS_SUCCESS;
@@ -299,7 +257,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     switch (res_descriptor->Type)
     {
     case CmResourceTypeInterrupt:
-      KdPrint((__DRIVER_NAME "     irq_number = %d\n", res_descriptor->u.Interrupt.Vector));
+      KdPrint((__DRIVER_NAME "     irq_number = %03x\n", res_descriptor->u.Interrupt.Vector));
       xpdd->irq_number = res_descriptor->u.Interrupt.Vector;
       memcpy(&InterruptRaw, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
       break;
@@ -316,12 +274,15 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
       break;
     case CmResourceTypeMemory:
       KdPrint((__DRIVER_NAME "     Memory mapped CSR:(%x:%x) Length:(%d)\n", res_descriptor->u.Memory.Start.LowPart, res_descriptor->u.Memory.Start.HighPart, res_descriptor->u.Memory.Length));
+      KdPrint((__DRIVER_NAME "     Memory flags = %04X\n", res_descriptor->Flags));
       xpdd->platform_mmio_addr = res_descriptor->u.Memory.Start;
       xpdd->platform_mmio_len = res_descriptor->u.Memory.Length;
       xpdd->platform_mmio_alloc = 0;
+      xpdd->platform_mmio_flags = res_descriptor->Flags;
       break;
     case CmResourceTypeInterrupt:
-      KdPrint((__DRIVER_NAME "     irq_vector = %d\n", res_descriptor->u.Interrupt.Vector));
+      KdPrint((__DRIVER_NAME "     irq_vector = %03x\n", res_descriptor->u.Interrupt.Vector));
+      KdPrint((__DRIVER_NAME "     irq_level = %03x\n", res_descriptor->u.Interrupt.Level));
 	    xpdd->irq_level = (KIRQL)res_descriptor->u.Interrupt.Level;
   	  xpdd->irq_vector = res_descriptor->u.Interrupt.Vector;
 	    xpdd->irq_affinity = res_descriptor->u.Interrupt.Affinity;
@@ -371,6 +332,7 @@ XenPci_Pnp_QueryRemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+#if 0
   if (FALSE)
   {
     /* We are in the paging or hibernation path - can't remove */
@@ -379,9 +341,12 @@ XenPci_Pnp_QueryRemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
   }
   else
   {
+#endif
     IoSkipCurrentIrpStackLocation(irp);
     status = IoCallDriver(xpdd->common.lower_do, irp);
+#if 0
   }
+#endif
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
@@ -501,20 +466,20 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
   NTSTATUS status = STATUS_SUCCESS;
   PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   PIRP irp = context;
-  int devices = 0;
+  int device_count = 0;
   PDEVICE_RELATIONS dev_relations;
   PXEN_CHILD child;
   //char *response;
-  char *msgTypes;
-  char **Types;
-  int i;
-  //CHAR buffer[128];
+  char *msg;
+  char **devices;
+  char **instances;
+  int i, j;
+  CHAR path[128];
   PDEVICE_OBJECT pdo;
-  
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  msgTypes = XenBus_List(xpdd, XBT_NIL, "device", &Types);
-  if (!msgTypes)
+  msg = XenBus_List(xpdd, XBT_NIL, "device", &devices);
+  if (!msg)
   {
     for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
     {
@@ -523,69 +488,83 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
       child->state = CHILD_STATE_DELETED;
     }
 
-    for (i = 0; Types[i]; i++)
+    for (i = 0; devices[i]; i++)
     {
-      //RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "device/%s", Types[i]);
-
-      for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
+      RtlStringCbPrintfA(path, ARRAY_SIZE(path), "device/%s", devices[i]);
+      msg = XenBus_List(xpdd, XBT_NIL, path, &instances);
+      if (!msg)
       {
-        if (strcmp(child->context->path, Types[i]) == 0)
+        for (j = 0; instances[j]; j++)
         {
-          KdPrint((__DRIVER_NAME "     Existing device %s\n", Types[i]));
-          ASSERT(child->state != CHILD_STATE_DELETED);
-          child->state = CHILD_STATE_ADDED;
-          devices++;
-          break;
+          RtlStringCbPrintfA(path, ARRAY_SIZE(path), "device/%s/%s", devices[i], instances[j]);
+        
+          for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
+          {
+            if (strcmp(child->context->path, path) == 0)
+            {
+              KdPrint((__DRIVER_NAME "     Existing device %s\n", path));
+              ASSERT(child->state != CHILD_STATE_DELETED);
+              child->state = CHILD_STATE_ADDED;
+              device_count++;
+              break;
+            }
+          }
+        
+          if (child == (PXEN_CHILD)&xpdd->child_list)
+          {
+            KdPrint((__DRIVER_NAME "     New device %s\n", path));
+            child = ExAllocatePoolWithTag(NonPagedPool, sizeof(XEN_CHILD), XENPCI_POOL_TAG);
+            child->state = CHILD_STATE_ADDED;
+            status = IoCreateDeviceSecure(
+              xpdd->common.fdo->DriverObject,
+              sizeof(XENPCI_PDO_DEVICE_DATA),
+              NULL,
+              FILE_DEVICE_UNKNOWN,
+              FILE_AUTOGENERATED_DEVICE_NAME | FILE_DEVICE_SECURE_OPEN,
+              FALSE,
+              &SDDL_DEVOBJ_SYS_ALL_ADM_ALL,
+              (LPCGUID)&GUID_XENPCI_DEVCLASS,
+              &pdo);
+            if (!NT_SUCCESS(status))
+              KdPrint((__DRIVER_NAME "     IoCreateDevice status = %08X\n", status));
+            child->context = (PXENPCI_PDO_DEVICE_DATA)pdo->DeviceExtension;
+            child->context->common.fdo = NULL;
+            child->context->common.pdo = pdo;
+            child->context->common.lower_do = NULL;
+            child->context->bus_fdo = device_object;
+            RtlStringCbCopyA(child->context->path, ARRAY_SIZE(child->context->path), path);
+            RtlStringCbCopyA(child->context->device, ARRAY_SIZE(child->context->device), devices[i]);
+            child->context->index = atoi(instances[j]);
+            KeInitializeEvent(&child->context->backend_state_event, SynchronizationEvent, FALSE);
+            child->context->backend_state = XenbusStateUnknown;
+            child->context->backend_path[0] = '\0';
+            InsertTailList(&xpdd->child_list, (PLIST_ENTRY)child);
+            device_count++;
+          }
+          ExFreePoolWithTag(instances[j], XENPCI_POOL_TAG);
         }
+        XenPci_FreeMem(instances);
       }
-      if (child == (PXEN_CHILD)&xpdd->child_list)
-      {
-        KdPrint((__DRIVER_NAME "     New device %s\n", Types[i]));
-        child = ExAllocatePoolWithTag(NonPagedPool, sizeof(XEN_CHILD), XENPCI_POOL_TAG);
-        child->state = CHILD_STATE_ADDED;
-        status = IoCreateDeviceSecure(
-          xpdd->common.fdo->DriverObject,
-          sizeof(XENPCI_PDO_DEVICE_DATA),
-          NULL,
-          FILE_DEVICE_UNKNOWN,
-          FILE_AUTOGENERATED_DEVICE_NAME | FILE_DEVICE_SECURE_OPEN,
-          FALSE,
-          &SDDL_DEVOBJ_SYS_ALL_ADM_ALL,
-          (LPCGUID)&GUID_XENPCI_DEVCLASS,
-          &pdo);
-        if (!NT_SUCCESS(status))
-          KdPrint((__DRIVER_NAME "     IoCreateDevice status = %08X\n", status));
-        child->context = (PXENPCI_PDO_DEVICE_DATA)pdo->DeviceExtension;
-        child->context->common.fdo = NULL;
-        child->context->common.pdo = pdo;
-        child->context->common.lower_do = NULL;
-        child->context->bus_fdo = device_object;
-        strcpy(child->context->path, Types[i]);
-        child->context->index = 0;
-        child->context->mmio_phys = XenPci_AllocMMIO(xpdd, PAGE_SIZE);
-        InsertTailList(&xpdd->child_list, (PLIST_ENTRY)child);
-        devices++;
-      }
-      ExFreePoolWithTag(Types[i], XENPCI_POOL_TAG);
+      ExFreePoolWithTag(devices[i], XENPCI_POOL_TAG);
     }
-    dev_relations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DEVICE_RELATIONS) + sizeof(PDEVICE_OBJECT) * (devices - 1), XENPCI_POOL_TAG);
-    for (child = (PXEN_CHILD)xpdd->child_list.Flink, devices = 0; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
+    XenPci_FreeMem(devices);
+    dev_relations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DEVICE_RELATIONS) + sizeof(PDEVICE_OBJECT) * (device_count - 1), XENPCI_POOL_TAG);
+    for (child = (PXEN_CHILD)xpdd->child_list.Flink, device_count = 0; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
     {
       if (child->state == CHILD_STATE_ADDED)
-        dev_relations->Objects[devices++] = child->context->common.pdo;
+        dev_relations->Objects[device_count++] = child->context->common.pdo;
     }
-    dev_relations->Count = devices;
+    dev_relations->Count = device_count;
 
     status = STATUS_SUCCESS;
   }
   else
   {
-    devices = 0;
-    dev_relations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DEVICE_RELATIONS) + sizeof(PDEVICE_OBJECT) * (devices - 1), XENPCI_POOL_TAG);
-    dev_relations->Count = devices;
+    /* this should probably fail in an even worse way - a failure here means we failed to do an ls in xenbus so something is really really wrong */
+    device_count = 0;
+    dev_relations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DEVICE_RELATIONS) + sizeof(PDEVICE_OBJECT) * (device_count - 1), XENPCI_POOL_TAG);
+    dev_relations->Count = device_count;
   }
-
-  XenPCI_FreeMem(Types);
 
   irp->IoStatus.Status = status;
   irp->IoStatus.Information = (ULONG_PTR)dev_relations;
@@ -624,7 +603,9 @@ XenPci_Pnp_FilterResourceRequirementsCallback(PDEVICE_OBJECT device_object, PVOI
   PIO_RESOURCE_REQUIREMENTS_LIST irrl;
   ULONG irl;
   ULONG ird;
-    
+
+  UNREFERENCED_PARAMETER(device_object);
+  
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (status = %08X)\n", irp->IoStatus.Status));
   
   irrl = (PIO_RESOURCE_REQUIREMENTS_LIST)irp->IoStatus.Information;
@@ -825,7 +806,7 @@ XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pre
   }
   WdfChildListEndScan(ChildList);
 
-  XenPCI_FreeMem(Types);
+  XenPci_FreeMem(Types);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -1042,7 +1023,7 @@ XenPCI_ChildListCreateDevice(
   ChildDeviceData->XenInterface.InterfaceHeader.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
 
   ChildDeviceData->XenInterface.AllocMMIO = XenPci_AllocMMIO;
-  ChildDeviceData->XenInterface.FreeMem = XenPCI_FreeMem;
+  ChildDeviceData->XenInterface.FreeMem = XenPci_FreeMem;
 
   ChildDeviceData->XenInterface.EvtChn_Bind = EvtChn_Bind;
   ChildDeviceData->XenInterface.EvtChn_Unbind = EvtChn_Unbind;
@@ -1202,7 +1183,7 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
   if (res)
   {
     KdPrint(("Error starting transaction\n"));
-    XenPCI_FreeMem(res);
+    XenPci_FreeMem(res);
     return;
   }
 
@@ -1210,7 +1191,7 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
   if (res)
   {
     KdPrint(("Error reading shutdown path\n"));
-    XenPCI_FreeMem(res);
+    XenPci_FreeMem(res);
     XenBus_EndTransaction(Device, xbt, 1, &retry);
     return;
   }
@@ -1221,7 +1202,7 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
     if (res)
     {
       KdPrint(("Error writing shutdown path\n"));
-      XenPCI_FreeMem(res);
+      XenPci_FreeMem(res);
       // end trans?
       return;
     }
@@ -1241,7 +1222,7 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
   if (res)
   {
     KdPrint(("Error ending transaction\n"));
-    XenPCI_FreeMem(res);
+    XenPci_FreeMem(res);
     return;
   }
 
@@ -1262,7 +1243,7 @@ XenBus_ShutdownHandler(char *Path, PVOID Data)
     }
   }
 
-  XenPCI_FreeMem(Value);
+  XenPci_FreeMem(Value);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -1290,7 +1271,7 @@ XenBus_BalloonHandler(char *Path, PVOID Data)
 
   XenBus_EndTransaction(Device, xbt, 0, &retry);
 
-  XenPCI_FreeMem(value);
+  XenPci_FreeMem(value);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_BalloonHandler\n"));
 }
@@ -1322,7 +1303,7 @@ XenBus_SysrqHandler(char *Path, PVOID Data)
     if (res)
     {
       KdPrint(("Error writing sysrq path\n"));
-      XenPCI_FreeMem(res);
+      XenPci_FreeMem(res);
       XenBus_EndTransaction(Device, xbt, 0, &retry);
       return;
     }
@@ -1336,7 +1317,7 @@ XenBus_SysrqHandler(char *Path, PVOID Data)
 
   if (Value != NULL)
   {
-    XenPCI_FreeMem(Value);
+    XenPci_FreeMem(Value);
   }
 
   switch (letter)

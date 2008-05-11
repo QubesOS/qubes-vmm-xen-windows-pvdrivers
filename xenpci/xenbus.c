@@ -297,7 +297,7 @@ XenBus_Init(PXENPCI_DEVICE_DATA xpdd)
   NTSTATUS Status;
   int i;
     
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   KeInitializeSpinLock(&xpdd->WatchLock);
 
@@ -305,7 +305,7 @@ XenBus_Init(PXENPCI_DEVICE_DATA xpdd)
 
   xen_store_mfn = (xen_ulong_t)hvm_get_parameter(xpdd, HVM_PARAM_STORE_PFN);
   pa_xen_store_interface.QuadPart = xen_store_mfn << PAGE_SHIFT;
-  xpdd->xen_store_interface = MmMapIoSpace(pa_xen_store_interface, PAGE_SIZE, MmCached);
+  xpdd->xen_store_interface = MmMapIoSpace(pa_xen_store_interface, PAGE_SIZE, MmNonCached);
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
   {
@@ -334,7 +334,7 @@ XenBus_Init(PXENPCI_DEVICE_DATA xpdd)
 
   EvtChn_BindDpc(xpdd, xpdd->xen_store_evtchn, XenBus_Interrupt, xpdd);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return STATUS_SUCCESS;
 }
@@ -344,7 +344,7 @@ XenBus_Stop(PXENPCI_DEVICE_DATA xpdd)
 {
   int i;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
   {
@@ -356,7 +356,7 @@ XenBus_Stop(PXENPCI_DEVICE_DATA xpdd)
 
   EvtChn_Unbind(xpdd, xpdd->xen_store_evtchn);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return STATUS_SUCCESS;
 }
@@ -380,7 +380,7 @@ XenBus_Close(PXENPCI_DEVICE_DATA xpdd)
   ZwClose(xpdd->XenBus_WatchThreadHandle);
   ZwClose(xpdd->XenBus_ReadThreadHandle);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return STATUS_SUCCESS;
 }
@@ -447,7 +447,6 @@ XenBus_ReadThreadProc(PVOID StartContext)
       KdPrint((__DRIVER_NAME "     Shutdown detected in ReadThreadProc\n"));
       PsTerminateSystemThread(0);
     }
-    KdPrint((__DRIVER_NAME "     ReadThread Woken\n"));
     while (xpdd->xen_store_interface->rsp_prod != xpdd->xen_store_interface->rsp_cons)
     {
       //KdPrint((__DRIVER_NAME "     a - Rsp_cons %d, rsp_prod %d.\n", xen_store_interface->rsp_cons, xen_store_interface->rsp_prod));
@@ -537,7 +536,6 @@ XenBus_WatchThreadProc(PVOID StartContext)
         KdPrint((__DRIVER_NAME "     No watch for index %d\n", index));
         continue;
       }
-KdPrint((__DRIVER_NAME " --- About to call watch\n"));
       if (entry->RemovePending)
       {
         KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
@@ -572,7 +570,7 @@ XenBus_AddWatch(
   PXENBUS_WATCH_ENTRY w_entry;
   KIRQL OldIrql;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   ASSERT(strlen(Path) < ARRAY_SIZE(w_entry->Path));
 
@@ -639,7 +637,7 @@ XenBus_RemWatch(
   struct write_req req[2];
   KIRQL OldIrql;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   KeAcquireSpinLock(&xpdd->WatchLock, &OldIrql);
 
@@ -696,7 +694,7 @@ XenBus_RemWatch(
 
   ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NULL;
 }

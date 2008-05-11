@@ -42,6 +42,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <hvm/params.h>
 #include <hvm/hvm_op.h>
 #include <sched.h>
+#include <io/xenbus.h>
 
 #include <xen_public.h>
 
@@ -56,11 +57,17 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
+#define EVT_ACTION_TYPE_EMPTY  0
+#define EVT_ACTION_TYPE_NORMAL 1
+#define EVT_ACTION_TYPE_DPC    2
+#define EVT_ACTION_TYPE_IRQ    3
+
 typedef struct _ev_action_t {
   PKSERVICE_ROUTINE ServiceRoutine;
   PVOID ServiceContext;
-  BOOLEAN DpcFlag;
+  ULONG type; /* EVT_ACTION_TYPE_* */
   KDPC Dpc;
+  ULONG vector;
   ULONG Count;
 } ev_action_t;
 
@@ -123,6 +130,7 @@ typedef struct {
   ULONG platform_mmio_orig_len;
   ULONG platform_mmio_len;
   ULONG platform_mmio_alloc;
+  USHORT platform_mmio_flags;
 
   char *hypercall_stubs;
 
@@ -164,8 +172,14 @@ typedef struct {
   XENPCI_COMMON common;
   PDEVICE_OBJECT bus_fdo;
   char path[128];
+  char device[128];
   ULONG index;
-  PHYSICAL_ADDRESS mmio_phys;
+  //PHYSICAL_ADDRESS mmio_phys;
+  ULONG irq_vector;
+  KIRQL irq_level;
+  char backend_path[128];
+  KEVENT backend_state_event;
+  ULONG backend_state;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 typedef struct
@@ -174,6 +188,36 @@ typedef struct
   int state;
   PXENPCI_PDO_DEVICE_DATA context;
 } XEN_CHILD, *PXEN_CHILD;
+
+#define SWINT(x) case x: __asm { int x } break;
+
+static __inline VOID
+sw_interrupt(UCHAR intno)
+{
+  KdPrint((__DRIVER_NAME "     Calling interrupt %02X\n", intno));
+  switch (intno)
+  {
+  SWINT(0x10) SWINT(0x11) SWINT(0x12) SWINT(0x13) SWINT(0x14) SWINT(0x15) SWINT(0x16) SWINT(0x17)
+  SWINT(0x18) SWINT(0x19) SWINT(0x1A) SWINT(0x1B) SWINT(0x1C) SWINT(0x1D) SWINT(0x1E) SWINT(0x1F)
+  SWINT(0x20) SWINT(0x21) SWINT(0x22) SWINT(0x23) SWINT(0x24) SWINT(0x25) SWINT(0x26) SWINT(0x27)
+  SWINT(0x28) SWINT(0x29) SWINT(0x2A) SWINT(0x2B) SWINT(0x2C) SWINT(0x2D) SWINT(0x2E) SWINT(0x2F)
+  SWINT(0x30) SWINT(0x31) SWINT(0x32) SWINT(0x33) SWINT(0x34) SWINT(0x35) SWINT(0x36) SWINT(0x37)
+  SWINT(0x38) SWINT(0x39) SWINT(0x3A) SWINT(0x3B) SWINT(0x3C) SWINT(0x3D) SWINT(0x3E) SWINT(0x3F)
+  SWINT(0x40) SWINT(0x41) SWINT(0x42) SWINT(0x43) SWINT(0x44) SWINT(0x45) SWINT(0x46) SWINT(0x47)
+  SWINT(0x48) SWINT(0x49) SWINT(0x4A) SWINT(0x4B) SWINT(0x4C) SWINT(0x4D) SWINT(0x4E) SWINT(0x4F)
+
+  SWINT(0x80) SWINT(0x81) SWINT(0x82) SWINT(0x83) SWINT(0x84) SWINT(0x85) SWINT(0x86) SWINT(0x87)
+  SWINT(0x88) SWINT(0x89) SWINT(0x8A) SWINT(0x8B) SWINT(0x8C) SWINT(0x8D) SWINT(0x8E) SWINT(0x8F)
+
+  SWINT(0xB0) SWINT(0xB1) SWINT(0xB2) SWINT(0xB3) SWINT(0xB4) SWINT(0xB5) SWINT(0xB6) SWINT(0xB7)
+  SWINT(0xB8) SWINT(0xB9) SWINT(0xBA) SWINT(0xBB) SWINT(0xBC) SWINT(0xBD) SWINT(0xBE) SWINT(0xBF)
+
+  default:
+    KdPrint((__DRIVER_NAME "     interrupt %02X not set up. Blame James.\n", intno));
+    KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000002, (ULONG)intno, 0x00000000, 0x00000000);
+    break;
+  }
+}    
   
 #include "hypercall.h"
 
@@ -181,6 +225,12 @@ typedef unsigned long xenbus_transaction_t;
 typedef uint32_t XENSTORE_RING_IDX;
 
 #define XBT_NIL ((xenbus_transaction_t)0)
+
+static __inline VOID
+XenPci_FreeMem(PVOID Ptr)
+{
+  ExFreePoolWithTag(Ptr, XENPCI_POOL_TAG);
+}
 
 NTSTATUS
 XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
@@ -241,6 +291,8 @@ NTSTATUS
 EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 NTSTATUS
 EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
+NTSTATUS
+EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector);
 NTSTATUS
 EvtChn_Unbind(PVOID Context, evtchn_port_t Port);
 NTSTATUS
