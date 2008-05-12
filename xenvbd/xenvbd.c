@@ -68,52 +68,61 @@ XenVbd_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
 
   stack = IoGetCurrentIrpStackLocation(irp);
 
+  // check if the Irp is meant for us... maybe the stack->DeviceObject field?
+  
   switch (stack->MinorFunction)
   {
   case IRP_MN_START_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE\n"));
-    mdl = AllocatePage();
+    KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE - DeviceObject = %p\n", stack->DeviceObject));
     old_crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
-    old_length = FIELD_OFFSET(CM_RESOURCE_LIST, List) + 
-      FIELD_OFFSET(CM_FULL_RESOURCE_DESCRIPTOR, PartialResourceList) +
-      FIELD_OFFSET(CM_PARTIAL_RESOURCE_LIST, PartialDescriptors) +
-      sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * old_crl->List[0].PartialResourceList.Count;
-    new_length = old_length + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * 1;
-    new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENVBD_POOL_TAG);
-    memcpy(new_crl, old_crl, old_length);
-    prl = &new_crl->List[0].PartialResourceList;
-    prd = &prl->PartialDescriptors[prl->Count++];
-    prd->Type = CmResourceTypeMemory;
-    prd->ShareDisposition = CmResourceShareDeviceExclusive;
-    prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
-    prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
-    prd->u.Memory.Length = PAGE_SIZE;
-    KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
-    ptr = start = MmGetMdlVirtualAddress(mdl);
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL);
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_FRONT, "device-type", NULL);
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sectors", NULL);
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sector-size", NULL);
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_VECTORS, NULL, NULL);
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, UlongToPtr(GRANT_ENTRIES), NULL);
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
-    
-    stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl;
+    if (old_crl != NULL)
+    {
+      mdl = AllocatePage();
+      old_length = FIELD_OFFSET(CM_RESOURCE_LIST, List) + 
+        FIELD_OFFSET(CM_FULL_RESOURCE_DESCRIPTOR, PartialResourceList) +
+        FIELD_OFFSET(CM_PARTIAL_RESOURCE_LIST, PartialDescriptors) +
+        sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * old_crl->List[0].PartialResourceList.Count;
+      new_length = old_length + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * 1;
+      new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENVBD_POOL_TAG);
+      memcpy(new_crl, old_crl, old_length);
+      prl = &new_crl->List[0].PartialResourceList;
+      prd = &prl->PartialDescriptors[prl->Count++];
+      prd->Type = CmResourceTypeMemory;
+      prd->ShareDisposition = CmResourceShareDeviceExclusive;
+      prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
+      prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+      prd->u.Memory.Length = PAGE_SIZE;
+      KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
+      ptr = start = MmGetMdlVirtualAddress(mdl);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_FRONT, "device-type", NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sectors", NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sector-size", NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_VECTORS, NULL, NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, UlongToPtr(GRANT_ENTRIES), NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
+      
+      stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl;
 
-    old_crl = stack->Parameters.StartDevice.AllocatedResources;
-    new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENVBD_POOL_TAG);
-    memcpy(new_crl, old_crl, old_length);
-    prl = &new_crl->List[0].PartialResourceList;
-    prd = &prl->PartialDescriptors[prl->Count++];
-    prd->Type = CmResourceTypeMemory;
-    prd->ShareDisposition = CmResourceShareDeviceExclusive;
-    prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
-    prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
-    prd->u.Memory.Length = PAGE_SIZE;
-    stack->Parameters.StartDevice.AllocatedResources = new_crl;
+      old_crl = stack->Parameters.StartDevice.AllocatedResources;
+      new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENVBD_POOL_TAG);
+      memcpy(new_crl, old_crl, old_length);
+      prl = &new_crl->List[0].PartialResourceList;
+      prd = &prl->PartialDescriptors[prl->Count++];
+      prd->Type = CmResourceTypeMemory;
+      prd->ShareDisposition = CmResourceShareDeviceExclusive;
+      prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
+      prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+      prd->u.Memory.Length = PAGE_SIZE;
+      stack->Parameters.StartDevice.AllocatedResources = new_crl;
 
-    IoCopyCurrentIrpStackLocationToNext(irp);
+      IoCopyCurrentIrpStackLocationToNext(irp);
+    }
+    else
+    {
+      KdPrint((__DRIVER_NAME "     AllocatedResource == NULL\n"));
+    }
     status = XenVbd_Pnp_Original(device_object, irp);
 
     break;

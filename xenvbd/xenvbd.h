@@ -97,8 +97,7 @@ struct
   USHORT shadow_free_list[SHADOW_ENTRIES];
   USHORT shadow_free;
 
-  grant_entry_t grants[GRANT_ENTRIES];
-  USHORT grant_free_list[GRANT_ENTRIES];
+  grant_ref_t grant_free_list[GRANT_ENTRIES];
   USHORT grant_free;
 
   evtchn_port_t event_channel;
