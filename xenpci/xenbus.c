@@ -272,6 +272,8 @@ XenBus_Write(
   struct write_req req[] = {
     {path, (ULONG)strlen(path) + 1},
     {value, (ULONG)strlen(value) + 1},
+//    {path, (ULONG)strlen(path)},
+//    {value, (ULONG)strlen(value)},
   };
   struct xsd_sockmsg *rep;
   char *msg;

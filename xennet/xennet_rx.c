@@ -71,8 +71,7 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->rx, notify);
   if (notify)
   {
-    xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
-      xi->event_channel);
+    xi->vectors.EvtChn_Notify(xi->vectors.context, xi->event_channel);
   }
 
 
@@ -379,6 +378,8 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
 
+  //KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " xi->rx.sring->rsp_prod = %d, xi->rx.rsp_cons = %d\n", xi->rx.sring->rsp_prod, xi->rx.rsp_cons));
+    
   do {
     ASSERT(cycles++ < 256);
     prod = xi->rx.sring->rsp_prod;
@@ -562,13 +563,6 @@ XenNet_RxInit(xennet_info_t *xi)
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  xi->rx_mdl = AllocatePage();
-  xi->rx_pgs = MmGetMdlVirtualAddress(xi->rx_mdl);
-  SHARED_RING_INIT(xi->rx_pgs);
-  FRONT_RING_INIT(&xi->rx, xi->rx_pgs, PAGE_SIZE);
-  xi->rx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
-    xi->XenInterface.InterfaceHeader.Context, 0,
-    *MmGetMdlPfnArray(xi->rx_mdl), FALSE, 0);
   xi->rx_id_free = NET_RX_RING_SIZE;
 
   for (i = 0; i < NET_RX_RING_SIZE; i++)
@@ -603,10 +597,6 @@ XenNet_RxShutdown(xennet_info_t *xi)
   packet_freelist_dispose(xi);
 
   /* free RX resources */
-  ASSERT(xi->XenInterface.GntTbl_EndAccess(
-    xi->XenInterface.InterfaceHeader.Context, xi->rx_ring_ref, 0));
-  FreePages(xi->rx_mdl);
-  xi->rx_pgs = NULL;
 
   ASSERT(xi->rx_outstanding == 0);
 

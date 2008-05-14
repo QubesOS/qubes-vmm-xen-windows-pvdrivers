@@ -65,13 +65,6 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
 {
   NTSTATUS status;
   PDEVICE_OBJECT fdo = NULL;
-/*
-  WDF_CHILD_LIST_CONFIG config;
-  WDF_OBJECT_ATTRIBUTES attributes;
-  WDF_PNPPOWER_EVENT_CALLBACKS pnpPowerCallbacks;
-  WDF_IO_QUEUE_CONFIG IoQConfig;
-  WDF_INTERRUPT_CONFIG InterruptConfig;
-*/
 //  PNP_BUS_INFORMATION busInfo;
 //  DECLARE_CONST_UNICODE_STRING(DeviceName, L"\\Device\\XenShutdown");
 //  DECLARE_CONST_UNICODE_STRING(SymbolicName, L"\\DosDevices\\XenShutdown");
@@ -107,6 +100,22 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
     return STATUS_NO_SUCH_DEVICE;
   }
   InitializeListHead(&xpdd->child_list);
+
+  status = IoRegisterDeviceInterface(
+    PhysicalDeviceObject,
+    (LPGUID)&GUID_XEN_IFACE,
+    NULL,
+    &xpdd->interface_name);
+
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface failed with status 0x%08x\n", status));
+  }
+  else
+  {
+    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface succeeded - %wZ\n", &xpdd->interface_name));
+  }
+  
 
   fdo->Flags &= ~DO_DEVICE_INITIALIZING;
 

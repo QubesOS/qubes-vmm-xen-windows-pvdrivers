@@ -162,7 +162,7 @@ XenFreelist_Timer(
 
   KeAcquireSpinLockAtDpcLevel(fl->lock);
 
-  KdPrint((__DRIVER_NAME " --- timer - page_free_lowest = %d\n", fl->page_free_lowest));
+  //KdPrint((__DRIVER_NAME " --- timer - page_free_lowest = %d\n", fl->page_free_lowest));
 //  KdPrint((__DRIVER_NAME " --- rx_outstanding = %d, rx_id_free = %d\n", xi->rx_outstanding, xi->rx_id_free));
 
   if (fl->page_free_lowest > fl->page_free_target) // lots of potential for tuning here
@@ -170,11 +170,11 @@ XenFreelist_Timer(
     for (i = 0; i < (int)min(16, fl->page_free_lowest - fl->page_free_target); i++)
     {
       mdl = XenFreelist_GetPage(fl);
-      fl->xi->XenInterface.GntTbl_EndAccess(fl->xi->XenInterface.InterfaceHeader.Context,
+      fl->xi->vectors.GntTbl_EndAccess(fl->xi->vectors.context,
         *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
       FreePages(mdl);
     }
-    KdPrint((__DRIVER_NAME " --- timer - freed %d pages\n", i));
+    //KdPrint((__DRIVER_NAME " --- timer - freed %d pages\n", i));
   }
 
   fl->page_free_lowest = fl->page_free;
@@ -204,8 +204,8 @@ XenFreelist_GetPage(freelist_t *fl)
   if (fl->page_free == 0)
   {
     mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
-    *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->XenInterface.GntTbl_GrantAccess(
-      fl->xi->XenInterface.InterfaceHeader.Context, 0,
+    *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->vectors.GntTbl_GrantAccess(
+      fl->xi->vectors.context, 0,
       *MmGetMdlPfnArray(mdl), FALSE, 0);
   }
   else
@@ -238,7 +238,7 @@ XenFreelist_Dispose(freelist_t *fl)
   {
     fl->page_free--;
     mdl = fl->page_list[fl->page_free];
-    fl->xi->XenInterface.GntTbl_EndAccess(fl->xi->XenInterface.InterfaceHeader.Context,
+    fl->xi->vectors.GntTbl_EndAccess(fl->xi->vectors.context,
       *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
     FreePages(mdl);
   }

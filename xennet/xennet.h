@@ -22,8 +22,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable: 4214)
 
 #include <wdm.h>
-#include <wdf.h>
-#include <wdfminiport.h>
+//#include <wdf.h>
+//#include <wdfminiport.h>
 #include <initguid.h>
 #define NDIS_MINIPORT_DRIVER
 #if NTDDI_VERSION < NTDDI_WINXP
@@ -152,24 +152,25 @@ struct xennet_info
   PDEVICE_OBJECT pdo;
   PDEVICE_OBJECT fdo;
   PDEVICE_OBJECT lower_do;
-  WDFDEVICE wdf_device;
+  //WDFDEVICE wdf_device;
   WCHAR dev_desc[NAME_SIZE];
 
   /* NDIS-related vars */
   NDIS_HANDLE adapter_handle;
   NDIS_HANDLE packet_pool;
   NDIS_HANDLE buffer_pool;
+  NDIS_MINIPORT_INTERRUPT interrupt;
   ULONG packet_filter;
   int connected;
   UINT8 perm_mac_addr[ETH_ALEN];
   UINT8 curr_mac_addr[ETH_ALEN];
 
   /* Misc. Xen vars */
-  XEN_IFACE XenInterface;
-  PXENPCI_XEN_DEVICE_DATA pdo_data;
+  //XEN_IFACE XenInterface;
+  //PXENPCI_XEN_DEVICE_DATA pdo_data;
+  XENPCI_VECTORS vectors;
   evtchn_port_t event_channel;
   ULONG state;
-  KEVENT backend_state_change_event;
   KEVENT shutdown_event;
   char backend_path[MAX_XENBUS_STR_LEN];
   ULONG backend_state;
@@ -181,9 +182,6 @@ struct xennet_info
   KSPIN_LOCK tx_lock;
   LIST_ENTRY tx_waiting_pkt_list;
   struct netif_tx_front_ring tx;
-  grant_ref_t tx_ring_ref;
-  struct netif_tx_sring *tx_pgs;
-  PMDL tx_mdl;
   ULONG tx_id_free;
   ULONG tx_no_id_used;
   USHORT tx_id_list[NET_TX_RING_SIZE];
@@ -193,9 +191,6 @@ struct xennet_info
 
   /* rx_related - protected by rx_lock */
   struct netif_rx_front_ring rx;
-  grant_ref_t rx_ring_ref;
-  struct netif_rx_sring *rx_pgs;
-  PMDL rx_mdl;
   ULONG rx_id_free;
   PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
   freelist_t rx_freelist;

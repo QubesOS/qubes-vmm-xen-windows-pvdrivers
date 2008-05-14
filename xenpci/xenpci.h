@@ -166,6 +166,8 @@ typedef struct {
   LIST_ENTRY child_list;
   
   int suspending;
+  
+  UNICODE_STRING interface_name;
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
 typedef struct {  

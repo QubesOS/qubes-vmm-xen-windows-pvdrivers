@@ -102,9 +102,15 @@ XenNet_QueryInformation(
       break;
     case OID_GEN_HARDWARE_STATUS:
       if (!xi->connected)
+      {
         temp_data = NdisHardwareStatusInitializing;
+        KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " NdisHardwareStatusInitializing\n"));
+      }
       else
+      {
         temp_data = NdisHardwareStatusReady;
+        KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " NdisHardwareStatusReady\n"));
+      }
       break;
     case OID_GEN_MEDIA_SUPPORTED:
       temp_data = NdisMedium802_3;

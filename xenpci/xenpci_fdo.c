@@ -221,6 +221,12 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
 
   XenBus_Init(xpdd);
 
+  status = IoSetDeviceInterfaceState(&xpdd->interface_name, TRUE);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     IoSetDeviceInterfaceState failed with status 0x%08x\n", status));
+  }
+
   irp->IoStatus.Status = status;
   
   IoCompleteRequest(irp, IO_NO_INCREMENT);

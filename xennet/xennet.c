@@ -80,100 +80,37 @@ simple_strtoul(const char *cp,char **endp,unsigned int base)
 
 // Called at DISPATCH_LEVEL
 
-static BOOLEAN
-XenNet_Interrupt(
-  PKINTERRUPT Interrupt,
-  PVOID ServiceContext
-  )
+static VOID
+XenNet_InterruptIsr(
+  PBOOLEAN InterruptRecognized,
+  PBOOLEAN QueueMiniportHandleInterrupt,
+  NDIS_HANDLE MiniportAdapterContext)
 {
-  struct xennet_info *xi = ServiceContext;
+  struct xennet_info *xi = MiniportAdapterContext;
+  
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  UNREFERENCED_PARAMETER(Interrupt);
+  *QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
+  *InterruptRecognized = FALSE; /* we can't be sure here... */
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
+static VOID
+XenNet_InterruptDpc(NDIS_HANDLE  MiniportAdapterContext)
+{
+  struct xennet_info *xi = MiniportAdapterContext;
+
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   if (xi->connected)
   {
     XenNet_TxBufferGC(xi);
     XenNet_RxBufferCheck(xi);
   }
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
-  return TRUE;
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 // Called at <= DISPATCH_LEVEL
-
-static VOID
-XenNet_BackEndStateHandler(char *Path, PVOID Data)
-{
-  struct xennet_info *xi = Data;
-  char *Value;
-  char *err;
-  ULONG new_backend_state;
-
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-
-  err = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
-    XBT_NIL, Path, &Value);
-  if (err)
-  {
-    KdPrint(("Failed to read %s\n", Path, err));
-    return;
-  }
-  new_backend_state = atoi(Value);
-  xi->XenInterface.FreeMem(Value);
-
-  if (xi->backend_state == new_backend_state)
-  {
-    KdPrint((__DRIVER_NAME "     state unchanged\n"));
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-    return;
-  }    
-
-  xi->backend_state = new_backend_state;
-
-  switch (xi->backend_state)
-  {
-  case XenbusStateUnknown:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Unknown\n"));  
-    break;
-
-  case XenbusStateInitialising:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialising\n"));  
-    break;
-
-  case XenbusStateInitWait:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait\n"));  
-    break;
-
-  case XenbusStateInitialised:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialised\n"));
-    break;
-
-  case XenbusStateConnected:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Connected\n"));  
-    break;
-
-  case XenbusStateClosing:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));  
-    break;
-
-  case XenbusStateClosed:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Closed\n"));  
-    break;
-
-  default:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d\n", xi->backend_state));
-    break;
-  }
-
-  KeSetEvent(&xi->backend_state_change_event, 1, FALSE);
-
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
-  return;
-}
 
 static NDIS_STATUS
 XenNet_Init(
@@ -186,36 +123,18 @@ XenNet_Init(
   )
 {
   NDIS_STATUS status;
-  LARGE_INTEGER timeout;
-  UINT i;
+  UINT i, j;
   BOOLEAN medium_found = FALSE;
   struct xennet_info *xi = NULL;
   ULONG length;
-  WDF_OBJECT_ATTRIBUTES wdf_attrs;
-  char *res;
-  char *Value;
-  char TmpPath[MAX_XENBUS_STR_LEN];
-  struct set_params {
-    char *name;
-    int value;
-  } params[] = {
-    {"tx-ring-ref", 0},
-    {"rx-ring-ref", 0},
-    {"event-channel", 0},
-    {"feature-no-csum-offload", 1},
-    {"feature-sg", 1},
-    {"feature-gso-tcpv4", 1},
-    {"request-rx-copy", 1},
-    {"feature-rx-notify", 1},
-    {NULL, 0},
-  };
-  int retry = 0;
-  char *err;
-  xenbus_transaction_t xbt = 0;
-  NDIS_HANDLE config_handle;
-  NDIS_STRING config_param_name;
-  PNDIS_CONFIGURATION_PARAMETER config_param;
-
+  PNDIS_RESOURCE_LIST nrl;
+  PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
+  KIRQL irq_level;
+  ULONG irq_vector;
+  UCHAR type;
+  PUCHAR ptr;
+  PCHAR setting, value;
+  
   UNREFERENCED_PARAMETER(OpenErrorStatus);
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
@@ -246,13 +165,304 @@ XenNet_Init(
     goto err;
   }
   RtlZeroMemory(xi, sizeof(*xi));
-
-  /* init xennet_info */
   xi->adapter_handle = MiniportAdapterHandle;
   xi->rx_target     = RX_DFL_MIN_TARGET;
   xi->rx_min_target = RX_DFL_MIN_TARGET;
   xi->rx_max_target = RX_MAX_TARGET;
+  NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi,
+    0, NDIS_ATTRIBUTE_DESERIALIZE, // | NDIS_ATTRIBUTE_BUS_MASTER),
+    NdisInterfaceInternal);
 
+  NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
+    NULL, (PUINT)&length);
+  NdisAllocateMemoryWithTag(&nrl, length, XENNET_POOL_TAG);
+  NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
+    nrl, (PUINT)&length);
+  if (status != NDIS_STATUS_SUCCESS)
+  {
+    KdPrint(("Could not get Adapter Resources 0x%x\n", status));
+    return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
+  }
+  xi->event_channel = 0;
+  xi->config_csum = 1;
+  xi->config_sg = 1;
+  xi->config_gso = 1;
+
+  for (i = 0; i < nrl->Count; i++)
+  {
+    prd = &nrl->PartialDescriptors[i];
+
+    switch(prd->Type)
+    {
+    case CmResourceTypeInterrupt:
+      irq_vector = prd->u.Interrupt.Vector;
+      irq_level = (KIRQL)prd->u.Interrupt.Level;
+      KdPrint((__DRIVER_NAME "     irq_vector = %03x, irq_level = %03x\n", irq_vector, irq_level));
+      break;
+
+    case CmResourceTypeMemory:
+      NdisMMapIoSpace(&ptr, MiniportAdapterHandle, prd->u.Memory.Start, PAGE_SIZE);
+      while((type = GET_XEN_INIT_RSP(&ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+      {
+        switch(type)
+        {
+        case XEN_INIT_TYPE_RING: /* frontend ring */
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
+          if (strcmp(setting, "tx-ring-ref") == 0)
+          {
+            FRONT_RING_INIT(&xi->tx, (netif_tx_sring_t *)value, PAGE_SIZE);
+          } else if (strcmp(setting, "rx-ring-ref") == 0)
+          {
+            FRONT_RING_INIT(&xi->rx, (netif_rx_sring_t *)value, PAGE_SIZE);
+          }
+          break;
+        case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel */
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
+          if (strcmp(setting, "event-channel") == 0)
+          {
+            xi->event_channel = PtrToUlong(value);
+          }
+          break;
+        case XEN_INIT_TYPE_READ_STRING_BACK:
+        case XEN_INIT_TYPE_READ_STRING_FRONT:
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
+          if (strcmp(setting, "mac") == 0)
+          {
+            char *s, *e;
+            s = value;
+            for (j = 0; j < ETH_ALEN; j++) {
+              xi->perm_mac_addr[j] = (UINT8)simple_strtoul(s, &e, 16);
+              if ((s == e) || (*e != ((j == ETH_ALEN-1) ? '\0' : ':'))) {
+                KdPrint((__DRIVER_NAME "Error parsing MAC address\n"));
+              }
+              s = e + 1;
+            }
+            memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
+          }
+          break;
+        case XEN_INIT_TYPE_VECTORS:
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
+          if (((PXENPCI_VECTORS)value)->length != sizeof(XENPCI_VECTORS) ||
+            ((PXENPCI_VECTORS)value)->magic != XEN_DATA_MAGIC)
+          {
+            KdPrint((__DRIVER_NAME "     vectors mismatch (magic = %08x, length = %d)\n",
+              ((PXENPCI_VECTORS)value)->magic, ((PXENPCI_VECTORS)value)->length));
+            KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+            return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
+          }
+          else
+            memcpy(&xi->vectors, value, sizeof(XENPCI_VECTORS));
+          break;
+        default:
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
+          break;
+        }
+      }
+      break;
+    }
+  } 
+
+  KeInitializeSpinLock(&xi->rx_lock);
+
+  InitializeListHead(&xi->tx_waiting_pkt_list);
+
+  NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN * 8,
+    PROTOCOL_RESERVED_SIZE_IN_PACKET);
+  if (status != NDIS_STATUS_SUCCESS)
+  {
+    KdPrint(("NdisAllocatePacketPool failed with 0x%x\n", status));
+    status = NDIS_STATUS_RESOURCES;
+    goto err;
+  }
+  NdisSetPacketPoolProtocolId(xi->packet_pool, NDIS_PROTOCOL_ID_TCP_IP);
+
+  NdisAllocateBufferPool(&status, &xi->buffer_pool, XN_RX_QUEUE_LEN);
+  if (status != NDIS_STATUS_SUCCESS)
+  {
+    KdPrint(("NdisAllocateBufferPool failed with 0x%x\n", status));
+    status = NDIS_STATUS_RESOURCES;
+    goto err;
+  }
+
+  NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
+    &xi->lower_do, NULL, NULL);
+  xi->packet_filter = NDIS_PACKET_TYPE_PROMISCUOUS;
+
+  status = IoGetDeviceProperty(xi->pdo, DevicePropertyDeviceDescription,
+    NAME_SIZE, xi->dev_desc, &length);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("IoGetDeviceProperty failed with 0x%x\n", status));
+    status = NDIS_STATUS_FAILURE;
+    goto err;
+  }
+
+  KeInitializeEvent(&xi->shutdown_event, SynchronizationEvent, FALSE);  
+
+  XenNet_TxInit(xi);
+  XenNet_RxInit(xi);
+
+  xi->connected = TRUE;
+
+  KeMemoryBarrier(); // packets could be received anytime after we set Frontent to Connected
+
+  status = NdisMRegisterInterrupt(&xi->interrupt, MiniportAdapterHandle, irq_vector, irq_level,
+    TRUE, TRUE, NdisInterruptLatched);
+  /* send fake arp? */
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("NdisMRegisterInterrupt failed with 0x%x\n", status));
+    //status = NDIS_STATUS_FAILURE;
+    //goto err;
+  }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return NDIS_STATUS_SUCCESS;
+
+err:
+  NdisFreeMemory(xi, 0, 0);
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (error path)\n"));
+  return status;
+}
+
+VOID
+XenNet_PnPEventNotify(
+  IN NDIS_HANDLE MiniportAdapterContext,
+  IN NDIS_DEVICE_PNP_EVENT PnPEvent,
+  IN PVOID InformationBuffer,
+  IN ULONG InformationBufferLength
+  )
+{
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+  UNREFERENCED_PARAMETER(PnPEvent);
+  UNREFERENCED_PARAMETER(InformationBuffer);
+  UNREFERENCED_PARAMETER(InformationBufferLength);
+
+  KdPrint((__FUNCTION__ " called\n"));
+}
+
+/* Called when machine is shutting down, so just quiesce the HW and be done fast. */
+VOID
+XenNet_Shutdown(
+  IN NDIS_HANDLE MiniportAdapterContext
+  )
+{
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+
+  KdPrint((__FUNCTION__ " called\n"));
+}
+
+/* Opposite of XenNet_Init */
+VOID
+XenNet_Halt(
+  IN NDIS_HANDLE MiniportAdapterContext
+  )
+{
+  struct xennet_info *xi = MiniportAdapterContext;
+//  CHAR TmpPath[MAX_XENBUS_STR_LEN];
+//  PVOID if_cxt = xi->XenInterface.InterfaceHeader.Context;
+//  LARGE_INTEGER timeout;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
+#if 0
+  // set frontend state to 'closing'
+  xi->state = XenbusStateClosing;
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
+  xi->XenInterface.XenBus_Printf(if_cxt, XBT_NIL, TmpPath, "%d", xi->state);
+
+  // wait for backend to set 'Closing' state
+
+  while (xi->backend_state != XenbusStateClosing)
+  {
+    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
+    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
+      KdPrint((__DRIVER_NAME "     Still Waiting for Closing...\n"));
+  }
+
+  // set frontend state to 'closed'
+  xi->state = XenbusStateClosed;
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
+  xi->XenInterface.XenBus_Printf(if_cxt, XBT_NIL, TmpPath, "%d", xi->state);
+
+  // wait for backend to set 'Closed' state
+  while (xi->backend_state != XenbusStateClosed)
+  {
+    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
+    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
+      KdPrint((__DRIVER_NAME "     Still Waiting for Closed...\n"));
+  }
+
+  // set frontend state to 'Initialising'
+  xi->state = XenbusStateInitialising;
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
+  xi->XenInterface.XenBus_Printf(if_cxt, XBT_NIL, TmpPath, "%d", xi->state);
+
+  // wait for backend to set 'InitWait' state
+  while (xi->backend_state != XenbusStateInitWait)
+  {
+    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
+    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
+      KdPrint((__DRIVER_NAME "     Still Waiting for InitWait...\n"));
+  }
+#endif
+  // Disables the interrupt
+  XenNet_Shutdown(xi);
+
+  xi->connected = FALSE;
+  KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
+
+  // TODO: remove event channel xenbus entry (how?)
+
+  XenNet_TxShutdown(xi);
+  XenNet_RxShutdown(xi);
+
+#if 0
+
+  /* Remove watch on backend state */
+  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->backend_path);
+  xi->XenInterface.XenBus_RemWatch(if_cxt, XBT_NIL, TmpPath,
+    XenNet_BackEndStateHandler, xi);
+
+#endif
+
+  NdisFreeBufferPool(xi->buffer_pool);
+  NdisFreePacketPool(xi->packet_pool);
+
+  NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
+static PDRIVER_DISPATCH XenNet_Pnp_Original;
+
+static NTSTATUS
+XenNet_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PIO_STACK_LOCATION stack;
+  NTSTATUS status;
+  PCM_RESOURCE_LIST old_crl, new_crl;
+  PCM_PARTIAL_RESOURCE_LIST prl;
+  PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
+  ULONG old_length, new_length;
+  PMDL mdl;
+  PUCHAR start, ptr;
+  //NDIS_STRING config_param_name;
+  //PNDIS_CONFIGURATION_PARAMETER config_param;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  stack = IoGetCurrentIrpStackLocation(irp);
+
+  // check if the Irp is meant for us... maybe the stack->DeviceObject field?
+  
+  switch (stack->MinorFunction)
+  {
+  case IRP_MN_START_DEVICE:
+  
+#if 0
   NdisOpenConfiguration(&status, &config_handle, WrapperConfigurationContext);
   if (!NT_SUCCESS(status))
   {
@@ -320,342 +530,70 @@ XenNet_Init(
   xi->config_max_pkt_size = max(xi->config_mtu + XN_HDR_SIZE, xi->config_gso + XN_HDR_SIZE);
   
   NdisCloseConfiguration(config_handle);
-
-  xi->state = XenbusStateUnknown;
-  xi->backend_state = XenbusStateUnknown;
-
-  KeInitializeSpinLock(&xi->rx_lock);
-
-  InitializeListHead(&xi->tx_waiting_pkt_list);
-
-  NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN * 8,
-    PROTOCOL_RESERVED_SIZE_IN_PACKET);
-  if (status != NDIS_STATUS_SUCCESS)
-  {
-    KdPrint(("NdisAllocatePacketPool failed with 0x%x\n", status));
-    status = NDIS_STATUS_RESOURCES;
-    goto err;
-  }
-  NdisSetPacketPoolProtocolId(xi->packet_pool, NDIS_PROTOCOL_ID_TCP_IP);
-
-  NdisAllocateBufferPool(&status, &xi->buffer_pool, XN_RX_QUEUE_LEN);
-  if (status != NDIS_STATUS_SUCCESS)
-  {
-    KdPrint(("NdisAllocateBufferPool failed with 0x%x\n", status));
-    status = NDIS_STATUS_RESOURCES;
-    goto err;
-  }
-
-  NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
-    &xi->lower_do, NULL, NULL);
-  xi->pdo_data = (PXENPCI_XEN_DEVICE_DATA)xi->pdo->DeviceExtension;
-
-  xi->packet_filter = NDIS_PACKET_TYPE_PROMISCUOUS;
-
-  status = IoGetDeviceProperty(xi->pdo, DevicePropertyDeviceDescription,
-    NAME_SIZE, xi->dev_desc, &length);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint(("IoGetDeviceProperty failed with 0x%x\n", status));
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  }
-
-  NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi,
-    0, NDIS_ATTRIBUTE_DESERIALIZE, // | NDIS_ATTRIBUTE_BUS_MASTER),
-    NdisInterfaceInternal);
-
-#if 0
-  if (xi->config_sg)
-  {
-    status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE, xi->config_max_pkt_size);
-    if (!NT_SUCCESS(status))
-    {
-      KdPrint(("NdisMInitializeScatterGatherDma failed with 0x%x\n", status));
-      status = NDIS_STATUS_FAILURE;
-      goto err;
-    }
-  }
 #endif
 
-  WDF_OBJECT_ATTRIBUTES_INIT(&wdf_attrs);
-
-  status = WdfDeviceMiniportCreate(WdfGetDriver(), &wdf_attrs, xi->fdo,
-    xi->lower_do, xi->pdo, &xi->wdf_device);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint(("WdfDeviceMiniportCreate failed with 0x%x\n", status));
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  }
-
-  /* get lower (Xen) interfaces */
-
-  status = WdfFdoQueryForInterface(xi->wdf_device, &GUID_XEN_IFACE,
-    (PINTERFACE) &xi->XenInterface, sizeof(XEN_IFACE), 2, NULL);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint(("WdfFdoQueryForInterface failed with status 0x%08x\n", status));
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  }
-
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath),
-      "%s/backend", xi->pdo_data->Path);
-  res = xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, &Value);
-  if (res)
-  {
-    KdPrint((__DRIVER_NAME "    Failed to read backend path\n"));
-    xi->XenInterface.FreeMem(res);
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  }
-  RtlStringCbCopyA(xi->backend_path, ARRAY_SIZE(xi->backend_path), Value);
-  xi->XenInterface.FreeMem(Value);
-  KdPrint((__DRIVER_NAME "backend path = %s\n", xi->backend_path));
-
-  KeInitializeEvent(&xi->backend_state_change_event, SynchronizationEvent, FALSE);  
-  KeInitializeEvent(&xi->shutdown_event, SynchronizationEvent, FALSE);  
-
-  /* Add watch on backend state */
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->backend_path);
-  xi->XenInterface.XenBus_AddWatch(xi->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, XenNet_BackEndStateHandler, xi);
-
-  /* Tell backend we're coming up */
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
-  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
-    XBT_NIL, TmpPath, "%d", XenbusStateInitialising);
-
-  // wait here for signal that we are all set up
-  while (xi->backend_state != XenbusStateInitWait)
-    KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, NULL);
-
-  xi->event_channel = xi->XenInterface.EvtChn_AllocUnbound(
-    xi->XenInterface.InterfaceHeader.Context, 0);
-  xi->XenInterface.EvtChn_BindDpc(xi->XenInterface.InterfaceHeader.Context,
-    xi->event_channel, XenNet_Interrupt, xi);
-
-  XenNet_TxInit(xi);
-  XenNet_RxInit(xi);
-
-  /* fixup array for dynamic values */
-  params[0].value = xi->tx_ring_ref;
-  params[1].value = xi->rx_ring_ref;
-  params[2].value = xi->event_channel;
-  params[3].value = !xi->config_csum;
-  params[4].value = xi->config_sg;
-  params[5].value = !!xi->config_gso;
-  xi->XenInterface.XenBus_StartTransaction(
-    xi->XenInterface.InterfaceHeader.Context, &xbt);
-
-  for (err = NULL, i = 0; params[i].name; i++)
-  {
-    RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/%s",
-      xi->pdo_data->Path, params[i].name);
-    err = xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, "%d", params[i].value);
-    if (err)
+    KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE - DeviceObject = %p\n", stack->DeviceObject));
+    old_crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
+    if (old_crl != NULL)
     {
-      KdPrint(("setting %s failed, err = %s\n", params[i].name, err));
-      break;
+      mdl = AllocatePage();
+      old_length = FIELD_OFFSET(CM_RESOURCE_LIST, List) + 
+        FIELD_OFFSET(CM_FULL_RESOURCE_DESCRIPTOR, PartialResourceList) +
+        FIELD_OFFSET(CM_PARTIAL_RESOURCE_LIST, PartialDescriptors) +
+        sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * old_crl->List[0].PartialResourceList.Count;
+      new_length = old_length + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * 1;
+      new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENNET_POOL_TAG);
+      memcpy(new_crl, old_crl, old_length);
+      prl = &new_crl->List[0].PartialResourceList;
+      prd = &prl->PartialDescriptors[prl->Count++];
+      prd->Type = CmResourceTypeMemory;
+      prd->ShareDisposition = CmResourceShareDeviceExclusive;
+      prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
+      prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+      prd->u.Memory.Length = PAGE_SIZE;
+      KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
+      ptr = start = MmGetMdlVirtualAddress(mdl);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "tx-ring-ref", NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", "0");
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", "1");
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-gso-tcpv4", "1");
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1");
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1");
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_VECTORS, NULL, NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
+      
+      stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl;
+
+      old_crl = stack->Parameters.StartDevice.AllocatedResources;
+      new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENNET_POOL_TAG);
+      memcpy(new_crl, old_crl, old_length);
+      prl = &new_crl->List[0].PartialResourceList;
+      prd = &prl->PartialDescriptors[prl->Count++];
+      prd->Type = CmResourceTypeMemory;
+      prd->ShareDisposition = CmResourceShareDeviceExclusive;
+      prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
+      prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+      prd->u.Memory.Length = PAGE_SIZE;
+      stack->Parameters.StartDevice.AllocatedResources = new_crl;
+      IoCopyCurrentIrpStackLocationToNext(irp);
     }
-  }
-
-  xi->XenInterface.XenBus_EndTransaction(xi->XenInterface.InterfaceHeader.Context,
-    xbt, 1, &retry);
-  if (err)
-  {
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  } 
-
-  xi->connected = TRUE;
-
-  KeMemoryBarrier(); // packets could be received anytime after we set Frontent to Connected
-
-  xi->state = XenbusStateConnected;
-  KdPrint((__DRIVER_NAME "     Set Frontend state to Connected\n"));
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
-  xi->XenInterface.XenBus_Printf(xi->XenInterface.InterfaceHeader.Context,
-    XBT_NIL, TmpPath, "%d", xi->state);
-
-  KdPrint((__DRIVER_NAME "     Waiting for backend to connect\n"));
-
-  // wait here for signal that we are all set up
-  while (xi->backend_state != XenbusStateConnected)
-  {
-    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
-    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
-      KdPrint((__DRIVER_NAME "     Still Waiting for Connected...\n"));
-  }
-
-  KdPrint((__DRIVER_NAME "     Backend Connected\n"));
-
-  /* get mac address */
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/mac", xi->backend_path);
-  xi->XenInterface.XenBus_Read(xi->XenInterface.InterfaceHeader.Context,
-      XBT_NIL, TmpPath, &Value);
-  if (!Value)
-  {
-    KdPrint((__DRIVER_NAME "    mac Read Failed\n"));
-    status = NDIS_STATUS_FAILURE;
-    goto err;
-  }
-  else
-  {
-    char *s, *e;
-    s = Value;
-    for (i = 0; i < ETH_ALEN; i++) {
-      xi->perm_mac_addr[i] = (UINT8)simple_strtoul(s, &e, 16);
-      if ((s == e) || (*e != ((i == ETH_ALEN-1) ? '\0' : ':'))) {
-        KdPrint((__DRIVER_NAME "Error parsing MAC address\n"));
-        xi->XenInterface.FreeMem(Value);
-        status = NDIS_STATUS_FAILURE;
-        goto err;
-      }
-      s = e + 1;
+    else
+    {
+      KdPrint((__DRIVER_NAME "     AllocatedResource == NULL\n"));
     }
-    memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
-    xi->XenInterface.FreeMem(Value);
+    status = XenNet_Pnp_Original(device_object, irp);
+    break;
+  default:
+    status = XenNet_Pnp_Original(device_object, irp);
+    break;
   }
 
-  /* send fake arp? */
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
-  return NDIS_STATUS_SUCCESS;
-
-err:
-  NdisFreeMemory(xi, 0, 0);
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
-}
-
-VOID
-XenNet_PnPEventNotify(
-  IN NDIS_HANDLE MiniportAdapterContext,
-  IN NDIS_DEVICE_PNP_EVENT PnPEvent,
-  IN PVOID InformationBuffer,
-  IN ULONG InformationBufferLength
-  )
-{
-  UNREFERENCED_PARAMETER(MiniportAdapterContext);
-  UNREFERENCED_PARAMETER(PnPEvent);
-  UNREFERENCED_PARAMETER(InformationBuffer);
-  UNREFERENCED_PARAMETER(InformationBufferLength);
-
-  KdPrint((__FUNCTION__ " called\n"));
-}
-
-/* Called when machine is shutting down, so just quiesce the HW and be done fast. */
-VOID
-XenNet_Shutdown(
-  IN NDIS_HANDLE MiniportAdapterContext
-  )
-{
-  struct xennet_info *xi = MiniportAdapterContext;
-
-  /* turn off interrupt */
-  xi->XenInterface.EvtChn_Unbind(xi->XenInterface.InterfaceHeader.Context,
-    xi->event_channel);
-
-  KdPrint((__FUNCTION__ " called\n"));
-}
-
-/* Opposite of XenNet_Init */
-VOID
-XenNet_Halt(
-  IN NDIS_HANDLE MiniportAdapterContext
-  )
-{
-  struct xennet_info *xi = MiniportAdapterContext;
-  CHAR TmpPath[MAX_XENBUS_STR_LEN];
-  PVOID if_cxt = xi->XenInterface.InterfaceHeader.Context;
-  LARGE_INTEGER timeout;
-
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-
-  // set frontend state to 'closing'
-  xi->state = XenbusStateClosing;
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
-  xi->XenInterface.XenBus_Printf(if_cxt, XBT_NIL, TmpPath, "%d", xi->state);
-
-  // wait for backend to set 'Closing' state
-
-  while (xi->backend_state != XenbusStateClosing)
-  {
-    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
-    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
-      KdPrint((__DRIVER_NAME "     Still Waiting for Closing...\n"));
-  }
-
-  // set frontend state to 'closed'
-  xi->state = XenbusStateClosed;
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
-  xi->XenInterface.XenBus_Printf(if_cxt, XBT_NIL, TmpPath, "%d", xi->state);
-
-  // wait for backend to set 'Closed' state
-  while (xi->backend_state != XenbusStateClosed)
-  {
-    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
-    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
-      KdPrint((__DRIVER_NAME "     Still Waiting for Closed...\n"));
-  }
-
-  // set frontend state to 'Initialising'
-  xi->state = XenbusStateInitialising;
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->pdo_data->Path);
-  xi->XenInterface.XenBus_Printf(if_cxt, XBT_NIL, TmpPath, "%d", xi->state);
-
-  // wait for backend to set 'InitWait' state
-  while (xi->backend_state != XenbusStateInitWait)
-  {
-    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
-    if (KeWaitForSingleObject(&xi->backend_state_change_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
-      KdPrint((__DRIVER_NAME "     Still Waiting for InitWait...\n"));
-  }
-
-  // Disables the interrupt
-  XenNet_Shutdown(xi);
-
-  xi->connected = FALSE;
-  KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
-
-  // TODO: remove event channel xenbus entry (how?)
-
-  XenNet_TxShutdown(xi);
-  XenNet_RxShutdown(xi);
-
-  /* Remove watch on backend state */
-  RtlStringCbPrintfA(TmpPath, ARRAY_SIZE(TmpPath), "%s/state", xi->backend_path);
-  xi->XenInterface.XenBus_RemWatch(if_cxt, XBT_NIL, TmpPath,
-    XenNet_BackEndStateHandler, xi);
-
-  xi->XenInterface.InterfaceHeader.InterfaceDereference(NULL);
-
-  NdisFreeBufferPool(xi->buffer_pool);
-  NdisFreePacketPool(xi->packet_pool);
-
-  NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL
-
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-}
-
-VOID
-XenNet_Unload(
-  PDRIVER_OBJECT  DriverObject
-  )
-{
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  UNREFERENCED_PARAMETER(DriverObject);
-
-  WdfDriverMiniportUnload(WdfGetDriver());
-  
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 NTSTATUS
@@ -665,10 +603,8 @@ DriverEntry(
   )
 {
   NTSTATUS status;
-  WDF_DRIVER_CONFIG config;
   NDIS_HANDLE ndis_wrapper_handle;
   NDIS_MINIPORT_CHARACTERISTICS mini_chars;
-
 
   ProfTime_TxBufferGC.QuadPart = 0;
   ProfTime_RxBufferAlloc.QuadPart = 0;
@@ -698,17 +634,6 @@ DriverEntry(
 
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));
 
-  WDF_DRIVER_CONFIG_INIT(&config, WDF_NO_EVENT_CALLBACK);
-  config.DriverInitFlags |= WdfDriverInitNoDispatchOverride;
-
-  status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES,
-    &config, WDF_NO_HANDLE);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint(("WdfDriverCreate failed err = 0x%x\n", status));
-    return status;
-  }
-
   NdisMInitializeWrapper(&ndis_wrapper_handle, DriverObject, RegistryPath, NULL);
   if (!ndis_wrapper_handle)
   {
@@ -722,7 +647,8 @@ DriverEntry(
 
   mini_chars.HaltHandler = XenNet_Halt;
   mini_chars.InitializeHandler = XenNet_Init;
-  mini_chars.ISRHandler = NULL; // needed if we register interrupt?
+  mini_chars.ISRHandler = XenNet_InterruptIsr;
+  mini_chars.HandleInterruptHandler = XenNet_InterruptDpc;
   mini_chars.QueryInformationHandler = XenNet_QueryInformation;
   mini_chars.ResetHandler = NULL; //TODO: fill in
   mini_chars.SetInformationHandler = XenNet_SetInformation;
@@ -747,7 +673,9 @@ DriverEntry(
     return status;
   }
 
-  NdisMRegisterUnloadHandler(ndis_wrapper_handle, XenNet_Unload);
+  /* this is a bit naughty... */
+  XenNet_Pnp_Original = DriverObject->MajorFunction[IRP_MJ_PNP];
+  DriverObject->MajorFunction[IRP_MJ_PNP] = XenNet_Pnp;
 
   return status;
 }

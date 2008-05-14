@@ -140,6 +140,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
   PUCHAR in_ptr = NULL, in_start = NULL;
   PUCHAR out_ptr, out_start = NULL;
   XENPCI_VECTORS vectors;
+  LARGE_INTEGER timeout;
 
   UNREFERENCED_PARAMETER(device_object);
 
@@ -169,7 +170,11 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 
   // wait here for signal that we are all set up - we should probably add a timeout to make sure we don't hang forever
   while (xppdd->backend_state != XenbusStateInitWait)
-    KeWaitForSingleObject(&xppdd->backend_state_event, Executive, KernelMode, FALSE, NULL);
+  {
+    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
+    if (KeWaitForSingleObject(&xppdd->backend_state_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
+      KdPrint((__DRIVER_NAME "     Still Waiting for InitWait...\n"));
+  }
 
   res_list = &stack->Parameters.StartDevice.AllocatedResources->List[0].PartialResourceList;
   for (i = 0; i < res_list->Count; i++)
@@ -244,7 +249,11 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 
   // wait here for signal that we are all set up - we should probably add a timeout to make sure we don't hang forever
   while (xppdd->backend_state != XenbusStateConnected)
-    KeWaitForSingleObject(&xppdd->backend_state_event, Executive, KernelMode, FALSE, NULL);
+  {
+    timeout.QuadPart = -5 * 1000 * 1000 * 100; // 5 seconds
+    if (KeWaitForSingleObject(&xppdd->backend_state_event, Executive, KernelMode, FALSE, &timeout) != STATUS_SUCCESS)
+      KdPrint((__DRIVER_NAME "     Still Waiting for Connected...\n"));
+  }
 
   res_list = &stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList;
   for (i = 0; i < res_list->Count; i++)
@@ -613,13 +622,6 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
       status = XenPci_Pnp_QueryTargetRelations(device_object, irp);
       break;  
     default:
-/*
-KdPrint((__DRIVER_NAME "     int 0xb1 (xenvbd) (from xenpci)"));
-__asm {
-  int 0x81
-  int 0xb1
-};
-*/
       status = irp->IoStatus.Status;
       break;
     }
