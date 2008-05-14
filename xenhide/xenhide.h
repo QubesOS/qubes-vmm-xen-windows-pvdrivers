@@ -30,15 +30,17 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define __DRIVER_NAME "XenHide"
 
+#include <xen_guids.h>
+
 #define XENHIDE_POOL_TAG (ULONG) 'XHID'
 
 //{CD433FE7-954F-4D51-BE29-D8A38DFA1108}
-DEFINE_GUID(GUID_XENHIDE_IFACE, 0xCD433FE7, 0x954F, 0x4D51, 0xBE, 0x29, 0xD8, 0xA3, 0x8D, 0xFA, 0x11, 0x08);
+//DEFINE_GUID(GUID_XENHIDE_IFACE, 0xCD433FE7, 0x954F, 0x4D51, 0xBE, 0x29, 0xD8, 0xA3, 0x8D, 0xFA, 0x11, 0x08);
 
 #define XENHIDE_TYPE_PCI 1
 #define XENHIDE_TYPE_HIDE 2
 
-struct _DEVICE_EXTENSION {
+struct {
   PDEVICE_OBJECT Self;
   PDEVICE_OBJECT PhysicalDeviceObject;
   PDRIVER_OBJECT DriverObject;
@@ -46,6 +48,6 @@ struct _DEVICE_EXTENSION {
   IO_REMOVE_LOCK RemoveLock;
   UNICODE_STRING InterfaceName;
   ULONG InternalState;
-} typedef DEVICE_EXTENSION, *PDEVICE_EXTENSION;
+} typedef XENHIDE_DEVICE_DATA, *PXENHIDE_DEVICE_DATA;
 
 #endif

@@ -116,7 +116,6 @@ XenVbd_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
       prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
       prd->u.Memory.Length = PAGE_SIZE;
       stack->Parameters.StartDevice.AllocatedResources = new_crl;
-
       IoCopyCurrentIrpStackLocationToNext(irp);
     }
     else
@@ -189,7 +188,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HwInitializationData.HwDmaStarted = NULL;
   HwInitializationData.DeviceExtensionSize = sizeof(XENVBD_DEVICE_DATA);
   HwInitializationData.SpecificLuExtensionSize = 0;
-  HwInitializationData.SrbExtensionSize = 0;
+  HwInitializationData.SrbExtensionSize = PAGE_SIZE;
   HwInitializationData.NumberOfAccessRanges = 1;
   HwInitializationData.MapBuffers = TRUE;
   HwInitializationData.NeedPhysicalAddresses = FALSE;

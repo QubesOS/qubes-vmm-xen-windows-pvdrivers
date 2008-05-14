@@ -30,9 +30,6 @@ DRIVER_INITIALIZE DriverEntry;
 #pragma alloc_text (INIT, DriverEntry)
 #endif
 
-/* Global (driver-wide) variables */
-static BOOLEAN AutoEnumerate;
-
 #pragma warning(disable : 4200) // zero-sized array
 
 static NTSTATUS

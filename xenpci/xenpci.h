@@ -194,7 +194,7 @@ typedef struct
 static __inline VOID
 sw_interrupt(UCHAR intno)
 {
-  KdPrint((__DRIVER_NAME "     Calling interrupt %02X\n", intno));
+  //KdPrint((__DRIVER_NAME "     Calling interrupt %02X\n", intno));
   switch (intno)
   {
   SWINT(0x10) SWINT(0x11) SWINT(0x12) SWINT(0x13) SWINT(0x14) SWINT(0x15) SWINT(0x16) SWINT(0x17)

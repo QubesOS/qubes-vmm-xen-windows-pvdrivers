@@ -38,7 +38,6 @@ XenPCI_XenBusWatchHandler(char *Path, PVOID Data);
 */
 
 /* Global (driver-wide) variables */
-static BOOLEAN AutoEnumerate;
 static LIST_ENTRY ShutdownMsgList;
 
 #pragma warning(disable : 4200) // zero-sized array
@@ -710,7 +709,7 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
     IoSkipCurrentIrpStackLocation(irp);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
-
+//#if 0
   case IRP_MN_QUERY_DEVICE_RELATIONS:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS\n"));
     switch (stack->Parameters.QueryDeviceRelations.Type)
@@ -724,7 +723,7 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
       break;  
     }
     break;
-    
+//#endif    
   case IRP_MN_FILTER_RESOURCE_REQUIREMENTS:
     KdPrint((__DRIVER_NAME "     IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n"));
     return XenPci_Pnp_FilterResourceRequirements(device_object, irp);

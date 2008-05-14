@@ -575,7 +575,7 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   case IRP_MN_QUERY_BUS_INFORMATION:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_BUS_INFORMATION (status = %08x)\n", irp->IoStatus.Status));
     pbi = (PPNP_BUS_INFORMATION)ExAllocatePoolWithTag(PagedPool, sizeof(PNP_BUS_INFORMATION), XENPCI_POOL_TAG);
-    pbi->BusTypeGuid = GUID_XENPCI_DEVCLASS;
+    pbi->BusTypeGuid = GUID_BUS_TYPE_XEN;
     pbi->LegacyBusType = Internal;
     pbi->BusNumber = 0;
     irp->IoStatus.Information = (ULONG_PTR)pbi;
