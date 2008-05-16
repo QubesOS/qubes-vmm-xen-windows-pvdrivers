@@ -244,7 +244,7 @@ XenPci_ProcessShutdownIrp(PXENPCI_DEVICE_DATA xpdd)
     KdPrint((__DRIVER_NAME "     length = %d\n", length));
     if (length > 0)
     {
-      memcpy(irp->AssociatedIrp.SystemBuffer, &xpdd->shutdown_ring[xpdd->shutdown_prod & (SHUTDOWN_RING_SIZE - 1)], length);
+      memcpy(irp->AssociatedIrp.SystemBuffer, &xpdd->shutdown_ring[xpdd->shutdown_cons & (SHUTDOWN_RING_SIZE - 1)], length);
       xpdd->shutdown_cons += length;
       if (xpdd->shutdown_cons > SHUTDOWN_RING_SIZE)
       {

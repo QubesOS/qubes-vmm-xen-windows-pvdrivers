@@ -328,7 +328,7 @@ namespace ShutdownMon
             handle = CreateFile(GetXenInterfacePath(), FILE_GENERIC_READ, 0, IntPtr.Zero, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, IntPtr.Zero);
             FileStream fs = new FileStream(handle, FileAccess.Read);
             StreamReader sr = new StreamReader(fs);
-
+            Console.WriteLine("Opened");
             while (true)
             {
                 string command = sr.ReadLine();
