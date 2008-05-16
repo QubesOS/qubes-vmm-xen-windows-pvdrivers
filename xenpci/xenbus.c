@@ -244,6 +244,8 @@ XenBus_Read(
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
+
   rep = xenbus_msg_reply(xpdd, XS_READ, xbt, req, ARRAY_SIZE(req));
   msg = errmsg(rep);
   if (msg) {
@@ -280,6 +282,8 @@ XenBus_Write(
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
+
   rep = xenbus_msg_reply(xpdd, XS_WRITE, xbt, req, ARRAY_SIZE(req));
   msg = errmsg(rep);
   if (msg)
@@ -300,6 +304,8 @@ XenBus_Init(PXENPCI_DEVICE_DATA xpdd)
   int i;
     
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   KeInitializeSpinLock(&xpdd->WatchLock);
 
@@ -369,6 +375,8 @@ XenBus_Close(PXENPCI_DEVICE_DATA xpdd)
   //KWAIT_BLOCK WaitBlockArray[2];
   PVOID WaitArray[2];
 
+  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
+
   xpdd->XenBus_ShuttingDown = TRUE;
 
   KeSetEvent(&xpdd->XenBus_ReadThreadEvent, 1, FALSE);
@@ -402,6 +410,8 @@ XenBus_List(
   char *msg;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   repmsg = xenbus_msg_reply(xpdd, XS_DIRECTORY, xbt, req, ARRAY_SIZE(req));
   msg = errmsg(repmsg);
@@ -574,6 +584,8 @@ XenBus_AddWatch(
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
+
   ASSERT(strlen(Path) < ARRAY_SIZE(w_entry->Path));
 
   KeAcquireSpinLock(&xpdd->WatchLock, &OldIrql);
@@ -640,6 +652,7 @@ XenBus_RemWatch(
   KIRQL OldIrql;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   KeAcquireSpinLock(&xpdd->WatchLock, &OldIrql);
 
@@ -713,6 +726,7 @@ XenBus_StartTransaction(PVOID Context, xenbus_transaction_t *xbt)
   char *err;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   rep = xenbus_msg_reply(xpdd, XS_TRANSACTION_START, 0, &req, 1);
   err = errmsg(rep);
@@ -793,6 +807,7 @@ XenBus_Printf(
   char *retval;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   va_start(ap, fmt);
   RtlStringCbVPrintfA(buf, ARRAY_SIZE(buf), fmt, ap);

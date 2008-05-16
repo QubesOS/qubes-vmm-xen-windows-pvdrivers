@@ -28,8 +28,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 static VOID
 XenBus_SysrqHandler(char *Path, PVOID Data);
 static VOID
-XenBus_ShutdownHandler(char *Path, PVOID Data);
-static VOID
 XenBus_BalloonHandler(char *Path, PVOID Data);
 
 /*
@@ -37,37 +35,57 @@ static VOID
 XenPCI_XenBusWatchHandler(char *Path, PVOID Data);
 */
 
-/* Global (driver-wide) variables */
-static LIST_ENTRY ShutdownMsgList;
-
 #pragma warning(disable : 4200) // zero-sized array
 
-typedef struct {
-  LIST_ENTRY ListEntry;
-  ULONG Ptr;
-//  ULONG Len;
-  CHAR Buf[0];
-} SHUTDOWN_MSG_ENTRY, *PSHUTDOWN_MSG_ENTRY;
-
-static KSPIN_LOCK ShutdownMsgLock;
-
-CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptRaw;
-CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptTranslated;
+//CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptRaw;
+//CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptTranslated;
 
 NTSTATUS
 XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
   PIO_STACK_LOCATION stack;
-  PXENPCI_DEVICE_DATA xpdd;
+  POWER_STATE_TYPE power_type;
+  POWER_STATE power_state;
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
 
+  UNREFERENCED_PARAMETER(device_object);
+  
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   stack = IoGetCurrentIrpStackLocation(irp);
-  IoSkipCurrentIrpStackLocation(irp);
-  status = PoCallDriver(xpdd->common.lower_do, irp);
+  power_type = stack->Parameters.Power.Type;
+  power_state = stack->Parameters.Power.State;
 
+  switch (stack->MinorFunction)
+  {
+  case IRP_MN_POWER_SEQUENCE:
+    KdPrint((__DRIVER_NAME "     IRP_MN_POWER_SEQUENCE\n"));
+    break;
+  case IRP_MN_QUERY_POWER:
+    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_POWER\n"));
+    break;
+  case IRP_MN_SET_POWER:
+    KdPrint((__DRIVER_NAME "     IRP_MN_SET_POWER\n"));
+    switch (power_type) {
+    case DevicePowerState:
+      KdPrint((__DRIVER_NAME "     DevicePowerState\n"));
+      break;
+    case SystemPowerState:
+      KdPrint((__DRIVER_NAME "     SystemPowerState\n"));
+      break;
+    default:
+      break;
+    }    
+    break;
+  case IRP_MN_WAIT_WAKE:
+    break;
+  }
+  PoStartNextPowerIrp(irp);
+  IoSkipCurrentIrpStackLocation(irp);
+  status =  PoCallDriver (xppdd->common.lower_do, irp);
+  
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return status;
@@ -204,14 +222,150 @@ XenPci_SendAndWaitForIrp(PDEVICE_OBJECT device_object, PIRP irp)
   return status;
 }
 
+static NTSTATUS
+XenPci_ProcessShutdownIrp(PXENPCI_DEVICE_DATA xpdd)
+{
+  PIO_STACK_LOCATION stack;
+  NTSTATUS status;
+  PIRP irp;
+  KIRQL old_irql;
+  ULONG length;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeAcquireSpinLock(&xpdd->shutdown_ring_lock, &old_irql);
+  if (xpdd->shutdown_irp)
+  {
+    irp = xpdd->shutdown_irp;
+    stack = IoGetCurrentIrpStackLocation(irp);
+    KdPrint((__DRIVER_NAME "     stack = %p\n", stack));
+    KdPrint((__DRIVER_NAME "     length = %d, buffer = %p\n", stack->Parameters.Read.Length, irp->AssociatedIrp.SystemBuffer));
+    length = min(xpdd->shutdown_prod - xpdd->shutdown_cons, stack->Parameters.Read.Length);
+    KdPrint((__DRIVER_NAME "     length = %d\n", length));
+    if (length > 0)
+    {
+      memcpy(irp->AssociatedIrp.SystemBuffer, &xpdd->shutdown_ring[xpdd->shutdown_prod & (SHUTDOWN_RING_SIZE - 1)], length);
+      xpdd->shutdown_cons += length;
+      if (xpdd->shutdown_cons > SHUTDOWN_RING_SIZE)
+      {
+        xpdd->shutdown_cons -= SHUTDOWN_RING_SIZE;
+        xpdd->shutdown_prod -= SHUTDOWN_RING_SIZE;
+        xpdd->shutdown_start -= SHUTDOWN_RING_SIZE;
+      }
+      xpdd->shutdown_irp = NULL;
+      KeReleaseSpinLock(&xpdd->shutdown_ring_lock, old_irql);
+      status = STATUS_SUCCESS;    
+      irp->IoStatus.Status = status;
+      irp->IoStatus.Information = length;
+      IoSetCancelRoutine(irp, NULL);
+      IoCompleteRequest(irp, IO_NO_INCREMENT);
+    }
+    else
+    {
+      KeReleaseSpinLock(&xpdd->shutdown_ring_lock, old_irql);
+      KdPrint((__DRIVER_NAME "     nothing to read... pending\n"));
+      IoMarkIrpPending(irp);
+      status = STATUS_PENDING;
+    }
+  }
+  else
+  {
+    KdPrint((__DRIVER_NAME "     no pending irp\n"));
+    KeReleaseSpinLock(&xpdd->shutdown_ring_lock, old_irql);
+    status = STATUS_SUCCESS;
+  }  
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return status;
+}
+
+static VOID
+XenBus_ShutdownIoCancel(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PXENPCI_DEVICE_DATA xpdd;
+  KIRQL old_irql;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+  IoReleaseCancelSpinLock(irp->CancelIrql);
+  KeAcquireSpinLock(&xpdd->shutdown_ring_lock, &old_irql);
+  if (irp == xpdd->shutdown_irp)
+  {
+    KdPrint((__DRIVER_NAME "     Not the current irp???\n"));
+    xpdd->shutdown_irp = NULL;
+  }
+  irp->IoStatus.Status = STATUS_CANCELLED;
+  irp->IoStatus.Information = 0;
+  KeReleaseSpinLock(&xpdd->shutdown_ring_lock, old_irql);
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+}
+
+static void
+XenBus_ShutdownHandler(char *path, PVOID context)
+{
+  PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)context;
+  char *res;
+  char *value;
+  KIRQL old_irql;
+
+  UNREFERENCED_PARAMETER(path);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  res = XenBus_Read(xpdd, XBT_NIL, SHUTDOWN_PATH, &value);
+  if (res)
+  {
+    KdPrint(("Error reading shutdown path - %s\n", res));
+    XenPci_FreeMem(res);
+    return;
+  }
+
+  KdPrint((__DRIVER_NAME "     Shutdown value = %s\n", value));
+  KdPrint((__DRIVER_NAME "     strlen(...) = %d\n", strlen(value)));
+
+  if (strlen(value) != 0)
+  {
+    if (strcmp(value, "suspend") == 0)
+    {
+      KdPrint((__DRIVER_NAME "     Suspend detected\n"));
+      //XenPci_BeginSuspend(Device);
+    }
+    else
+    {
+      KdPrint((__DRIVER_NAME "     Before - shutdown_start = %d, shutdown_prod = %d, shutdown_cons = %d\n",xpdd->shutdown_start, xpdd->shutdown_prod, xpdd->shutdown_cons));
+      KeAcquireSpinLock(&xpdd->shutdown_ring_lock, &old_irql);
+      if (xpdd->shutdown_start >= xpdd->shutdown_cons)
+        xpdd->shutdown_prod = xpdd->shutdown_start;
+      else
+        xpdd->shutdown_start = xpdd->shutdown_prod;
+      KdPrint((__DRIVER_NAME "     Middle - shutdown_start = %d, shutdown_prod = %d, shutdown_cons = %d\n",xpdd->shutdown_start, xpdd->shutdown_prod, xpdd->shutdown_cons));
+      memcpy(&xpdd->shutdown_ring[xpdd->shutdown_prod], value, strlen(value));
+      xpdd->shutdown_prod += strlen(value);
+      xpdd->shutdown_ring[xpdd->shutdown_prod++] = '\r';
+      xpdd->shutdown_ring[xpdd->shutdown_prod++] = '\n';
+      KeReleaseSpinLock(&xpdd->shutdown_ring_lock, old_irql);
+      KdPrint((__DRIVER_NAME "     After - shutdown_start = %d, shutdown_prod = %d, shutdown_cons = %d\n",xpdd->shutdown_start, xpdd->shutdown_prod, xpdd->shutdown_cons));
+      XenPci_ProcessShutdownIrp(xpdd);
+    }
+  }
+
+  //XenPci_FreeMem(value);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
 static VOID
 XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
 {
   NTSTATUS status = STATUS_SUCCESS;
   PXENPCI_DEVICE_DATA xpdd = device_object->DeviceExtension;
   PIRP irp = context;
+  char *response;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   
   XenPci_Init(xpdd);
 
@@ -220,6 +374,12 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
   EvtChn_Init(xpdd);
 
   XenBus_Init(xpdd);
+
+  //response = XenBus_AddWatch(xpdd, XBT_NIL, SYSRQ_PATH, XenBus_SysrqHandler, xpdd);
+  //KdPrint((__DRIVER_NAME "     sysrqwatch response = '%s'\n", response)); 
+  
+  response = XenBus_AddWatch(xpdd, XBT_NIL, SHUTDOWN_PATH, XenBus_ShutdownHandler, xpdd);
+  KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
 
   status = IoSetDeviceInterfaceState(&xpdd->interface_name, TRUE);
   if (!NT_SUCCESS(status))
@@ -231,7 +391,7 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
   
   IoCompleteRequest(irp, IO_NO_INCREMENT);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 }
 
 static NTSTATUS
@@ -264,7 +424,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     case CmResourceTypeInterrupt:
       KdPrint((__DRIVER_NAME "     irq_number = %03x\n", res_descriptor->u.Interrupt.Vector));
       xpdd->irq_number = res_descriptor->u.Interrupt.Vector;
-      memcpy(&InterruptRaw, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+      //memcpy(&InterruptRaw, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
       break;
     }
   }
@@ -291,7 +451,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 	    xpdd->irq_level = (KIRQL)res_descriptor->u.Interrupt.Level;
   	  xpdd->irq_vector = res_descriptor->u.Interrupt.Vector;
 	    xpdd->irq_affinity = res_descriptor->u.Interrupt.Affinity;
-      memcpy(&InterruptTranslated, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+      //memcpy(&InterruptTranslated, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
       break;
     case CmResourceTypeDevicePrivate:
       KdPrint((__DRIVER_NAME "     Private Data: 0x%02x 0x%02x 0x%02x\n", res_descriptor->u.DevicePrivate.Data[0], res_descriptor->u.DevicePrivate.Data[1], res_descriptor->u.DevicePrivate.Data[2] ));
@@ -508,7 +668,7 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
             if (strcmp(child->context->path, path) == 0)
             {
               KdPrint((__DRIVER_NAME "     Existing device %s\n", path));
-              ASSERT(child->state != CHILD_STATE_DELETED);
+              ASSERT(child->state == CHILD_STATE_DELETED);
               child->state = CHILD_STATE_ADDED;
               device_count++;
               break;
@@ -659,7 +819,7 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   NTSTATUS status;
   PXENPCI_DEVICE_DATA xpdd;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
 
@@ -715,7 +875,7 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
     IoSkipCurrentIrpStackLocation(irp);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
-//#if 0
+
   case IRP_MN_QUERY_DEVICE_RELATIONS:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS\n"));
     switch (stack->Parameters.QueryDeviceRelations.Type)
@@ -729,26 +889,116 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
       break;  
     }
     break;
-//#endif    
+
   case IRP_MN_FILTER_RESOURCE_REQUIREMENTS:
     KdPrint((__DRIVER_NAME "     IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n"));
     return XenPci_Pnp_FilterResourceRequirements(device_object, irp);
 
   default:
-    KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));
+    //KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));
     IoSkipCurrentIrpStackLocation(irp);
     break;
   }
 
   status = IoCallDriver(xpdd->common.lower_do, irp);
 
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return status;
+}
+
+NTSTATUS
+XenPci_Irp_Create_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PXENPCI_DEVICE_DATA xpdd;
+  NTSTATUS status;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+  status = STATUS_SUCCESS;    
+  irp->IoStatus.Status = status;
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return status;
+}
+
+NTSTATUS
+XenPci_Irp_Close_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PXENPCI_DEVICE_DATA xpdd;
+  NTSTATUS status;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  // wait until pending irp's 
+  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+  status = STATUS_SUCCESS;    
+  irp->IoStatus.Status = status;
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return status;
+}
+
+NTSTATUS
+XenPci_Irp_Read_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PXENPCI_DEVICE_DATA xpdd;
+  NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  KIRQL old_irql;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+  stack = IoGetCurrentIrpStackLocation(irp);
+  if (stack->Parameters.Read.Length == 0)
+  {
+    irp->IoStatus.Information = 0;
+    status = STATUS_SUCCESS;    
+    irp->IoStatus.Status = status;
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
+  }
+  else 
+  {
+    KdPrint((__DRIVER_NAME "     stack = %p\n", stack));
+    KdPrint((__DRIVER_NAME "     length = %d, buffer = %p\n", stack->Parameters.Read.Length, irp->AssociatedIrp.SystemBuffer));
+    
+    KeAcquireSpinLock(&xpdd->shutdown_ring_lock, &old_irql);
+    xpdd->shutdown_irp = irp;
+    IoSetCancelRoutine(irp, XenBus_ShutdownIoCancel);
+    KeReleaseSpinLock(&xpdd->shutdown_ring_lock, old_irql);
+    status = XenPci_ProcessShutdownIrp(xpdd);
+  }
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return status;
+}
+
+
+NTSTATUS
+XenPci_Irp_Cleanup_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  
+  status = STATUS_SUCCESS;
+  irp->IoStatus.Status = status;
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
+  
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return status;
 }
 
 #if 0
-
 static NTSTATUS
 XenPCI_D0Entry(
     IN WDFDEVICE  Device,
@@ -792,7 +1042,7 @@ XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Pre
   KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
 
   response = XenBus_AddWatch(Device, XBT_NIL, BALLOON_PATH, XenBus_BalloonHandler, Device);
-  KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
+  KdPrint((__DRIVER_NAME "     balloon watch response = '%s'\n", response)); 
 
   response = XenBus_AddWatch(Device, XBT_NIL, "device", XenPCI_XenBusWatchHandler, Device);
   KdPrint((__DRIVER_NAME "     device watch response = '%s'\n", response)); 
@@ -1168,91 +1418,10 @@ XenPci_BeginSuspend(WDFDEVICE Device)
   }
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
+#endif
 
-static void
-XenBus_ShutdownHandler(char *Path, PVOID Data)
-{
-  WDFDEVICE Device = Data;  
-  char *res;
-  char *Value;
-  xenbus_transaction_t xbt;
-  int retry;
-  PSHUTDOWN_MSG_ENTRY Entry;
 
-  UNREFERENCED_PARAMETER(Path);
-
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-  KdPrint((__DRIVER_NAME "     Device = %p\n", Device));
-
-  res = XenBus_StartTransaction(Device, &xbt);
-  if (res)
-  {
-    KdPrint(("Error starting transaction\n"));
-    XenPci_FreeMem(res);
-    return;
-  }
-
-  res = XenBus_Read(Device, XBT_NIL, SHUTDOWN_PATH, &Value);
-  if (res)
-  {
-    KdPrint(("Error reading shutdown path\n"));
-    XenPci_FreeMem(res);
-    XenBus_EndTransaction(Device, xbt, 1, &retry);
-    return;
-  }
-
-  if (Value != NULL && strlen(Value) != 0)
-  {
-    res = XenBus_Write(Device, XBT_NIL, SHUTDOWN_PATH, "");
-    if (res)
-    {
-      KdPrint(("Error writing shutdown path\n"));
-      XenPci_FreeMem(res);
-      // end trans?
-      return;
-    }
-  } 
-
-  if (Value != NULL)
-  {
-    KdPrint((__DRIVER_NAME "     Shutdown Value = %s\n", Value));
-    KdPrint((__DRIVER_NAME "     strlen(...) = %d\n", strlen(Value)));
-  }
-  else
-  {
-    KdPrint((__DRIVER_NAME "     Shutdown Value = <null>\n"));
-  }
-
-  res = XenBus_EndTransaction(Device, xbt, 0, &retry);
-  if (res)
-  {
-    KdPrint(("Error ending transaction\n"));
-    XenPci_FreeMem(res);
-    return;
-  }
-
-  if (Value != NULL && strlen(Value) != 0)
-  {
-    if (strcmp(Value, "suspend") == 0)
-    {
-      KdPrint((__DRIVER_NAME "     Suspend detected\n"));
-      XenPci_BeginSuspend(Device);
-    }
-    else
-    {
-      Entry = (PSHUTDOWN_MSG_ENTRY)ExAllocatePoolWithTag(NonPagedPool, sizeof(SHUTDOWN_MSG_ENTRY) + strlen(Value) + 1 + 1, XENPCI_POOL_TAG);
-      Entry->Ptr = 0;
-      RtlStringCbPrintfA(Entry->Buf, sizeof(SHUTDOWN_MSG_ENTRY) + strlen(Value) + 1 + 1, "%s\n", Value);
-      InsertTailList(&ShutdownMsgList, &Entry->ListEntry);
-      WdfIoQueueStart(ReadQueue);
-    }
-  }
-
-  XenPci_FreeMem(Value);
-
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-}
-
+#if 0
 static VOID
 XenBus_BalloonHandler(char *Path, PVOID Data)
 {

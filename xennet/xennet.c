@@ -129,8 +129,8 @@ XenNet_Init(
   ULONG length;
   PNDIS_RESOURCE_LIST nrl;
   PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
-  KIRQL irq_level;
-  ULONG irq_vector;
+  KIRQL irq_level = 0;
+  ULONG irq_vector = 0;
   UCHAR type;
   PUCHAR ptr;
   PCHAR setting, value;
@@ -452,7 +452,7 @@ XenNet_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   //NDIS_STRING config_param_name;
   //PNDIS_CONFIGURATION_PARAMETER config_param;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   stack = IoGetCurrentIrpStackLocation(irp);
 
@@ -591,7 +591,7 @@ XenNet_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     break;
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return status;
 }

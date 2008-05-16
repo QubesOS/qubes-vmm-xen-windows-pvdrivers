@@ -112,6 +112,62 @@ namespace ShutdownMon
         internal const int TOKEN_ADJUST_PRIVILEGES = 0x00000020;
         internal const string SE_SHUTDOWN_NAME = "SeShutdownPrivilege";
 
+        [StructLayout(LayoutKind.Sequential)]
+        protected struct SP_DEVICE_INTERFACE_DATA
+        {
+            public UInt32 cbSize;
+            public Guid InterfaceClassGuid;
+            public UInt32 Flags;
+            public IntPtr Reserved;
+        };
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr SetupDiGetClassDevsA(ref Guid ClassGuid, UInt32 Enumerator, IntPtr hwndParent, UInt32 Flags);
+
+        [DllImport("setupapi.dll", SetLastError = true)]
+        private static extern Boolean SetupDiEnumDeviceInterfaces(
+            IntPtr DeviceInfoSet,
+            IntPtr DeviceInfoData,
+            ref Guid InterfaceClassGuid,
+            int MemberIndex,
+            out SP_DEVICE_INTERFACE_DATA DeviceInterfaceData);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern Boolean SetupDiGetDeviceInterfaceDetail(
+            IntPtr DeviceInfoSet,
+            ref SP_DEVICE_INTERFACE_DATA DeviceIntefaceData,
+            IntPtr DeviceInterfaceDetailData,
+            UInt32 DeviceInterfacedetailDatasize,
+            ref UInt32 DeviceInterfacedetaildataSize,
+            IntPtr DeviceInfoData);
+
+        const int DIGCF_PRESENT = 0x00000002;
+        const int DIGCF_DEVICEINTERFACE = 0x00000010;
+
+        private string GetXenInterfacePath()
+        {
+            Guid XenInterface = new Guid("{5c568ac5-9ddf-4fa5-a94a-39d67077819c}");
+            IntPtr handle = SetupDiGetClassDevsA(ref XenInterface, 0, IntPtr.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+            SP_DEVICE_INTERFACE_DATA sdid = new SP_DEVICE_INTERFACE_DATA();
+
+            sdid.cbSize = (UInt32)Marshal.SizeOf(sdid);
+            sdid.InterfaceClassGuid = System.Guid.Empty;
+            sdid.Flags = 0;
+            sdid.Reserved = IntPtr.Zero;
+
+            if (!SetupDiEnumDeviceInterfaces(handle, IntPtr.Zero, ref XenInterface, 0, out sdid))
+                return null;
+            UInt32 buflen = 1024;
+            IntPtr buf = Marshal.AllocHGlobal((int)buflen);
+            Marshal.WriteInt32(buf, 4 + Marshal.SystemDefaultCharSize);
+            bool success = SetupDiGetDeviceInterfaceDetail(handle, ref sdid, buf, buflen, ref buflen, IntPtr.Zero);
+            if (!success)
+                return null;
+            string filename = Marshal.PtrToStringUni(new IntPtr(buf.ToInt64() + 4));
+            Console.WriteLine("interface path = " + filename);
+            // free stuff here
+            return filename;
+        }
 
         private static void DoExitWin(bool bForceAppsClosed, bool bRebootAfterShutdown)
         {
@@ -269,7 +325,7 @@ namespace ShutdownMon
             SafeFileHandle handle;
             byte[] buf = new byte[128];
 
-            handle = CreateFile(@"\\.\XenShutdown", FILE_GENERIC_READ, 0, IntPtr.Zero, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, IntPtr.Zero);
+            handle = CreateFile(GetXenInterfacePath(), FILE_GENERIC_READ, 0, IntPtr.Zero, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, IntPtr.Zero);
             FileStream fs = new FileStream(handle, FileAccess.Read);
             StreamReader sr = new StreamReader(fs);
 

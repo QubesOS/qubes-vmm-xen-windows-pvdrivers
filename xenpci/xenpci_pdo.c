@@ -27,16 +27,66 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 NTSTATUS
 XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
+  NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  POWER_STATE_TYPE power_type;
+  POWER_STATE power_state;
+  //PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+
   UNREFERENCED_PARAMETER(device_object);
   
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
+  stack = IoGetCurrentIrpStackLocation(irp);
+  power_type = stack->Parameters.Power.Type;
+  power_state = stack->Parameters.Power.State;
+  
+  switch (stack->MinorFunction)
+  {
+  case IRP_MN_POWER_SEQUENCE:
+    KdPrint((__DRIVER_NAME "     IRP_MN_POWER_SEQUENCE\n"));
+    status = STATUS_NOT_SUPPORTED;
+    break;
+  case IRP_MN_QUERY_POWER:
+    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_POWER\n"));
+    status = STATUS_SUCCESS;
+    break;
+  case IRP_MN_SET_POWER:
+    KdPrint((__DRIVER_NAME "     IRP_MN_SET_POWER\n"));
+    switch (power_type) {
+    case DevicePowerState:
+      PoSetPowerState(device_object, power_type, power_state);
+      status = STATUS_SUCCESS;
+      break;
+    case SystemPowerState:
+      status = STATUS_SUCCESS;
+      break;
+    default:
+      status = STATUS_NOT_SUPPORTED;
+      break;
+    }    
+    break;
+  case IRP_MN_WAIT_WAKE:
+    KdPrint((__DRIVER_NAME "     IRP_MN_WAIT_WAKE\n"));
+    status = STATUS_NOT_SUPPORTED;
+    break;
+  default:
+    //KdPrint((__DRIVER_NAME "     Unknown IRP_MN_%d\n", stack->MinorFunction));
+    status = STATUS_NOT_SUPPORTED;
+    break;
+  }
+  if (status != STATUS_NOT_SUPPORTED) {
+    irp->IoStatus.Status = status;
+  }
+
+  PoStartNextPowerIrp(irp);
+  status = irp->IoStatus.Status;
   IoCompleteRequest(irp, IO_NO_INCREMENT);
   
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-  return irp->IoStatus.Status;
+  return status;
 }
 
 static VOID
@@ -636,6 +686,72 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   irp->IoStatus.Status = status;
   IoCompleteRequest(irp, IO_NO_INCREMENT);
 
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return status;
+}
+
+NTSTATUS
+XenPci_Irp_Create_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PXENPCI_DEVICE_DATA xpdd;
+  NTSTATUS status;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+  status = IoCallDriver(xpdd->common.lower_do, irp);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return status;
+}
+
+NTSTATUS
+XenPci_Irp_Close_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PXENPCI_DEVICE_DATA xpdd;
+  NTSTATUS status;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+  status = IoCallDriver(xpdd->common.lower_do, irp);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return status;
+}
+
+NTSTATUS
+XenPci_Irp_Read_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PXENPCI_DEVICE_DATA xpdd;
+  NTSTATUS status;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+  status = IoCallDriver(xpdd->common.lower_do, irp);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return status;
+}
+
+NTSTATUS
+XenPci_Irp_Cleanup_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  
+  status = STATUS_SUCCESS;
+  irp->IoStatus.Status = status;
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
+  
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return status;

@@ -19,7 +19,6 @@ goto exit
 echo Windows XP Detected... Installing...
 shutdownmon -i
 cd winxp
-copy /y ..\common\i386\wdfcoinstaller* i386 >nul
 copy /y ..\common\i386\dpinst.exe . >nul
 dpinst.exe /LM /SA
 cd ..
@@ -30,7 +29,6 @@ goto exit
 echo Windows 2000 Detected... Installing...
 shutdownmon -i
 cd win2k
-copy /y ..\common\i386\wdfcoinstaller* i386 >nul
 copy /y ..\common\i386\dpinst.exe . >nul
 dpinst.exe /LM /SA
 cd ..
@@ -43,7 +41,6 @@ if %PROCESSOR_ARCHITECTURE% == AMD64 goto ver_2k3_amd64
 echo Windows 2003 (i386) Detected... Installing...
 shutdownmon -i
 cd winnet
-copy /y ..\common\i386\wdfcoinstaller* i386 >nul
 copy /y ..\common\i386\dpinst.exe . >nul
 dpinst.exe /LM /SA
 cd ..
@@ -54,7 +51,6 @@ goto exit
 echo Windows 2003 (amd64) Detected... Installing...
 shutdownmon -i
 cd winnet
-copy /y ..\common\amd64\wdfcoinstaller* amd64 >nul
 copy /y ..\common\amd64\dpinst.exe . >nul
 dpinst.exe /LM /SA
 cd ..
@@ -66,7 +62,6 @@ if %PROCESSOR_ARCHITECTURE% == AMD64 goto ver_2k8_amd64
 echo Windows Vista/2008 (i386) Detected... Installing...
 shutdownmon -i
 cd winlh
-copy /y ..\common\i386\wdfcoinstaller* i386 >nul
 copy /y ..\common\i386\dpinst.exe . >nul
 dpinst.exe /LM /SA
 cd ..
@@ -77,7 +72,6 @@ goto exit
 echo Windows Vista/2008 (amd64) Detected... Installing...
 shutdownmon -i
 cd winlh
-copy /y ..\common\amd64\wdfcoinstaller* amd64 >nul
 copy /y ..\common\amd64\dpinst.exe . >nul
 dpinst.exe /LM /SA
 cd ..

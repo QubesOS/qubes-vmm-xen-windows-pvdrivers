@@ -113,6 +113,8 @@ typedef struct
   PDEVICE_OBJECT lower_do;
 } XENPCI_COMMON, *PXENPCI_COMMON;
 
+#define SHUTDOWN_RING_SIZE 128
+
 typedef struct {  
   XENPCI_COMMON common;
   
@@ -168,6 +170,14 @@ typedef struct {
   int suspending;
   
   UNICODE_STRING interface_name;
+  BOOLEAN interface_open;
+  
+  KSPIN_LOCK shutdown_ring_lock;
+  CHAR shutdown_ring[SHUTDOWN_RING_SIZE];
+  ULONG shutdown_prod;
+  ULONG shutdown_cons;
+  ULONG shutdown_start; /* the start of the most recent message on the ring */
+  PIRP shutdown_irp;
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
 typedef struct {  
@@ -240,13 +250,29 @@ NTSTATUS
 XenPci_Dummy_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Create_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Close_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Read_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Cleanup_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
 
 NTSTATUS
 XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Dummy_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+//NTSTATUS
+//XenPci_Dummy_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Create_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Close_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Read_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Cleanup_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 
 
 

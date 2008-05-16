@@ -34,7 +34,7 @@ AddService=XenVbd,2,XenVbd_Service, XenVbd_EventLog
 [XenVbd_Service]
 DisplayName    = %XenVbd.SVCDESC%                            
 ServiceType    = 1
-StartType      = 3
+StartType      = 0
 ErrorControl   = 1
 LoadOrderGroup = System Bus Extender
 ServiceBinary  = %12%\xenvbd.sys                            
