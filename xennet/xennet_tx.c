@@ -486,6 +486,7 @@ XenNet_TxShutdown(xennet_info_t *xi)
   ASSERT(!xi->connected);
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
+
   /* Free packets in tx queue */
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   while (entry != &xi->tx_waiting_pkt_list)
@@ -508,7 +509,6 @@ XenNet_TxShutdown(xennet_info_t *xi)
 
   XenFreelist_Dispose(&xi->tx_freelist);
 
-  /* free TX resources */
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));

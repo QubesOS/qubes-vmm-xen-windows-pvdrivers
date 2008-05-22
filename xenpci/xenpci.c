@@ -185,9 +185,6 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
   WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileHibernation, TRUE);
   WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileDump, TRUE);
 
-#if (NTDDI_VERSION >= NTDDI_WS03SP1)
-  KeInitializeGuardedMutex(&xpdd->WatchHandlerMutex);
-#endif
   busInfo.BusTypeGuid = GUID_XENPCI_DEVCLASS;
   busInfo.LegacyBusType = Internal;
   busInfo.BusNumber = 0;

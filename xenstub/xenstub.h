@@ -22,7 +22,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include <ntddk.h>
 #include <wdm.h>
-#include <wdf.h>
 #include <initguid.h>
 #include <wdmguid.h>
 #include <errno.h>
@@ -30,6 +29,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <ntstrsafe.h>
 #define __DRIVER_NAME "XenStub"
 #include <xen_windows.h>
-//#include <xen_public.h>
+
+typedef struct
+{
+  PDEVICE_OBJECT fdo;
+  PDEVICE_OBJECT pdo;
+  PDEVICE_OBJECT lower_do;
+} XENSTUB_DEVICE_DATA, *PXENSTUB_DEVICE_DATA;
 
 #endif

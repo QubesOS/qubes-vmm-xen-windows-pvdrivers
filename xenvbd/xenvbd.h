@@ -44,6 +44,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define XENVBD_POOL_TAG (ULONG) 'XVBD'
 
+#define UNALIGNED_DOUBLE_BUFFER_SIZE (PAGE_SIZE * 2)
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define BLK_RING_SIZE __RING_SIZE((blkif_sring_t *)0, PAGE_SIZE)
 #define BLK_OTHER_RING_SIZE __RING_SIZE((blkif_other_sring_t *)0, PAGE_SIZE)
@@ -75,10 +76,6 @@ DEFINE_RING_TYPES(blkif_other, struct blkif_other_request, struct blkif_other_re
 typedef struct {
   blkif_request_t req;
   PSCSI_REQUEST_BLOCK Srb;
-/*
-  PMDL Mdl;
-  VOID *Buf;
-*/
 } blkif_shadow_t;
 
 #define SHADOW_ENTRIES 32

@@ -173,20 +173,27 @@ XenNet_Init(
     0, NDIS_ATTRIBUTE_DESERIALIZE, // | NDIS_ATTRIBUTE_BUS_MASTER),
     NdisInterfaceInternal);
 
+  length = 0;
   NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
     NULL, (PUINT)&length);
-  NdisAllocateMemoryWithTag(&nrl, length, XENNET_POOL_TAG);
+  KdPrint((__DRIVER_NAME "     length = %d\n", length));
+  status = NdisAllocateMemoryWithTag(&nrl, length, XENNET_POOL_TAG);
+  if (status != NDIS_STATUS_SUCCESS)
+  {
+    KdPrint((__DRIVER_NAME "     Could not get allocate memory for Adapter Resources 0x%x\n", status));
+    return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
+  }
   NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
     nrl, (PUINT)&length);
   if (status != NDIS_STATUS_SUCCESS)
   {
-    KdPrint(("Could not get Adapter Resources 0x%x\n", status));
+    KdPrint((__DRIVER_NAME "     Could not get Adapter Resources 0x%x\n", status));
     return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
   }
   xi->event_channel = 0;
   xi->config_csum = 1;
   xi->config_sg = 1;
-  xi->config_gso = 1;
+  xi->config_gso = 61440;
 
   for (i = 0; i < nrl->Count; i++)
   {
@@ -201,7 +208,9 @@ XenNet_Init(
       break;
 
     case CmResourceTypeMemory:
+      //ptr = MmMapIoSpace(prd->u.Memory.Start, prd->u.Memory.Length, MmCached);
       NdisMMapIoSpace(&ptr, MiniportAdapterHandle, prd->u.Memory.Start, PAGE_SIZE);
+      ASSERT(ptr);
       while((type = GET_XEN_INIT_RSP(&ptr, &setting, &value)) != XEN_INIT_TYPE_END)
       {
         switch(type)
@@ -348,9 +357,11 @@ XenNet_Shutdown(
   IN NDIS_HANDLE MiniportAdapterContext
   )
 {
-  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+  struct xennet_info *xi = MiniportAdapterContext;
 
   KdPrint((__FUNCTION__ " called\n"));
+
+  NdisMDeregisterInterrupt(&xi->interrupt);
 }
 
 /* Opposite of XenNet_Init */
@@ -411,6 +422,8 @@ XenNet_Halt(
   // Disables the interrupt
   XenNet_Shutdown(xi);
 
+  xi->vectors.XenPci_ShutdownDevice(xi->vectors.context);
+
   xi->connected = FALSE;
   KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
 
@@ -452,7 +465,7 @@ XenNet_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   //NDIS_STRING config_param_name;
   //PNDIS_CONFIGURATION_PARAMETER config_param;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   stack = IoGetCurrentIrpStackLocation(irp);
 
@@ -536,7 +549,7 @@ XenNet_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     old_crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
     if (old_crl != NULL)
     {
-      mdl = AllocatePage();
+      mdl = AllocateUncachedPage();
       old_length = FIELD_OFFSET(CM_RESOURCE_LIST, List) + 
         FIELD_OFFSET(CM_FULL_RESOURCE_DESCRIPTOR, PartialResourceList) +
         FIELD_OFFSET(CM_PARTIAL_RESOURCE_LIST, PartialDescriptors) +
@@ -586,12 +599,21 @@ XenNet_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     }
     status = XenNet_Pnp_Original(device_object, irp);
     break;
+  case IRP_MN_STOP_DEVICE:
+    KdPrint((__DRIVER_NAME "     IRP_MN_STOP_DEVICE - DeviceObject = %p\n", stack->DeviceObject));
+    status = XenNet_Pnp_Original(device_object, irp);
+    break;
+  case IRP_MN_REMOVE_DEVICE:
+    KdPrint((__DRIVER_NAME "     IRP_MN_REMOVE_DEVICE - DeviceObject = %p\n", stack->DeviceObject));
+    status = XenNet_Pnp_Original(device_object, irp);
+    break;
   default:
+    KdPrint((__DRIVER_NAME "     Unknown Minor %d\n", stack->MinorFunction));
     status = XenNet_Pnp_Original(device_object, irp);
     break;
   }
 
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return status;
 }

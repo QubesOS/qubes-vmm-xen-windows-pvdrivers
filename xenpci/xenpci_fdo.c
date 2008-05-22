@@ -47,7 +47,7 @@ XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   PIO_STACK_LOCATION stack;
   POWER_STATE_TYPE power_type;
   POWER_STATE power_state;
-  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
 
   UNREFERENCED_PARAMETER(device_object);
@@ -84,7 +84,7 @@ XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   }
   PoStartNextPowerIrp(irp);
   IoSkipCurrentIrpStackLocation(irp);
-  status =  PoCallDriver (xppdd->common.lower_do, irp);
+  status =  PoCallDriver (xpdd->common.lower_do, irp);
   
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -300,6 +300,7 @@ XenBus_ShutdownIoCancel(PDEVICE_OBJECT device_object, PIRP irp)
   irp->IoStatus.Information = 0;
   KeReleaseSpinLock(&xpdd->shutdown_ring_lock, old_irql);
   IoCompleteRequest(irp, IO_NO_INCREMENT);
+
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 }
 
@@ -324,7 +325,6 @@ XenBus_ShutdownHandler(char *path, PVOID context)
   }
 
   KdPrint((__DRIVER_NAME "     Shutdown value = %s\n", value));
-  KdPrint((__DRIVER_NAME "     strlen(...) = %d\n", strlen(value)));
 
   if (strlen(value) != 0)
   {
@@ -335,24 +335,45 @@ XenBus_ShutdownHandler(char *path, PVOID context)
     }
     else
     {
-      KdPrint((__DRIVER_NAME "     Before - shutdown_start = %d, shutdown_prod = %d, shutdown_cons = %d\n",xpdd->shutdown_start, xpdd->shutdown_prod, xpdd->shutdown_cons));
       KeAcquireSpinLock(&xpdd->shutdown_ring_lock, &old_irql);
       if (xpdd->shutdown_start >= xpdd->shutdown_cons)
         xpdd->shutdown_prod = xpdd->shutdown_start;
       else
         xpdd->shutdown_start = xpdd->shutdown_prod;
-      KdPrint((__DRIVER_NAME "     Middle - shutdown_start = %d, shutdown_prod = %d, shutdown_cons = %d\n",xpdd->shutdown_start, xpdd->shutdown_prod, xpdd->shutdown_cons));
       memcpy(&xpdd->shutdown_ring[xpdd->shutdown_prod], value, strlen(value));
-      xpdd->shutdown_prod += strlen(value);
+      xpdd->shutdown_prod += (ULONG)strlen(value);
       xpdd->shutdown_ring[xpdd->shutdown_prod++] = '\r';
       xpdd->shutdown_ring[xpdd->shutdown_prod++] = '\n';
       KeReleaseSpinLock(&xpdd->shutdown_ring_lock, old_irql);
-      KdPrint((__DRIVER_NAME "     After - shutdown_start = %d, shutdown_prod = %d, shutdown_cons = %d\n",xpdd->shutdown_start, xpdd->shutdown_prod, xpdd->shutdown_cons));
       XenPci_ProcessShutdownIrp(xpdd);
     }
   }
 
   //XenPci_FreeMem(value);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
+static VOID
+XenPci_DeviceWatchHandler(char *path, PVOID context)
+{
+  char **bits;
+  int count;
+  PXENPCI_DEVICE_DATA xpdd = context;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KdPrint((__DRIVER_NAME "     path = %s\n", path));
+  bits = SplitString(path, '/', 4, &count);
+  KdPrint((__DRIVER_NAME "     count = %d\n", count));
+
+  if (count == 3)
+  {
+    /* we probably have to be a bit smarter here and do nothing if xenpci isn't running yet */
+    KdPrint((__DRIVER_NAME "     Invalidating Device Relations\n"));
+    IoInvalidateDeviceRelations(xpdd->common.pdo, BusRelations);
+  }
+  FreeSplitString(bits, count);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -380,6 +401,9 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
   
   response = XenBus_AddWatch(xpdd, XBT_NIL, SHUTDOWN_PATH, XenBus_ShutdownHandler, xpdd);
   KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
+
+  response = XenBus_AddWatch(xpdd, XBT_NIL, "device", XenPci_DeviceWatchHandler, xpdd);
+  KdPrint((__DRIVER_NAME "     device watch response = '%s'\n", response)); 
 
   status = IoSetDeviceInterfaceState(&xpdd->interface_name, TRUE);
   if (!NT_SUCCESS(status))
@@ -692,10 +716,12 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
               &pdo);
             if (!NT_SUCCESS(status))
               KdPrint((__DRIVER_NAME "     IoCreateDevice status = %08X\n", status));
+            RtlZeroMemory(pdo->DeviceExtension, sizeof(XENPCI_PDO_DEVICE_DATA));
             child->context = (PXENPCI_PDO_DEVICE_DATA)pdo->DeviceExtension;
             child->context->common.fdo = NULL;
             child->context->common.pdo = pdo;
             child->context->common.lower_do = NULL;
+            child->context->common.device_pnp_state = NotStarted;
             child->context->bus_fdo = device_object;
             RtlStringCbCopyA(child->context->path, ARRAY_SIZE(child->context->path), path);
             RtlStringCbCopyA(child->context->device, ARRAY_SIZE(child->context->device), devices[i]);

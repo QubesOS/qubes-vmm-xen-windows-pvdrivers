@@ -21,10 +21,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable: 4201)
 #pragma warning(disable: 4214)
 
+#include <ntddk.h>
 #include <wdm.h>
-//#include <wdf.h>
-//#include <wdfminiport.h>
-#include <initguid.h>
+
 #define NDIS_MINIPORT_DRIVER
 #if NTDDI_VERSION < NTDDI_WINXP
 # define NDIS50_MINIPORT 1
@@ -35,6 +34,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
+
 
 #define __DRIVER_NAME "XenNet"
 
@@ -50,6 +50,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <io/xenbus.h>
 #include <stdlib.h>
 #define XENNET_POOL_TAG (ULONG) 'XenN'
+
 
 /* Xen macros use these, so they need to be redefined to Win equivs */
 #define wmb() KeMemoryBarrier()
@@ -135,10 +136,11 @@ typedef struct {
   BOOLEAN more_frags;
 } packet_info_t;
 
+#define PAGE_LIST_SIZE (max(NET_RX_RING_SIZE, NET_TX_RING_SIZE) * 4)
 typedef struct
 {
   struct xennet_info *xi;
-  PMDL page_list[NET_RX_RING_SIZE];
+  PMDL page_list[PAGE_LIST_SIZE];
   ULONG page_free;
   ULONG page_free_lowest;
   ULONG page_free_target;

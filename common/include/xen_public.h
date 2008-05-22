@@ -88,6 +88,9 @@ typedef char *
 typedef char *
 (*PXEN_XENBUS_REMWATCH)(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 
+typedef NTSTATUS
+(*PXEN_XENPCI_SHUTDOWN_DEVICE)(PVOID Context);
+
 #if 0
 typedef struct _XEN_IFACE {
   INTERFACE InterfaceHeader;
@@ -145,6 +148,7 @@ typedef struct {
   PXEN_GNTTBL_PUTREF GntTbl_PutRef;
   PXEN_GNTTBL_GRANTACCESS GntTbl_GrantAccess;
   PXEN_GNTTBL_ENDACCESS GntTbl_EndAccess;
+  PXEN_XENPCI_SHUTDOWN_DEVICE XenPci_ShutdownDevice;
 } XENPCI_VECTORS, *PXENPCI_VECTORS;
 
 

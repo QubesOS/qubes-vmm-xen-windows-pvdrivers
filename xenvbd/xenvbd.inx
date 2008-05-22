@@ -3,6 +3,7 @@ Signature="$WINDOWS NT$"
 Class=SCSIAdapter
 ClassGuid={4D36E97B-E325-11CE-BFC1-08002BE10318}
 Provider=%XenGplPv%
+CatalogFile="XenGPLPV.cat"
 
 [DestinationDirs]
 DefaultDestDir = 12
@@ -25,11 +26,9 @@ CopyFiles=XenVbd.CopyFiles
 
 [XenVbd.CopyFiles]
 xenvbd.sys
-;xenaddresource.sys
 
 [XenVbd_Inst.NT.Services]
 AddService=XenVbd,2,XenVbd_Service, XenVbd_EventLog
-;AddService=XenAddResource,,XenAddResource_Service
 
 [XenVbd_Service]
 DisplayName    = %XenVbd.SVCDESC%                            
@@ -42,7 +41,9 @@ AddReg = XenVbd_Service_AddReg
 
 [XenVbd_Service_AddReg]
 HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+; Add XenHide as a filter to IDE Controllers
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E96A-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenHide
+; Add XenHide as a filter to SCSI Controllers
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97B-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenHide
 
 [XenVbd_EventLog]
@@ -55,52 +56,17 @@ HKR,,TypesSupported,0x00010001,7
 [XenVbd_Inst.NT.HW]
 AddReg = XenVbd_Inst_HW_AddReg
 
-[XenVbd_Inst_HW_AddReg]
-;HKR,,"UpperFilters",0x00010000,"xenaddresource"
-
-;[XenAddResource_Inst.NT]
-;CopyFiles=XenAddResource.CopyFiles
-
-;[XenAddResource_Inst.NT.Services]
-;AddService=XenAddResource,,XenAddResource_Service 
-
-;[XenAddResource_Inst.NT.HW]
-;AddReg = XenAddResource_Inst_HW_AddReg
-
-;[XenAddResource_Inst_HW_AddReg]
-;HKR,,"LowerFilters",0x00010000,"xenaddresource"
-
-;[XenAddResource.CopyFiles]
-;xenaddresource.sys
-
-;[XenAddResource_Service]
-;DisplayName    = "Xen Resource Adder"
-;ServiceType    = 1
-;StartType      = 0
-;ErrorControl   = 1
-;LoadOrderGroup = System Bus Extender
-;ServiceBinary  = %12%\xenaddresource.sys
-;AddReg = XenAddResource_Service_AddReg
-
-;[XenAddResource.CopyFiles]
-;xenaddresource.sys
-
-;[XenAddResource_Service_AddReg]
-;HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
-
 [SourceDisksFiles]
 xenvbd.sys=1
-;xenaddresource.sys=1
 
 [SourceDisksNames.x86]
-1 = %DISK_NAME%,,,\i386
+1 = %DISK_NAME%,,,.\i386
 
 [SourceDisksNames.amd64]
-1 = %DISK_NAME%,,,\amd64
+1 = %DISK_NAME%,,,.\amd64
 
 [Strings]
 XenGplPv = "Xen GPL PV Driver Developers"
 XenVbd.SVCDESC = "Xen Block Device Driver"
 XenVbd.DRVDESC = "Xen Block Device Driver"
-;XenAddResource.DRVDESC = "Xen Resource Adder"
 DISK_NAME = "Xen Block Device Driver Install Disk"

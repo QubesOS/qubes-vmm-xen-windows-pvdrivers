@@ -1,1 +1,1 @@
-see http://www.meadowcourt.org/james/xen/gplpv.htm for details
+see http://wiki.xensource.com/xenwiki/XenWindowsGplPv for details

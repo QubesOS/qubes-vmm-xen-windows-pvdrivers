@@ -106,11 +106,26 @@ typedef struct _XENBUS_WATCH_ENTRY {
 
 // TODO: tidy up & organize this struct
 
+typedef enum {
+    Unknown = 0,
+    NotStarted,
+    Started,
+    StopPending,
+    Stopped,
+    RemovePending,
+    SurpriseRemovePending,
+    Removed
+} DEVICE_PNP_STATE;
+
 typedef struct
 {
   PDEVICE_OBJECT fdo;
   PDEVICE_OBJECT pdo;
   PDEVICE_OBJECT lower_do;
+  
+  DEVICE_PNP_STATE device_pnp_state;
+  DEVICE_POWER_STATE device_power_state;
+  SYSTEM_POWER_STATE system_power_state; 
 } XENPCI_COMMON, *PXENPCI_COMMON;
 
 #define SHUTDOWN_RING_SIZE 128
@@ -180,18 +195,24 @@ typedef struct {
   PIRP shutdown_irp;
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
+/* The total number of event channels or rings allowed per device... probably never more than 2 */
+#define MAX_RESOURCES 4
+
 typedef struct {  
   XENPCI_COMMON common;
   PDEVICE_OBJECT bus_fdo;
   char path[128];
   char device[128];
   ULONG index;
-  //PHYSICAL_ADDRESS mmio_phys;
   ULONG irq_vector;
   KIRQL irq_level;
   char backend_path[128];
+  PVOID xenbus_request;
   KEVENT backend_state_event;
   ULONG backend_state;
+  grant_ref_t grant_refs[MAX_RESOURCES];
+  PMDL mdls[MAX_RESOURCES];
+  evtchn_port_t event_channels[MAX_RESOURCES];
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 typedef struct
@@ -203,6 +224,7 @@ typedef struct
 
 #define SWINT(x) case x: __asm { int x } break;
 
+#if defined(_X86_)
 static __inline VOID
 sw_interrupt(UCHAR intno)
 {
@@ -230,6 +252,16 @@ sw_interrupt(UCHAR intno)
     break;
   }
 }    
+#else
+VOID _sw_interrupt(UCHAR);
+
+static __inline VOID
+sw_interrupt(UCHAR intno)
+{
+  _sw_interrupt(intno);
+}
+#endif
+
   
 #include "hypercall.h"
 

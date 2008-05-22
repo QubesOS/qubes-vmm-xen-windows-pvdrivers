@@ -112,7 +112,7 @@ namespace ShutdownMon
         internal const int TOKEN_ADJUST_PRIVILEGES = 0x00000020;
         internal const string SE_SHUTDOWN_NAME = "SeShutdownPrivilege";
 
-        [StructLayout(LayoutKind.Sequential)]
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
         protected struct SP_DEVICE_INTERFACE_DATA
         {
             public UInt32 cbSize;
@@ -120,9 +120,21 @@ namespace ShutdownMon
             public UInt32 Flags;
             public IntPtr Reserved;
         };
-
+        /*
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct SP_DEVICE_INTERFACE_DETAIL_DATA
+        {
+            public int Size;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 1)]
+            public string DevicePath;
+        }
+        */
         [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr SetupDiGetClassDevsA(ref Guid ClassGuid, UInt32 Enumerator, IntPtr hwndParent, UInt32 Flags);
+        private static extern IntPtr SetupDiGetClassDevsA(
+            ref Guid ClassGuid,
+            UInt32 Enumerator,
+            IntPtr hwndParent,
+            UInt32 Flags);
 
         [DllImport("setupapi.dll", SetLastError = true)]
         private static extern Boolean SetupDiEnumDeviceInterfaces(
@@ -156,13 +168,17 @@ namespace ShutdownMon
             sdid.Reserved = IntPtr.Zero;
 
             if (!SetupDiEnumDeviceInterfaces(handle, IntPtr.Zero, ref XenInterface, 0, out sdid))
-                return null;
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            Console.WriteLine("Got interface");
             UInt32 buflen = 1024;
             IntPtr buf = Marshal.AllocHGlobal((int)buflen);
-            Marshal.WriteInt32(buf, 4 + Marshal.SystemDefaultCharSize);
-            bool success = SetupDiGetDeviceInterfaceDetail(handle, ref sdid, buf, buflen, ref buflen, IntPtr.Zero);
-            if (!success)
-                return null;
+            if (Marshal.SizeOf(buf) == 4)
+                Marshal.WriteInt32(buf, 6); // 32 bit systems align it this way...
+            else
+                Marshal.WriteInt32(buf, 8); // and 64 bit systems align it that...
+            if (!SetupDiGetDeviceInterfaceDetail(handle, ref sdid, buf, buflen, ref buflen, IntPtr.Zero))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            Console.WriteLine("Got detail");
             string filename = Marshal.PtrToStringUni(new IntPtr(buf.ToInt64() + 4));
             Console.WriteLine("interface path = " + filename);
             // free stuff here

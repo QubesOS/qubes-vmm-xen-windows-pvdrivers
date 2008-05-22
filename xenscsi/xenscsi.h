@@ -35,53 +35,30 @@ typedef struct vscsiif_response vscsiif_response_t;
 typedef struct {
   vscsiif_request_t req;
   PSCSI_REQUEST_BLOCK Srb;
-  PMDL Mdl;
-  VOID *Buf;
 } vscsiif_shadow_t;
 
-//#include "scsidata.h"
-
-#define SCSI_BUSES 4
-#define SCSI_TARGETS_PER_BUS 16
+#define SHADOW_ENTRIES 32
+#define GRANT_ENTRIES 128
 
 struct
 {
-  int Present;
-  BOOLEAN PendingInterrupt;
-  PVOID DeviceData; // how can we create a forward definition for this???
-  evtchn_port_t EventChannel;
-  vscsiif_shadow_t *shadow;
-  uint16_t shadow_free;
-  ULONG RingBufPFN;
-  int BackendState;
-  int FrontendState;
-  char Path[128];
-  int DeviceIndex;
-  char BackendPath[128];
-  vscsiif_front_ring_t Ring;
-  int ring_detect_state;
+  vscsiif_shadow_t shadows[SHADOW_ENTRIES];
+  USHORT shadow_free_list[SHADOW_ENTRIES];
+  USHORT shadow_free;
+
+  grant_ref_t grant_free_list[GRANT_ENTRIES];
+  USHORT grant_free;
+
+  evtchn_port_t event_channel;
+
+  vscsiif_front_ring_t ring;
+
   int host;
   int channel;
   int id;
   int lun;
-} typedef XENSCSI_TARGET_DATA, *PXENSCSI_TARGET_DATA;
 
-struct
-{
-  XENSCSI_TARGET_DATA TargetData[SCSI_TARGETS_PER_BUS];
-} typedef XENSCSI_BUS_DATA, *PXENSCSI_BUS_DATA;
-
-struct
-{
-  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
-  XENSCSI_BUS_DATA BusData[SCSI_BUSES];
-
-  KSPIN_LOCK Lock;
-
-  int BusChangePending;
-
-  LONG EnumeratedDevices;
-  int TotalInitialDevices;
+  XENPCI_VECTORS vectors;
 } typedef XENSCSI_DEVICE_DATA, *PXENSCSI_DEVICE_DATA;
 
 enum dma_data_direction {
@@ -90,5 +67,8 @@ enum dma_data_direction {
         DMA_FROM_DEVICE = 2,
         DMA_NONE = 3,
 };
+
+VOID
+XenScsi_FillInitCallbacks(PHW_INITIALIZATION_DATA HwInitializationData);
 
 #endif
