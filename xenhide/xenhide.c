@@ -93,7 +93,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     case 0:
       if (SystemStartOptions[i] == L'G')
       {
-        StartPos = i;
+        StartPos = (int)i;
         State = 2;
       } else if (SystemStartOptions[i] != L' ')
       {

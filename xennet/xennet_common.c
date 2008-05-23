@@ -206,7 +206,7 @@ XenFreelist_GetPage(freelist_t *fl)
     mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
     *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->vectors.GntTbl_GrantAccess(
       fl->xi->vectors.context, 0,
-      *MmGetMdlPfnArray(mdl), FALSE, 0);
+      (ULONG)*MmGetMdlPfnArray(mdl), FALSE, 0);
   }
   else
   {
