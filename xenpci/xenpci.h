@@ -324,8 +324,8 @@ char *
 XenBus_AddWatch(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 char *
 XenBus_RemWatch(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
-VOID
-XenBus_ThreadProc(PVOID StartContext);
+//VOID
+//XenBus_ThreadProc(PVOID StartContext);
 NTSTATUS
 XenBus_Init(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
@@ -334,6 +334,8 @@ NTSTATUS
 XenBus_Start(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
 XenBus_Stop(PXENPCI_DEVICE_DATA xpdd);
+VOID
+XenBus_Resume(PXENPCI_DEVICE_DATA xpdd);
 
 PHYSICAL_ADDRESS
 XenPci_AllocMMIO(PXENPCI_DEVICE_DATA xpdd, ULONG len);
@@ -371,5 +373,6 @@ VOID
 GntTbl_PutRef(PVOID Context, grant_ref_t ref);
 grant_ref_t
 GntTbl_GetRef(PVOID Context);
-
+int 
+GntTbl_Map(PVOID Context, unsigned int start_idx, unsigned int end_idx);
 #endif

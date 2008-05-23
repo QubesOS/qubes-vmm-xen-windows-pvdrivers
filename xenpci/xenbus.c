@@ -565,6 +565,44 @@ KdPrint((__DRIVER_NAME " --- for %s\n", xpdd->XenBus_WatchRing[xpdd->XenBus_Watc
   }
 }    
 
+static char *
+XenBus_SendAddWatch(
+  PVOID Context,
+  xenbus_transaction_t xbt,
+  const char *Path,
+  int slot)
+{
+  PXENPCI_DEVICE_DATA xpdd = Context;
+  struct xsd_sockmsg *rep;
+  char *msg;
+  char Token[20];
+  struct write_req req[2];
+
+  req[0].data = Path;
+  req[0].len = (ULONG)strlen(Path) + 1;
+
+  RtlStringCbPrintfA(Token, ARRAY_SIZE(Token), "%d", slot);
+  req[1].data = Token;
+  req[1].len = (ULONG)strlen(Token) + 1;
+
+  rep = xenbus_msg_reply(xpdd, XS_WATCH, xbt, req, ARRAY_SIZE(req));
+  msg = errmsg(rep);
+
+  ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
+
+  return msg;
+}
+
+VOID
+XenBus_Resume(PXENPCI_DEVICE_DATA xpdd)
+{
+  int i;
+  
+  for (i = 0; i < MAX_WATCH_ENTRIES; i++)
+    if (xpdd->XenBus_WatchEntries[i].Active)
+      XenBus_SendAddWatch(xpdd, XBT_NIL, xpdd->XenBus_WatchEntries[i].Path, i);
+}
+
 char *
 XenBus_AddWatch(
   PVOID Context,
@@ -574,11 +612,8 @@ XenBus_AddWatch(
   PVOID ServiceContext)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
-  struct xsd_sockmsg *rep;
   char *msg;
   int i;
-  char Token[20];
-  struct write_req req[2];
   PXENBUS_WATCH_ENTRY w_entry;
   KIRQL OldIrql;
 
@@ -612,23 +647,14 @@ XenBus_AddWatch(
 
   KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
 
-  req[0].data = Path;
-  req[0].len = (ULONG)strlen(Path) + 1;
+  msg = XenBus_SendAddWatch(xpdd, xbt, Path, i);
 
-  RtlStringCbPrintfA(Token, ARRAY_SIZE(Token), "%d", i);
-  req[1].data = Token;
-  req[1].len = (ULONG)strlen(Token) + 1;
-
-  rep = xenbus_msg_reply(xpdd, XS_WATCH, xbt, req, ARRAY_SIZE(req));
-
-  msg = errmsg(rep);
   if (msg)
   {
     xpdd->XenBus_WatchEntries[i].Active = 0;
     KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch (%s)\n", msg));
     return msg;
   }
-  ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
 

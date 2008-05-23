@@ -105,7 +105,6 @@ XenStub_Irp_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE\n"));
     IoMarkIrpPending(irp);
     status = XenStub_SendAndWaitForIrp(device_object, irp);
-    //XenStub_QueueWorkItem(device_object, XenStub_Pnp_StartDeviceCallback, irp);
     status = irp->IoStatus.Status = STATUS_SUCCESS;
     IoCompleteRequest(irp, IO_NO_INCREMENT);
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
@@ -171,12 +170,7 @@ XenStub_Irp_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     IoSkipCurrentIrpStackLocation(irp);
     //irp->IoStatus.Status = STATUS_SUCCESS;
     break;
-/*   
-  case IRP_MN_QUERY_CAPABILITIES:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_CAPABILITIES\n"));
-    stack->Parameters.DeviceCapabilities.Capabilities->NoDisplayInUI = 1;
-    status = irp->IoStatus.Status = STATUS_SUCCESS;
-*/  
+
   case IRP_MN_QUERY_PNP_DEVICE_STATE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_PNP_DEVICE_STATE\n"));
     status = XenStub_SendAndWaitForIrp(device_object, irp);

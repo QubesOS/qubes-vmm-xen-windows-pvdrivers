@@ -48,7 +48,7 @@ GntTbl_GetRef(PVOID Context)
   return ref;
 }
 
-static int 
+int 
 GntTbl_Map(PVOID Context, unsigned int start_idx, unsigned int end_idx)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
