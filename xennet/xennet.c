@@ -126,7 +126,7 @@ XenNet_Init(
   UINT i, j;
   BOOLEAN medium_found = FALSE;
   struct xennet_info *xi = NULL;
-  ULONG length;
+  ULONG nrl_length;
   PNDIS_RESOURCE_LIST nrl;
   PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
   KIRQL irq_level = 0;
@@ -134,6 +134,7 @@ XenNet_Init(
   UCHAR type;
   PUCHAR ptr;
   PCHAR setting, value;
+  ULONG length;
   
   UNREFERENCED_PARAMETER(OpenErrorStatus);
 
@@ -173,18 +174,18 @@ XenNet_Init(
     0, NDIS_ATTRIBUTE_DESERIALIZE, // | NDIS_ATTRIBUTE_BUS_MASTER),
     NdisInterfaceInternal);
 
-  length = 0;
+  nrl_length = 0;
   NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
-    NULL, (PUINT)&length);
-  KdPrint((__DRIVER_NAME "     length = %d\n", length));
-  status = NdisAllocateMemoryWithTag(&nrl, length, XENNET_POOL_TAG);
+    NULL, (PUINT)&nrl_length);
+  KdPrint((__DRIVER_NAME "     nrl_length = %d\n", nrl_length));
+  status = NdisAllocateMemoryWithTag(&nrl, nrl_length, XENNET_POOL_TAG);
   if (status != NDIS_STATUS_SUCCESS)
   {
     KdPrint((__DRIVER_NAME "     Could not get allocate memory for Adapter Resources 0x%x\n", status));
     return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
   }
   NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
-    nrl, (PUINT)&length);
+    nrl, (PUINT)&nrl_length);
   if (status != NDIS_STATUS_SUCCESS)
   {
     KdPrint((__DRIVER_NAME "     Could not get Adapter Resources 0x%x\n", status));
@@ -262,6 +263,19 @@ XenNet_Init(
           else
             memcpy(&xi->vectors, value, sizeof(XENPCI_VECTORS));
           break;
+        case XEN_INIT_TYPE_COPY_PTR:
+          if (strcmp(setting, "new_crl_translated") == 0)
+          {
+            xi->new_crl_translated = (PCM_RESOURCE_LIST)value;
+          }
+          else if (strcmp(setting, "new_crl_raw") == 0)
+          {
+            xi->new_crl_raw = (PCM_RESOURCE_LIST)value;
+          }
+          else if (strcmp(setting, "uncached_config_page") == 0)
+          {
+            xi->uncached_config_page = (PMDL)value;
+          }
         default:
           KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
           break;
@@ -269,7 +283,9 @@ XenNet_Init(
       }
       break;
     }
-  } 
+  }
+
+  NdisFreeMemory(nrl, nrl_length, 0);
 
   KeInitializeSpinLock(&xi->rx_lock);
 
@@ -424,6 +440,10 @@ XenNet_Halt(
 
   xi->vectors.XenPci_ShutdownDevice(xi->vectors.context);
 
+  ExFreePoolWithTag(xi->new_crl_raw, XENNET_POOL_TAG);
+  ExFreePoolWithTag(xi->new_crl_translated, XENNET_POOL_TAG);
+  FreeUncachedPage(xi->uncached_config_page);
+
   xi->connected = FALSE;
   KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
 
@@ -456,7 +476,9 @@ XenNet_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
 {
   PIO_STACK_LOCATION stack;
   NTSTATUS status;
-  PCM_RESOURCE_LIST old_crl, new_crl;
+  PCM_RESOURCE_LIST old_crl;
+  PCM_RESOURCE_LIST new_crl_translated;
+  PCM_RESOURCE_LIST new_crl_raw;
   PCM_PARTIAL_RESOURCE_LIST prl;
   PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
   ULONG old_length, new_length;
@@ -555,9 +577,10 @@ XenNet_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
         FIELD_OFFSET(CM_PARTIAL_RESOURCE_LIST, PartialDescriptors) +
         sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * old_crl->List[0].PartialResourceList.Count;
       new_length = old_length + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * 1;
-      new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENNET_POOL_TAG);
-      memcpy(new_crl, old_crl, old_length);
-      prl = &new_crl->List[0].PartialResourceList;
+      new_crl_translated = ExAllocatePoolWithTag(PagedPool, new_length, XENNET_POOL_TAG);
+      new_crl_raw = ExAllocatePoolWithTag(PagedPool, new_length, XENNET_POOL_TAG);
+      memcpy(new_crl_translated, old_crl, old_length);
+      prl = &new_crl_translated->List[0].PartialResourceList;
       prd = &prl->PartialDescriptors[prl->Count++];
       prd->Type = CmResourceTypeMemory;
       prd->ShareDisposition = CmResourceShareDeviceExclusive;
@@ -576,21 +599,23 @@ XenNet_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
       ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1");
       ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1");
       ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_VECTORS, NULL, NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_COPY_PTR, "new_crl_translated", new_crl_translated);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_COPY_PTR, "new_crl_raw", new_crl_raw);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_COPY_PTR, "uncached_config_page", mdl);
       ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
       
-      stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl;
+      stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl_translated;
 
       old_crl = stack->Parameters.StartDevice.AllocatedResources;
-      new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENNET_POOL_TAG);
-      memcpy(new_crl, old_crl, old_length);
-      prl = &new_crl->List[0].PartialResourceList;
+      memcpy(new_crl_raw, old_crl, old_length);
+      prl = &new_crl_raw->List[0].PartialResourceList;
       prd = &prl->PartialDescriptors[prl->Count++];
       prd->Type = CmResourceTypeMemory;
       prd->ShareDisposition = CmResourceShareDeviceExclusive;
       prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
       prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
       prd->u.Memory.Length = PAGE_SIZE;
-      stack->Parameters.StartDevice.AllocatedResources = new_crl;
+      stack->Parameters.StartDevice.AllocatedResources = new_crl_raw;
       IoCopyCurrentIrpStackLocationToNext(irp);
     }
     else

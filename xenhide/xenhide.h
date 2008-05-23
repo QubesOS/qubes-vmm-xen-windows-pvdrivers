@@ -41,13 +41,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define XENHIDE_TYPE_HIDE 2
 
 struct {
-  PDEVICE_OBJECT Self;
-  PDEVICE_OBJECT PhysicalDeviceObject;
-  PDRIVER_OBJECT DriverObject;
-  PDEVICE_OBJECT NextLowerDevice;
+  PDEVICE_OBJECT filter_do;
+  PDEVICE_OBJECT pdo;
+  PDEVICE_OBJECT lower_do;
   IO_REMOVE_LOCK RemoveLock;
-  UNICODE_STRING InterfaceName;
-  ULONG InternalState;
 } typedef XENHIDE_DEVICE_DATA, *PXENHIDE_DEVICE_DATA;
 
 #endif

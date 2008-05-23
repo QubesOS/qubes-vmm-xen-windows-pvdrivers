@@ -4,7 +4,6 @@
 #include <ntifs.h>
 #include <ntddk.h>
 #include <wdm.h>
-#include <wdf.h>
 #include <initguid.h>
 #include <ntdddisk.h>
 #include <srb.h>

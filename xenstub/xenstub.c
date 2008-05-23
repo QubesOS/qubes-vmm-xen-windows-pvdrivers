@@ -22,6 +22,70 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 DRIVER_INITIALIZE DriverEntry;
 
+static NTSTATUS
+XenStub_Pnp_IoCompletion(PDEVICE_OBJECT device_object, PIRP irp, PVOID context)
+{
+  PKEVENT event = (PKEVENT)context;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  if (irp->PendingReturned)
+  {
+    KeSetEvent(event, IO_NO_INCREMENT, FALSE);
+  }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return STATUS_MORE_PROCESSING_REQUIRED;
+}
+
+#if 0
+static NTSTATUS
+XenStub_QueueWorkItem(PDEVICE_OBJECT device_object, PIO_WORKITEM_ROUTINE routine, PVOID context)
+{
+  PIO_WORKITEM work_item;
+  NTSTATUS status = STATUS_SUCCESS;
+
+  work_item = IoAllocateWorkItem(device_object);
+  IoQueueWorkItem(work_item, routine, DelayedWorkQueue, context);
+	
+  return status;
+}
+#endif
+
+static NTSTATUS
+XenStub_SendAndWaitForIrp(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PXENSTUB_DEVICE_DATA xsdd = (PXENSTUB_DEVICE_DATA)device_object->DeviceExtension;
+  KEVENT event;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeInitializeEvent(&event, NotificationEvent, FALSE);
+
+  IoCopyCurrentIrpStackLocationToNext(irp);
+  IoSetCompletionRoutine(irp, XenStub_Pnp_IoCompletion, &event, TRUE, TRUE, TRUE);
+
+  status = IoCallDriver(xsdd->lower_do, irp);
+
+  if (status == STATUS_PENDING)
+  {
+    KdPrint((__DRIVER_NAME "     waiting ...\n"));
+    KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
+    KdPrint((__DRIVER_NAME "     ... done\n"));
+    status = irp->IoStatus.Status;
+  }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return status;
+}
+
 NTSTATUS
 XenStub_Irp_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
 {
@@ -39,38 +103,42 @@ XenStub_Irp_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   {
   case IRP_MN_START_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE\n"));
-    IoSkipCurrentIrpStackLocation(irp);
-    //irp->IoStatus.Status = STATUS_SUCCESS;
-    break;
-    
+    IoMarkIrpPending(irp);
+    status = XenStub_SendAndWaitForIrp(device_object, irp);
+    //XenStub_QueueWorkItem(device_object, XenStub_Pnp_StartDeviceCallback, irp);
+    status = irp->IoStatus.Status = STATUS_SUCCESS;
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+    return status;
+
   case IRP_MN_QUERY_STOP_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_STOP_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
-    //irp->IoStatus.Status = STATUS_SUCCESS;
+    irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_STOP_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_STOP_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
-    //irp->IoStatus.Status = STATUS_SUCCESS;
+    irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_CANCEL_STOP_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_STOP_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
-    //irp->IoStatus.Status = STATUS_SUCCESS;
+    irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_QUERY_REMOVE_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_REMOVE_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
-    //irp->IoStatus.Status = STATUS_SUCCESS;
+    irp->IoStatus.Status = STATUS_SUCCESS;
     break;
     
   case IRP_MN_REMOVE_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_REMOVE_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
-    //irp->IoStatus.Status = STATUS_SUCCESS;
+    irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_CANCEL_REMOVE_DEVICE:
@@ -88,12 +156,13 @@ XenStub_Irp_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   case IRP_MN_DEVICE_USAGE_NOTIFICATION:
     KdPrint((__DRIVER_NAME "     IRP_MN_DEVICE_USAGE_NOTIFICATION\n"));
     IoSkipCurrentIrpStackLocation(irp);
-    //irp->IoStatus.Status = STATUS_SUCCESS;
+    irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_QUERY_DEVICE_RELATIONS:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS\n"));
     IoSkipCurrentIrpStackLocation(irp);
+    //irp->IoStatus.Information = 0;
     //irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
@@ -102,9 +171,23 @@ XenStub_Irp_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     IoSkipCurrentIrpStackLocation(irp);
     //irp->IoStatus.Status = STATUS_SUCCESS;
     break;
+/*   
+  case IRP_MN_QUERY_CAPABILITIES:
+    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_CAPABILITIES\n"));
+    stack->Parameters.DeviceCapabilities.Capabilities->NoDisplayInUI = 1;
+    status = irp->IoStatus.Status = STATUS_SUCCESS;
+*/  
+  case IRP_MN_QUERY_PNP_DEVICE_STATE:
+    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_PNP_DEVICE_STATE\n"));
+    status = XenStub_SendAndWaitForIrp(device_object, irp);
+    irp->IoStatus.Information |= PNP_DEVICE_DONT_DISPLAY_IN_UI;
+    status = irp->IoStatus.Status = STATUS_SUCCESS;
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+    return status;
 
   default:
-    //KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));
+    KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));
     IoSkipCurrentIrpStackLocation(irp);
     break;
   }

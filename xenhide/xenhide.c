@@ -156,7 +156,7 @@ XenHide_AddDevice(
 {
   NTSTATUS status;
   PDEVICE_OBJECT deviceObject = NULL;
-  PXENHIDE_DEVICE_DATA DeviceExtension;
+  PXENHIDE_DEVICE_DATA xhdd;
   ULONG length;
   WCHAR buffer[256];
 //  size_t StrLen;
@@ -203,21 +203,18 @@ XenHide_AddDevice(
     FALSE,
     &deviceObject);
 
-  DeviceExtension = (PXENHIDE_DEVICE_DATA)deviceObject->DeviceExtension;
+  xhdd = (PXENHIDE_DEVICE_DATA)deviceObject->DeviceExtension;
 
-  DeviceExtension->NextLowerDevice = IoAttachDeviceToDeviceStack(
-    deviceObject,
-    PhysicalDeviceObject);
-  deviceObject->Flags |= DeviceExtension->NextLowerDevice->Flags;
+  xhdd->lower_do = IoAttachDeviceToDeviceStack(
+    deviceObject, PhysicalDeviceObject);
+  deviceObject->Flags |= xhdd->lower_do->Flags;
 
-  deviceObject->DeviceType = DeviceExtension->NextLowerDevice->DeviceType;
+  deviceObject->DeviceType = xhdd->lower_do->DeviceType;
 
   deviceObject->Characteristics = 
-    DeviceExtension->NextLowerDevice->Characteristics;
+    xhdd->lower_do->Characteristics;
 
-  DeviceExtension->Self = deviceObject;
-
-  //INITIALIZE_PNP_STATE(DeviceExtension);
+  xhdd->filter_do = deviceObject;
 
   deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
@@ -229,11 +226,61 @@ XenHide_AddDevice(
 static NTSTATUS
 XenHide_Pass(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
-  PXENHIDE_DEVICE_DATA DeviceExtension = (PXENHIDE_DEVICE_DATA)DeviceObject->DeviceExtension;
+  PXENHIDE_DEVICE_DATA xhdd = (PXENHIDE_DEVICE_DATA)DeviceObject->DeviceExtension;
   NTSTATUS status;
     
   IoSkipCurrentIrpStackLocation(Irp);
-  status = IoCallDriver(DeviceExtension->NextLowerDevice, Irp);
+  status = IoCallDriver(xhdd->lower_do, Irp);
+  return status;
+}
+
+static NTSTATUS
+XenHide_Pnp_IoCompletion(PDEVICE_OBJECT device_object, PIRP irp, PVOID context)
+{
+  PKEVENT event = (PKEVENT)context;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  if (irp->PendingReturned)
+  {
+    KeSetEvent(event, IO_NO_INCREMENT, FALSE);
+  }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
+  return STATUS_MORE_PROCESSING_REQUIRED;
+}
+
+static NTSTATUS
+XenHide_SendAndWaitForIrp(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PXENHIDE_DEVICE_DATA xhdd = (PXENHIDE_DEVICE_DATA)device_object->DeviceExtension;
+  KEVENT event;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeInitializeEvent(&event, NotificationEvent, FALSE);
+
+  IoCopyCurrentIrpStackLocationToNext(irp);
+  IoSetCompletionRoutine(irp, XenHide_Pnp_IoCompletion, &event, TRUE, TRUE, TRUE);
+
+  status = IoCallDriver(xhdd->lower_do, irp);
+
+  if (status == STATUS_PENDING)
+  {
+    KdPrint((__DRIVER_NAME "     waiting ...\n"));
+    KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
+    KdPrint((__DRIVER_NAME "     ... done\n"));
+    status = irp->IoStatus.Status;
+  }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
   return status;
 }
 
@@ -254,9 +301,17 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     status = irp->IoStatus.Status = STATUS_UNSUCCESSFUL;
     IoCompleteRequest(irp, IO_NO_INCREMENT);
     break;
+  case IRP_MN_QUERY_CAPABILITIES:
+    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_CAPABILITIES\n"));
+    stack->Parameters.DeviceCapabilities.Capabilities->NoDisplayInUI = 1;
+    status = XenHide_SendAndWaitForIrp(device_object, irp);
+    status = irp->IoStatus.Status = STATUS_SUCCESS;
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+    return status;
   default:
     IoSkipCurrentIrpStackLocation(irp);
-    status = IoCallDriver(xhdd->NextLowerDevice, irp);
+    status = IoCallDriver(xhdd->lower_do, irp);
     break;
   }
 

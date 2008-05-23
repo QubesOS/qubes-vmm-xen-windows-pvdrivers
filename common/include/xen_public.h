@@ -161,6 +161,7 @@ typedef struct {
 #define XEN_INIT_TYPE_READ_STRING_BACK  6
 #define XEN_INIT_TYPE_VECTORS           7
 #define XEN_INIT_TYPE_GRANT_ENTRIES     8
+#define XEN_INIT_TYPE_COPY_PTR          9
 
 static __inline VOID
 __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
@@ -275,6 +276,9 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   case XEN_INIT_TYPE_GRANT_ENTRIES:
     __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p1));
     break;
+  case XEN_INIT_TYPE_COPY_PTR:
+    __ADD_XEN_INIT_STRING(ptr, p1);
+    __ADD_XEN_INIT_PTR(ptr, p2);
   }
 }
 
@@ -306,6 +310,9 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2)
   case XEN_INIT_TYPE_GRANT_ENTRIES:
     *p1 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     break;
+  case XEN_INIT_TYPE_COPY_PTR:
+    *p1 = __GET_XEN_INIT_STRING(ptr);
+    *p2 = __GET_XEN_INIT_PTR(ptr);
   }
   return retval;
 }
@@ -343,6 +350,9 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
     memcpy(*ptr, p2, PtrToUlong(p1) * sizeof(grant_entry_t));
     *ptr += PtrToUlong(p1) * sizeof(grant_entry_t);
     break;
+  case XEN_INIT_TYPE_COPY_PTR:
+    __ADD_XEN_INIT_STRING(ptr, p1);
+    __ADD_XEN_INIT_PTR(ptr, p2);
   }
 }
 
@@ -388,6 +398,9 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2)
     *p2 = *ptr;
     *ptr += PtrToUlong(*p1) * sizeof(grant_entry_t);
     break;
+  case XEN_INIT_TYPE_COPY_PTR:
+    *p1 = __GET_XEN_INIT_STRING(ptr);
+    *p2 = __GET_XEN_INIT_PTR(ptr);
   }
   return retval;
 }

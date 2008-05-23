@@ -156,6 +156,9 @@ struct xennet_info
   PDEVICE_OBJECT lower_do;
   //WDFDEVICE wdf_device;
   WCHAR dev_desc[NAME_SIZE];
+  PMDL uncached_config_page;
+  PCM_RESOURCE_LIST new_crl_raw;
+  PCM_RESOURCE_LIST new_crl_translated;
 
   /* NDIS-related vars */
   NDIS_HANDLE adapter_handle;

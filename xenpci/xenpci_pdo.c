@@ -392,13 +392,6 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
   XenBus_AddWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
 
-  if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
-  {
-    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
-    return STATUS_UNSUCCESSFUL;
-  }
-
   res_list = &stack->Parameters.StartDevice.AllocatedResources->List[0].PartialResourceList;
   for (i = 0; i < res_list->Count; i++)
   {
@@ -427,6 +420,12 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     case CmResourceTypeMemory:
       KdPrint((__DRIVER_NAME "     CmResourceTypeMemory\n"));
       KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", res_descriptor->u.Memory.Start.LowPart, res_descriptor->u.Memory.Length));
+      if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
+      {
+        RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+        XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+        return STATUS_UNSUCCESSFUL;
+      }
       out_ptr = out_start = MmMapIoSpace(res_descriptor->u.Memory.Start, res_descriptor->u.Memory.Length, MmNonCached);
       in_ptr = xppdd->xenbus_request = ExAllocatePoolWithTag(PagedPool, res_descriptor->u.Memory.Length, XENPCI_POOL_TAG);
       KdPrint((__DRIVER_NAME "     out_ptr = %p, in_ptr = %p\n", out_ptr, in_ptr));
@@ -484,22 +483,24 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
           }
           event_channels++;
           break;
+        case XEN_INIT_TYPE_COPY_PTR:
+          ADD_XEN_INIT_RSP(&out_ptr, type, setting, value);
+          break;
         }
       }
+      if (!NT_SUCCESS(status))
+      {
+        RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+        XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+        return status;
+      }
+      if (XenPci_ChangeFrontendState(xppdd, XenbusStateConnected, XenbusStateConnected, 30000) != STATUS_SUCCESS)
+      {
+        RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+        XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+        return STATUS_UNSUCCESSFUL;
+      }
     }
-  }
-
-  if (!NT_SUCCESS(status))
-  {
-    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
-    return status;
-  }
-  if (XenPci_ChangeFrontendState(xppdd, XenbusStateConnected, XenbusStateConnected, 30000) != STATUS_SUCCESS)
-  {
-    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
-    return STATUS_UNSUCCESSFUL;
   }
 
   res_list = &stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList;
@@ -617,7 +618,7 @@ XenPci_Pnp_RemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
   XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
   
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (status = %08x)\n", status));
 
   return status;
 }
@@ -962,13 +963,14 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 NTSTATUS
 XenPci_Irp_Create_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
-  PXENPCI_DEVICE_DATA xpdd;
   NTSTATUS status;
+
+  UNREFERENCED_PARAMETER(device_object);
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
-  status = IoCallDriver(xpdd->common.lower_do, irp);
+  status = irp->IoStatus.Status;
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
@@ -978,13 +980,14 @@ XenPci_Irp_Create_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 NTSTATUS
 XenPci_Irp_Close_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
-  PXENPCI_DEVICE_DATA xpdd;
   NTSTATUS status;
+
+  UNREFERENCED_PARAMETER(device_object);
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
-  status = IoCallDriver(xpdd->common.lower_do, irp);
+  status = irp->IoStatus.Status;
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
@@ -994,13 +997,14 @@ XenPci_Irp_Close_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 NTSTATUS
 XenPci_Irp_Read_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
-  PXENPCI_DEVICE_DATA xpdd;
   NTSTATUS status;
+
+  UNREFERENCED_PARAMETER(device_object);
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
-  status = IoCallDriver(xpdd->common.lower_do, irp);
+  status = irp->IoStatus.Status;
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
@@ -1016,8 +1020,7 @@ XenPci_Irp_Cleanup_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   
-  status = STATUS_SUCCESS;
-  irp->IoStatus.Status = status;
+  status = irp->IoStatus.Status;
   IoCompleteRequest(irp, IO_NO_INCREMENT);
   
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));

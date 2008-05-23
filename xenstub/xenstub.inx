@@ -3,11 +3,10 @@ Signature="$WINDOWS NT$"
 Class=System
 ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider=%XenGplPv%
+CatalogFile="XenGPLPV.cat"
 
 [DestinationDirs]
 DefaultDestDir = 12
-ClassInstall32_CopyFiles=11
-CoInstaller_CopyFiles = 11
 
 [ControlFlags]
 ExcludeFromSelect=*
@@ -34,13 +33,12 @@ XenStub.sys
 
 [SourceDisksFiles]
 XenStub.sys=1
-WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll=1,,
 
 [SourceDisksNames.x86]
-1 = %DISK_NAME%,,,\i386
+1 = %DISK_NAME%,,,.\i386
 
 [SourceDisksNames.amd64]
-1 = %DISK_NAME%,,,\amd64
+1 = %DISK_NAME%,,,.\amd64
 
 [XenStub_Inst.Services]
 AddService=XenStub,2,XenStub_Service 
@@ -51,34 +49,17 @@ AddService=XenStub,2,XenStub_Service
 [XenStub_Service]
 DisplayName    = %XenStub.SVCDESC%                            
 ServiceType    = 1
-StartType      = 0
+StartType      = 3
 ErrorControl   = 1
-LoadOrderGroup = WdfLoadGroup
+LoadOrderGroup = System Bus Extender
 ServiceBinary  = %12%\xenstub.sys                            
 AddReg = XenStub_Service_AddReg
 
 [XenStub_Service_AddReg]
 HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
 
-[XenStub_Inst.NT.CoInstallers]
-AddReg=CoInstaller_AddReg
-CopyFiles=CoInstaller_CopyFiles
-
-[CoInstaller_CopyFiles]
-WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll,,,2
-
-[CoInstaller_AddReg]
-HKR,,CoInstallers32,0x00010000, "WdfCoinstaller$KMDFCOINSTALLERVERSION$.dll,WdfCoInstaller"
-
-[XenStub_Inst.NT.Wdf]
-KmdfService = XenStub, XenStub_wdfsect
-
-[XenStub_wdfsect]
-KmdfLibraryVersion = $KMDFVERSION$
-
 [Strings]
 XenGplPv = "Xen GPL PV Driver Developers"
-ClassName = "Network Adapters"
 XenStub.SVCDESC = "Xen Stub Device Driver"
 XenStub.DRVDESC = "Xen Stub Device Driver"
-DISK_NAME = "Xen Net Device Driver Install Disk"
+DISK_NAME = "Xen Stub Device Driver Install Disk"
