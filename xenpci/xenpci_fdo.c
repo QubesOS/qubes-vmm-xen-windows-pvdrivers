@@ -26,8 +26,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define BALLOON_PATH "memory/target"
 
 static VOID
-XenBus_SysrqHandler(char *Path, PVOID Data);
-static VOID
 XenBus_BalloonHandler(char *Path, PVOID Data);
 
 /*
@@ -421,7 +419,7 @@ XenPci_BeginSuspend(PXENPCI_DEVICE_DATA xpdd)
 }
 
 static void
-XenBus_ShutdownHandler(char *path, PVOID context)
+XenPci_ShutdownHandler(char *path, PVOID context)
 {
   PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)context;
   char *res;
@@ -471,6 +469,56 @@ XenBus_ShutdownHandler(char *path, PVOID context)
 }
 
 static VOID
+XenPci_SysrqHandler(char *path, PVOID context)
+{
+  PXENPCI_DEVICE_DATA xpdd = context;
+  char *value;
+  char letter;
+  char *res;
+
+  UNREFERENCED_PARAMETER(path);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  XenBus_Read(xpdd, XBT_NIL, SYSRQ_PATH, &value);
+
+  KdPrint((__DRIVER_NAME "     SysRq Value = %s\n", value));
+
+  if (value != NULL && strlen(value) != 0)
+  {
+    letter = *value;
+    res = XenBus_Write(xpdd, XBT_NIL, SYSRQ_PATH, "");
+    if (res)
+    {
+      KdPrint(("Error writing sysrq path\n"));
+      XenPci_FreeMem(res);
+      return;
+    }
+  }
+  else
+  {
+    letter = 0;
+  }
+
+  if (value != NULL)
+  {
+    XenPci_FreeMem(value);
+  }
+
+  switch (letter)
+  {
+  case 'B':
+    KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000001, 0x00000000, 0x00000000, 0x00000000);
+    break;
+  default:
+    KdPrint(("     Unhandled sysrq letter %c\n", letter));
+    break;
+  }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
+static VOID
 XenPci_DeviceWatchHandler(char *path, PVOID context)
 {
   char **bits;
@@ -512,10 +560,10 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
 
   XenBus_Init(xpdd);
 
-  //response = XenBus_AddWatch(xpdd, XBT_NIL, SYSRQ_PATH, XenBus_SysrqHandler, xpdd);
-  //KdPrint((__DRIVER_NAME "     sysrqwatch response = '%s'\n", response)); 
+  response = XenBus_AddWatch(xpdd, XBT_NIL, SYSRQ_PATH, XenPci_SysrqHandler, xpdd);
+  KdPrint((__DRIVER_NAME "     sysrqwatch response = '%s'\n", response)); 
   
-  response = XenBus_AddWatch(xpdd, XBT_NIL, SHUTDOWN_PATH, XenBus_ShutdownHandler, xpdd);
+  response = XenBus_AddWatch(xpdd, XBT_NIL, SHUTDOWN_PATH, XenPci_ShutdownHandler, xpdd);
   KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
 
   response = XenBus_AddWatch(xpdd, XBT_NIL, "device", XenPci_DeviceWatchHandler, xpdd);
@@ -1239,63 +1287,6 @@ XenBus_BalloonHandler(char *Path, PVOID Data)
   XenPci_FreeMem(value);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_BalloonHandler\n"));
-}
-
-static VOID
-XenBus_SysrqHandler(char *Path, PVOID Data)
-{
-  WDFDEVICE Device = Data;
-  char *Value;
-  xenbus_transaction_t xbt;
-  int retry;
-  char letter;
-  char *res;
-
-  UNREFERENCED_PARAMETER(Path);
-
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  XenBus_StartTransaction(Device, &xbt);
-
-  XenBus_Read(Device, XBT_NIL, SYSRQ_PATH, &Value);
-
-  KdPrint((__DRIVER_NAME "     SysRq Value = %s\n", Value));
-
-  if (Value != NULL && strlen(Value) != 0)
-  {
-    letter = *Value;
-    res = XenBus_Write(Device, XBT_NIL, SYSRQ_PATH, "");
-    if (res)
-    {
-      KdPrint(("Error writing sysrq path\n"));
-      XenPci_FreeMem(res);
-      XenBus_EndTransaction(Device, xbt, 0, &retry);
-      return;
-    }
-  }
-  else
-  {
-    letter = 0;
-  }
-
-  XenBus_EndTransaction(Device, xbt, 0, &retry);
-
-  if (Value != NULL)
-  {
-    XenPci_FreeMem(Value);
-  }
-
-  switch (letter)
-  {
-  case 'B':
-    KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000001, 0x00000000, 0x00000000, 0x00000000);
-    break;
-  default:
-    KdPrint(("     Unhandled sysrq letter %c\n", letter));
-    break;
-  }
-
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static NTSTATUS
