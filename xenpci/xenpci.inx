@@ -34,10 +34,10 @@ xenpci.sys=1
 xenhide.sys=1
 
 [SourceDisksNames.x86]
-1 = %DISK_NAME%,,,\i386
+1 = %DISK_NAME%,,,.\i386
 
 [SourceDisksNames.amd64]
-1 = %DISK_NAME%,,,\amd64
+1 = %DISK_NAME%,,,.\amd64
 
 [XenPCI_Inst.NT.Services]
 AddService=XenPCI,2,XenPCI_Service

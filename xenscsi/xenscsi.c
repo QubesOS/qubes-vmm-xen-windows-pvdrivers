@@ -192,7 +192,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HwInitializationData.MapBuffers = TRUE;
   HwInitializationData.NeedPhysicalAddresses = FALSE;
   HwInitializationData.TaggedQueuing = TRUE;
-  HwInitializationData.AutoRequestSense = FALSE;
+  HwInitializationData.AutoRequestSense = TRUE;
   HwInitializationData.MultipleRequestPerLu = TRUE;
   HwInitializationData.ReceiveEvent = FALSE;
   HwInitializationData.VendorIdLength = 0;

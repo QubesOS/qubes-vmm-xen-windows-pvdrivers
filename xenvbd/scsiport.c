@@ -144,6 +144,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
       if (strcmp(setting, "ring-ref") == 0)
       {
+        
         sring = (blkif_sring_t *)value;
         FRONT_RING_INIT(&xvdd->ring, sring, PAGE_SIZE);
       }

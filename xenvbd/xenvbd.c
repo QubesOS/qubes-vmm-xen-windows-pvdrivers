@@ -31,21 +31,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 DRIVER_INITIALIZE DriverEntry;
 
-static ULONG
-XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again);
-static BOOLEAN
-XenVbd_HwScsiInitialize(PVOID DeviceExtension);
-static BOOLEAN
-XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb);
-static BOOLEAN
-XenVbd_HwScsiInterrupt(PVOID DeviceExtension);
-static BOOLEAN
-XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId);
-static BOOLEAN
-XenVbd_HwScsiAdapterState(PVOID DeviceExtension, PVOID Context, BOOLEAN SaveState);
-static SCSI_ADAPTER_CONTROL_STATUS
-XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE ControlType, PVOID Parameters);
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (INIT, DriverEntry)
 #endif

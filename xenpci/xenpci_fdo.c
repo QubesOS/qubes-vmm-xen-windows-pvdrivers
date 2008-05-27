@@ -569,6 +569,11 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
   response = XenBus_AddWatch(xpdd, XBT_NIL, "device", XenPci_DeviceWatchHandler, xpdd);
   KdPrint((__DRIVER_NAME "     device watch response = '%s'\n", response)); 
 
+#if 0
+  response = XenBus_AddWatch(xpdd, XBT_NIL, BALLOON_PATH, XenPci_BalloonHandler, Device);
+  KdPrint((__DRIVER_NAME "     balloon watch response = '%s'\n", response)); 
+#endif
+
   status = IoSetDeviceInterfaceState(&xpdd->interface_name, TRUE);
   if (!NT_SUCCESS(status))
   {
@@ -896,11 +901,11 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
             InsertTailList(&xpdd->child_list, (PLIST_ENTRY)child);
             device_count++;
           }
-          ExFreePoolWithTag(instances[j], XENPCI_POOL_TAG);
+          XenPci_FreeMem(instances[j]);
         }
         XenPci_FreeMem(instances);
       }
-      ExFreePoolWithTag(devices[i], XENPCI_POOL_TAG);
+      XenPci_FreeMem(devices[i]);
     }
     XenPci_FreeMem(devices);
     dev_relations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DEVICE_RELATIONS) + sizeof(PDEVICE_OBJECT) * (device_count - 1), XENPCI_POOL_TAG);
@@ -1189,80 +1194,8 @@ XenPci_Irp_Cleanup_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
 }
 
 #if 0
-static NTSTATUS
-XenPCI_D0Entry(
-    IN WDFDEVICE  Device,
-    IN WDF_POWER_DEVICE_STATE PreviousState
-    )
-{
-  NTSTATUS status = STATUS_SUCCESS;
-
-  UNREFERENCED_PARAMETER(Device);
-  UNREFERENCED_PARAMETER(PreviousState);
-
-  KdPrint((__DRIVER_NAME " --> EvtDeviceD0Entry\n"));
-
-  KdPrint((__DRIVER_NAME " <-- EvtDeviceD0Entry\n"));
-
-  return status;
-}
-
-static NTSTATUS
-XenPCI_D0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
-{
-  NTSTATUS status = STATUS_SUCCESS;
-  //OBJECT_ATTRIBUTES oa;
-  char *response;
-  char *msgTypes;
-  char **Types;
-  int i;
-  char buffer[128];
-  WDFCHILDLIST ChildList;
-
-  UNREFERENCED_PARAMETER(PreviousState);
-
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  XenBus_Start(Device);
-
-  response = XenBus_AddWatch(Device, XBT_NIL, SYSRQ_PATH, XenBus_SysrqHandler, Device);
-  KdPrint((__DRIVER_NAME "     sysrqwatch response = '%s'\n", response)); 
-  
-  response = XenBus_AddWatch(Device, XBT_NIL, SHUTDOWN_PATH, XenBus_ShutdownHandler, Device);
-  KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
-
-  response = XenBus_AddWatch(Device, XBT_NIL, BALLOON_PATH, XenBus_BalloonHandler, Device);
-  KdPrint((__DRIVER_NAME "     balloon watch response = '%s'\n", response)); 
-
-  response = XenBus_AddWatch(Device, XBT_NIL, "device", XenPCI_XenBusWatchHandler, Device);
-  KdPrint((__DRIVER_NAME "     device watch response = '%s'\n", response)); 
-
-  ChildList = WdfFdoGetDefaultChildList(Device);
-
-  WdfChildListBeginScan(ChildList);
-  msgTypes = XenBus_List(Device, XBT_NIL, "device", &Types);
-  if (!msgTypes) {
-    for (i = 0; Types[i]; i++)
-    {
-      RtlStringCbPrintfA(buffer, ARRAY_SIZE(buffer), "device/%s", Types[i]);
-      XenPCI_XenBusWatchHandler(buffer, Device);
-      ExFreePoolWithTag(Types[i], XENPCI_POOL_TAG);
-    }
-  }
-  WdfChildListEndScan(ChildList);
-
-  XenPci_FreeMem(Types);
-
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
-  return status;
-}
-
-#endif
-
-#if 0
 static VOID
-XenBus_BalloonHandler(char *Path, PVOID Data)
+XenPci_BalloonHandler(char *Path, PVOID Data)
 {
   WDFDEVICE Device = Data;
   char *value;
@@ -1287,47 +1220,5 @@ XenBus_BalloonHandler(char *Path, PVOID Data)
   XenPci_FreeMem(value);
 
   KdPrint((__DRIVER_NAME " <-- XenBus_BalloonHandler\n"));
-}
-
-static NTSTATUS
-XenPCI_DeviceResourceRequirementsQuery(WDFDEVICE Device, WDFIORESREQLIST IoResourceRequirementsList)
-{
-  NTSTATUS  status;
-  WDFIORESLIST resourceList;
-  IO_RESOURCE_DESCRIPTOR descriptor;
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-
-  //KdPrint((__DRIVER_NAME " --> DeviceResourceRequirementsQuery\n"));
-
-  status = WdfIoResourceListCreate(IoResourceRequirementsList, WDF_NO_OBJECT_ATTRIBUTES, &resourceList);
-  if (!NT_SUCCESS(status))
-    return status;
-
-  RtlZeroMemory(&descriptor, sizeof(descriptor));
-
-  descriptor.Option = 0;
-  descriptor.Type = CmResourceTypeMemory;
-  descriptor.ShareDisposition = CmResourceShareShared; //CmResourceShareDeviceExclusive;
-  descriptor.Flags = CM_RESOURCE_MEMORY_READ_WRITE;
-  descriptor.u.Memory.Length = PAGE_SIZE;
-  descriptor.u.Memory.Alignment = PAGE_SIZE;
-  descriptor.u.Memory.MinimumAddress.QuadPart
-    = xpdd->platform_mmio_addr.QuadPart + PAGE_SIZE;
-  descriptor.u.Memory.MaximumAddress.QuadPart
-    = xpdd->platform_mmio_addr.QuadPart + xpdd->platform_mmio_len - 1;
-
-  //KdPrint((__DRIVER_NAME "     MinimumAddress = %08x, MaximumAddress = %08X\n", descriptor.u.Memory.MinimumAddress.LowPart, descriptor.u.Memory.MaximumAddress.LowPart));
-
-  status = WdfIoResourceListAppendDescriptor(resourceList, &descriptor);
-  if (!NT_SUCCESS(status))
-    return status;
-
-  status = WdfIoResourceRequirementsListAppendIoResList(IoResourceRequirementsList, resourceList);
-  if (!NT_SUCCESS(status))
-    return status;
-
-  //KdPrint((__DRIVER_NAME " <-- DeviceResourceRequirementsQuery\n"));
-
-  return status;
 }
 #endif

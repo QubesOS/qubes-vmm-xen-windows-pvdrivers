@@ -557,7 +557,6 @@ XenBus_WatchThreadProc(PVOID StartContext)
       entry->Running = 1;
       KeReleaseSpinLock(&xpdd->WatchLock, OldIrql);
       entry->Count++;
-KdPrint((__DRIVER_NAME " --- for %s\n", xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Path));
       entry->ServiceRoutine(xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Path, entry->ServiceContext);
       entry->Running = 0;
       KeSetEvent(&entry->CompleteEvent, 1, FALSE);
@@ -587,8 +586,8 @@ XenBus_SendAddWatch(
 
   rep = xenbus_msg_reply(xpdd, XS_WATCH, xbt, req, ARRAY_SIZE(req));
   msg = errmsg(rep);
-
-  ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
+  if (!msg)
+    ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
 
   return msg;
 }

@@ -605,6 +605,7 @@ XenPci_Pnp_RemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
       case XEN_INIT_TYPE_RING: /* frontend ring */
         GntTbl_EndAccess(xpdd, xppdd->grant_refs[rings], FALSE);
         FreePages(xppdd->mdls[rings]);
+        xppdd->mdls[rings] = NULL;
         rings++;
         break;
       case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
