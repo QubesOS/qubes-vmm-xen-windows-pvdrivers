@@ -95,6 +95,7 @@ struct
   blkif_shadow_t shadows[SHADOW_ENTRIES];
   USHORT shadow_free_list[SHADOW_ENTRIES];
   USHORT shadow_free;
+  USHORT shadow_min_free;
 
   grant_ref_t grant_free_list[GRANT_ENTRIES];
   USHORT grant_free;
@@ -106,12 +107,14 @@ struct
   };
   int ring_detect_state;
   BOOLEAN use_other;
+  UCHAR last_sense_key;
   blkif_response_t tmp_rep;
   XENVBD_DEVICETYPE device_type;
   DISK_GEOMETRY Geometry;
   ULONG bytes_per_sector;
   ULONGLONG total_sectors;
   XENPCI_VECTORS vectors;
+  PSCSI_REQUEST_BLOCK pending_srb;
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 
 VOID

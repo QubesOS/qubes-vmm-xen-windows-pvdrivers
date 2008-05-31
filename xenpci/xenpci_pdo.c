@@ -205,7 +205,7 @@ XenPci_ChangeFrontendState(PXENPCI_PDO_DEVICE_DATA xppdd, ULONG frontend_state_s
 static VOID
 DUMP_CURRENT_PNP_STATE(PXENPCI_PDO_DEVICE_DATA xppdd)
 {
-  switch (xppdd->common.device_pnp_state)
+  switch (xppdd->common.current_pnp_state)
   {
   case Unknown:
     KdPrint((__DRIVER_NAME "     pnp_state = Unknown\n"));
@@ -569,7 +569,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-  xpdd->common.device_pnp_state = Started;
+  SET_PNP_STATE(&xppdd->common, Started);
   
   return STATUS_SUCCESS;
 }
@@ -744,25 +744,25 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
     
   case IRP_MN_QUERY_STOP_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_STOP_DEVICE (status = %08x)\n", irp->IoStatus.Status));
-    xppdd->common.device_pnp_state = StopPending;
+    SET_PNP_STATE(&xppdd->common, StopPending);
     status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_STOP_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_STOP_DEVICE (status = %08x)\n", irp->IoStatus.Status));
-    xppdd->common.device_pnp_state = Stopped;
+    SET_PNP_STATE(&xppdd->common, Stopped);
     status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_CANCEL_STOP_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_STOP_DEVICE (status = %08x)\n", irp->IoStatus.Status));
-    xppdd->common.device_pnp_state = Started; /* obviously this isn't really correct :) */
+    REVERT_PNP_STATE(&xppdd->common);
     status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_QUERY_REMOVE_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_REMOVE_DEVICE (status = %08x)\n", irp->IoStatus.Status));
-    xppdd->common.device_pnp_state = RemovePending;
+    SET_PNP_STATE(&xppdd->common, RemovePending);
     status = STATUS_SUCCESS;
     break;
 
@@ -773,13 +773,13 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 
   case IRP_MN_CANCEL_REMOVE_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_REMOVE_DEVICE (status = %08x)\n", irp->IoStatus.Status));
-    xppdd->common.device_pnp_state = Started; /* obviously this isn't really correct :) */
+    REVERT_PNP_STATE(&xppdd->common);
     status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_SURPRISE_REMOVAL:
     KdPrint((__DRIVER_NAME "     IRP_MN_SURPRISE_REMOVAL (status = %08x)\n", irp->IoStatus.Status));
-    xppdd->common.device_pnp_state = SurpriseRemovePending;
+    SET_PNP_STATE(&xppdd->common, SurpriseRemovePending);
     status = STATUS_SUCCESS;
     break;
 

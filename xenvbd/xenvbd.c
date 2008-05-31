@@ -171,15 +171,15 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   HwInitializationData.HwInitializationDataSize = sizeof(HW_INITIALIZATION_DATA);
   HwInitializationData.AdapterInterfaceType = Internal;
-  HwInitializationData.HwDmaStarted = NULL;
   HwInitializationData.DeviceExtensionSize = sizeof(XENVBD_DEVICE_DATA);
   HwInitializationData.SpecificLuExtensionSize = 0;
-  HwInitializationData.SrbExtensionSize = UNALIGNED_DOUBLE_BUFFER_SIZE;
+  /* SrbExtension is not always aligned to a page boundary, so we add PAGE_SIZE-1 to it to make sure we have at least UNALIGNED_DOUBLE_BUFFER_SIZE bytes of page aligned memory */
+  HwInitializationData.SrbExtensionSize = UNALIGNED_DOUBLE_BUFFER_SIZE + PAGE_SIZE - 1;
   HwInitializationData.NumberOfAccessRanges = 1;
   HwInitializationData.MapBuffers = TRUE;
   HwInitializationData.NeedPhysicalAddresses = FALSE;
-  HwInitializationData.TaggedQueuing = TRUE;
-  HwInitializationData.AutoRequestSense = FALSE;
+  HwInitializationData.TaggedQueuing = FALSE;
+  HwInitializationData.AutoRequestSense = TRUE;
   HwInitializationData.MultipleRequestPerLu = TRUE;
   HwInitializationData.ReceiveEvent = FALSE;
   HwInitializationData.VendorIdLength = 0;

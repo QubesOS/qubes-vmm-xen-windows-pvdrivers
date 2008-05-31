@@ -1,6 +1,0 @@
-!include "..\common.inc"
-TARGETNAME=xenenum
-TARGETTYPE=DRIVER
-INF_NAME=$(TARGETNAME)
-MISCFILES=..\Target\$(DDK_TARGET_OS)\$(INF_NAME).inf
-SOURCES=xenenum.c

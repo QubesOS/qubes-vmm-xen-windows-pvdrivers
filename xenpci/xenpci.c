@@ -161,6 +161,11 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
     IoDeleteDevice(fdo);
     return STATUS_NO_SUCH_DEVICE;
   }
+  INIT_PNP_STATE(&xpdd->common);
+  xpdd->common.device_usage_paging = 0;
+  xpdd->common.device_usage_dump = 0;
+  xpdd->common.device_usage_hibernation = 0;
+
   InitializeListHead(&xpdd->child_list);
 
   status = IoRegisterDeviceInterface(

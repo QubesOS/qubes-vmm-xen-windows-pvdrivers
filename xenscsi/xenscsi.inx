@@ -7,8 +7,6 @@ CatalogFile="XenGPLPV.cat"
 
 [DestinationDirs]
 DefaultDestDir = 12
-ClassInstall32_CopyFiles=11
-CoInstaller_CopyFiles = 11
 
 [ControlFlags]
 ExcludeFromSelect=*
@@ -58,10 +56,10 @@ AddReg = XenScsi_Inst_HW_AddReg
 xenscsi.sys=1
 
 [SourceDisksNames.x86]
-1 = %DISK_NAME%,,,\i386
+1 = %DISK_NAME%,,,.\i386
 
 [SourceDisksNames.amd64]
-1 = %DISK_NAME%,,,\amd64
+1 = %DISK_NAME%,,,.\amd64
 
 [Strings]
 XenGplPv = "Xen GPL PV Driver Developers"

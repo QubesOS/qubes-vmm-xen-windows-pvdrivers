@@ -681,7 +681,7 @@ XenPci_Pnp_StopDevice(PDEVICE_OBJECT device_object, PIRP irp, PVOID context)
 }
 
 static NTSTATUS
-XenPci_Pnp_QueryRemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
+XenPci_Pnp_QueryStopRemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
   PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
@@ -690,8 +690,9 @@ XenPci_Pnp_QueryRemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-#if 0
-  if (FALSE)
+  if (xpdd->common.device_usage_paging
+    || xpdd->common.device_usage_dump
+    || xpdd->common.device_usage_hibernation)
   {
     /* We are in the paging or hibernation path - can't remove */
     status = irp->IoStatus.Status = STATUS_UNSUCCESSFUL;
@@ -699,13 +700,10 @@ XenPci_Pnp_QueryRemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
   }
   else
   {
-#endif
     IoSkipCurrentIrpStackLocation(irp);
     status = IoCallDriver(xpdd->common.lower_do, irp);
-#if 0
   }
-#endif
-
+  
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return status;
@@ -731,98 +729,12 @@ XenPci_Pnp_RemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
   return status;
 }
 
-#if 0
-static VOID
-XenPci_XenBusWatchHandler(PVOID context, char *path)
-{
-  NTSTATUS status;
-  char **bits;
-  int count;
-  int i;
-//  WDFDEVICE Device = Data;
-//  WDFCHILDLIST ChildList;
-//  WDF_CHILD_LIST_ITERATOR ChildIterator;
-//  WDFDEVICE ChildDevice;
-//  PXENPCI_XEN_DEVICE_DATA ChildDeviceData;
-//  XENPCI_IDENTIFICATION_DESCRIPTION description;
-  PXEN_CHILD child = NULL;
-  PXENPCI_DEVICE_DATA xpdd = context;
-
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-#if (NTDDI_VERSION >= NTDDI_WS03SP1)
-  KeAcquireGuardedMutex(&xpdd->WatchHandlerMutex);
-#endif
-
-  KdPrint((__DRIVER_NAME "     path = %s\n", path));
-  bits = SplitString(path, '/', 3, &count);
-  KdPrint((__DRIVER_NAME "     Count = %s\n", count));
-  
-  ASSERT(count >= 2);
-  
-  for (i = 0; i < 16; i++)
-  {
-    if (xpdd->child_devices[i].pdo != NULL && strncmp(xpdd->child_devices[i].path, path, strlen(xpdd->child_devices[i].path)) == 0 && path[strlen(xpdd->child_devices[i].path] == '/')
-    {
-	  child = &xpdd->child_devices[i];
-	  break;
-	}
-  }
-  
-  if (child == NULL && count >= 2)
-    IoInvalidateDeviceRelations(xpdd->common.fdo, BusRelations);
-  else if (count > 2)
-  {
-    // forward on to the child
-  }
-  
-#if 0
-  ChildDeviceData = NULL;
-  WDF_CHILD_LIST_ITERATOR_INIT(&ChildIterator, WdfRetrievePresentChildren);
-  WdfChildListBeginIteration(ChildList, &ChildIterator);
-  while (NT_SUCCESS(WdfChildListRetrieveNextDevice(ChildList, &ChildIterator, &ChildDevice, NULL)))
-  {
-    ChildDeviceData = GetXenDeviceData(ChildDevice);
-    if (!ChildDeviceData)
-    {
-      KdPrint(("     No child device data, should never happen\n"));
-      continue;
-    }
-    if (strncmp(ChildDeviceData->Path, Path, strlen(ChildDeviceData->Path)) == 0 && Path[strlen(ChildDeviceData->Path)] == '/')
-    {
-      if (Count == 3 && ChildDeviceData->WatchHandler != NULL)
-        ChildDeviceData->WatchHandler(Path, ChildDeviceData->WatchContext);
-      break;
-    }
-    ChildDeviceData = NULL;
-  }
-  WdfChildListEndIteration(ChildList, &ChildIterator);
-  if (Count >= 2 && ChildDeviceData == NULL)
-  {
-    RtlZeroMemory(&description, sizeof(description));
-    WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&description.Header, sizeof(description));
-    strncpy(description.Path, Path, 128);
-    strncpy(description.DeviceType, Bits[1], 128);
-    KdPrint((__DRIVER_NAME "     Adding child for %s\n", description.DeviceType));
-    status = WdfChildListAddOrUpdateChildDescriptionAsPresent(ChildList, &description.Header, NULL);
-  }
-  FreeSplitString(Bits, Count);
-
-#if (NTDDI_VERSION >= NTDDI_WS03SP1)
-  KeReleaseGuardedMutex(&xpdd->WatchHandlerMutex);
-#endif
-
-#endif
-
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-}
-#endif
-
 static VOID
 XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context)
 {
   NTSTATUS status = STATUS_SUCCESS;
   PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+  PXENPCI_PDO_DEVICE_DATA xppdd;
   PIRP irp = context;
   int device_count = 0;
   PDEVICE_RELATIONS dev_relations;
@@ -886,18 +798,21 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
             if (!NT_SUCCESS(status))
               KdPrint((__DRIVER_NAME "     IoCreateDevice status = %08X\n", status));
             RtlZeroMemory(pdo->DeviceExtension, sizeof(XENPCI_PDO_DEVICE_DATA));
-            child->context = (PXENPCI_PDO_DEVICE_DATA)pdo->DeviceExtension;
-            child->context->common.fdo = NULL;
-            child->context->common.pdo = pdo;
-            child->context->common.lower_do = NULL;
-            child->context->common.device_pnp_state = NotStarted;
-            child->context->bus_fdo = device_object;
-            RtlStringCbCopyA(child->context->path, ARRAY_SIZE(child->context->path), path);
-            RtlStringCbCopyA(child->context->device, ARRAY_SIZE(child->context->device), devices[i]);
-            child->context->index = atoi(instances[j]);
-            KeInitializeEvent(&child->context->backend_state_event, SynchronizationEvent, FALSE);
-            child->context->backend_state = XenbusStateUnknown;
-            child->context->backend_path[0] = '\0';
+            child->context = xppdd = pdo->DeviceExtension;
+            xppdd->common.fdo = NULL;
+            xppdd->common.pdo = pdo;
+            xppdd->common.lower_do = NULL;
+            INIT_PNP_STATE(&xppdd->common);
+            xppdd->common.device_usage_paging = 0;
+            xppdd->common.device_usage_dump = 0;
+            xppdd->common.device_usage_hibernation = 0;
+            xppdd->bus_fdo = device_object;
+            RtlStringCbCopyA(xppdd->path, ARRAY_SIZE(xppdd->path), path);
+            RtlStringCbCopyA(xppdd->device, ARRAY_SIZE(xppdd->device), devices[i]);
+            xppdd->index = atoi(instances[j]);
+            KeInitializeEvent(&xppdd->backend_state_event, SynchronizationEvent, FALSE);
+            xppdd->backend_state = XenbusStateUnknown;
+            xppdd->backend_path[0] = '\0';
             InsertTailList(&xpdd->child_list, (PLIST_ENTRY)child);
             device_count++;
           }
@@ -1007,11 +922,65 @@ XenPci_Pnp_FilterResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   return STATUS_PENDING;
 }
 
+static NTSTATUS
+XenPci_Pnp_DeviceUsageNotification(PDEVICE_OBJECT device_object, PIRP irp, PVOID context)
+{
+  NTSTATUS status;
+  PXENPCI_DEVICE_DATA xpdd;
+  PIO_STACK_LOCATION stack;
+  
+  UNREFERENCED_PARAMETER(context);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__"\n"));
+
+  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+  stack = IoGetCurrentIrpStackLocation(irp);
+  status = irp->IoStatus.Status;
+  
+  if (!NT_SUCCESS(irp->IoStatus.Status))
+  {
+    switch (stack->Parameters.UsageNotification.Type)
+    {
+    case DeviceUsageTypePaging:
+      if (stack->Parameters.UsageNotification.InPath)
+        xpdd->common.device_usage_paging--;
+      else
+        xpdd->common.device_usage_paging++;      
+      break;
+    case DeviceUsageTypeDumpFile:
+      if (stack->Parameters.UsageNotification.InPath)
+        xpdd->common.device_usage_dump--;
+      else
+        xpdd->common.device_usage_dump++;      
+      break;
+    case DeviceUsageTypeHibernation:
+      if (stack->Parameters.UsageNotification.InPath)
+        xpdd->common.device_usage_hibernation--;
+      else
+        xpdd->common.device_usage_hibernation++;      
+      break;
+    }
+    if (xpdd->common.device_usage_paging
+      || xpdd->common.device_usage_dump
+      || xpdd->common.device_usage_hibernation)
+    {
+      xpdd->common.fdo->Flags &= ~DO_POWER_PAGABLE;
+    }
+    IoInvalidateDeviceState(xpdd->common.pdo);
+  }
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  
+  return status;
+}
+
+
 NTSTATUS
 XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
-  PIO_STACK_LOCATION stack;
   NTSTATUS status;
+  PIO_STACK_LOCATION stack;
   PXENPCI_DEVICE_DATA xpdd;
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
@@ -1028,9 +997,10 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
 
   case IRP_MN_QUERY_STOP_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_STOP_DEVICE\n"));
-    IoSkipCurrentIrpStackLocation(irp);
-    irp->IoStatus.Status = STATUS_SUCCESS;
-    break;
+    status = XenPci_Pnp_QueryStopRemoveDevice(device_object, irp);
+    if (NT_SUCCESS(status))
+      SET_PNP_STATE(&xpdd->common.fdo, RemovePending);
+    return status;
 
   case IRP_MN_STOP_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_STOP_DEVICE\n"));
@@ -1041,21 +1011,26 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   case IRP_MN_CANCEL_STOP_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_STOP_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
+    REVERT_PNP_STATE(&xpdd->common);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_QUERY_REMOVE_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_REMOVE_DEVICE\n"));
-    return XenPci_Pnp_QueryRemoveDevice(device_object, irp);
+    status = XenPci_Pnp_QueryStopRemoveDevice(device_object, irp);
+    if (NT_SUCCESS(status))
+      SET_PNP_STATE(&xpdd->common.fdo, RemovePending);
+    return status;
 
   case IRP_MN_REMOVE_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_REMOVE_DEVICE\n"));
-    return XenPci_Pnp_QueryRemoveDevice(device_object, irp);
+    return XenPci_Pnp_RemoveDevice(device_object, irp);
     break;
 
   case IRP_MN_CANCEL_REMOVE_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_REMOVE_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
+    REVERT_PNP_STATE(&xpdd->common.fdo, &xpdd->common);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
@@ -1067,8 +1042,47 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
 
   case IRP_MN_DEVICE_USAGE_NOTIFICATION:
     KdPrint((__DRIVER_NAME "     IRP_MN_DEVICE_USAGE_NOTIFICATION\n"));
-    IoSkipCurrentIrpStackLocation(irp);
-    irp->IoStatus.Status = STATUS_SUCCESS;
+    switch (stack->Parameters.UsageNotification.Type)
+    {
+    case DeviceUsageTypePaging:
+      KdPrint((__DRIVER_NAME "     type = DeviceUsageTypePaging = %d\n", stack->Parameters.UsageNotification.InPath));
+      if (stack->Parameters.UsageNotification.InPath)
+        xpdd->common.device_usage_paging++;
+      else
+        xpdd->common.device_usage_paging--;      
+      irp->IoStatus.Status = STATUS_SUCCESS;
+      break;
+    case DeviceUsageTypeDumpFile:
+      KdPrint((__DRIVER_NAME "     type = DeviceUsageTypeDumpFile = %d\n", stack->Parameters.UsageNotification.InPath));
+      if (stack->Parameters.UsageNotification.InPath)
+        xpdd->common.device_usage_dump++;
+      else
+        xpdd->common.device_usage_dump--;      
+      irp->IoStatus.Status = STATUS_SUCCESS;
+      break;
+    case DeviceUsageTypeHibernation:
+      KdPrint((__DRIVER_NAME "     type = DeviceUsageTypeHibernation = %d\n", stack->Parameters.UsageNotification.InPath));
+      if (stack->Parameters.UsageNotification.InPath)
+        xpdd->common.device_usage_hibernation++;
+      else
+        xpdd->common.device_usage_hibernation--;      
+      irp->IoStatus.Status = STATUS_SUCCESS;
+      break;
+    default:
+      KdPrint((__DRIVER_NAME "     type = unsupported (%d)\n", stack->Parameters.UsageNotification.Type));      
+      irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
+      IoCompleteRequest(irp, IO_NO_INCREMENT);
+      return STATUS_NOT_SUPPORTED;
+    }
+    if (!xpdd->common.device_usage_paging
+      && !xpdd->common.device_usage_dump
+      && !xpdd->common.device_usage_hibernation)
+    {
+      xpdd->common.fdo->Flags |= DO_POWER_PAGABLE;
+    }
+    IoInvalidateDeviceState(xpdd->common.pdo);
+    IoCopyCurrentIrpStackLocationToNext(irp);
+    IoSetCompletionRoutine(irp, XenPci_Pnp_DeviceUsageNotification, NULL, TRUE, TRUE, TRUE);
     break;
 
   case IRP_MN_QUERY_DEVICE_RELATIONS:
@@ -1089,6 +1103,18 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
     KdPrint((__DRIVER_NAME "     IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n"));
     return XenPci_Pnp_FilterResourceRequirements(device_object, irp);
 
+  case IRP_MN_QUERY_PNP_DEVICE_STATE:
+    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_PNP_DEVICE_STATE\n"));
+    irp->IoStatus.Status = STATUS_SUCCESS;
+    if (xpdd->common.device_usage_paging
+      || xpdd->common.device_usage_dump
+      || xpdd->common.device_usage_hibernation)
+    {
+      irp->IoStatus.Information |= PNP_DEVICE_NOT_DISABLEABLE;
+    }
+    IoSkipCurrentIrpStackLocation(irp);
+    break;
+    
   default:
     //KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));
     IoSkipCurrentIrpStackLocation(irp);

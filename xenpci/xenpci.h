@@ -123,10 +123,32 @@ typedef struct
   PDEVICE_OBJECT pdo;
   PDEVICE_OBJECT lower_do;
   
-  DEVICE_PNP_STATE device_pnp_state;
+  DEVICE_PNP_STATE current_pnp_state;
+  DEVICE_PNP_STATE previous_pnp_state;
   DEVICE_POWER_STATE device_power_state;
-  SYSTEM_POWER_STATE system_power_state; 
+  SYSTEM_POWER_STATE system_power_state;
+  
+  ULONG device_usage_paging;
+  ULONG device_usage_dump;
+  ULONG device_usage_hibernation;
 } XENPCI_COMMON, *PXENPCI_COMMON;
+
+static __inline INIT_PNP_STATE(PXENPCI_COMMON common)
+{
+  common->current_pnp_state = NotStarted;
+  common->previous_pnp_state = NotStarted;
+}
+
+static __inline SET_PNP_STATE(PXENPCI_COMMON common, DEVICE_PNP_STATE state)
+{
+  common->previous_pnp_state = common->current_pnp_state;
+  common->current_pnp_state = state;
+}
+
+static __inline REVERT_PNP_STATE(PXENPCI_COMMON common)
+{
+  common->current_pnp_state = common->previous_pnp_state;
+}
 
 #define SHUTDOWN_RING_SIZE 128
 
