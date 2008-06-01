@@ -204,6 +204,30 @@ namespace ShutdownMon
         const string MyDisplayName = "Xen Shutdown Monitor Service";
         const string MyServiceDescription = "Monitors the kernel driver and shuts down Windows when directed";
 
+        private static Installer MakeServiceInstaller()
+        {
+            Installer i = new Installer();
+            i.Context = new InstallContext();
+            i.Context.Parameters.Add("AssemblyPath", Assembly.GetExecutingAssembly().Location);
+            i.Context.Parameters.Add("LogToConsole", "false");
+            i.Context.Parameters.Add("Silent", "true");
+
+            ServiceProcessInstaller spi = new ServiceProcessInstaller();
+            spi.Account = ServiceAccount.LocalSystem;
+            spi.Username = "";
+            spi.Password = "";
+            i.Installers.Add(spi);
+
+            ServiceInstaller si = new ServiceInstaller();
+            si.ServiceName = MyServiceName;
+            si.DisplayName = MyDisplayName;
+            si.Description = MyServiceDescription;
+            si.StartType = ServiceStartMode.Automatic;
+            i.Installers.Add(si);
+
+            return i;
+        }
+
         static void Main(string[] args)
         {
             int argNo = 0;
@@ -216,32 +240,13 @@ namespace ShutdownMon
                     case "-i":
                         {
                             IDictionary mySavedState = new Hashtable();
-
-                            Installer i = new Installer();
-                            i.Context = new InstallContext();
-                            i.Context.Parameters.Add("AssemblyPath", Assembly.GetExecutingAssembly().Location);
-                            i.Context.Parameters.Add("LogToConsole", "false");
-                            i.Context.Parameters.Add("Silent", "true");
-
-                            ServiceProcessInstaller spi = new ServiceProcessInstaller();
-                            spi.Account = ServiceAccount.LocalSystem;
-                            spi.Username = "";
-                            spi.Password = "";
-                            i.Installers.Add(spi);
-
-                            ServiceInstaller si = new ServiceInstaller();
-                            si.ServiceName = MyServiceName;
-                            si.DisplayName = MyDisplayName;
-                            si.Description = MyServiceDescription;
-                            si.StartType = ServiceStartMode.Manual;
-                            i.Installers.Add(si);
-
+                            Installer i = MakeServiceInstaller();
                             try
                             {
                                 i.Install(mySavedState);
 
                                 Microsoft.Win32.RegistryKey config;
-                                config = Microsoft.Win32.Registry.LocalMachine.OpenSubKey("System").OpenSubKey("CurrentControlSet").OpenSubKey("Services").OpenSubKey(si.ServiceName, true);
+                                config = Microsoft.Win32.Registry.LocalMachine.OpenSubKey("System").OpenSubKey("CurrentControlSet").OpenSubKey("Services").OpenSubKey(MyServiceName, true);
                                 if (args.Length > 1)
                                 {
                                     config.SetValue("ImagePath", config.GetValue("ImagePath") + " -s " + string.Join(" ", args, argNo, args.Length - argNo - 1));
@@ -268,21 +273,7 @@ namespace ShutdownMon
                     case "-u":
                         {
                             IDictionary mySavedState = new Hashtable();
-                            Installer i = new Installer();
-                            i.Context = new InstallContext(null, new string[] { "assemblypath=\"" + Assembly.GetExecutingAssembly().Location + "\" -s", "LogToConsole=false", "Silent=true" });
-
-                            ServiceProcessInstaller spi = new ServiceProcessInstaller();
-                            spi.Account = ServiceAccount.LocalSystem;
-                            spi.Username = "";
-                            spi.Password = "";
-                            i.Installers.Add(spi);
-
-                            ServiceInstaller si = new ServiceInstaller();
-                            si.ServiceName = MyServiceName;
-                            si.DisplayName = MyDisplayName;
-                            si.Description = MyServiceDescription;
-                            si.StartType = ServiceStartMode.Manual;
-                            i.Installers.Add(si);
+                            Installer i = MakeServiceInstaller();
 
                             try
                             {

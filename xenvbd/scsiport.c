@@ -30,7 +30,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable: 4127)
 
 #if defined(__x86_64__)
-  #define GET_PAGE_ALIGNED(ptr) ((ptr + PAGE_SIZE - 1) & ~PAGE_MASK)
+  #define GET_PAGE_ALIGNED(ptr) ((PVOID)(((ULONGLONG)ptr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1)))
 #else
   #define GET_PAGE_ALIGNED(ptr) UlongToPtr((PtrToUlong(ptr) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1))
 #endif
@@ -688,8 +688,8 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
         if ((Srb->Cdb[1] & 1) == 0)
         {
           PINQUIRYDATA id = (PINQUIRYDATA)DataBuffer;
-          id->DeviceType = DIRECT_ACCESS_DEVICE;          
-          id->ANSIVersion = 3;
+          id->DeviceType = DIRECT_ACCESS_DEVICE;
+          id->Versions = 3;
           id->ResponseDataFormat = 0;
           id->AdditionalLength = FIELD_OFFSET(INQUIRYDATA, VendorSpecific) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength);
           id->CommandQueue = 1;
@@ -729,7 +729,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
           PINQUIRYDATA id = (PINQUIRYDATA)DataBuffer;
           id->DeviceType = READ_ONLY_DIRECT_ACCESS_DEVICE;
           id->RemovableMedia = 1;
-          id->ANSIVersion = 3;
+          id->Versions = 3;
           id->ResponseDataFormat = 0;
           id->AdditionalLength = FIELD_OFFSET(INQUIRYDATA, VendorSpecific) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength);
           id->CommandQueue = 1;

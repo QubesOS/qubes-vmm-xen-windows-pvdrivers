@@ -999,7 +999,7 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_STOP_DEVICE\n"));
     status = XenPci_Pnp_QueryStopRemoveDevice(device_object, irp);
     if (NT_SUCCESS(status))
-      SET_PNP_STATE(&xpdd->common.fdo, RemovePending);
+      SET_PNP_STATE(&xpdd->common, RemovePending);
     return status;
 
   case IRP_MN_STOP_DEVICE:
@@ -1019,7 +1019,7 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_REMOVE_DEVICE\n"));
     status = XenPci_Pnp_QueryStopRemoveDevice(device_object, irp);
     if (NT_SUCCESS(status))
-      SET_PNP_STATE(&xpdd->common.fdo, RemovePending);
+      SET_PNP_STATE(&xpdd->common, RemovePending);
     return status;
 
   case IRP_MN_REMOVE_DEVICE:
@@ -1030,7 +1030,7 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   case IRP_MN_CANCEL_REMOVE_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_REMOVE_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
-    REVERT_PNP_STATE(&xpdd->common.fdo, &xpdd->common);
+    REVERT_PNP_STATE(&xpdd->common);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
