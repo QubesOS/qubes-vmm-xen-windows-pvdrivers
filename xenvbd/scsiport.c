@@ -162,9 +162,11 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
       if (strcmp(setting, "ring-ref") == 0)
       {
-        
         sring = (blkif_sring_t *)value;
         FRONT_RING_INIT(&xvdd->ring, sring, PAGE_SIZE);
+        /* this bit is for when we have to take over an existing ring on a bug check */
+        xvdd->ring.req_prod_pvt = sring->req_prod;
+        xvdd->ring.rsp_cons = sring->rsp_prod;
       }
       break;
     case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */

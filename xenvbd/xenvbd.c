@@ -191,9 +191,15 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   status = ScsiPortInitialize(DriverObject, RegistryPath, &HwInitializationData, NULL);
   
-  /* this is a bit naughty... */
-  XenVbd_Pnp_Original = DriverObject->MajorFunction[IRP_MJ_PNP];
-  DriverObject->MajorFunction[IRP_MJ_PNP] = XenVbd_Pnp;
+  /* DriverObject will be NULL if we are being called in dump mode */
+  if (DriverObject != NULL)
+  {
+    /* this is a bit naughty... */
+    XenVbd_Pnp_Original = DriverObject->MajorFunction[IRP_MJ_PNP];
+    DriverObject->MajorFunction[IRP_MJ_PNP] = XenVbd_Pnp;
+  }
+  else
+    XenVbd_Pnp_Original = NULL;
 
   if(!NT_SUCCESS(status))
   {
