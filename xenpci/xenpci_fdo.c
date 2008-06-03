@@ -831,6 +831,16 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
     }
     dev_relations->Count = device_count;
 
+    for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
+    {
+      if (child->state == CHILD_STATE_DELETED)
+      {
+        KdPrint((__DRIVER_NAME "     Removing deleted child from device list\n" ));
+        child->entry.Flink;
+        ExFreePoolWithTag(child->entry.Blink, XENPCI_POOL_TAG);
+      }
+    }
+    
     status = STATUS_SUCCESS;
   }
   else
@@ -936,7 +946,8 @@ XenPci_Pnp_DeviceUsageNotification(PDEVICE_OBJECT device_object, PIRP irp, PVOID
   xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   stack = IoGetCurrentIrpStackLocation(irp);
   status = irp->IoStatus.Status;
-  
+
+  /* fail if we are in a stop or remove pending state */  
   if (!NT_SUCCESS(irp->IoStatus.Status))
   {
     switch (stack->Parameters.UsageNotification.Type)

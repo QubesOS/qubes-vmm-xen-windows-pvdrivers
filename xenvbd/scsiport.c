@@ -89,6 +89,7 @@ XenVbd_GetResponse(PXENVBD_DEVICE_DATA xvdd, int i)
   return &xvdd->tmp_rep;
 }
 
+#if 0
 static VOID
 XenVbd_HwScsiTimer(PVOID DeviceExtension)
 {
@@ -98,6 +99,7 @@ XenVbd_HwScsiTimer(PVOID DeviceExtension)
   xvdd->shadow_min_free = xvdd->shadow_free;
   ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_HwScsiTimer, 1 * 1000 * 1000);
 }
+#endif
 
 static ULONG
 XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
@@ -316,8 +318,10 @@ XenVbd_HwScsiInitialize(PVOID DeviceExtension)
   if (notify)
     xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
 
+#if 0
   xvdd->shadow_min_free = xvdd->shadow_free;
   ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_HwScsiTimer, 1 * 1000 * 1000);
+#endif
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 

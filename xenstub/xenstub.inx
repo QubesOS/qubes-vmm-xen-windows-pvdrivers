@@ -16,14 +16,14 @@ ExcludeFromSelect=*
 %XenGplPv%=XenGplPv,NTamd64
 
 [XenGplPv.NTx86]
-%XenStub.DRVDESC%=XenStub_Inst, XEN\CONSOLE
-%XenStub.DRVDESC%=XenStub_Inst, XEN\VFB
-%XenStub.DRVDESC%=XenStub_Inst, XEN\VKBD
+%XenStub.DRVDESC.CONSOLE%=XenStub_Inst, XEN\CONSOLE
+%XenStub.DRVDESC.VFB%=XenStub_Inst, XEN\VFB
+%XenStub.DRVDESC.VKBD%=XenStub_Inst, XEN\VKBD
 
 [XenGplPv.NTamd64]
-%XenStub.DRVDESC%=XenStub_Inst, XEN\CONSOLE
-%XenStub.DRVDESC%=XenStub_Inst, XEN\VFB
-%XenStub.DRVDESC%=XenStub_Inst, XEN\VKBD
+%XenStub.DRVDESC.CONSOLE%=XenStub_Inst, XEN\CONSOLE
+%XenStub.DRVDESC.VFB%=XenStub_Inst, XEN\VFB
+%XenStub.DRVDESC.VKBD%=XenStub_Inst, XEN\VKBD
 
 [XenStub_Inst.NT]
 CopyFiles=XenStub.CopyFiles
@@ -62,4 +62,7 @@ HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
 XenGplPv = "Xen GPL PV Driver Developers"
 XenStub.SVCDESC = "Xen Stub Device Driver"
 XenStub.DRVDESC = "Xen Stub Device Driver"
+XenStub.DRVDESC.CONSOLE = "Xen Stub Device Driver (Console)"
+XenStub.DRVDESC.VFB = "Xen Stub Device Driver (Virtual Frame Buffer)"
+XenStub.DRVDESC.VKBD = "Xen Stub Device Driver (Virtual Keyboard)
 DISK_NAME = "Xen Stub Device Driver Install Disk"

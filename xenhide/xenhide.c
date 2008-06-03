@@ -59,7 +59,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   UNREFERENCED_PARAMETER(RegistryPath);
 
   KdPrint((__DRIVER_NAME " --> DriverEntry\n"));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
   InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
@@ -164,36 +163,36 @@ XenHide_AddDevice(
 //  PWCHAR Ptr;
   GUID bus_type;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   length = 256;
   status = IoGetDeviceProperty(PhysicalDeviceObject, DevicePropertyDeviceDescription, length, buffer, &length);
-  if (!NT_SUCCESS(status))
-    KdPrint((__DRIVER_NAME "     (failed to get DevicePropertyDeviceDescription %08x)\n", status));
-  else
-    KdPrint((__DRIVER_NAME "     Description = %S\n", buffer));
+//  if (!NT_SUCCESS(status))
+//    KdPrint((__DRIVER_NAME "     (failed to get DevicePropertyDeviceDescription %08x)\n", status));
+//  else
+//    KdPrint((__DRIVER_NAME "     Description = %S\n", buffer));
 
   length = sizeof(GUID);
   status = IoGetDeviceProperty(PhysicalDeviceObject, DevicePropertyBusTypeGuid, length, &bus_type, &length);
   if (!NT_SUCCESS(status))
   {
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (failed to get DevicePropertyBusTypeGuid %08x)\n", status));
+//    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (failed to get DevicePropertyBusTypeGuid %08x)\n", status));
     return STATUS_SUCCESS;
   }
 
   if (!gplpv && memcmp(&bus_type, &GUID_BUS_TYPE_XEN, sizeof(GUID)) != 0)
   {
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (gplpv == FALSE && bus_type != GUID_BUS_TYPE_XEN)\n"));
+//    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (gplpv == FALSE && bus_type != GUID_BUS_TYPE_XEN)\n"));
     return STATUS_SUCCESS;
   }
   
   if (gplpv && memcmp(&bus_type, &GUID_BUS_TYPE_PCI, sizeof(GUID)) != 0)
   {
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (gplpv == TRUE && bus_type != GUID_BUS_TYPE_PCI)\n"));
+//    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (gplpv == TRUE && bus_type != GUID_BUS_TYPE_PCI)\n"));
     return STATUS_SUCCESS;
   }
 
-  KdPrint((__DRIVER_NAME "     Installing Filter\n"));
+//  KdPrint((__DRIVER_NAME "     Installing Filter\n"));
 
   status = IoCreateDevice (DriverObject,
     sizeof(XENHIDE_DEVICE_DATA),
@@ -218,7 +217,7 @@ XenHide_AddDevice(
 
   deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return STATUS_SUCCESS;
 }
@@ -241,14 +240,14 @@ XenHide_Pnp_IoCompletion(PDEVICE_OBJECT device_object, PIRP irp, PVOID context)
 
   UNREFERENCED_PARAMETER(device_object);
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   if (irp->PendingReturned)
   {
     KeSetEvent(event, IO_NO_INCREMENT, FALSE);
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return STATUS_MORE_PROCESSING_REQUIRED;
 }
@@ -262,7 +261,7 @@ XenHide_SendAndWaitForIrp(PDEVICE_OBJECT device_object, PIRP irp)
 
   UNREFERENCED_PARAMETER(device_object);
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   KeInitializeEvent(&event, NotificationEvent, FALSE);
 
@@ -273,13 +272,13 @@ XenHide_SendAndWaitForIrp(PDEVICE_OBJECT device_object, PIRP irp)
 
   if (status == STATUS_PENDING)
   {
-    KdPrint((__DRIVER_NAME "     waiting ...\n"));
+//    KdPrint((__DRIVER_NAME "     waiting ...\n"));
     KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
-    KdPrint((__DRIVER_NAME "     ... done\n"));
+//    KdPrint((__DRIVER_NAME "     ... done\n"));
     status = irp->IoStatus.Status;
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return status;
 }
@@ -291,8 +290,7 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   PIO_STACK_LOCATION stack;
   PXENHIDE_DEVICE_DATA xhdd = (PXENHIDE_DEVICE_DATA)device_object->DeviceExtension;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   stack = IoGetCurrentIrpStackLocation(irp);
 
@@ -302,12 +300,12 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     IoCompleteRequest(irp, IO_NO_INCREMENT);
     break;
   case IRP_MN_QUERY_CAPABILITIES:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_CAPABILITIES\n"));
+//    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_CAPABILITIES\n"));
     stack->Parameters.DeviceCapabilities.Capabilities->NoDisplayInUI = 1;
     status = XenHide_SendAndWaitForIrp(device_object, irp);
     status = irp->IoStatus.Status = STATUS_SUCCESS;
     IoCompleteRequest(irp, IO_NO_INCREMENT);
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+//    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
     return status;
   default:
     IoSkipCurrentIrpStackLocation(irp);
@@ -315,7 +313,7 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     break;
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returning with status %08x)\n", status));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returning with status %08x)\n", status));
 
   return status;
 }

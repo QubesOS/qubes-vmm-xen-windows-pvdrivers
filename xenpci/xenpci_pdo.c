@@ -36,7 +36,7 @@ XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 
   UNREFERENCED_PARAMETER(device_object);
   
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   stack = IoGetCurrentIrpStackLocation(irp);
   power_type = stack->Parameters.Power.Type;
@@ -45,15 +45,15 @@ XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   switch (stack->MinorFunction)
   {
   case IRP_MN_POWER_SEQUENCE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_POWER_SEQUENCE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_POWER_SEQUENCE\n"));
     status = STATUS_NOT_SUPPORTED;
     break;
   case IRP_MN_QUERY_POWER:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_POWER\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_POWER\n"));
     status = STATUS_SUCCESS;
     break;
   case IRP_MN_SET_POWER:
-    KdPrint((__DRIVER_NAME "     IRP_MN_SET_POWER\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_SET_POWER\n"));
     switch (power_type) {
     case DevicePowerState:
       PoSetPowerState(device_object, power_type, power_state);
@@ -68,7 +68,7 @@ XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
     }    
     break;
   case IRP_MN_WAIT_WAKE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_WAIT_WAKE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_WAIT_WAKE\n"));
     status = STATUS_NOT_SUPPORTED;
     break;
   default:
@@ -84,7 +84,7 @@ XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   status = irp->IoStatus.Status;
   IoCompleteRequest(irp, IO_NO_INCREMENT);
   
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return status;
 }
@@ -115,7 +115,7 @@ XenPci_BackEndStateHandler(char *Path, PVOID Context)
   if (xppdd->backend_state == new_backend_state)
   {
     KdPrint((__DRIVER_NAME "     state unchanged\n"));
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
     return;
   }    
 
@@ -144,8 +144,27 @@ XenPci_BackEndStateHandler(char *Path, PVOID Context)
     break;
 
   case XenbusStateClosing:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));  
-    /* check our current PNP statue - this may be a surprise removal... */
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));
+    if (xppdd->common.device_usage_paging
+      || xppdd->common.device_usage_dump
+      || xppdd->common.device_usage_hibernation)
+    {
+      KdPrint((__DRIVER_NAME "     Not closing device because it is in use\n"));
+      /* in use by page file, dump file, or hiber file - can't close */
+      /* we should probably re-check if the device usage changes in the future */
+    }
+    else
+    {
+      if (xppdd->common.current_pnp_state == Started)
+      {
+        KdPrint((__DRIVER_NAME "     Sending RequestDeviceEject\n"));
+        IoRequestDeviceEject(xppdd->common.pdo);
+      }
+      else
+      {
+        KdPrint((__DRIVER_NAME "     Not closing device because it is not started\n"));
+      }
+    }
     break;
 
   case XenbusStateClosed:
@@ -335,12 +354,18 @@ XenPci_ShutdownDevice(PVOID Context)
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   if (xppdd->backend_state == XenbusStateConnected)
+  {
     XenPci_ChangeFrontendState(xppdd, XenbusStateClosing, XenbusStateClosing, 30000);
-  if (xppdd->backend_state == XenbusStateClosing)
-    XenPci_ChangeFrontendState(xppdd, XenbusStateClosed, XenbusStateClosed, 30000);
-  if (xppdd->backend_state == XenbusStateClosed)
-    XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000);
-    
+    if (xppdd->backend_state == XenbusStateClosing)
+      XenPci_ChangeFrontendState(xppdd, XenbusStateClosed, XenbusStateClosed, 30000);
+    if (xppdd->backend_state == XenbusStateClosed)
+      XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000);
+  }
+  else
+  {
+    if (xppdd->backend_state == XenbusStateClosing)
+      XenPci_ChangeFrontendState(xppdd, XenbusStateClosed, XenbusStateClosed, 30000);
+  }
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return STATUS_SUCCESS;
@@ -654,7 +679,7 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
   ird->Option = 0;
   ird->Type = CmResourceTypeInterrupt;
-  ird->ShareDisposition = CmResourceShareShared; //CmResourceShareDeviceExclusive;
+  ird->ShareDisposition = CmResourceShareShared;
   ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
   ird->u.Interrupt.MinimumVector = 1;
   ird->u.Interrupt.MaximumVector = 6;
@@ -662,7 +687,7 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
   ird->Option = IO_RESOURCE_ALTERNATIVE;
   ird->Type = CmResourceTypeInterrupt;
-  ird->ShareDisposition = CmResourceShareShared; //CmResourceShareDeviceExclusive;
+  ird->ShareDisposition = CmResourceShareShared;
   ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
   ird->u.Interrupt.MinimumVector = 10;
   ird->u.Interrupt.MaximumVector = 14;
@@ -697,13 +722,13 @@ XenPci_Pnp_QueryCapabilities(PDEVICE_OBJECT device_object, PIRP irp)
   stack = IoGetCurrentIrpStackLocation(irp);
   dc = stack->Parameters.DeviceCapabilities.Capabilities;
   dc->LockSupported = FALSE;
-  dc->EjectSupported = FALSE;
-  dc->Removable = FALSE;
+  dc->EjectSupported = FALSE; //TRUE;
+  dc->Removable = TRUE;
   dc->DockDevice = FALSE;
   dc->UniqueID = FALSE;
-  dc->SilentInstall = FALSE;
+  dc->SilentInstall = TRUE; //FALSE;
   dc->RawDeviceOK = FALSE;
-  dc->SurpriseRemovalOK = FALSE;
+  dc->SurpriseRemovalOK = TRUE;
   dc->HardwareDisabled = FALSE;
   dc->NoDisplayInUI = FALSE;
   dc->DeviceWake = PowerDeviceUnspecified;
@@ -730,6 +755,7 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   WCHAR widebuf[256];
   unsigned int i;
   PPNP_BUS_INFORMATION pbi;
+  ULONG *usage_type;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -785,19 +811,31 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 
   case IRP_MN_DEVICE_USAGE_NOTIFICATION:
     KdPrint((__DRIVER_NAME "     IRP_MN_DEVICE_USAGE_NOTIFICATION (status = %08x)\n", irp->IoStatus.Status));
+    
+    usage_type = NULL;
     switch (stack->Parameters.UsageNotification.Type)
     {
     case DeviceUsageTypePaging:
       KdPrint((__DRIVER_NAME "     type = DeviceUsageTypePaging\n"));
+      usage_type = &xppdd->common.device_usage_paging;
       break;
     case DeviceUsageTypeDumpFile:
       KdPrint((__DRIVER_NAME "     type = DeviceUsageTypeDumpFile\n"));
+      usage_type = &xppdd->common.device_usage_dump;
       break;
     case DeviceUsageTypeHibernation:
       KdPrint((__DRIVER_NAME "     type = DeviceUsageTypeHibernation\n"));
+      usage_type = &xppdd->common.device_usage_hibernation;
       break;
     }
     KdPrint((__DRIVER_NAME "     inpath = %d\n", stack->Parameters.UsageNotification.InPath));
+    if (usage_type)
+    {
+      if (stack->Parameters.UsageNotification.InPath)
+        (*usage_type)++;
+      else
+        (*usage_type)--;
+    }        
     status = STATUS_SUCCESS;
     break;
 

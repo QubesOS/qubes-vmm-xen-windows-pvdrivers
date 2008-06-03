@@ -29,14 +29,14 @@ XenStub_Pnp_IoCompletion(PDEVICE_OBJECT device_object, PIRP irp, PVOID context)
 
   UNREFERENCED_PARAMETER(device_object);
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   if (irp->PendingReturned)
   {
     KeSetEvent(event, IO_NO_INCREMENT, FALSE);
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return STATUS_MORE_PROCESSING_REQUIRED;
 }
@@ -64,7 +64,7 @@ XenStub_SendAndWaitForIrp(PDEVICE_OBJECT device_object, PIRP irp)
 
   UNREFERENCED_PARAMETER(device_object);
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   KeInitializeEvent(&event, NotificationEvent, FALSE);
 
@@ -75,13 +75,13 @@ XenStub_SendAndWaitForIrp(PDEVICE_OBJECT device_object, PIRP irp)
 
   if (status == STATUS_PENDING)
   {
-    KdPrint((__DRIVER_NAME "     waiting ...\n"));
+    //KdPrint((__DRIVER_NAME "     waiting ...\n"));
     KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
-    KdPrint((__DRIVER_NAME "     ... done\n"));
+    //KdPrint((__DRIVER_NAME "     ... done\n"));
     status = irp->IoStatus.Status;
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return status;
 }
@@ -93,7 +93,7 @@ XenStub_Irp_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   NTSTATUS status;
   PXENSTUB_DEVICE_DATA xsdd;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   xsdd = (PXENSTUB_DEVICE_DATA)device_object->DeviceExtension;
 
@@ -102,93 +102,94 @@ XenStub_Irp_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   switch (stack->MinorFunction)
   {
   case IRP_MN_START_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE\n"));
     IoMarkIrpPending(irp);
     status = XenStub_SendAndWaitForIrp(device_object, irp);
     status = irp->IoStatus.Status = STATUS_SUCCESS;
     IoCompleteRequest(irp, IO_NO_INCREMENT);
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
     return status;
 
   case IRP_MN_QUERY_STOP_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_STOP_DEVICE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_STOP_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_STOP_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_STOP_DEVICE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_STOP_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_CANCEL_STOP_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_STOP_DEVICE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_STOP_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_QUERY_REMOVE_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_REMOVE_DEVICE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_REMOVE_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
     
   case IRP_MN_REMOVE_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_REMOVE_DEVICE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_REMOVE_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_CANCEL_REMOVE_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_REMOVE_DEVICE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_REMOVE_DEVICE\n"));
     IoSkipCurrentIrpStackLocation(irp);
     //irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_SURPRISE_REMOVAL:
-    KdPrint((__DRIVER_NAME "     IRP_MN_SURPRISE_REMOVAL\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_SURPRISE_REMOVAL\n"));
     IoSkipCurrentIrpStackLocation(irp);
     //irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_DEVICE_USAGE_NOTIFICATION:
-    KdPrint((__DRIVER_NAME "     IRP_MN_DEVICE_USAGE_NOTIFICATION\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_DEVICE_USAGE_NOTIFICATION\n"));
     IoSkipCurrentIrpStackLocation(irp);
     irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_QUERY_DEVICE_RELATIONS:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS\n"));
     IoSkipCurrentIrpStackLocation(irp);
     //irp->IoStatus.Information = 0;
     //irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_FILTER_RESOURCE_REQUIREMENTS:
-    KdPrint((__DRIVER_NAME "     IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n"));
+    /* we actually want to do this - no need for interrupt here */
+    //KdPrint((__DRIVER_NAME "     IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n"));
     IoSkipCurrentIrpStackLocation(irp);
     //irp->IoStatus.Status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_QUERY_PNP_DEVICE_STATE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_PNP_DEVICE_STATE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_PNP_DEVICE_STATE\n"));
     status = XenStub_SendAndWaitForIrp(device_object, irp);
     irp->IoStatus.Information |= PNP_DEVICE_DONT_DISPLAY_IN_UI;
     status = irp->IoStatus.Status = STATUS_SUCCESS;
     IoCompleteRequest(irp, IO_NO_INCREMENT);
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
     return status;
 
   default:
-    KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));
+    //KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));
     IoSkipCurrentIrpStackLocation(irp);
     break;
   }
 
   status = IoCallDriver(xsdd->lower_do, irp);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return status;
 }
@@ -201,14 +202,14 @@ XenStub_Irp_Power(PDEVICE_OBJECT device_object, PIRP irp)
 
   UNREFERENCED_PARAMETER(device_object);
   
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   PoStartNextPowerIrp(irp);
   IoSkipCurrentIrpStackLocation(irp);
 
   status =  PoCallDriver (xsdd->lower_do, irp);
   
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return status;
 }
@@ -220,7 +221,7 @@ XenStub_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObje
   PDEVICE_OBJECT fdo = NULL;
   PXENSTUB_DEVICE_DATA xsdd;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   status = IoCreateDevice(DriverObject,
     sizeof(XENSTUB_DEVICE_DATA),
@@ -232,7 +233,7 @@ XenStub_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObje
 
   if (!NT_SUCCESS(status))
   {
-    KdPrint((__DRIVER_NAME "     IoCreateDevice failed 0x%08x\n", status));
+    //KdPrint((__DRIVER_NAME "     IoCreateDevice failed 0x%08x\n", status));
     return status;
   }
 
@@ -250,7 +251,7 @@ XenStub_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObje
   
   fdo->Flags &= ~DO_DEVICE_INITIALIZING;
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
   return status;
 }
 
@@ -261,7 +262,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   UNREFERENCED_PARAMETER(RegistryPath);
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   DriverObject->DriverExtension->AddDevice = XenStub_AddDevice;
   DriverObject->MajorFunction[IRP_MJ_PNP] = XenStub_Irp_Pnp;
@@ -274,7 +275,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   DriverObject->MajorFunction[IRP_MJ_WRITE] = NULL;
   DriverObject->MajorFunction[IRP_MJ_SYSTEM_CONTROL] = NULL;
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return status;
 }
