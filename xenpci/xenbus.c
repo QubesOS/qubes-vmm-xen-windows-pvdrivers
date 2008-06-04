@@ -273,7 +273,7 @@ XenBus_Write(
   PXENPCI_DEVICE_DATA xpdd = Context;
   struct write_req req[] = {
     {path, (ULONG)strlen(path) + 1},
-    {value, (ULONG)strlen(value) + 1},
+    {value, (ULONG)strlen(value)},
 //    {path, (ULONG)strlen(path)},
 //    {value, (ULONG)strlen(value)},
   };

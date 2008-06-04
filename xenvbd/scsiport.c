@@ -368,15 +368,16 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   ASSERT(!xvdd->pending_srb);
   
   block_count = (srb->Cdb[7] << 8) | srb->Cdb[8];
+  block_count *= xvdd->bytes_per_sector / 512;
   if (PtrToUlong(srb->DataBuffer) & 511) /* use SrbExtension intead of DataBuffer if DataBuffer is not aligned to sector size */
   {
     ptr = GET_PAGE_ALIGNED(srb->SrbExtension);
-    transfer_length = min(block_count * xvdd->bytes_per_sector - srb_offset, UNALIGNED_DOUBLE_BUFFER_SIZE);
+    transfer_length = min(block_count * 512 - srb_offset, UNALIGNED_DOUBLE_BUFFER_SIZE);
   }
   else
   {
     ptr = srb->DataBuffer;
-    transfer_length = block_count * xvdd->bytes_per_sector;
+    transfer_length = block_count * 512;
   }
   if (xvdd->grant_free <= ADDRESS_AND_SIZE_TO_SPAN_PAGES(ptr, transfer_length))
   {
@@ -387,6 +388,7 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   shadow = get_shadow_from_freelist(xvdd);
   ASSERT(shadow);
   shadow->req.sector_number = (srb->Cdb[2] << 24) | (srb->Cdb[3] << 16) | (srb->Cdb[4] << 8) | srb->Cdb[5];
+  shadow->req.sector_number *= xvdd->bytes_per_sector / 512;
   shadow->req.handle = 0;
   shadow->req.operation = (srb->Cdb[0] == SCSIOP_READ)?BLKIF_OP_READ:BLKIF_OP_WRITE;
   shadow->req.nr_segments = 0;
@@ -400,8 +402,8 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
 
   if (PtrToUlong(srb->DataBuffer) & 511) /* use SrbExtension intead of DataBuffer if DataBuffer is not aligned to sector size */
   {
-    shadow->req.sector_number += srb_offset / xvdd->bytes_per_sector;
-    KdPrint((__DRIVER_NAME "     Using unaligned buffer - DataBuffer = %p, SrbExtension = %p, total length = %d, offset = %d, length = %d, sector = %d\n", srb->DataBuffer, srb->SrbExtension, block_count * xvdd->bytes_per_sector, shadow->offset, shadow->length, shadow->req.sector_number));
+    shadow->req.sector_number += srb_offset / 512; //xvdd->bytes_per_sector;
+    KdPrint((__DRIVER_NAME "     Using unaligned buffer - DataBuffer = %p, SrbExtension = %p, total length = %d, offset = %d, length = %d, sector = %d\n", srb->DataBuffer, srb->SrbExtension, block_count * 512, shadow->offset, shadow->length, shadow->req.sector_number));
     if (srb->Cdb[0] == SCSIOP_WRITE)
       memcpy(ptr, ((PUCHAR)srb->DataBuffer) + srb_offset, shadow->length);
   }
@@ -435,7 +437,7 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
     xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
 
   /* we don't want another srb if we had to double buffer this one, it will put things out of order */
-  if (xvdd->shadow_free && srb_offset + shadow->length == block_count * xvdd->bytes_per_sector )
+  if (xvdd->shadow_free && srb_offset + shadow->length == block_count * 512); // * xvdd->bytes_per_sector )
   {
     ScsiPortNotification(NextLuRequest, xvdd, 0, 0, 0);
   }
@@ -565,7 +567,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         srb = shadow->srb;
         ASSERT(srb != NULL);
         block_count = (srb->Cdb[7] << 8) | srb->Cdb[8];
-
+        block_count *= xvdd->bytes_per_sector / 512;
         if (rep->status == BLKIF_RSP_OKAY)
           srb->SrbStatus = SRB_STATUS_SUCCESS;
         else
