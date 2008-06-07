@@ -543,6 +543,8 @@ XenNet_RxBufferFree(struct xennet_info *xi)
   int i;
   PMDL mdl;
 
+  XenFreelist_Dispose(&xi->rx_freelist);
+
   ASSERT(!xi->connected);
 
   for (i = 0; i < NET_RX_RING_SIZE; i++)

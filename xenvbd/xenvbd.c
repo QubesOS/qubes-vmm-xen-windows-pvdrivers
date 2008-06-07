@@ -111,7 +111,7 @@ XenVbd_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     status = XenVbd_Pnp_Original(device_object, irp);
 
     break;
-
+#if 0
   case IRP_MN_QUERY_STOP_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_STOP_DEVICE\n"));
     status = XenVbd_Pnp_Original(device_object, irp);
@@ -146,9 +146,10 @@ XenVbd_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     KdPrint((__DRIVER_NAME "     IRP_MN_SURPRISE_REMOVAL\n"));
     status = XenVbd_Pnp_Original(device_object, irp);
     break;
+#endif
 
   default:
-    KdPrint((__DRIVER_NAME "     Unknown Minor = %d\n", stack->MinorFunction));
+    //KdPrint((__DRIVER_NAME "     Unknown Minor = %d\n", stack->MinorFunction));
     status = XenVbd_Pnp_Original(device_object, irp);
     break;
   }

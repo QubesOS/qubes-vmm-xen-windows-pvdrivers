@@ -523,6 +523,8 @@ XenPci_DeviceWatchHandler(char *path, PVOID context)
 {
   char **bits;
   int count;
+  char *err;
+  char *value;
   PXENPCI_DEVICE_DATA xpdd = context;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
@@ -533,9 +535,19 @@ XenPci_DeviceWatchHandler(char *path, PVOID context)
 
   if (count == 3)
   {
-    /* we probably have to be a bit smarter here and do nothing if xenpci isn't running yet */
-    KdPrint((__DRIVER_NAME "     Invalidating Device Relations\n"));
-    IoInvalidateDeviceRelations(xpdd->common.pdo, BusRelations);
+    err = XenBus_Read(xpdd, XBT_NIL, path, &value);
+    if (err)
+    {
+      /* obviously path no longer exists, in which case the removal is being taken care of elsewhere and we shouldn't invalidate now */
+      XenPci_FreeMem(err);
+    }
+    else
+    {
+      XenPci_FreeMem(value);
+      /* we probably have to be a bit smarter here and do nothing if xenpci isn't running yet */
+      KdPrint((__DRIVER_NAME "     Invalidating Device Relations\n"));
+      IoInvalidateDeviceRelations(xpdd->common.pdo, BusRelations);
+    }
   }
   FreeSplitString(bits, count);
 
@@ -738,7 +750,7 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
   PIRP irp = context;
   int device_count = 0;
   PDEVICE_RELATIONS dev_relations;
-  PXEN_CHILD child;
+  PXEN_CHILD child, old_child;
   //char *response;
   char *msg;
   char **devices;
@@ -746,6 +758,7 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
   int i, j;
   CHAR path[128];
   PDEVICE_OBJECT pdo;
+  
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   msg = XenBus_List(xpdd, XBT_NIL, "device", &devices);
@@ -801,12 +814,14 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
             child->context = xppdd = pdo->DeviceExtension;
             xppdd->common.fdo = NULL;
             xppdd->common.pdo = pdo;
+            ObReferenceObject(pdo);
             xppdd->common.lower_do = NULL;
             INIT_PNP_STATE(&xppdd->common);
             xppdd->common.device_usage_paging = 0;
             xppdd->common.device_usage_dump = 0;
             xppdd->common.device_usage_hibernation = 0;
-            xppdd->bus_fdo = device_object;
+            xppdd->bus_fdo = xpdd->common.fdo;
+            xppdd->bus_pdo = xpdd->common.pdo;
             RtlStringCbCopyA(xppdd->path, ARRAY_SIZE(xppdd->path), path);
             RtlStringCbCopyA(xppdd->device, ARRAY_SIZE(xppdd->device), devices[i]);
             xppdd->index = atoi(instances[j]);
@@ -827,18 +842,29 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
     for (child = (PXEN_CHILD)xpdd->child_list.Flink, device_count = 0; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
     {
       if (child->state == CHILD_STATE_ADDED)
+      {
+        ObReferenceObject(child->context->common.pdo);
         dev_relations->Objects[device_count++] = child->context->common.pdo;
+      }
     }
     dev_relations->Count = device_count;
 
-    for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
+    child = (PXEN_CHILD)xpdd->child_list.Flink;
+    while (child != (PXEN_CHILD)&xpdd->child_list)
     {
       if (child->state == CHILD_STATE_DELETED)
       {
         KdPrint((__DRIVER_NAME "     Removing deleted child from device list\n" ));
-        child->entry.Flink;
-        ExFreePoolWithTag(child->entry.Blink, XENPCI_POOL_TAG);
+        old_child = child;
+        child = (PXEN_CHILD)child->entry.Flink;
+        RemoveEntryList((PLIST_ENTRY)old_child);
+        xppdd = old_child->context;
+        xppdd->ReportedMissing = TRUE;
+        ObDereferenceObject(xppdd->common.pdo);
+        ExFreePoolWithTag(old_child, XENPCI_POOL_TAG);
       }
+      else
+        child = (PXEN_CHILD)child->entry.Flink;
     }
     
     status = STATUS_SUCCESS;

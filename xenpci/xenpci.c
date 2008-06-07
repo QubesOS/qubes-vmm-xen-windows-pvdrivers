@@ -185,16 +185,6 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
   
   fdo->Flags &= ~DO_DEVICE_INITIALIZING;
 
-#if 0
-  WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFilePaging, TRUE);
-  WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileHibernation, TRUE);
-  WdfDeviceSetSpecialFileSupport(Device, WdfSpecialFileDump, TRUE);
-
-  busInfo.BusTypeGuid = GUID_XENPCI_DEVCLASS;
-  busInfo.LegacyBusType = Internal;
-  busInfo.BusNumber = 0;
-#endif
-
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
   return status;
 }

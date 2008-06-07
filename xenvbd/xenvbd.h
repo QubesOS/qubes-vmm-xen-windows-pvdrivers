@@ -108,13 +108,15 @@ struct
   int ring_detect_state;
   BOOLEAN use_other;
   UCHAR last_sense_key;
+  UCHAR last_additional_sense_code;
   blkif_response_t tmp_rep;
   XENVBD_DEVICETYPE device_type;
   DISK_GEOMETRY Geometry;
   ULONG bytes_per_sector;
   ULONGLONG total_sectors;
   XENPCI_VECTORS vectors;
-  PSCSI_REQUEST_BLOCK pending_srb;
+  //PSCSI_REQUEST_BLOCK pending_srb;
+  BOOLEAN split_request_in_progress;
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 
 VOID

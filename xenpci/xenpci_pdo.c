@@ -106,11 +106,15 @@ XenPci_BackEndStateHandler(char *Path, PVOID Context)
   err = XenBus_Read(xpdd, XBT_NIL, Path, &value);
   if (err)
   {
-    KdPrint(("Failed to read %s\n", path, err));
-    return;
+    KdPrint(("Failed to read %s, assuming closed\n", path, err));
+    new_backend_state = XenbusStateClosed;
+    XenPci_FreeMem(err);
   }
-  new_backend_state = atoi(value);
-  XenPci_FreeMem(value);
+  else
+  {
+    new_backend_state = atoi(value);
+    XenPci_FreeMem(value);
+  }
 
   if (xppdd->backend_state == new_backend_state)
   {
@@ -618,31 +622,42 @@ XenPci_Pnp_RemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
 
   DUMP_CURRENT_PNP_STATE(xppdd);
 
-  status = XenPci_ShutdownDevice(xppdd);
-
-  if (xppdd->xenbus_request != NULL)
+  if (xppdd->common.current_pnp_state != Removed)
   {
-    in_ptr = xppdd->xenbus_request;
-    while((type = GET_XEN_INIT_REQ(&in_ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+    status = XenPci_ShutdownDevice(xppdd);
+
+    if (xppdd->xenbus_request != NULL)
     {
-      switch (type)
+      in_ptr = xppdd->xenbus_request;
+      while((type = GET_XEN_INIT_REQ(&in_ptr, &setting, &value)) != XEN_INIT_TYPE_END)
       {
-      case XEN_INIT_TYPE_RING: /* frontend ring */
-        GntTbl_EndAccess(xpdd, xppdd->grant_refs[rings], FALSE);
-        FreePages(xppdd->mdls[rings]);
-        xppdd->mdls[rings] = NULL;
-        rings++;
-        break;
-      case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
-      case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
-        EvtChn_Unbind(xpdd, xppdd->event_channels[event_channels++]);
-        break;
+        switch (type)
+        {
+        case XEN_INIT_TYPE_RING: /* frontend ring */
+          GntTbl_EndAccess(xpdd, xppdd->grant_refs[rings], FALSE);
+          FreePages(xppdd->mdls[rings]);
+          xppdd->mdls[rings] = NULL;
+          rings++;
+          break;
+        case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+        case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
+          EvtChn_Unbind(xpdd, xppdd->event_channels[event_channels++]);
+          break;
+        }
       }
+      ExFreePoolWithTag(xppdd->xenbus_request, XENPCI_POOL_TAG);
+      xppdd->xenbus_request = NULL;
     }
+    /* Remove watch on backend state */
+    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+    SET_PNP_STATE(&xppdd->common, Removed);
+    IoInvalidateDeviceRelations(xppdd->bus_pdo, BusRelations);
   }
-  /* Remove watch on backend state */
-  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-  XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+  if (xppdd->ReportedMissing)
+  {
+    IoDeleteDevice(xppdd->common.pdo);
+  }
   
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (status = %08x)\n", status));
 
