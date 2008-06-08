@@ -89,17 +89,18 @@ XenVbd_GetResponse(PXENVBD_DEVICE_DATA xvdd, int i)
   return &xvdd->tmp_rep;
 }
 
-#if 0
 static VOID
 XenVbd_HwScsiTimer(PVOID DeviceExtension)
 {
   PXENVBD_DEVICE_DATA xvdd = (PXENVBD_DEVICE_DATA)DeviceExtension;
 
-  KdPrint((__DRIVER_NAME "     shadow_min_free = %d\n", xvdd->shadow_min_free));
+  KdPrint((__DRIVER_NAME "     aligned requests   = %I64d, aligned bytes   = %I64d\n", xvdd->aligned_requests, xvdd->aligned_bytes));
+  KdPrint((__DRIVER_NAME "     unaligned requests = %I64d, unaligned bytes = %I64d\n", xvdd->unaligned_requests, xvdd->unaligned_bytes));
+  KdPrint((__DRIVER_NAME "     interrupts = %I64d\n", xvdd->interrupts));
+  KdPrint((__DRIVER_NAME "     no_free_grant_requests = %I64d\n", xvdd->no_free_grant_requests));
   xvdd->shadow_min_free = xvdd->shadow_free;
-  ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_HwScsiTimer, 1 * 1000 * 1000);
+  ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_HwScsiTimer, 60 * 1000 * 1000);
 }
-#endif
 
 static ULONG
 XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
@@ -324,10 +325,7 @@ XenVbd_HwScsiInitialize(PVOID DeviceExtension)
   if (notify)
     xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
 
-#if 0
-  xvdd->shadow_min_free = xvdd->shadow_free;
-  ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_HwScsiTimer, 1 * 1000 * 1000);
-#endif
+  ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_HwScsiTimer, 60 * 1000 * 1000);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -369,31 +367,34 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  if (srb_offset == 0 && xvdd->split_request_in_progress)
-  {
-    KdPrint((__DRIVER_NAME "     Split request in progress - deferring\n"));
-    srb->SrbStatus = SRB_STATUS_BUSY;
-    ScsiPortNotification(RequestComplete, xvdd, srb);
-    return;
-  }
+  ASSERT(!(srb_offset == 0 && xvdd->split_request_in_progress));
   block_count = (srb->Cdb[7] << 8) | srb->Cdb[8];
   block_count *= xvdd->bytes_per_sector / 512;
   if (PtrToUlong(srb->DataBuffer) & 511) /* use SrbExtension intead of DataBuffer if DataBuffer is not aligned to sector size */
   {
     ptr = GET_PAGE_ALIGNED(srb->SrbExtension);
     transfer_length = min(block_count * 512 - srb_offset, UNALIGNED_DOUBLE_BUFFER_SIZE);
+    if (!srb_offset)
+    {
+      xvdd->unaligned_requests++;
+      xvdd->unaligned_bytes += transfer_length;
+    }
   }
   else
   {
     ptr = srb->DataBuffer;
     transfer_length = block_count * 512;
+    xvdd->aligned_requests++;
+    xvdd->aligned_bytes += transfer_length;
   }
 
   if (xvdd->grant_free <= ADDRESS_AND_SIZE_TO_SPAN_PAGES(ptr, transfer_length))
   {
-    KdPrint((__DRIVER_NAME "     No enough grants - deferring\n"));
-    srb->SrbStatus = SRB_STATUS_BUSY;
-    ScsiPortNotification(RequestComplete, xvdd, srb);
+    ASSERT(!xvdd->pending_srb);
+    //KdPrint((__DRIVER_NAME "     No enough grants - deferring\n"));
+    xvdd->pending_srb = srb;
+    xvdd->no_free_grant_requests++;
+
     return;
   }
   
@@ -451,9 +452,12 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
     xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
 
   /* we don't want another srb if we had to double buffer this one, it will put things out of order */
-  if (xvdd->shadow_free && srb_offset + shadow->length == block_count * 512) // * xvdd->bytes_per_sector )
+  if (srb_offset + shadow->length == block_count * 512)
   {
-    ScsiPortNotification(NextLuRequest, xvdd, 0, 0, 0);
+    if (xvdd->shadow_free)
+    {
+      ScsiPortNotification(NextLuRequest, xvdd, 0, 0, 0);
+    }
     xvdd->split_request_in_progress = FALSE;
   }
   else
@@ -594,6 +598,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+  xvdd->interrupts++;
   while (more_to_do)
   {
     rp = xvdd->ring.sring->rsp_prod;
@@ -678,7 +683,6 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         {
           put_shadow_on_freelist(xvdd, shadow);
           ScsiPortNotification(RequestComplete, xvdd, srb);
-#if 0
           if (xvdd->pending_srb)
           {
             srb = xvdd->pending_srb;
@@ -686,8 +690,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
             XenVbd_PutSrbOnRing(xvdd, srb, 0);
           }
           else
-#endif
-          ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
+            ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
         }
       }
     }

@@ -80,8 +80,8 @@ typedef struct {
   ULONG length;
 } blkif_shadow_t;
 
-#define SHADOW_ENTRIES 32
-#define GRANT_ENTRIES 128
+#define SHADOW_ENTRIES 16
+#define GRANT_ENTRIES ((SHADOW_ENTRIES * BLKIF_MAX_SEGMENTS_PER_REQUEST) / 2)
 
 typedef enum {
   XENVBD_DEVICETYPE_UNKNOWN,
@@ -115,8 +115,15 @@ struct
   ULONG bytes_per_sector;
   ULONGLONG total_sectors;
   XENPCI_VECTORS vectors;
-  //PSCSI_REQUEST_BLOCK pending_srb;
+  PSCSI_REQUEST_BLOCK pending_srb;
   BOOLEAN split_request_in_progress;
+  
+  ULONGLONG interrupts;
+  ULONGLONG aligned_requests;
+  ULONGLONG aligned_bytes;
+  ULONGLONG unaligned_requests;
+  ULONGLONG unaligned_bytes;
+  ULONGLONG no_free_grant_requests;
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 
 VOID
