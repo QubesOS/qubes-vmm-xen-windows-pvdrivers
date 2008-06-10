@@ -21,10 +21,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable: 4201)
 #pragma warning(disable: 4214)
 
+#include <ntddk.h>
 #include <wdm.h>
-#include <wdf.h>
-#include <wdfminiport.h>
-#include <initguid.h>
+
 #define NDIS_MINIPORT_DRIVER
 #if NTDDI_VERSION < NTDDI_WINXP
 # define NDIS50_MINIPORT 1
@@ -35,6 +34,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
+
 
 #define __DRIVER_NAME "XenNet"
 
@@ -50,6 +50,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <io/xenbus.h>
 #include <stdlib.h>
 #define XENNET_POOL_TAG (ULONG) 'XenN'
+
 
 /* Xen macros use these, so they need to be redefined to Win equivs */
 #define wmb() KeMemoryBarrier()
@@ -83,7 +84,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #pragma warning(disable: 4127) // conditional expression is constant
 
-#define XEN_PROFILE
+//#define XEN_PROFILE
 
 #define MIN_LARGE_SEND_SEGMENTS 4
 
@@ -135,10 +136,11 @@ typedef struct {
   BOOLEAN more_frags;
 } packet_info_t;
 
+#define PAGE_LIST_SIZE (max(NET_RX_RING_SIZE, NET_TX_RING_SIZE) * 4)
 typedef struct
 {
   struct xennet_info *xi;
-  PMDL page_list[NET_RX_RING_SIZE];
+  PMDL page_list[PAGE_LIST_SIZE];
   ULONG page_free;
   ULONG page_free_lowest;
   ULONG page_free_target;
@@ -152,24 +154,28 @@ struct xennet_info
   PDEVICE_OBJECT pdo;
   PDEVICE_OBJECT fdo;
   PDEVICE_OBJECT lower_do;
-  WDFDEVICE wdf_device;
+  //WDFDEVICE wdf_device;
   WCHAR dev_desc[NAME_SIZE];
+  PMDL uncached_config_page;
+  PCM_RESOURCE_LIST new_crl_raw;
+  PCM_RESOURCE_LIST new_crl_translated;
 
   /* NDIS-related vars */
   NDIS_HANDLE adapter_handle;
   NDIS_HANDLE packet_pool;
   NDIS_HANDLE buffer_pool;
+  NDIS_MINIPORT_INTERRUPT interrupt;
   ULONG packet_filter;
   int connected;
   UINT8 perm_mac_addr[ETH_ALEN];
   UINT8 curr_mac_addr[ETH_ALEN];
 
   /* Misc. Xen vars */
-  XEN_IFACE XenInterface;
-  PXENPCI_XEN_DEVICE_DATA pdo_data;
+  //XEN_IFACE XenInterface;
+  //PXENPCI_XEN_DEVICE_DATA pdo_data;
+  XENPCI_VECTORS vectors;
   evtchn_port_t event_channel;
   ULONG state;
-  KEVENT backend_state_change_event;
   KEVENT shutdown_event;
   char backend_path[MAX_XENBUS_STR_LEN];
   ULONG backend_state;
@@ -181,9 +187,6 @@ struct xennet_info
   KSPIN_LOCK tx_lock;
   LIST_ENTRY tx_waiting_pkt_list;
   struct netif_tx_front_ring tx;
-  grant_ref_t tx_ring_ref;
-  struct netif_tx_sring *tx_pgs;
-  PMDL tx_mdl;
   ULONG tx_id_free;
   ULONG tx_no_id_used;
   USHORT tx_id_list[NET_TX_RING_SIZE];
@@ -193,9 +196,6 @@ struct xennet_info
 
   /* rx_related - protected by rx_lock */
   struct netif_rx_front_ring rx;
-  grant_ref_t rx_ring_ref;
-  struct netif_rx_sring *rx_pgs;
-  PMDL rx_mdl;
   ULONG rx_id_free;
   PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
   freelist_t rx_freelist;

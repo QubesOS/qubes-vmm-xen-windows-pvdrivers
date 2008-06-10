@@ -17,24 +17,10 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
-#if !defined(_XENSTUB_H_)
-#define _XENSTUB_H_
+#if !defined(_XEN_GUIDS_H_)
+#define _XEN_GUIDS_H_
 
-#include <ntddk.h>
-#include <wdm.h>
-#include <initguid.h>
-#include <wdmguid.h>
-#include <errno.h>
-#define NTSTRSAFE_LIB
-#include <ntstrsafe.h>
-#define __DRIVER_NAME "XenStub"
-#include <xen_windows.h>
-
-typedef struct
-{
-  PDEVICE_OBJECT fdo;
-  PDEVICE_OBJECT pdo;
-  PDEVICE_OBJECT lower_do;
-} XENSTUB_DEVICE_DATA, *PXENSTUB_DEVICE_DATA;
+//{C828ABE9-14CA-4445-BAA6-82C2376C6518}
+DEFINE_GUID(GUID_BUS_TYPE_XEN, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82, 0xC2, 0x37, 0x6C, 0x65, 0x18);
 
 #endif

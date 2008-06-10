@@ -14,6 +14,7 @@
 #else
   #error Unknown architecture
 #endif
+
 typedef INT8 int8_t;
 typedef UINT8 uint8_t;
 typedef INT16 int16_t;
@@ -45,6 +46,9 @@ typedef uint32_t XENSTORE_RING_IDX;
 #define XBT_NIL ((xenbus_transaction_t)0)
 
 #define SPLITSTRING_POOL_TAG (ULONG) 'SSPT'
+
+#define wmb() KeMemoryBarrier()
+#define mb() KeMemoryBarrier()
 
 static char **
 SplitString(char *String, char Split, int MaxParts, int *Count)
@@ -131,6 +135,28 @@ static PMDL
 AllocatePage()
 {
   return AllocatePagesExtra(1, 0);
+}
+
+static PMDL
+AllocateUncachedPage()
+{
+  PMDL mdl;
+  PVOID buf;
+
+  buf = MmAllocateNonCachedMemory(PAGE_SIZE);
+  mdl = IoAllocateMdl(buf, PAGE_SIZE, FALSE, FALSE, NULL);
+  MmBuildMdlForNonPagedPool(mdl);
+
+  return mdl;
+}  
+
+static VOID
+FreeUncachedPage(PMDL mdl)
+{
+  PVOID buf = MmGetMdlVirtualAddress(mdl);
+
+  IoFreeMdl(mdl);
+  MmFreeNonCachedMemory(buf, PAGE_SIZE);
 }
 
 static VOID

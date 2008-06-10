@@ -102,9 +102,15 @@ XenNet_QueryInformation(
       break;
     case OID_GEN_HARDWARE_STATUS:
       if (!xi->connected)
+      {
         temp_data = NdisHardwareStatusInitializing;
+        KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " NdisHardwareStatusInitializing\n"));
+      }
       else
+      {
         temp_data = NdisHardwareStatusReady;
+        KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " NdisHardwareStatusReady\n"));
+      }
       break;
     case OID_GEN_MEDIA_SUPPORTED:
       temp_data = NdisMedium802_3;
@@ -390,7 +396,7 @@ XenNet_SetInformation(
   PNDIS_TASK_TCP_LARGE_SEND nttls;
   int offset;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
   UNREFERENCED_PARAMETER(InformationBufferLength);
@@ -581,6 +587,6 @@ XenNet_SetInformation(
       status = NDIS_STATUS_NOT_SUPPORTED;
       break;
   }
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
 }

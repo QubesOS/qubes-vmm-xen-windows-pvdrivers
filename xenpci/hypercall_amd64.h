@@ -20,28 +20,28 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 extern int _hypercall2(VOID *address, int cmd, void *arg);
 
 static __inline int
-HYPERVISOR_memory_op(WDFDEVICE Device, int cmd, void *arg)
+HYPERVISOR_memory_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *arg)
 {
-  PCHAR memory_op_func = GetDeviceData(Device)->hypercall_stubs;
+  PCHAR memory_op_func = xpdd->hypercall_stubs;
   memory_op_func += __HYPERVISOR_memory_op * 32;
   return _hypercall2(memory_op_func, cmd, arg);
 }
 
 static __inline int
-HYPERVISOR_xen_version(WDFDEVICE Device, int cmd, void *arg)
+HYPERVISOR_xen_version(PXENPCI_DEVICE_DATA xpdd, int cmd, void *arg)
 {
-  PCHAR xen_version_func = GetDeviceData(Device)->hypercall_stubs;
+  PCHAR xen_version_func = xpdd->hypercall_stubs;
   xen_version_func += __HYPERVISOR_xen_version * 32;
   return _hypercall2(xen_version_func, cmd, arg);
 }
 
 #if 0
 static __inline int
-HYPERVISOR_grant_table_op(WDFDEVICE Device, int cmd, void *uop, unsigned int count)
+HYPERVISOR_grant_table_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *uop, unsigned int count)
 {
   ASSERTMSG("grant_table_op not yet supported under AMD64", FALSE);
 /*
-  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
+  char *hypercall_stubs = xpdd->hypercall_stubs;
   long __res;
   __asm {
     mov ebx, cmd
@@ -58,11 +58,11 @@ HYPERVISOR_grant_table_op(WDFDEVICE Device, int cmd, void *uop, unsigned int cou
 }
 
 static __inline int
-HYPERVISOR_mmu_update(WDFDEVICE Device, mmu_update_t *req, int count, int *success_count, domid_t domid)
+HYPERVISOR_mmu_update(PXENPCI_DEVICE_DATA xpdd, mmu_update_t *req, int count, int *success_count, domid_t domid)
 {
   ASSERTMSG("mmu_update not yet supported under AMD64", FALSE);
 /*
-  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
+  char *hypercall_stubs = xpdd->hypercall_stubs;
   long __res;
   long _domid = (long)domid;
   __asm {
@@ -81,11 +81,11 @@ HYPERVISOR_mmu_update(WDFDEVICE Device, mmu_update_t *req, int count, int *succe
 }
 
 static __inline int
-HYPERVISOR_console_io(WDFDEVICE Device, int cmd, int count, char *string)
+HYPERVISOR_console_io(PXENPCI_DEVICE_DATA xpdd, int cmd, int count, char *string)
 {
   ASSERTMSG("console_io not yet supported under AMD64", FALSE);
 /*
-  char *hypercall_stubs = GetDeviceData(Device)->hypercall_stubs;
+  char *hypercall_stubs = xpdd->hypercall_stubs;
   long __res;
   __asm {
     mov ebx, cmd
@@ -103,31 +103,31 @@ HYPERVISOR_console_io(WDFDEVICE Device, int cmd, int count, char *string)
 #endif
 
 static __inline int
-HYPERVISOR_hvm_op(WDFDEVICE Device, int op, struct xen_hvm_param *arg)
+HYPERVISOR_hvm_op(PXENPCI_DEVICE_DATA xpdd, int op, struct xen_hvm_param *arg)
 {
-  PCHAR hvm_op_func = GetDeviceData(Device)->hypercall_stubs;
+  PCHAR hvm_op_func = xpdd->hypercall_stubs;
   hvm_op_func += __HYPERVISOR_hvm_op * 32;
   return _hypercall2(hvm_op_func, op, arg);
 }
 
 static __inline int
-HYPERVISOR_event_channel_op(WDFDEVICE Device, int cmd, void *op)
+HYPERVISOR_event_channel_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *op)
 {
-  PCHAR event_channel_op_func = GetDeviceData(Device)->hypercall_stubs;
+  PCHAR event_channel_op_func = xpdd->hypercall_stubs;
   event_channel_op_func += __HYPERVISOR_event_channel_op * 32;
   return _hypercall2(event_channel_op_func, cmd, op);
 }
 
 static __inline int
-HYPERVISOR_sched_op(WDFDEVICE Device, int cmd, void *arg)
+HYPERVISOR_sched_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *arg)
 {
-  PCHAR sched_op_func = GetDeviceData(Device)->hypercall_stubs;
+  PCHAR sched_op_func = xpdd->hypercall_stubs;
   sched_op_func += __HYPERVISOR_sched_op * 32;
   return _hypercall2(sched_op_func, cmd, arg);
 }
 
 static __inline int
-HYPERVISOR_shutdown(WDFDEVICE Device, unsigned int reason)
+HYPERVISOR_shutdown(PXENPCI_DEVICE_DATA xpdd, unsigned int reason)
 {
   struct sched_shutdown ss;
   int retval;
@@ -138,15 +138,16 @@ HYPERVISOR_shutdown(WDFDEVICE Device, unsigned int reason)
 
   KdPrint((__DRIVER_NAME "     A\n"));
 
-  retval = HYPERVISOR_sched_op(Device, SCHEDOP_shutdown, &ss);
+  retval = HYPERVISOR_sched_op(xpdd, SCHEDOP_shutdown, &ss);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return retval;
 }
 
+#if 0
 static __inline ULONGLONG
-hvm_get_parameter(WDFDEVICE Device, int hvm_param)
+hvm_get_parameter(PXENPCI_DEVICE_DATA xpdd, int hvm_param)
 {
   struct xen_hvm_param a;
   int retval;
@@ -154,9 +155,10 @@ hvm_get_parameter(WDFDEVICE Device, int hvm_param)
   KdPrint((__DRIVER_NAME " --> hvm_get_parameter\n"));
   a.domid = DOMID_SELF;
   a.index = hvm_param;
-  retval = HYPERVISOR_hvm_op(Device, HVMOP_get_param, &a);
+  retval = HYPERVISOR_hvm_op(xpdd, HVMOP_get_param, &a);
   KdPrint((__DRIVER_NAME " hvm_get_parameter retval = %d\n", retval));
   KdPrint((__DRIVER_NAME " hvm_get_parameter value = %ld\n", a.value));
   KdPrint((__DRIVER_NAME " <-- hvm_get_parameter\n"));
   return a.value;
 }
+#endif

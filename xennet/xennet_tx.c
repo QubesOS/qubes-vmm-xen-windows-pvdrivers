@@ -280,8 +280,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->tx, notify);
   if (notify)
   {
-    xi->XenInterface.EvtChn_Notify(xi->XenInterface.InterfaceHeader.Context,
-      xi->event_channel);
+    xi->vectors.EvtChn_Notify(xi->vectors.context, xi->event_channel);
   }
 
 #if defined(XEN_PROFILE)
@@ -365,6 +364,8 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
   KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
+//  if (packet_count)
+//    KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " %d packets completed\n"));
   for (i = 0; i < packet_count; i++)
   {
     /* A miniport driver must release any spin lock that it is holding before
@@ -406,7 +407,7 @@ XenNet_SendPackets(
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
-  //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (packets = %d, free_requests = %d)\n", NumberOfPackets, free_requests(xi)));
   for (i = 0; i < NumberOfPackets; i++)
   {
     packet = PacketArray[i];
@@ -447,7 +448,7 @@ XenNet_SendPackets(
     KdPrint((__DRIVER_NAME "     TxPackets         Total = %10d, Csum Offload = %10d, Large Offload    = %10d\n", ProfCount_TxPacketsTotal, ProfCount_TxPacketsCsumOffload, ProfCount_TxPacketsLargeOffload));
   }
 #endif
-  //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 BOOLEAN
@@ -457,13 +458,6 @@ XenNet_TxInit(xennet_info_t *xi)
 
   KeInitializeSpinLock(&xi->tx_lock);
 
-  xi->tx_mdl = AllocatePage();
-  xi->tx_pgs = MmGetMdlVirtualAddress(xi->tx_mdl);
-  SHARED_RING_INIT(xi->tx_pgs);
-  FRONT_RING_INIT(&xi->tx, xi->tx_pgs, PAGE_SIZE);
-  xi->tx_ring_ref = xi->XenInterface.GntTbl_GrantAccess(
-    xi->XenInterface.InterfaceHeader.Context, 0,
-    *MmGetMdlPfnArray(xi->tx_mdl), FALSE, 0);
   xi->tx_id_free = 0;
   xi->tx_no_id_used = 0;
   for (i = 0; i < NET_TX_RING_SIZE; i++)
@@ -496,6 +490,7 @@ XenNet_TxShutdown(xennet_info_t *xi)
   ASSERT(!xi->connected);
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
+
   /* Free packets in tx queue */
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   while (entry != &xi->tx_waiting_pkt_list)
@@ -517,12 +512,6 @@ XenNet_TxShutdown(xennet_info_t *xi)
   }
 
   XenFreelist_Dispose(&xi->tx_freelist);
-
-  /* free TX resources */
-  ASSERT(xi->XenInterface.GntTbl_EndAccess(
-    xi->XenInterface.InterfaceHeader.Context, xi->tx_ring_ref, 0));
-  FreePages(xi->tx_mdl);
-  xi->tx_pgs = NULL;
 
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 

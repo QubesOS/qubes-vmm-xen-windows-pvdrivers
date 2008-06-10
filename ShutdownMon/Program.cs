@@ -112,6 +112,78 @@ namespace ShutdownMon
         internal const int TOKEN_ADJUST_PRIVILEGES = 0x00000020;
         internal const string SE_SHUTDOWN_NAME = "SeShutdownPrivilege";
 
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        protected struct SP_DEVICE_INTERFACE_DATA
+        {
+            public UInt32 cbSize;
+            public Guid InterfaceClassGuid;
+            public UInt32 Flags;
+            public IntPtr Reserved;
+        };
+        /*
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct SP_DEVICE_INTERFACE_DETAIL_DATA
+        {
+            public int Size;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 1)]
+            public string DevicePath;
+        }
+        */
+        [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr SetupDiGetClassDevsA(
+            ref Guid ClassGuid,
+            UInt32 Enumerator,
+            IntPtr hwndParent,
+            UInt32 Flags);
+
+        [DllImport("setupapi.dll", SetLastError = true)]
+        private static extern Boolean SetupDiEnumDeviceInterfaces(
+            IntPtr DeviceInfoSet,
+            IntPtr DeviceInfoData,
+            ref Guid InterfaceClassGuid,
+            int MemberIndex,
+            out SP_DEVICE_INTERFACE_DATA DeviceInterfaceData);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern Boolean SetupDiGetDeviceInterfaceDetail(
+            IntPtr DeviceInfoSet,
+            ref SP_DEVICE_INTERFACE_DATA DeviceIntefaceData,
+            IntPtr DeviceInterfaceDetailData,
+            UInt32 DeviceInterfacedetailDatasize,
+            ref UInt32 DeviceInterfacedetaildataSize,
+            IntPtr DeviceInfoData);
+
+        const int DIGCF_PRESENT = 0x00000002;
+        const int DIGCF_DEVICEINTERFACE = 0x00000010;
+
+        private string GetXenInterfacePath()
+        {
+            Guid XenInterface = new Guid("{5c568ac5-9ddf-4fa5-a94a-39d67077819c}");
+            IntPtr handle = SetupDiGetClassDevsA(ref XenInterface, 0, IntPtr.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+            SP_DEVICE_INTERFACE_DATA sdid = new SP_DEVICE_INTERFACE_DATA();
+
+            sdid.cbSize = (UInt32)Marshal.SizeOf(sdid);
+            sdid.InterfaceClassGuid = System.Guid.Empty;
+            sdid.Flags = 0;
+            sdid.Reserved = IntPtr.Zero;
+
+            if (!SetupDiEnumDeviceInterfaces(handle, IntPtr.Zero, ref XenInterface, 0, out sdid))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            Console.WriteLine("Got interface");
+            UInt32 buflen = 1024;
+            IntPtr buf = Marshal.AllocHGlobal((int)buflen);
+            if (Marshal.SizeOf(buf) == 4)
+                Marshal.WriteInt32(buf, 6); // 32 bit systems align it this way...
+            else
+                Marshal.WriteInt32(buf, 8); // and 64 bit systems align it that...
+            if (!SetupDiGetDeviceInterfaceDetail(handle, ref sdid, buf, buflen, ref buflen, IntPtr.Zero))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            Console.WriteLine("Got detail");
+            string filename = Marshal.PtrToStringUni(new IntPtr(buf.ToInt64() + 4));
+            Console.WriteLine("interface path = " + filename);
+            // free stuff here
+            return filename;
+        }
 
         private static void DoExitWin(bool bForceAppsClosed, bool bRebootAfterShutdown)
         {
@@ -132,6 +204,30 @@ namespace ShutdownMon
         const string MyDisplayName = "Xen Shutdown Monitor Service";
         const string MyServiceDescription = "Monitors the kernel driver and shuts down Windows when directed";
 
+        private static Installer MakeServiceInstaller()
+        {
+            Installer i = new Installer();
+            i.Context = new InstallContext();
+            i.Context.Parameters.Add("AssemblyPath", Assembly.GetExecutingAssembly().Location);
+            i.Context.Parameters.Add("LogToConsole", "false");
+            i.Context.Parameters.Add("Silent", "true");
+
+            ServiceProcessInstaller spi = new ServiceProcessInstaller();
+            spi.Account = ServiceAccount.LocalSystem;
+            spi.Username = "";
+            spi.Password = "";
+            i.Installers.Add(spi);
+
+            ServiceInstaller si = new ServiceInstaller();
+            si.ServiceName = MyServiceName;
+            si.DisplayName = MyDisplayName;
+            si.Description = MyServiceDescription;
+            si.StartType = ServiceStartMode.Automatic;
+            i.Installers.Add(si);
+
+            return i;
+        }
+
         static void Main(string[] args)
         {
             int argNo = 0;
@@ -144,32 +240,13 @@ namespace ShutdownMon
                     case "-i":
                         {
                             IDictionary mySavedState = new Hashtable();
-
-                            Installer i = new Installer();
-                            i.Context = new InstallContext();
-                            i.Context.Parameters.Add("AssemblyPath", Assembly.GetExecutingAssembly().Location);
-                            i.Context.Parameters.Add("LogToConsole", "false");
-                            i.Context.Parameters.Add("Silent", "true");
-
-                            ServiceProcessInstaller spi = new ServiceProcessInstaller();
-                            spi.Account = ServiceAccount.LocalSystem;
-                            spi.Username = "";
-                            spi.Password = "";
-                            i.Installers.Add(spi);
-
-                            ServiceInstaller si = new ServiceInstaller();
-                            si.ServiceName = MyServiceName;
-                            si.DisplayName = MyDisplayName;
-                            si.Description = MyServiceDescription;
-                            si.StartType = ServiceStartMode.Manual;
-                            i.Installers.Add(si);
-
+                            Installer i = MakeServiceInstaller();
                             try
                             {
                                 i.Install(mySavedState);
 
                                 Microsoft.Win32.RegistryKey config;
-                                config = Microsoft.Win32.Registry.LocalMachine.OpenSubKey("System").OpenSubKey("CurrentControlSet").OpenSubKey("Services").OpenSubKey(si.ServiceName, true);
+                                config = Microsoft.Win32.Registry.LocalMachine.OpenSubKey("System").OpenSubKey("CurrentControlSet").OpenSubKey("Services").OpenSubKey(MyServiceName, true);
                                 if (args.Length > 1)
                                 {
                                     config.SetValue("ImagePath", config.GetValue("ImagePath") + " -s " + string.Join(" ", args, argNo, args.Length - argNo - 1));
@@ -196,21 +273,7 @@ namespace ShutdownMon
                     case "-u":
                         {
                             IDictionary mySavedState = new Hashtable();
-                            Installer i = new Installer();
-                            i.Context = new InstallContext(null, new string[] { "assemblypath=\"" + Assembly.GetExecutingAssembly().Location + "\" -s", "LogToConsole=false", "Silent=true" });
-
-                            ServiceProcessInstaller spi = new ServiceProcessInstaller();
-                            spi.Account = ServiceAccount.LocalSystem;
-                            spi.Username = "";
-                            spi.Password = "";
-                            i.Installers.Add(spi);
-
-                            ServiceInstaller si = new ServiceInstaller();
-                            si.ServiceName = MyServiceName;
-                            si.DisplayName = MyDisplayName;
-                            si.Description = MyServiceDescription;
-                            si.StartType = ServiceStartMode.Manual;
-                            i.Installers.Add(si);
+                            Installer i = MakeServiceInstaller();
 
                             try
                             {
@@ -269,10 +332,10 @@ namespace ShutdownMon
             SafeFileHandle handle;
             byte[] buf = new byte[128];
 
-            handle = CreateFile(@"\\.\XenShutdown", FILE_GENERIC_READ, 0, IntPtr.Zero, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, IntPtr.Zero);
+            handle = CreateFile(GetXenInterfacePath(), FILE_GENERIC_READ, 0, IntPtr.Zero, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, IntPtr.Zero);
             FileStream fs = new FileStream(handle, FileAccess.Read);
             StreamReader sr = new StreamReader(fs);
-
+            Console.WriteLine("Opened");
             while (true)
             {
                 string command = sr.ReadLine();

@@ -20,11 +20,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xenpci.h"
 
 VOID
-GntTbl_PutRef(WDFDEVICE Device, grant_ref_t ref)
+GntTbl_PutRef(PVOID Context, grant_ref_t ref)
 {
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = Context;
   KIRQL OldIrql;
 
+  ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
   KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
   xpdd->gnttab_list[ref] = xpdd->gnttab_list[0];
   xpdd->gnttab_list[0]  = ref;
@@ -32,12 +33,13 @@ GntTbl_PutRef(WDFDEVICE Device, grant_ref_t ref)
 }
 
 grant_ref_t
-GntTbl_GetRef(WDFDEVICE Device)
+GntTbl_GetRef(PVOID Context)
 {
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = Context;
   unsigned int ref;
   KIRQL OldIrql;
 
+  ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
   KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
   ref = xpdd->gnttab_list[0];
   xpdd->gnttab_list[0] = xpdd->gnttab_list[ref];
@@ -46,23 +48,20 @@ GntTbl_GetRef(WDFDEVICE Device)
   return ref;
 }
 
-static int 
-GntTbl_Map(WDFDEVICE Device, unsigned int start_idx, unsigned int end_idx)
+int 
+GntTbl_Map(PVOID Context, unsigned int start_idx, unsigned int end_idx)
 {
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = Context;
   struct xen_add_to_physmap xatp;
   unsigned int i = end_idx;
 
-  //KdPrint((__DRIVER_NAME " --> GntTbl_Init\n"));
-  /* Loop backwards, so that the first hypercall has the largest index,
-   * ensuring that the table will grow only once.
-   */
+  /* Loop backwards, so that the first hypercall has the largest index,  ensuring that the table will grow only once.  */
   do {
     xatp.domid = DOMID_SELF;
     xatp.idx = i;
     xatp.space = XENMAPSPACE_grant_table;
     xatp.gpfn = (xen_pfn_t)(xpdd->gnttab_table_physical.QuadPart >> PAGE_SHIFT) + i;
-    if (HYPERVISOR_memory_op(Device, XENMEM_add_to_physmap, &xatp))
+    if (HYPERVISOR_memory_op(xpdd, XENMEM_add_to_physmap, &xatp))
     {
       KdPrint((__DRIVER_NAME "     ***ERROR MAPPING FRAME***\n"));
     }
@@ -71,50 +70,22 @@ GntTbl_Map(WDFDEVICE Device, unsigned int start_idx, unsigned int end_idx)
   return 0;
 }
 
-VOID
-GntTbl_Init(WDFDEVICE Device)
-{
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
-  int i;
-
-  //KdPrint((__DRIVER_NAME " --> GntTbl_Init\n"));
-
-  
-  KeInitializeSpinLock(&xpdd->grant_lock);
-
-  for (i = NR_RESERVED_ENTRIES; i < NR_GRANT_ENTRIES; i++)
-    GntTbl_PutRef(Device, i);
-
-  xpdd->gnttab_table_physical = XenPCI_AllocMMIO(Device,
-    PAGE_SIZE * NR_GRANT_FRAMES);
-  xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical,
-    PAGE_SIZE * NR_GRANT_FRAMES, MmCached);
-  if (!xpdd->gnttab_table)
-  {
-    KdPrint((__DRIVER_NAME "     Error Mapping Grant Table Shared Memory\n"));
-    return;
-  }
-  GntTbl_Map(Device, 0, NR_GRANT_FRAMES - 1);
-
-  //KdPrint((__DRIVER_NAME " <-- GntTbl_Init table mapped at %p\n", gnttab_table));
-}
-
 grant_ref_t
 GntTbl_GrantAccess(
-  WDFDEVICE Device,
+  PVOID Context,
   domid_t domid,
   uint32_t frame,
   int readonly,
   grant_ref_t ref)
 {
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = Context;
 
   //KdPrint((__DRIVER_NAME " --> GntTbl_GrantAccess\n"));
 
   //KdPrint((__DRIVER_NAME "     Granting access to frame %08x\n", frame));
 
   if (ref == 0)
-    ref = GntTbl_GetRef(Device);
+    ref = GntTbl_GetRef(Context);
   xpdd->gnttab_table[ref].frame = frame;
   xpdd->gnttab_table[ref].domid = domid;
 
@@ -132,11 +103,11 @@ GntTbl_GrantAccess(
 
 BOOLEAN
 GntTbl_EndAccess(
-  WDFDEVICE Device,
+  PVOID Context,
   grant_ref_t ref,
   BOOLEAN keepref)
 {
-  PXENPCI_DEVICE_DATA xpdd = GetDeviceData(Device);
+  PXENPCI_DEVICE_DATA xpdd = Context;
   unsigned short flags, nflags;
 
   //KdPrint((__DRIVER_NAME " --> GntTbl_EndAccess\n"));
@@ -152,7 +123,33 @@ GntTbl_EndAccess(
     (volatile SHORT *)&xpdd->gnttab_table[ref].flags, 0, flags)) != flags);
 
   if (!keepref)
-    GntTbl_PutRef(Device, ref);
+    GntTbl_PutRef(Context, ref);
   //KdPrint((__DRIVER_NAME " <-- GntTbl_EndAccess\n"));
   return TRUE;
+}
+
+VOID
+GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
+{
+  int i;
+
+  //KdPrint((__DRIVER_NAME " --> GntTbl_Init\n"));
+  
+  KeInitializeSpinLock(&xpdd->grant_lock);
+
+  for (i = NR_RESERVED_ENTRIES; i < NR_GRANT_ENTRIES; i++)
+    GntTbl_PutRef(xpdd, i);
+
+  xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd,
+    PAGE_SIZE * NR_GRANT_FRAMES);
+  xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical,
+    PAGE_SIZE * NR_GRANT_FRAMES, MmNonCached);
+  if (!xpdd->gnttab_table)
+  {
+    KdPrint((__DRIVER_NAME "     Error Mapping Grant Table Shared Memory\n"));
+    return;
+  }
+  GntTbl_Map(xpdd, 0, NR_GRANT_FRAMES - 1);
+
+  //KdPrint((__DRIVER_NAME " <-- GntTbl_Init table mapped at %p\n", gnttab_table));
 }
