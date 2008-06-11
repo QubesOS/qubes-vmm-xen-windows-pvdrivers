@@ -367,7 +367,7 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  ASSERT(!(srb_offset == 0 && xvdd->split_request_in_progress));
+  //ASSERT(!(srb_offset == 0 && xvdd->split_request_in_progress));
   block_count = (srb->Cdb[7] << 8) | srb->Cdb[8];
   block_count *= xvdd->bytes_per_sector / 512;
   if (PtrToUlong(srb->DataBuffer) & 511) /* use SrbExtension intead of DataBuffer if DataBuffer is not aligned to sector size */
@@ -394,7 +394,6 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
     //KdPrint((__DRIVER_NAME "     No enough grants - deferring\n"));
     xvdd->pending_srb = srb;
     xvdd->no_free_grant_requests++;
-
     return;
   }
   
@@ -451,19 +450,8 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   if (notify)
     xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
 
-  /* we don't want another srb if we had to double buffer this one, it will put things out of order */
-  if (srb_offset + shadow->length == block_count * 512)
-  {
-    if (xvdd->shadow_free)
-    {
-      ScsiPortNotification(NextLuRequest, xvdd, 0, 0, 0);
-    }
-    xvdd->split_request_in_progress = FALSE;
-  }
-  else
-  {
-    xvdd->split_request_in_progress = TRUE;
-  }
+  if (xvdd->shadow_free && srb_offset == 0)
+    ScsiPortNotification(NextLuRequest, xvdd, 0, 0, 0);
 
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -689,7 +677,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
             xvdd->pending_srb = NULL;
             XenVbd_PutSrbOnRing(xvdd, srb, 0);
           }
-          else if (!xvdd->split_request_in_progress)
+          else
             ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
         }
       }
