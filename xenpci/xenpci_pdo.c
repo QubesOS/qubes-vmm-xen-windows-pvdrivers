@@ -375,6 +375,110 @@ XenPci_ShutdownDevice(PVOID Context)
   return STATUS_SUCCESS;
 }
 
+// this may work in future versions of xen...
+#if 0
+static NTSTATUS
+XenPci_Remap_Page(PXENPCI_DEVICE_DATA xpdd, PFN_NUMBER src, PFN_NUMBER dst)
+{
+  xen_memory_exchange_t xme;
+  //xen_pfn_t *pfns;
+  int ret;
+  
+  xme.in.domid = DOMID_SELF;
+  set_xen_guest_handle(xme.in.extent_start, src);
+  xme.in.nr_extents = 1;
+  xme.in.extent_order = 0;
+  xme.in.address_bits = 64;
+
+  xme.out.domid = DOMID_SELF;
+  set_xen_guest_handle(xme.out.extent_start, dst);
+  xme.out.nr_extents = 1;
+  xme.out.extent_order = 0;
+  xme.out.address_bits = 64;
+  
+  xme.nr_exchanged = 0;
+  
+  ret = HYPERVISOR_memory_op(xpdd, XENMEM_exchange, &xme);
+  KdPrint((__DRIVER_NAME " hypervisor memory op ret = %d\n", ret));  
+}
+#endif
+
+    
+static PMDL
+XenPci_MakeConfigPage(PDEVICE_OBJECT device_object)
+{
+#if 0
+  NTSTATUS status;
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  HANDLE hwkey_handle, xenkey_handle, confkey_handle;
+  ULONG length;
+  PKEY_BASIC_INFORMATION key_info;
+  PKEY_VALUE_FULL_INFORMATION value_info;
+  UNICODE_STRING xenkey_name, confkey_name;
+  UNICODE_STRING value_name;
+  PWCHAR value_value;
+  //UNICODE_STRING typekey_value, valuekey_value;
+  //UNICODE_STRING value_value;
+  OBJECT_ATTRIBUTES oa;
+  ULONG info_length = 1000;
+  PMDL mdl;
+  UCHAR type;
+  int i, j;
+
+  status = IoOpenDeviceRegistryKey(device_object, PLUGPLAY_REGKEY_DEVICE, KEY_READ, &hwkey_handle);
+
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "    cannot get hardware key\n"));
+    return NULL;
+  }
+  RtlInitUnicodeString(&xenkey_name, L"XenConfig");
+  InitializeObjectAttributes(&oa, &xenkey_name, 0, hwkey_handle, NULL);
+  status = ZwOpenKey(&xenkey_handle, KEY_READ, &oa);
+  if (!NT_SUCCESS(status))
+  {
+    // close key_handle
+    KdPrint((__DRIVER_NAME "    cannot get XenConfig key\n"));
+    return NULL;
+  }
+  // XenConfig key exists, so we go ahead and make fake memory resources
+  mdl = AllocateUncachedPage();
+  //RtlInitUnicodeString(&typekey_name, "type");
+  //RtlInitUnicodeString(&valuekey_name, "value");
+  key_info = value_info = ExAllocatePoolWithTag(PagedPool, info_length, XENPCI_POOL_TAG);
+  for (i = 0; ZwEnumerateKey(xenkey_handle, i, KeyBasicInformation, key_info, info_length, &length) == STATUS_SUCCESS; i++)
+  {
+    confkey_name.Length = (USHORT)key_info->NameLength;
+    confkey_name.MaximumLength = (USHORT)key_info->NameLength;
+    confkey_name.Buffer = key_info->Name;
+    KdPrint((__DRIVER_NAME "     config key name = '%wZ'\n", &confkey_name));
+    InitializeObjectAttributes(&oa, &confkey_name, 0, xenkey_handle, NULL);
+    status = ZwOpenKey(&confkey_handle, KEY_READ, &oa);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint((__DRIVER_NAME "    cannot get handle for XenConfig\\%wZ\n", &confkey_name));
+      continue;
+    }
+    for (j = 0; ZwEnumerateValueKey(confkey_handle, j, KeyValueFullInformation, value_info, info_length, &length) == STATUS_SUCCESS; j++)
+    {
+      value_name.Length = confkey_name.MaximumLength = (USHORT)value_info->NameLength;
+      value_name.Buffer = value_info->Name;
+      KdPrint((__DRIVER_NAME "      name = '%wZ'\n", &value_name));
+      if (value_info->Type != REG_SZ)
+      {
+        KdPrint((__DRIVER_NAME "      type is not REG_SZ (is %d)\n", value_info->Type));
+        continue;
+      }
+      value_value = (PWCHAR)(((PUCHAR)value_info) + value_info->DataOffset);
+      KdPrint((__DRIVER_NAME "      value = '%ws'\n", value_value));
+    }
+  }
+  ExFreePoolWithTag(key_info, XENPCI_POOL_TAG);
+#endif
+
+  return NULL;
+}
+
 static NTSTATUS
 XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 {
@@ -395,7 +499,13 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
   XENPCI_VECTORS vectors;
   ULONG rings = 0;
   ULONG event_channels = 0;
-
+  BOOLEAN has_config_page = FALSE;
+  PMDL mdl;
+  PCM_RESOURCE_LIST old_crl, new_crl;
+  PCM_PARTIAL_RESOURCE_LIST prl;
+  PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
+  ULONG old_length, new_length;
+ 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   DUMP_CURRENT_PNP_STATE(xppdd);
@@ -421,6 +531,54 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
   XenBus_AddWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
 
+  has_config_page = FALSE;
+  res_list = &stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList;
+  for (i = 0; i < res_list->Count; i++)
+  {
+    res_descriptor = &res_list->PartialDescriptors[i];
+    if (res_descriptor->Type == CmResourceTypeMemory)
+    {
+      has_config_page = TRUE;
+      break;
+    }
+  }
+
+  if (!has_config_page && (mdl = XenPci_MakeConfigPage(device_object)) != NULL)
+  {
+    old_crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
+    old_length = FIELD_OFFSET(CM_RESOURCE_LIST, List) + 
+      FIELD_OFFSET(CM_FULL_RESOURCE_DESCRIPTOR, PartialResourceList) +
+      FIELD_OFFSET(CM_PARTIAL_RESOURCE_LIST, PartialDescriptors) +
+      sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * old_crl->List[0].PartialResourceList.Count;
+    new_length = old_length + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * 1;
+    new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENPCI_POOL_TAG);
+    memcpy(new_crl, old_crl, old_length);
+    prl = &new_crl->List[0].PartialResourceList;
+    prd = &prl->PartialDescriptors[prl->Count++];
+    prd->Type = CmResourceTypeMemory;
+    prd->ShareDisposition = CmResourceShareDeviceExclusive;
+    prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE;
+    KdPrint((__DRIVER_NAME "     PFN[0] = %p\n", MmGetMdlPfnArray(mdl)[0]));
+    prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+    prd->u.Memory.Length = PAGE_SIZE;
+    KdPrint((__DRIVER_NAME "     Start = %08x:%08x, Length = %d\n", prd->u.Memory.Start.HighPart, prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
+    stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl;
+
+    old_crl = stack->Parameters.StartDevice.AllocatedResources;
+    new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENPCI_POOL_TAG);
+    memcpy(new_crl, old_crl, old_length);
+    prl = &new_crl->List[0].PartialResourceList;
+    prd = &prl->PartialDescriptors[prl->Count++];
+    prd->Type = CmResourceTypeMemory;
+    prd->ShareDisposition = CmResourceShareDeviceExclusive;
+    prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
+    prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+    prd->u.Memory.Length = PAGE_SIZE;
+    stack->Parameters.StartDevice.AllocatedResources = new_crl;
+    
+    // free the original resource lists???
+  }
+
   res_list = &stack->Parameters.StartDevice.AllocatedResources->List[0].PartialResourceList;
   for (i = 0; i < res_list->Count; i++)
   {
@@ -438,7 +596,8 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
   for (i = 0; i < res_list->Count; i++)
   {
     res_descriptor = &res_list->PartialDescriptors[i];
-    switch (res_descriptor->Type) {
+    switch (res_descriptor->Type)
+    {
     case CmResourceTypeInterrupt:
       KdPrint((__DRIVER_NAME "     CmResourceTypeInterrupt\n"));
       KdPrint((__DRIVER_NAME "     irq_vector = %03x\n", res_descriptor->u.Interrupt.Vector));
@@ -606,7 +765,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 static NTSTATUS
 XenPci_Pnp_RemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
 {
-  NTSTATUS status;
+  NTSTATUS status = STATUS_SUCCESS;
   PXENPCI_PDO_DEVICE_DATA xppdd = device_object->DeviceExtension;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
   char path[128];
@@ -667,17 +826,17 @@ XenPci_Pnp_RemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
 static NTSTATUS
 XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
 {
-  //PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
   //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
   PIO_RESOURCE_REQUIREMENTS_LIST irrl;
   PIO_RESOURCE_DESCRIPTOR ird;
   ULONG length;
-  
+
   UNREFERENCED_PARAMETER(device_object);
-  
+
   length = FIELD_OFFSET(IO_RESOURCE_REQUIREMENTS_LIST, List) +
     FIELD_OFFSET(IO_RESOURCE_LIST, Descriptors) +
-    sizeof(IO_RESOURCE_DESCRIPTOR) * 3;
+    sizeof(IO_RESOURCE_DESCRIPTOR) * 2;
   irrl = ExAllocatePoolWithTag(PagedPool,
     length,
     XENPCI_POOL_TAG);
@@ -706,6 +865,18 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
   ird->u.Interrupt.MinimumVector = 10;
   ird->u.Interrupt.MaximumVector = 14;
+  
+#if 0 
+  ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
+  ird->Option = 0;  
+  ird->Type = CmResourceTypeMemory;
+  ird->ShareDisposition = CmResourceShareDeviceExclusive;
+  ird->Flags = CM_RESOURCE_MEMORY_READ_WRITE;
+  ird->u.Memory.Length = PAGE_SIZE;
+  ird->u.Memory.Alignment = PAGE_SIZE;
+  ird->u.Memory.MinimumAddress.QuadPart = 0; //MmGetMdlPfnArray(xppdd->config_mdl)[0] << PAGE_SHIFT;
+  ird->u.Memory.MaximumAddress.QuadPart = 0xFFFFFFFFFFFFFFFF; //ird->u.Memory.MinimumAddress.QuadPart + PAGE_SIZE - 1;
+#endif
 
   irp->IoStatus.Information = (ULONG_PTR)irrl;
   return STATUS_SUCCESS;

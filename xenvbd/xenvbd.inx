@@ -37,7 +37,7 @@ StartType      = 0
 ErrorControl   = 1
 LoadOrderGroup = System Bus Extender
 ServiceBinary  = %12%\xenvbd.sys                            
-AddReg = XenVbd_Service_AddReg
+AddReg = XenVbd_Service_AddReg,XenVbd_XenConfig_AddReg
 
 [XenVbd_Service_AddReg]
 HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
@@ -54,7 +54,17 @@ HKR,,EventMessageFile,0x00020000,"%SystemRoot%\System32\IoLogMsg.dll;%SystemRoot
 HKR,,TypesSupported,0x00010001,7
 
 [XenVbd_Inst.NT.HW]
-AddReg = XenVbd_Inst_HW_AddReg
+AddReg = XenVbd_XenConfig_AddReg
+
+[XenVbd_XenConfig_AddReg]
+HKR,"XenConfig\ring-ref", "type", , RING
+HKR,"XenConfig\event-channel", "type", , EVENT_CHANNEL_IRQ
+HKR,"XenConfig\device-type", "type", , READ_STRING_FRONT
+HKR,"XenConfig\sectors", "type", , READ_STRING_FRONT
+HKR,"XenConfig\sector-size", "type", , READ_STRING_BACK
+HKR,"XenConfig\vectors", "type", , VECTORS
+HKR,"XenConfig\vectors", "type", , GRANT_ENTRIES
+HKR,"XenConfig\vectors", "value", , 144
 
 [SourceDisksFiles]
 xenvbd.sys=1

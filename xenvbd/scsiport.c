@@ -689,7 +689,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
             xvdd->pending_srb = NULL;
             XenVbd_PutSrbOnRing(xvdd, srb, 0);
           }
-          else
+          else if (!xvdd->split_request_in_progress)
             ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
         }
       }

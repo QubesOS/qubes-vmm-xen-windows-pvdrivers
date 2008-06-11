@@ -237,6 +237,7 @@ typedef struct {
   grant_ref_t grant_refs[MAX_RESOURCES];
   PMDL mdls[MAX_RESOURCES];
   evtchn_port_t event_channels[MAX_RESOURCES];
+  PMDL config_mdl;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 typedef struct
