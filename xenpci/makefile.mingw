@@ -1,0 +1,9 @@
+CFLAGS = -Wall -I/usr/i586-mingw32msvc/include/ddk/ -I../common/include -I../common/include/public
+
+xenpci.sys: xenpci.c 
+	i586-mingw32msvc-gcc $(CFLAGS) -o $@ -s -shared -Wl,--entry,_load@8 -nostdlib $^ -lntoskrnl -lhal
+
+test.exe: test.c kexec.h
+	i586-mingw32msvc-gcc $(CFLAGS) -o $@ -s $^ -lkernel32
+
+all: xenpci.sys

@@ -9,12 +9,23 @@
   #define __x86_64__
 #elif defined(_IA64_)
   #define __ia64__
+#elif defined(__MINGW32__)
+  /* __i386__ already defined */
 #elif defined(_X86_)
   #define __i386__
 #else
   #error Unknown architecture
 #endif
 
+#ifdef __MINGW32__
+typedef signed char int8_t;
+typedef unsigned char uint8_t;
+typedef signed short int16_t;
+typedef unsigned short uint16_t;
+typedef signed int int32_t;
+typedef unsigned int uint32_t;
+typedef unsigned long long uint64_t;
+#else
 typedef INT8 int8_t;
 typedef UINT8 uint8_t;
 typedef INT16 int16_t;
@@ -22,6 +33,7 @@ typedef UINT16 uint16_t;
 typedef INT32 int32_t;
 typedef UINT32 uint32_t;
 typedef UINT64 uint64_t;
+#endif
 
 #include <xen.h>
 
