@@ -19,7 +19,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 
-#if defined(_X86_)
+#if defined(_WIN32)
   #define xchg(p1, p2) _InterlockedExchange(p1, p2)
   #define synch_clear_bit(p1, p2) _interlockedbittestandreset(p2, p1)
   #define synch_set_bit(p1, p2) _interlockedbittestandset(p2, p1)

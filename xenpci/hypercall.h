@@ -18,7 +18,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
 #if defined(_X86_)
-  #include "hypercall_x86.h"
+  #if defined(__MINGW32__)
+    #include "hypercall_x86_mingw.h"
+  #else
+    #include "hypercall_x86.h"
+  #endif
 #else
   #if defined(_AMD64_)
     #include "hypercall_amd64.h"

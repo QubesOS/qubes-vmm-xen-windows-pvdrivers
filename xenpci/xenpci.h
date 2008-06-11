@@ -24,14 +24,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define EISCONN 127
 
 #include <ntddk.h>
+
+#ifndef __MINGW32__
 #include <wdm.h>
 //#include <wdf.h>
 #include <initguid.h>
 #include <wdmguid.h>
 #include <errno.h>
-
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
+#endif
 
 #define __DRIVER_NAME "XenPCI"
 
@@ -133,19 +135,19 @@ typedef struct
   ULONG device_usage_hibernation;
 } XENPCI_COMMON, *PXENPCI_COMMON;
 
-static __inline INIT_PNP_STATE(PXENPCI_COMMON common)
+static __inline void INIT_PNP_STATE(PXENPCI_COMMON common)
 {
   common->current_pnp_state = NotStarted;
   common->previous_pnp_state = NotStarted;
 }
 
-static __inline SET_PNP_STATE(PXENPCI_COMMON common, DEVICE_PNP_STATE state)
+static __inline void SET_PNP_STATE(PXENPCI_COMMON common, DEVICE_PNP_STATE state)
 {
   common->previous_pnp_state = common->current_pnp_state;
   common->current_pnp_state = state;
 }
 
-static __inline REVERT_PNP_STATE(PXENPCI_COMMON common)
+static __inline void REVERT_PNP_STATE(PXENPCI_COMMON common)
 {
   common->current_pnp_state = common->previous_pnp_state;
 }
@@ -200,7 +202,7 @@ typedef struct {
   KSPIN_LOCK WatchLock;
   KSPIN_LOCK grant_lock;
 
-  KGUARDED_MUTEX WatchHandlerMutex;
+  //KGUARDED_MUTEX WatchHandlerMutex;
 
   LIST_ENTRY child_list;
   
@@ -237,7 +239,6 @@ typedef struct {
   grant_ref_t grant_refs[MAX_RESOURCES];
   PMDL mdls[MAX_RESOURCES];
   evtchn_port_t event_channels[MAX_RESOURCES];
-  PMDL config_mdl;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 typedef struct
@@ -292,7 +293,7 @@ sw_interrupt(UCHAR intno)
     KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000002, (ULONG)intno, 0x00000000, 0x00000000);
     break;
   }
-}    
+}
 #else
 VOID _sw_interrupt(UCHAR);
 

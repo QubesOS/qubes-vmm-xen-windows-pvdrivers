@@ -29,7 +29,9 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
   int i, batch_target, notify;
   RING_IDX req_prod = xi->rx.req_prod_pvt;
   netif_rx_request_t *req;
+#if DBG
   int cycles = 0;
+#endif
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
@@ -363,7 +365,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   struct netif_rx_response *rxrsp = NULL;
   struct netif_extra_info *ei;
   USHORT id;
+#if DBG
   int cycles = 0;
+#endif
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
@@ -497,7 +501,9 @@ XenNet_ReturnPacket(
 {
   struct xennet_info *xi = MiniportAdapterContext;
   PMDL mdl;
+#if DBG
   int cycles = 0;
+#endif
 #if defined(XEN_PROFILE)
   LARGE_INTEGER tsc, dummy;
 #endif
