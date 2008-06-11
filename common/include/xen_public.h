@@ -201,7 +201,7 @@ __ADD_XEN_INIT_STRING(PUCHAR *ptr, PCHAR val)
 //  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_STRING *ptr = %p, val = %s\n", *ptr, val));
   //RtlStringCbCopyA((PCHAR)*ptr, PAGE_SIZE - (PtrToUlong(*ptr) & (PAGE_SIZE - 1)), val);
   // using strcpy instead of above needed for mingw32
-  strcpy((char *)ptr, val);
+  strcpy((char *)*ptr, val);
   *ptr += strlen(val) + 1;
 }
 
