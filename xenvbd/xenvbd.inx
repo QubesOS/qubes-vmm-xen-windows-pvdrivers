@@ -26,9 +26,11 @@ CopyFiles=XenVbd.CopyFiles
 
 [XenVbd.CopyFiles]
 xenvbd.sys
+xenconfig.sys
 
 [XenVbd_Inst.NT.Services]
 AddService=XenVbd,2,XenVbd_Service, XenVbd_EventLog
+AddService=XenConfig,0,XenConfig_Service
 
 [XenVbd_Service]
 DisplayName    = %XenVbd.SVCDESC%                            
@@ -69,15 +71,6 @@ HKR,"XenConfig\grants", "value", %FLG_ADDREG_TYPE_DWORD%, 144
 [XenVbd_UpperFilter_AddReg]
 HKR,,UpperFilters,0x10000,XenConfig
 
-[XenConfig_Inst.NT.HW]
-CopyFiles=XenConfig.CopyFiles
-
-[XenConfig.CopyFiles]
-xenconfig.sys
-
-[XenConfig_Inst.NT.Services]
-AddService=XenConfig,0,XenConfig_Service
-
 [XenConfig_Service]
 DisplayName    = %XenConfig.SVCDESC%                            
 ServiceType    = 1
@@ -104,7 +97,7 @@ xenconfig.sys=1
 XenGplPv = "Xen GPL PV Driver Developers"
 XenVbd.SVCDESC = "Xen Block Device Driver"
 XenVbd.DRVDESC = "Xen Block Device Driver"
-XenConfig.DRVDESC = "Xen Config Resource Generator"
+XenConfig.SVCDESC = "Xen Config Resource Generator"
 DISK_NAME = "Xen Block Device Driver Install Disk"
 FLG_ADDREG_TYPE_DWORD = 0x00010001
 XEN_INIT_TYPE_END = 0

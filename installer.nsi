@@ -3,7 +3,7 @@
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.8"
+!define Version "0.9.9-pre2"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 InstallDir "$PROGRAMFILES\${AppName}"
@@ -37,16 +37,18 @@ Section "Common Files"
   CreateShortCut "${StartMenu}\Wiki Page.lnk" "http://wiki.xensource.com/xenwiki/XenWindowsGplPv" 
   WriteUninstaller $INSTDIR\Uninstall.exe
   CreateShortCut "${StartMenu}\Uninstall.lnk" "$INSTDIR\uninstall.exe"
+
 SectionEnd
 
 Section "Shutdown Monitor Service" shutdownmon
   SetOutPath $INSTDIR
 
-  # stop shutdownmon service
+  ExecWait 'NET STOP XenShutdownMon'
   File .\target\ShutdownMon.exe
-  CreateShortCut "${StartMenu}\Install Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-i"
-  CreateShortCut "${StartMenu}\UnInstall Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-u"
-  # start shutdownmon service
+#  CreateShortCut "${StartMenu}\Install Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-i"
+#  CreateShortCut "${StartMenu}\UnInstall Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-u"
+  ExecWait '"$INSTDIR\ShutdownMon.exe" -i'
+  ExecWait 'NET START XenShutdownMon'
 SectionEnd
   
 Section "Windows 2000" win2k
@@ -63,6 +65,7 @@ Section "Windows 2000" win2k
   File .\target\win2k\i386\xenvbd.sys
   File .\target\win2k\i386\xenscsi.sys
   File .\target\win2k\i386\xenstub.sys
+  File .\target\win2k\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows XP" winxp
@@ -79,6 +82,7 @@ Section "Windows XP" winxp
   File .\target\winxp\i386\xenvbd.sys
   File .\target\winxp\i386\xenscsi.sys
   File .\target\winxp\i386\xenstub.sys
+  File .\target\winxp\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows 2003 x32" win2k3x32
@@ -95,6 +99,7 @@ Section "Windows 2003 x32" win2k3x32
   File .\target\winnet\i386\xenvbd.sys
   File .\target\winnet\i386\xenscsi.sys
   File .\target\winnet\i386\xenstub.sys
+  File .\target\winnet\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows 2003 x64" win2k3x64
@@ -111,6 +116,7 @@ Section "Windows 2003 x64" win2k3x64
   File .\target\winnet\amd64\xenvbd.sys
   File .\target\winnet\amd64\xenscsi.sys
   File .\target\winnet\amd64\xenstub.sys
+  File .\target\winnet\amd64\xenconfig.sys
 SectionEnd
 
 Section "Windows 2008 x32" win2k8x32
@@ -127,6 +133,7 @@ Section "Windows 2008 x32" win2k8x32
   File .\target\winlh\i386\xenvbd.sys
   File .\target\winlh\i386\xenscsi.sys
   File .\target\winlh\i386\xenstub.sys
+  File .\target\winlh\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows 2008 x64" win2k8x64
