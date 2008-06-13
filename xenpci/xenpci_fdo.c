@@ -180,13 +180,13 @@ XenPci_Pnp_IoCompletion(PDEVICE_OBJECT device_object, PIRP irp, PVOID context)
 static NTSTATUS
 XenPci_QueueWorkItem(PDEVICE_OBJECT device_object, PIO_WORKITEM_ROUTINE routine, PVOID context)
 {
-    PIO_WORKITEM work_item;
-    NTSTATUS status = STATUS_SUCCESS;
+  PIO_WORKITEM work_item;
+  NTSTATUS status = STATUS_SUCCESS;
 
 	work_item = IoAllocateWorkItem(device_object);
 	IoQueueWorkItem(work_item, routine, DelayedWorkQueue, context);
 	
-    return status;
+  return status;
 }
 
 static NTSTATUS

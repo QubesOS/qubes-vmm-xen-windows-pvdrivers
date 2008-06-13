@@ -221,17 +221,9 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
       break;
     case XEN_INIT_TYPE_GRANT_ENTRIES:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(setting)));
-      if (PtrToUlong(setting) != GRANT_ENTRIES)
-      {
-        KdPrint((__DRIVER_NAME "     grant entries mismatch\n"));
-        KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-        return SP_RETURN_BAD_CONFIG;
-      }
-      else
-      {
-        memcpy(&xvdd->grant_free_list, value, sizeof(ULONG) * PtrToUlong(setting));
-        xvdd->grant_free = GRANT_ENTRIES;
-      }
+      xvdd->grant_entries = (USHORT)PtrToUlong(setting);
+      memcpy(&xvdd->grant_free_list, value, sizeof(grant_ref_t) * xvdd->grant_entries);
+      xvdd->grant_free = xvdd->grant_entries;
       break;
     default:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));

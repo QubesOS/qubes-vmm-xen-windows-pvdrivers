@@ -20,6 +20,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #if !defined(_XEN_PUBLIC_H_)
 #define _XEN_PUBLIC_H_
 
+#include <grant_table.h>
+#include <event_channel.h>
 #include <xen_guids.h>
 //{5C568AC5-9DDF-4FA5-A94A-39D67077819C}
 DEFINE_GUID(GUID_XEN_IFACE, 0x5C568AC5, 0x9DDF, 0x4FA5, 0xA9, 0x4A, 0x39, 0xD6, 0x70, 0x77, 0x81, 0x9C);
@@ -166,7 +168,7 @@ typedef struct {
 static __inline VOID
 __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
 {
-//  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_UCHAR *ptr = %p, val = %d\n", *ptr, val));
+  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_UCHAR *ptr = %p, val = %d\n", *ptr, val));
   *(PUCHAR)(*ptr) = val;
   *ptr += sizeof(UCHAR);
 }
@@ -174,7 +176,7 @@ __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
 static __inline VOID
 __ADD_XEN_INIT_USHORT(PUCHAR *ptr, USHORT val)
 {
-//  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_USHORT *ptr = %p, val = %d\n", *ptr, val));
+  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_USHORT *ptr = %p, val = %d\n", *ptr, val));
   *(PUSHORT)(*ptr) = val;
   *ptr += sizeof(USHORT);
 }
@@ -182,7 +184,7 @@ __ADD_XEN_INIT_USHORT(PUCHAR *ptr, USHORT val)
 static __inline VOID
 __ADD_XEN_INIT_ULONG(PUCHAR *ptr, ULONG val)
 {
-//  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_ULONG *ptr = %p, val = %d\n", *ptr, val));
+  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_ULONG *ptr = %p, val = %d\n", *ptr, val));
   *(PULONG)(*ptr) = val;
   *ptr += sizeof(ULONG);
 }
@@ -190,7 +192,7 @@ __ADD_XEN_INIT_ULONG(PUCHAR *ptr, ULONG val)
 static __inline VOID
 __ADD_XEN_INIT_PTR(PUCHAR *ptr, PVOID val)
 {
-//  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_PTR *ptr = %p, val = %p\n", *ptr, val));
+  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_PTR *ptr = %p, val = %p\n", *ptr, val));
   *(PVOID *)(*ptr) = val;
   *ptr += sizeof(PVOID);
 }
@@ -198,7 +200,7 @@ __ADD_XEN_INIT_PTR(PUCHAR *ptr, PVOID val)
 static __inline VOID
 __ADD_XEN_INIT_STRING(PUCHAR *ptr, PCHAR val)
 {
-//  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_STRING *ptr = %p, val = %s\n", *ptr, val));
+  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_STRING *ptr = %p, val = %s\n", *ptr, val));
   //RtlStringCbCopyA((PCHAR)*ptr, PAGE_SIZE - (PtrToUlong(*ptr) & (PAGE_SIZE - 1)), val);
   // using strcpy instead of above needed for mingw32
   strcpy((char *)*ptr, val);
@@ -210,7 +212,7 @@ __GET_XEN_INIT_UCHAR(PUCHAR *ptr)
 {
   UCHAR retval;
   retval = **ptr;
-//  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_UCHAR *ptr = %p, retval = %d\n", *ptr, retval));
+  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_UCHAR *ptr = %p, retval = %d\n", *ptr, retval));
   *ptr += sizeof(UCHAR);
   return retval;
 }
@@ -220,7 +222,7 @@ __GET_XEN_INIT_USHORT(PUCHAR *ptr)
 {
   USHORT retval;
   retval = *(PUSHORT)*ptr;
-//  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_USHORT *ptr = %p, retval = %d\n", *ptr, retval));
+  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_USHORT *ptr = %p, retval = %d\n", *ptr, retval));
   *ptr += sizeof(USHORT);
   return retval;
 }
@@ -230,7 +232,7 @@ __GET_XEN_INIT_ULONG(PUCHAR *ptr)
 {
   ULONG retval;
   retval = *(PLONG)*ptr;
-//  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_ULONG *ptr = %p, retval = %d\n", *ptr, retval));
+  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_ULONG *ptr = %p, retval = %d\n", *ptr, retval));
   *ptr += sizeof(ULONG);
   return retval;
 }
@@ -240,7 +242,7 @@ __GET_XEN_INIT_STRING(PUCHAR *ptr)
 {
   PCHAR retval;
   retval = (PCHAR)*ptr;
-//  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_STRING *ptr = %p, retval = %s\n", *ptr, retval));
+  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_STRING *ptr = %p, retval = %s\n", *ptr, retval));
   *ptr += strlen((PCHAR)*ptr) + 1;
   return retval;
 }
@@ -250,7 +252,7 @@ __GET_XEN_INIT_PTR(PUCHAR *ptr)
 {
   PVOID retval;
   retval = *(PVOID *)(*ptr);
-//  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_PTR *ptr = %p, retval = %p\n", *ptr, retval));
+  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_PTR *ptr = %p, retval = %p\n", *ptr, retval));
   *ptr += sizeof(PVOID);
   return retval;
 }
@@ -276,7 +278,7 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
     __ADD_XEN_INIT_STRING(ptr, p1);
     break;
   case XEN_INIT_TYPE_GRANT_ENTRIES:
-    __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p1));
+    __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p2));
     break;
   case XEN_INIT_TYPE_COPY_PTR:
     __ADD_XEN_INIT_STRING(ptr, p1);
@@ -310,7 +312,7 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2)
     *p2 = NULL;
     break;
   case XEN_INIT_TYPE_GRANT_ENTRIES:
-    *p1 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
+    *p2 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     break;
   case XEN_INIT_TYPE_COPY_PTR:
     *p1 = __GET_XEN_INIT_STRING(ptr);
@@ -355,6 +357,7 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   case XEN_INIT_TYPE_COPY_PTR:
     __ADD_XEN_INIT_STRING(ptr, p1);
     __ADD_XEN_INIT_PTR(ptr, p2);
+    break;
   }
 }
 
@@ -398,7 +401,7 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2)
   case XEN_INIT_TYPE_GRANT_ENTRIES:
     *p1 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     *p2 = *ptr;
-    *ptr += PtrToUlong(*p1) * sizeof(grant_entry_t);
+    *ptr += PtrToUlong(*p1) * sizeof(grant_ref_t);
     break;
   case XEN_INIT_TYPE_COPY_PTR:
     *p1 = __GET_XEN_INIT_STRING(ptr);

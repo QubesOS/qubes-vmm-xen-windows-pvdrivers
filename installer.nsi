@@ -143,6 +143,7 @@ Section "Windows 2008 x64" win2k8x64
   File .\target\winlh\amd64\xenvbd.sys
   File .\target\winlh\amd64\xenscsi.sys
   File .\target\winlh\amd64\xenstub.sys
+  File .\target\winlh\amd64\xenconfig.sys
 SectionEnd
 
 Section "Install Drivers" installdrivers

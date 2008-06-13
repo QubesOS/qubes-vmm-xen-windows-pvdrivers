@@ -81,7 +81,8 @@ typedef struct {
 } blkif_shadow_t;
 
 #define SHADOW_ENTRIES 16
-#define GRANT_ENTRIES ((SHADOW_ENTRIES * BLKIF_MAX_SEGMENTS_PER_REQUEST) / 2)
+//#define GRANT_ENTRIES ((SHADOW_ENTRIES * BLKIF_MAX_SEGMENTS_PER_REQUEST) / 2)
+#define MAX_GRANT_ENTRIES 512
 
 typedef enum {
   XENVBD_DEVICETYPE_UNKNOWN,
@@ -97,8 +98,9 @@ struct
   USHORT shadow_free;
   USHORT shadow_min_free;
 
-  grant_ref_t grant_free_list[GRANT_ENTRIES];
+  grant_ref_t grant_free_list[MAX_GRANT_ENTRIES];
   USHORT grant_free;
+  USHORT grant_entries;
 
   evtchn_port_t event_channel;
   union {

@@ -35,6 +35,7 @@ DRIVER_INITIALIZE DriverEntry;
 #pragma alloc_text (INIT, DriverEntry)
 #endif
 
+#if 0
 static PDRIVER_DISPATCH XenVbd_Pnp_Original;
 
 static NTSTATUS
@@ -60,26 +61,6 @@ XenVbd_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   {
   case IRP_MN_START_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE - DeviceObject = %p\n", stack->DeviceObject));
-#if 0
-    crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
-    prl = &crl->List[0].PartialResourceList;
-    for (i = 0; i < prl->Count; i++)
-    {
-      prd = &prl->PartialDescriptors[i];
-      if (prd->Type == CmResourceTypeMemory)
-      {
-        ptr = MmMapIoSpace(prd->u.Memory.Start, prd->u.Memory.Length, MmNonCached);
-        ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL);
-        ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
-        ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_FRONT, "device-type", NULL);
-        ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sectors", NULL);
-        ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sector-size", NULL);
-        ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_VECTORS, NULL, NULL);
-        ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, UlongToPtr(GRANT_ENTRIES), NULL);
-        ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);        
-      }
-    }
-#endif
     old_crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
     if (old_crl != NULL)
     {
@@ -107,7 +88,7 @@ XenVbd_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
       ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sectors", NULL);
       ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sector-size", NULL);
       ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_VECTORS, NULL, NULL);
-      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, UlongToPtr(GRANT_ENTRIES), NULL);
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, NULL, UlongToPtr(GRANT_ENTRIES));
       ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
       
       stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl;
@@ -175,6 +156,7 @@ XenVbd_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
 
   return status;
 }
+#endif
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
@@ -209,6 +191,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   status = ScsiPortInitialize(DriverObject, RegistryPath, &HwInitializationData, NULL);
   
+
+#if 0
   /* DriverObject will be NULL if we are being called in dump mode */
   if (DriverObject != NULL)
   {
@@ -218,6 +202,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   }
   else
     XenVbd_Pnp_Original = NULL;
+#endif
 
   if(!NT_SUCCESS(status))
   {
