@@ -226,7 +226,8 @@ typedef struct {
   XENPCI_COMMON common;
   PDEVICE_OBJECT bus_pdo;
   PDEVICE_OBJECT bus_fdo;
-  BOOLEAN ReportedMissing;
+  BOOLEAN eject_requested;
+  BOOLEAN reported_missing;
   char path[128];
   char device[128];
   ULONG index;

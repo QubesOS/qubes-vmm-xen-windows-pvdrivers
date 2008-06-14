@@ -859,7 +859,7 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
         child = (PXEN_CHILD)child->entry.Flink;
         RemoveEntryList((PLIST_ENTRY)old_child);
         xppdd = old_child->context;
-        xppdd->ReportedMissing = TRUE;
+        xppdd->reported_missing = TRUE;
         ObDereferenceObject(xppdd->common.pdo);
         ExFreePoolWithTag(old_child, XENPCI_POOL_TAG);
       }

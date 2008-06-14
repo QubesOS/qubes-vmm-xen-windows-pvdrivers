@@ -162,6 +162,7 @@ XenPci_BackEndStateHandler(char *Path, PVOID Context)
       if (xppdd->common.current_pnp_state == Started)
       {
         KdPrint((__DRIVER_NAME "     Sending RequestDeviceEject\n"));
+        xppdd->eject_requested = TRUE;
         IoRequestDeviceEject(xppdd->common.pdo);
       }
       else
@@ -703,7 +704,7 @@ XenPci_Pnp_RemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
     SET_PNP_STATE(&xppdd->common, Removed);
     IoInvalidateDeviceRelations(xppdd->bus_pdo, BusRelations);
   }
-  if (xppdd->ReportedMissing)
+  if (xppdd->reported_missing)
   {
     IoDeleteDevice(xppdd->common.pdo);
   }
@@ -798,7 +799,7 @@ XenPci_Pnp_QueryCapabilities(PDEVICE_OBJECT device_object, PIRP irp)
   stack = IoGetCurrentIrpStackLocation(irp);
   dc = stack->Parameters.DeviceCapabilities.Capabilities;
   dc->LockSupported = FALSE;
-  dc->EjectSupported = FALSE; //TRUE;
+  dc->EjectSupported = TRUE;
   dc->Removable = TRUE;
   dc->DockDevice = FALSE;
   dc->UniqueID = FALSE;
@@ -864,8 +865,15 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 
   case IRP_MN_QUERY_REMOVE_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_REMOVE_DEVICE (status = %08x)\n", irp->IoStatus.Status));
-    SET_PNP_STATE(&xppdd->common, RemovePending);
-    status = STATUS_SUCCESS;
+    if (xppdd->eject_requested)
+    {
+      SET_PNP_STATE(&xppdd->common, RemovePending);
+      status = STATUS_SUCCESS;
+    }
+    else
+    {
+      status = STATUS_UNSUCCESSFUL;
+    }
     break;
 
   case IRP_MN_REMOVE_DEVICE:
@@ -1060,7 +1068,12 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
       break;
     }
     break;
-        
+
+  case IRP_MN_EJECT:
+    KdPrint((__DRIVER_NAME "     IRP_MN_EJECT\n"));
+    status = STATUS_SUCCESS;
+    break;
+      
   default:
     KdPrint((__DRIVER_NAME "     Unhandled Minor = %d, Status = %08x\n", stack->MinorFunction, irp->IoStatus.Status));
     status = irp->IoStatus.Status;

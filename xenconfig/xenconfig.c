@@ -39,6 +39,18 @@ XenConfig_AddDevice();
 
 static BOOLEAN gplpv;
 
+static NTSTATUS
+XenConfig_Power(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PXENCONFIG_DEVICE_DATA xcdd = device_object->DeviceExtension;
+
+  PoStartNextPowerIrp(irp);
+  IoSkipCurrentIrpStackLocation(irp);
+  status = PoCallDriver(xcdd->lower_do, irp);
+  return status;
+}
+
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -52,6 +64,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   for (i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++)
     DriverObject->MajorFunction[i] = XenConfig_Pass;
   DriverObject->MajorFunction[IRP_MJ_PNP] = XenConfig_Pnp;
+  DriverObject->MajorFunction[IRP_MJ_POWER] = XenConfig_Power;
   DriverObject->DriverExtension->AddDevice = XenConfig_AddDevice;
 
   KdPrint((__DRIVER_NAME " <-- DriverEntry\n"));
