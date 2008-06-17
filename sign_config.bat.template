@@ -1,0 +1,2 @@
+SET CERT_NAME=friendly name of your certificate
+SET CA_CERT_NAME=name of your CA cert

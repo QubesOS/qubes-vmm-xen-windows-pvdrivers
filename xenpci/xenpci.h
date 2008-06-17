@@ -219,9 +219,6 @@ typedef struct {
   PIRP shutdown_irp;
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
-/* The total number of event channels or rings allowed per device... probably never more than 2 */
-#define MAX_RESOURCES 4
-
 typedef struct {  
   XENPCI_COMMON common;
   PDEVICE_OBJECT bus_pdo;
@@ -234,12 +231,13 @@ typedef struct {
   ULONG irq_vector;
   KIRQL irq_level;
   char backend_path[128];
-  PVOID xenbus_request;
+  //PVOID xenbus_request;
   KEVENT backend_state_event;
   ULONG backend_state;
-  grant_ref_t grant_refs[MAX_RESOURCES];
-  PMDL mdls[MAX_RESOURCES];
-  evtchn_port_t event_channels[MAX_RESOURCES];
+  PHYSICAL_ADDRESS config_page_phys;
+  ULONG config_page_length;
+  PUCHAR assigned_resources_start;
+  PUCHAR assigned_resources_ptr;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 typedef struct

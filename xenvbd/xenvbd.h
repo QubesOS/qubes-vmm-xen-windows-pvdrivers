@@ -81,7 +81,6 @@ typedef struct {
 } blkif_shadow_t;
 
 #define SHADOW_ENTRIES 16
-//#define GRANT_ENTRIES ((SHADOW_ENTRIES * BLKIF_MAX_SEGMENTS_PER_REQUEST) / 2)
 #define MAX_GRANT_ENTRIES 512
 
 typedef enum {

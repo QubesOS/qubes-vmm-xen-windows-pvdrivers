@@ -178,8 +178,10 @@ static VOID
 XenConfig_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
 {
   NTSTATUS status = STATUS_SUCCESS;
-  PXENCONFIG_DEVICE_DATA xcdd = device_object->DeviceExtension;
+  //PXENCONFIG_DEVICE_DATA xcdd = device_object->DeviceExtension;
   PIRP irp = context;
+  
+  UNREFERENCED_PARAMETER(device_object);
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   
@@ -214,12 +216,16 @@ XenConfig_MakeConfigPage(PDEVICE_OBJECT device_object)
   PUCHAR ptr;
   int i;
 
+  mdl = AllocateUncachedPage();
+  ptr = MmGetMdlVirtualAddress(mdl);
+
   status = IoOpenDeviceRegistryKey(xcdd->pdo, PLUGPLAY_REGKEY_DEVICE, KEY_READ, &hwkey_handle);
 
   if (!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "    cannot get hardware key\n"));
-    return NULL;
+    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);          
+    return mdl;
   }
   RtlInitUnicodeString(&xenkey_name, L"XenConfig");
   InitializeObjectAttributes(&oa, &xenkey_name, 0, hwkey_handle, NULL);
@@ -228,11 +234,10 @@ XenConfig_MakeConfigPage(PDEVICE_OBJECT device_object)
   {
     // close key_handle
     KdPrint((__DRIVER_NAME "    cannot get XenConfig key\n"));
-    return NULL;
+    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);          
+    return mdl;
   }
   // XenConfig key exists, so we go ahead and make fake memory resources
-  mdl = AllocateUncachedPage();
-  ptr = MmGetMdlVirtualAddress(mdl);
   RtlInitUnicodeString(&type_name, L"type");
   RtlInitUnicodeString(&value_name, L"value");
   key_info = ExAllocatePoolWithTag(PagedPool, info_length, XENCONFIG_POOL_TAG);
@@ -243,6 +248,7 @@ XenConfig_MakeConfigPage(PDEVICE_OBJECT device_object)
   setting.Buffer = ExAllocatePoolWithTag(PagedPool, info_length, XENCONFIG_POOL_TAG);
   setting.MaximumLength = (USHORT)info_length;
   
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL);
   for (i = 0; ZwEnumerateKey(xenkey_handle, i, KeyBasicInformation, key_info, info_length, &length) == STATUS_SUCCESS; i++)
   {
     confkey_name.Length = (USHORT)key_info->NameLength;
@@ -313,7 +319,7 @@ static NTSTATUS
 XenConfig_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
-  PXENCONFIG_DEVICE_DATA xcdd = (PXENCONFIG_DEVICE_DATA)device_object->DeviceExtension;
+  //PXENCONFIG_DEVICE_DATA xcdd = (PXENCONFIG_DEVICE_DATA)device_object->DeviceExtension;
   PIO_STACK_LOCATION stack;
   PMDL mdl;
   PCM_RESOURCE_LIST old_crl, new_crl;

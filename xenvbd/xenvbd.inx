@@ -39,7 +39,7 @@ StartType      = 0
 ErrorControl   = 1
 LoadOrderGroup = System Bus Extender
 ServiceBinary  = %12%\xenvbd.sys                            
-AddReg = XenVbd_Service_AddReg,XenVbd_XenConfig_AddReg
+AddReg = XenVbd_Service_AddReg
 
 [XenVbd_Service_AddReg]
 HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
