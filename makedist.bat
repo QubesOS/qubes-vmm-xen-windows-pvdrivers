@@ -17,9 +17,9 @@ CALL sign_sys.bat winnet amd64 Server2003_X64
 CALL sign_inf.bat winnet Server2003_X64
 
 cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk WLH && CD \Projects\win-pvdrivers.hg && build -cZg"
-CALL sign_sys.bat winnet i386 Server2008_X86
+CALL sign_sys.bat winlh i386 Server2008_X86
 cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk x64 WLH && CD \Projects\win-pvdrivers.hg && build -cZg"
-CALL sign_sys.bat winnet amd64 Server2008_X64
-CALL sign_inf.bat winnet Server2008_X64
+CALL sign_sys.bat winlh amd64 Server2008_X64
+CALL sign_inf.bat winlh Server2008_X64
 
 "%ProgramFiles%\NSIS\makensis.exe" installer.nsi
