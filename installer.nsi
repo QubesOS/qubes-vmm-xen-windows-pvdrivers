@@ -53,7 +53,7 @@ SectionEnd
   
 Section "Windows 2000" win2k
   SetOutPath $INSTDIR
-  File .\ca.cer
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\win2k\xenpci.inf
   File .\target\win2k\xennet.inf
@@ -72,7 +72,7 @@ SectionEnd
 
 Section "Windows XP" winxp
   SetOutPath $INSTDIR
-  File .\ca.cer
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winxp\xenpci.inf
   File .\target\winxp\xennet.inf
@@ -92,7 +92,7 @@ SectionEnd
 
 Section "Windows 2003 x32" win2k3x32
   SetOutPath $INSTDIR
-  File .\ca.cer
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -112,7 +112,7 @@ SectionEnd
 
 Section "Windows 2003 x64" win2k3x64
   SetOutPath $INSTDIR
-  File .\ca.cer
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -132,7 +132,7 @@ SectionEnd
 
 Section "Windows 2008 x32" win2k8x32
   SetOutPath $INSTDIR
-  File .\ca.cer
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -152,7 +152,7 @@ SectionEnd
 
 Section "Windows 2008 x64" win2k8x64
   SetOutPath $INSTDIR
-  File .\ca.cer
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -172,6 +172,7 @@ SectionEnd
 
 Section /o "Install Cert" installcert
   ExecWait 'rundll32.exe cryptext.dll,CryptExtAddCER $INSTDIR\ca.cer'
+SectionEnd
 
 Section "Install Drivers" installdrivers
   Push "$INSTDIR\drivers"
@@ -221,7 +222,11 @@ Function .onInit
   Call StrContains
   Pop $0
   StrCmp $0 "" no_GPLPV
-  MessageBox MB_OK "Warning - GPLPV specified on boot. Upgrade may work but install may break things"
+
+  ReadRegStr $0 HKLM SYSTEM\CurrentControlSet\Services\XenHide DisplayName
+  StrCmp $0 "" 0 no_GPLPV
+
+  MessageBox MB_OK "Warning - GPLPV specified on boot but drivers not installed yet. You should cancel now and boot without GPLPV"
 no_GPLPV:
   
   Call GetWindowsVersion

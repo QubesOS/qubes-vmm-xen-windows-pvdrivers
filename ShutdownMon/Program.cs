@@ -325,6 +325,7 @@ namespace ShutdownMon
         protected override void OnStop()
         {
             workerThread.Abort();
+            workerThread.Join();
         }
 
         protected void Run()
