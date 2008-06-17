@@ -117,7 +117,6 @@ struct
   ULONGLONG total_sectors;
   XENPCI_VECTORS vectors;
   PSCSI_REQUEST_BLOCK pending_srb;
-  BOOLEAN split_request_in_progress;
   
   ULONGLONG interrupts;
   ULONGLONG aligned_requests;

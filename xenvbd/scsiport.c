@@ -146,7 +146,6 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
     access_range->RangeStart,
     access_range->RangeLength,
     !access_range->RangeInMemory);
-  //ptr = MmMapIoSpace(access_range->RangeStart, access_range->RangeLength, MmCached);
   if (ptr == NULL)
   {
     KdPrint((__DRIVER_NAME "     Unable to map range\n"));
@@ -245,7 +244,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   xvdd->total_sectors /= xvdd->bytes_per_sector / 512;
   
   ConfigInfo->MaximumTransferLength = BLKIF_MAX_SEGMENTS_PER_REQUEST * PAGE_SIZE;
-  ConfigInfo->NumberOfPhysicalBreaks = BLKIF_MAX_SEGMENTS_PER_REQUEST - 1;
+  ConfigInfo->NumberOfPhysicalBreaks = 0; //BLKIF_MAX_SEGMENTS_PER_REQUEST - 1;
   ConfigInfo->ScatterGather = TRUE;
   ConfigInfo->AlignmentMask = 0;
   ConfigInfo->NumberOfBuses = 1;

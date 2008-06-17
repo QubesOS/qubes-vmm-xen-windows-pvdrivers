@@ -138,6 +138,7 @@ XenNet_Init(
   NDIS_HANDLE config_handle;
   NDIS_STRING config_param_name;
   PNDIS_CONFIGURATION_PARAMETER config_param;
+  CHAR buf[128];
   
   UNREFERENCED_PARAMETER(OpenErrorStatus);
 
@@ -339,7 +340,7 @@ XenNet_Init(
   else
   {
     KdPrint(("ChecksumOffload = %d\n", config_param->ParameterData.IntegerData));
-    xi->config_csum = config_param->ParameterData.IntegerData;
+    xi->config_csum = !!config_param->ParameterData.IntegerData;
   }
 
   NdisInitUnicodeString(&config_param_name, L"MTU");
@@ -365,9 +366,12 @@ XenNet_Init(
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", "0");
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", "1");
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-gso-tcpv4", "1");
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", buf);
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", xi->config_sg);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", buf);
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !!xi->config_gso);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-gso-tcpv4", buf);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1");
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1");
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
