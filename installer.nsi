@@ -3,7 +3,7 @@
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.10-pre1"
+!define Version "0.9.10-pre3"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 InstallDir "$PROGRAMFILES\${AppName}"
@@ -52,6 +52,8 @@ Section "Shutdown Monitor Service" shutdownmon
 SectionEnd
   
 Section "Windows 2000" win2k
+  SetOutPath $INSTDIR
+  File .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\win2k\xenpci.inf
   File .\target\win2k\xennet.inf
@@ -69,6 +71,8 @@ Section "Windows 2000" win2k
 SectionEnd
 
 Section "Windows XP" winxp
+  SetOutPath $INSTDIR
+  File .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winxp\xenpci.inf
   File .\target\winxp\xennet.inf
@@ -87,6 +91,8 @@ Section "Windows XP" winxp
 SectionEnd
 
 Section "Windows 2003 x32" win2k3x32
+  SetOutPath $INSTDIR
+  File .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -105,6 +111,8 @@ Section "Windows 2003 x32" win2k3x32
 SectionEnd
 
 Section "Windows 2003 x64" win2k3x64
+  SetOutPath $INSTDIR
+  File .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -123,6 +131,8 @@ Section "Windows 2003 x64" win2k3x64
 SectionEnd
 
 Section "Windows 2008 x32" win2k8x32
+  SetOutPath $INSTDIR
+  File .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -141,6 +151,8 @@ Section "Windows 2008 x32" win2k8x32
 SectionEnd
 
 Section "Windows 2008 x64" win2k8x64
+  SetOutPath $INSTDIR
+  File .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -157,6 +169,9 @@ Section "Windows 2008 x64" win2k8x64
   File .\target\winlh\amd64\xenstub.sys
   File .\target\winlh\amd64\xenconfig.sys
 SectionEnd
+
+Section /o "Install Cert" installcert
+  ExecWait 'rundll32.exe cryptext.dll,CryptExtAddCER $INSTDIR\ca.cer'
 
 Section "Install Drivers" installdrivers
   Push "$INSTDIR\drivers"

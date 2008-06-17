@@ -22,4 +22,9 @@ cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk x64 WLH && CD \Projects\win-pv
 CALL sign_sys.bat winlh amd64 Server2008_X64
 CALL sign_inf.bat winlh Server2008_X64
 
+IF NOT EXIST SIGN_CONFIG.BAT GOTO DONT_SIGN
+CALL SIGN_CONFIG.BAT
+%DDK_PATH%\bin\selfsign\certmgr -put -r %CA_CERT_LOCATION% -c -s %CA_CERT_STORE% -n %CA_CERT_NAME% ca.cer
+:DONT_SIGN
+
 "%ProgramFiles%\NSIS\makensis.exe" installer.nsi
