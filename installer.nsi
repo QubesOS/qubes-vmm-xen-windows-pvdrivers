@@ -3,7 +3,7 @@
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.8"
+!define Version "0.9.10"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 InstallDir "$PROGRAMFILES\${AppName}"
@@ -37,19 +37,23 @@ Section "Common Files"
   CreateShortCut "${StartMenu}\Wiki Page.lnk" "http://wiki.xensource.com/xenwiki/XenWindowsGplPv" 
   WriteUninstaller $INSTDIR\Uninstall.exe
   CreateShortCut "${StartMenu}\Uninstall.lnk" "$INSTDIR\uninstall.exe"
+
 SectionEnd
 
 Section "Shutdown Monitor Service" shutdownmon
   SetOutPath $INSTDIR
 
-  # stop shutdownmon service
+  ExecWait 'NET STOP XenShutdownMon'
   File .\target\ShutdownMon.exe
-  CreateShortCut "${StartMenu}\Install Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-i"
-  CreateShortCut "${StartMenu}\UnInstall Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-u"
-  # start shutdownmon service
+#  CreateShortCut "${StartMenu}\Install Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-i"
+#  CreateShortCut "${StartMenu}\UnInstall Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-u"
+  ExecWait '"$INSTDIR\ShutdownMon.exe" -i'
+  ExecWait 'NET START XenShutdownMon'
 SectionEnd
   
 Section "Windows 2000" win2k
+  SetOutPath $INSTDIR
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\win2k\xenpci.inf
   File .\target\win2k\xennet.inf
@@ -63,15 +67,19 @@ Section "Windows 2000" win2k
   File .\target\win2k\i386\xenvbd.sys
   File .\target\win2k\i386\xenscsi.sys
   File .\target\win2k\i386\xenstub.sys
+  File .\target\win2k\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows XP" winxp
+  SetOutPath $INSTDIR
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winxp\xenpci.inf
   File .\target\winxp\xennet.inf
   File .\target\winxp\xenvbd.inf
   File .\target\winxp\xenscsi.inf
   File .\target\winxp\xenstub.inf
+  File .\target\winxp\xengplpv.cat
   SetOutPath $INSTDIR\drivers\i386
   File .\target\winxp\i386\xenpci.sys
   File .\target\winxp\i386\xenhide.sys
@@ -79,15 +87,19 @@ Section "Windows XP" winxp
   File .\target\winxp\i386\xenvbd.sys
   File .\target\winxp\i386\xenscsi.sys
   File .\target\winxp\i386\xenstub.sys
+  File .\target\winxp\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows 2003 x32" win2k3x32
+  SetOutPath $INSTDIR
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
   File .\target\winnet\xenvbd.inf
   File .\target\winnet\xenscsi.inf
   File .\target\winnet\xenstub.inf
+  File .\target\winnet\xengplpv.cat
   SetOutPath $INSTDIR\drivers\i386
   File .\target\winnet\i386\xenpci.sys
   File .\target\winnet\i386\xenhide.sys
@@ -95,15 +107,19 @@ Section "Windows 2003 x32" win2k3x32
   File .\target\winnet\i386\xenvbd.sys
   File .\target\winnet\i386\xenscsi.sys
   File .\target\winnet\i386\xenstub.sys
+  File .\target\winnet\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows 2003 x64" win2k3x64
+  SetOutPath $INSTDIR
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
   File .\target\winnet\xenvbd.inf
   File .\target\winnet\xenscsi.inf
   File .\target\winnet\xenstub.inf
+  File .\target\winnet\xengplpv.cat
   SetOutPath $INSTDIR\drivers\amd64
   File .\target\winnet\amd64\xenpci.sys
   File .\target\winnet\amd64\xenhide.sys
@@ -111,15 +127,19 @@ Section "Windows 2003 x64" win2k3x64
   File .\target\winnet\amd64\xenvbd.sys
   File .\target\winnet\amd64\xenscsi.sys
   File .\target\winnet\amd64\xenstub.sys
+  File .\target\winnet\amd64\xenconfig.sys
 SectionEnd
 
 Section "Windows 2008 x32" win2k8x32
+  SetOutPath $INSTDIR
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
   File .\target\winlh\xenvbd.inf
   File .\target\winlh\xenscsi.inf
   File .\target\winlh\xenstub.inf
+  File .\target\winlh\xengplpv.cat
   SetOutPath $INSTDIR\drivers\i386
   File .\target\winlh\i386\xenpci.sys
   File .\target\winlh\i386\xenhide.sys
@@ -127,15 +147,19 @@ Section "Windows 2008 x32" win2k8x32
   File .\target\winlh\i386\xenvbd.sys
   File .\target\winlh\i386\xenscsi.sys
   File .\target\winlh\i386\xenstub.sys
+  File .\target\winlh\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows 2008 x64" win2k8x64
+  SetOutPath $INSTDIR
+  File /r .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
   File .\target\winlh\xenvbd.inf
   File .\target\winlh\xenscsi.inf
   File .\target\winlh\xenstub.inf
+  File .\target\winlh\xengplpv.cat
   SetOutPath $INSTDIR\drivers\amd64
   File .\target\winlh\amd64\xenpci.sys
   File .\target\winlh\amd64\xenhide.sys
@@ -143,6 +167,11 @@ Section "Windows 2008 x64" win2k8x64
   File .\target\winlh\amd64\xenvbd.sys
   File .\target\winlh\amd64\xenscsi.sys
   File .\target\winlh\amd64\xenstub.sys
+  File .\target\winlh\amd64\xenconfig.sys
+SectionEnd
+
+Section /o "Install Cert" installcert
+  ExecWait 'rundll32.exe cryptext.dll,CryptExtAddCER $INSTDIR\ca.cer'
 SectionEnd
 
 Section "Install Drivers" installdrivers
@@ -193,7 +222,11 @@ Function .onInit
   Call StrContains
   Pop $0
   StrCmp $0 "" no_GPLPV
-  MessageBox MB_OK "Warning - GPLPV specified on boot. Upgrade may work but install may break things"
+
+  ReadRegStr $0 HKLM SYSTEM\CurrentControlSet\Services\XenHide DisplayName
+  StrCmp $0 "" 0 no_GPLPV
+
+  MessageBox MB_OK "Warning - GPLPV specified on boot but drivers not installed yet. You should cancel now and boot without GPLPV"
 no_GPLPV:
   
   Call GetWindowsVersion

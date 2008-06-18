@@ -1,0 +1,5 @@
+!INCLUDE ..\common.inc
+TARGETNAME=xenconfig
+TARGETTYPE=DRIVER
+INF_NAME=$(TARGETNAME)
+SOURCES=xenconfig.c

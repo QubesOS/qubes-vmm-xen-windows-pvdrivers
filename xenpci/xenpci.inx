@@ -14,11 +14,15 @@ ExcludeFromSelect=*
 [Manufacturer]
 %XenGplPv%=XenGplPv,NTx86
 %XenGplPv%=XenGplPv,NTamd64
+%XenGplPv%=XenGplPv
 
 [XenGplPv.NTx86]
 %XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
 
 [XenGplPv.NTAMD64]
+%XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
+
+[XenGplPv]
 %XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
 
 [XenPCI_Inst.NT]
@@ -37,6 +41,9 @@ xenhide.sys=1
 
 [SourceDisksNames.amd64]
 1 = %DISK_NAME%,,,.\amd64
+
+[SourceDisksNames]
+1 = %DISK_NAME%,,,.\i386
 
 [XenPCI_Inst.NT.Services]
 AddService=XenPCI,2,XenPCI_Service
