@@ -50,127 +50,6 @@ XenScsi_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Co
 #pragma alloc_text (INIT, DriverEntry)
 #endif
 
-static PDRIVER_DISPATCH XenScsi_Pnp_Original;
-
-static NTSTATUS
-XenScsi_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
-{
-  PIO_STACK_LOCATION stack;
-  NTSTATUS status;
-  PCM_RESOURCE_LIST old_crl, new_crl;
-  PCM_PARTIAL_RESOURCE_LIST prl;
-  PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
-  ULONG old_length, new_length;
-  PMDL mdl;
-  PUCHAR start, ptr;
-
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  stack = IoGetCurrentIrpStackLocation(irp);
-
-  // check if the Irp is meant for us... maybe the stack->DeviceObject field?
-  
-  switch (stack->MinorFunction)
-  {
-  case IRP_MN_START_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE - DeviceObject = %p\n", stack->DeviceObject));
-    old_crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
-    if (old_crl != NULL)
-    {
-      mdl = AllocateUncachedPage();
-      old_length = FIELD_OFFSET(CM_RESOURCE_LIST, List) + 
-        FIELD_OFFSET(CM_FULL_RESOURCE_DESCRIPTOR, PartialResourceList) +
-        FIELD_OFFSET(CM_PARTIAL_RESOURCE_LIST, PartialDescriptors) +
-        sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * old_crl->List[0].PartialResourceList.Count;
-      new_length = old_length + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * 1;
-      new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENSCSI_POOL_TAG);
-      memcpy(new_crl, old_crl, old_length);
-      prl = &new_crl->List[0].PartialResourceList;
-      prd = &prl->PartialDescriptors[prl->Count++];
-      prd->Type = CmResourceTypeMemory;
-      prd->ShareDisposition = CmResourceShareDeviceExclusive;
-      prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
-      KdPrint((__DRIVER_NAME "     PFN[0] = %p\n", MmGetMdlPfnArray(mdl)[0]));
-      prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
-      prd->u.Memory.Length = PAGE_SIZE;
-      KdPrint((__DRIVER_NAME "     Start = %08x:%08x, Length = %d\n", prd->u.Memory.Start.HighPart, prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
-      ptr = start = MmGetMdlVirtualAddress(mdl);
-      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL);
-      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
-      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_FRONT, "b-dev", NULL);
-      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_VECTORS, NULL, NULL);
-      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, UlongToPtr(GRANT_ENTRIES), NULL);
-      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
-      
-      stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl;
-
-      old_crl = stack->Parameters.StartDevice.AllocatedResources;
-      new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENSCSI_POOL_TAG);
-      memcpy(new_crl, old_crl, old_length);
-      prl = &new_crl->List[0].PartialResourceList;
-      prd = &prl->PartialDescriptors[prl->Count++];
-      prd->Type = CmResourceTypeMemory;
-      prd->ShareDisposition = CmResourceShareDeviceExclusive;
-      prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE|CM_RESOURCE_MEMORY_PREFETCHABLE|CM_RESOURCE_MEMORY_CACHEABLE;
-      prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
-      prd->u.Memory.Length = PAGE_SIZE;
-      stack->Parameters.StartDevice.AllocatedResources = new_crl;
-      IoCopyCurrentIrpStackLocationToNext(irp);
-    }
-    else
-    {
-      KdPrint((__DRIVER_NAME "     AllocatedResource == NULL\n"));
-    }
-    status = XenScsi_Pnp_Original(device_object, irp);
-
-    break;
-
-  case IRP_MN_QUERY_STOP_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_STOP_DEVICE\n"));
-    status = XenScsi_Pnp_Original(device_object, irp);
-    break;
-
-  case IRP_MN_STOP_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_STOP_DEVICE\n"));
-    status = XenScsi_Pnp_Original(device_object, irp);
-    break;
-
-  case IRP_MN_CANCEL_STOP_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_STOP_DEVICE\n"));
-    status = XenScsi_Pnp_Original(device_object, irp);
-    break;
-
-  case IRP_MN_QUERY_REMOVE_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_REMOVE_DEVICE\n"));
-    status = XenScsi_Pnp_Original(device_object, irp);
-    break;
-
-  case IRP_MN_REMOVE_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_REMOVE_DEVICE\n"));
-    status = XenScsi_Pnp_Original(device_object, irp);
-    break;
-
-  case IRP_MN_CANCEL_REMOVE_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_CANCEL_REMOVE_DEVICE\n"));
-    status = XenScsi_Pnp_Original(device_object, irp);
-    break;
-
-  case IRP_MN_SURPRISE_REMOVAL:
-    KdPrint((__DRIVER_NAME "     IRP_MN_SURPRISE_REMOVAL\n"));
-    status = XenScsi_Pnp_Original(device_object, irp);
-    break;
-
-  default:
-    KdPrint((__DRIVER_NAME "     Unknown Minor = %d\n", stack->MinorFunction));
-    status = XenScsi_Pnp_Original(device_object, irp);
-    break;
-  }
-
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
-
-  return status;
-}
-
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -204,10 +83,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   Status = ScsiPortInitialize(DriverObject, RegistryPath, &HwInitializationData, NULL);
   
-  /* this is a bit naughty... */
-  XenScsi_Pnp_Original = DriverObject->MajorFunction[IRP_MJ_PNP];
-  DriverObject->MajorFunction[IRP_MJ_PNP] = XenScsi_Pnp;
-
   if(!NT_SUCCESS(Status))
   {
     KdPrint((__DRIVER_NAME " ScsiPortInitialize failed with status 0x%08x\n", Status));

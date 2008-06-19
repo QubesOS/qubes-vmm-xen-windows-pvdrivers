@@ -37,7 +37,7 @@ typedef struct {
 } vscsiif_shadow_t;
 
 #define SHADOW_ENTRIES 32
-#define GRANT_ENTRIES 128
+#define MAX_GRANT_ENTRIES 512
 
 struct
 {
@@ -45,8 +45,9 @@ struct
   USHORT shadow_free_list[SHADOW_ENTRIES];
   USHORT shadow_free;
 
-  grant_ref_t grant_free_list[GRANT_ENTRIES];
+  grant_ref_t grant_free_list[MAX_GRANT_ENTRIES];
   USHORT grant_free;
+  USHORT grant_entries;
 
   evtchn_port_t event_channel;
 

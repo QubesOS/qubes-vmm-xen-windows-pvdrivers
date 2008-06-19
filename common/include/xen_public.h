@@ -20,6 +20,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #if !defined(_XEN_PUBLIC_H_)
 #define _XEN_PUBLIC_H_
 
+#include <grant_table.h>
+#include <event_channel.h>
 #include <xen_guids.h>
 //{5C568AC5-9DDF-4FA5-A94A-39D67077819C}
 DEFINE_GUID(GUID_XEN_IFACE, 0x5C568AC5, 0x9DDF, 0x4FA5, 0xA9, 0x4A, 0x39, 0xD6, 0x70, 0x77, 0x81, 0x9C);
@@ -89,47 +91,10 @@ typedef char *
 (*PXEN_XENBUS_REMWATCH)(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 
 typedef NTSTATUS
-(*PXEN_XENPCI_SHUTDOWN_DEVICE)(PVOID Context);
+(*PXEN_XENPCI_XEN_CONFIG_DEVICE)(PVOID Context);
 
-#if 0
-typedef struct _XEN_IFACE {
-  INTERFACE InterfaceHeader;
-
-  PXEN_ALLOCMMIO AllocMMIO;
-  PXEN_FREEMEM FreeMem;
-
-  PXEN_EVTCHN_BIND EvtChn_Bind;
-  PXEN_EVTCHN_UNBIND EvtChn_Unbind;
-  PXEN_EVTCHN_MASK EvtChn_Mask;
-  PXEN_EVTCHN_UNMASK EvtChn_Unmask;
-  PXEN_EVTCHN_NOTIFY EvtChn_Notify;
-  PXEN_EVTCHN_ALLOCUNBOUND EvtChn_AllocUnbound;
-  PXEN_EVTCHN_BIND EvtChn_BindDpc;
-
-  PXEN_GNTTBL_GETREF GntTbl_GetRef;
-  PXEN_GNTTBL_PUTREF GntTbl_PutRef;
-  PXEN_GNTTBL_GRANTACCESS GntTbl_GrantAccess;
-  PXEN_GNTTBL_ENDACCESS GntTbl_EndAccess;
-
-  PXEN_XENBUS_READ XenBus_Read;
-  PXEN_XENBUS_WRITE XenBus_Write;
-  PXEN_XENBUS_PRINTF XenBus_Printf;
-  PXEN_XENBUS_STARTTRANSACTION XenBus_StartTransaction;
-  PXEN_XENBUS_ENDTRANSACTION XenBus_EndTransaction;
-  PXEN_XENBUS_LIST XenBus_List;
-  PXEN_XENBUS_ADDWATCH XenBus_AddWatch;
-  PXEN_XENBUS_REMWATCH XenBus_RemWatch;
-} XEN_IFACE, *PXEN_IFACE;
-
-typedef struct _XENPCI_IDENTIFICATION_DESCRIPTION
-{
-  WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Header;
-  char DeviceType[128]; //UNICODE_STRING DeviceType;
-  char Path[128];
-  ULONG DeviceIndex;
-} XENPCI_IDENTIFICATION_DESCRIPTION, *PXENPCI_IDENTIFICATION_DESCRIPTION;
-#endif
-
+typedef NTSTATUS
+(*PXEN_XENPCI_XEN_SHUTDOWN_DEVICE)(PVOID Context);
 
 #define XEN_DATA_MAGIC 0x12345678
 
@@ -148,7 +113,8 @@ typedef struct {
   PXEN_GNTTBL_PUTREF GntTbl_PutRef;
   PXEN_GNTTBL_GRANTACCESS GntTbl_GrantAccess;
   PXEN_GNTTBL_ENDACCESS GntTbl_EndAccess;
-  PXEN_XENPCI_SHUTDOWN_DEVICE XenPci_ShutdownDevice;
+  PXEN_XENPCI_XEN_CONFIG_DEVICE XenPci_XenConfigDevice;
+  PXEN_XENPCI_XEN_SHUTDOWN_DEVICE XenPci_XenShutdownDevice;
 } XENPCI_VECTORS, *PXENPCI_VECTORS;
 
 
@@ -161,12 +127,13 @@ typedef struct {
 #define XEN_INIT_TYPE_READ_STRING_BACK  6
 #define XEN_INIT_TYPE_VECTORS           7
 #define XEN_INIT_TYPE_GRANT_ENTRIES     8
-#define XEN_INIT_TYPE_COPY_PTR          9
+//#define XEN_INIT_TYPE_COPY_PTR          9
+#define XEN_INIT_TYPE_RUN               10
 
 static __inline VOID
 __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
 {
-//  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_UCHAR *ptr = %p, val = %d\n", *ptr, val));
+  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_UCHAR *ptr = %p, val = %d\n", *ptr, val));
   *(PUCHAR)(*ptr) = val;
   *ptr += sizeof(UCHAR);
 }
@@ -174,7 +141,7 @@ __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
 static __inline VOID
 __ADD_XEN_INIT_USHORT(PUCHAR *ptr, USHORT val)
 {
-//  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_USHORT *ptr = %p, val = %d\n", *ptr, val));
+  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_USHORT *ptr = %p, val = %d\n", *ptr, val));
   *(PUSHORT)(*ptr) = val;
   *ptr += sizeof(USHORT);
 }
@@ -182,7 +149,7 @@ __ADD_XEN_INIT_USHORT(PUCHAR *ptr, USHORT val)
 static __inline VOID
 __ADD_XEN_INIT_ULONG(PUCHAR *ptr, ULONG val)
 {
-//  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_ULONG *ptr = %p, val = %d\n", *ptr, val));
+  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_ULONG *ptr = %p, val = %d\n", *ptr, val));
   *(PULONG)(*ptr) = val;
   *ptr += sizeof(ULONG);
 }
@@ -190,7 +157,7 @@ __ADD_XEN_INIT_ULONG(PUCHAR *ptr, ULONG val)
 static __inline VOID
 __ADD_XEN_INIT_PTR(PUCHAR *ptr, PVOID val)
 {
-//  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_PTR *ptr = %p, val = %p\n", *ptr, val));
+  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_PTR *ptr = %p, val = %p\n", *ptr, val));
   *(PVOID *)(*ptr) = val;
   *ptr += sizeof(PVOID);
 }
@@ -198,10 +165,8 @@ __ADD_XEN_INIT_PTR(PUCHAR *ptr, PVOID val)
 static __inline VOID
 __ADD_XEN_INIT_STRING(PUCHAR *ptr, PCHAR val)
 {
-//  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_STRING *ptr = %p, val = %s\n", *ptr, val));
-  //RtlStringCbCopyA((PCHAR)*ptr, PAGE_SIZE - (PtrToUlong(*ptr) & (PAGE_SIZE - 1)), val);
-  // using strcpy instead of above needed for mingw32
-  strcpy((char *)ptr, val);
+  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_STRING *ptr = %p, val = %s\n", *ptr, val));
+  RtlStringCbCopyA((PCHAR)*ptr, PAGE_SIZE - (PtrToUlong(*ptr) & (PAGE_SIZE - 1)), val);
   *ptr += strlen(val) + 1;
 }
 
@@ -210,7 +175,7 @@ __GET_XEN_INIT_UCHAR(PUCHAR *ptr)
 {
   UCHAR retval;
   retval = **ptr;
-//  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_UCHAR *ptr = %p, retval = %d\n", *ptr, retval));
+  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_UCHAR *ptr = %p, retval = %d\n", *ptr, retval));
   *ptr += sizeof(UCHAR);
   return retval;
 }
@@ -220,7 +185,7 @@ __GET_XEN_INIT_USHORT(PUCHAR *ptr)
 {
   USHORT retval;
   retval = *(PUSHORT)*ptr;
-//  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_USHORT *ptr = %p, retval = %d\n", *ptr, retval));
+  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_USHORT *ptr = %p, retval = %d\n", *ptr, retval));
   *ptr += sizeof(USHORT);
   return retval;
 }
@@ -230,7 +195,7 @@ __GET_XEN_INIT_ULONG(PUCHAR *ptr)
 {
   ULONG retval;
   retval = *(PLONG)*ptr;
-//  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_ULONG *ptr = %p, retval = %d\n", *ptr, retval));
+  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_ULONG *ptr = %p, retval = %d\n", *ptr, retval));
   *ptr += sizeof(ULONG);
   return retval;
 }
@@ -240,7 +205,7 @@ __GET_XEN_INIT_STRING(PUCHAR *ptr)
 {
   PCHAR retval;
   retval = (PCHAR)*ptr;
-//  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_STRING *ptr = %p, retval = %s\n", *ptr, retval));
+  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_STRING *ptr = %p, retval = %s\n", *ptr, retval));
   *ptr += strlen((PCHAR)*ptr) + 1;
   return retval;
 }
@@ -250,7 +215,7 @@ __GET_XEN_INIT_PTR(PUCHAR *ptr)
 {
   PVOID retval;
   retval = *(PVOID *)(*ptr);
-//  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_PTR *ptr = %p, retval = %p\n", *ptr, retval));
+  KdPrint((__DRIVER_NAME "     GET_XEN_INIT_PTR *ptr = %p, retval = %p\n", *ptr, retval));
   *ptr += sizeof(PVOID);
   return retval;
 }
@@ -263,6 +228,7 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   {
   case XEN_INIT_TYPE_END:
   case XEN_INIT_TYPE_VECTORS:
+  case XEN_INIT_TYPE_RUN:
     break;
   case XEN_INIT_TYPE_WRITE_STRING:
     __ADD_XEN_INIT_STRING(ptr, p1);
@@ -276,11 +242,11 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
     __ADD_XEN_INIT_STRING(ptr, p1);
     break;
   case XEN_INIT_TYPE_GRANT_ENTRIES:
-    __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p1));
+    __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p2));
     break;
-  case XEN_INIT_TYPE_COPY_PTR:
-    __ADD_XEN_INIT_STRING(ptr, p1);
-    __ADD_XEN_INIT_PTR(ptr, p2);
+//  case XEN_INIT_TYPE_COPY_PTR:
+//    __ADD_XEN_INIT_STRING(ptr, p1);
+//    __ADD_XEN_INIT_PTR(ptr, p2);
   }
 }
 
@@ -294,6 +260,7 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2)
   {
   case XEN_INIT_TYPE_END:
   case XEN_INIT_TYPE_VECTORS:
+  case XEN_INIT_TYPE_RUN:
     *p1 = NULL;
     *p2 = NULL;
     break;
@@ -310,11 +277,11 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2)
     *p2 = NULL;
     break;
   case XEN_INIT_TYPE_GRANT_ENTRIES:
-    *p1 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
+    *p2 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     break;
-  case XEN_INIT_TYPE_COPY_PTR:
-    *p1 = __GET_XEN_INIT_STRING(ptr);
-    *p2 = __GET_XEN_INIT_PTR(ptr);
+//  case XEN_INIT_TYPE_COPY_PTR:
+//    *p1 = __GET_XEN_INIT_STRING(ptr);
+//    *p2 = __GET_XEN_INIT_PTR(ptr);
   }
   return retval;
 }
@@ -327,6 +294,7 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   {
   case XEN_INIT_TYPE_END:
   case XEN_INIT_TYPE_WRITE_STRING: /* this shouldn't happen */
+  case XEN_INIT_TYPE_RUN:
     break;
   case XEN_INIT_TYPE_RING:
     __ADD_XEN_INIT_STRING(ptr, p1);
@@ -352,9 +320,10 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
     memcpy(*ptr, p2, PtrToUlong(p1) * sizeof(grant_entry_t));
     *ptr += PtrToUlong(p1) * sizeof(grant_entry_t);
     break;
-  case XEN_INIT_TYPE_COPY_PTR:
-    __ADD_XEN_INIT_STRING(ptr, p1);
-    __ADD_XEN_INIT_PTR(ptr, p2);
+//  case XEN_INIT_TYPE_COPY_PTR:
+//    __ADD_XEN_INIT_STRING(ptr, p1);
+//    __ADD_XEN_INIT_PTR(ptr, p2);
+//    break;
   }
 }
 
@@ -367,6 +336,7 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2)
   switch (retval)
   {
   case XEN_INIT_TYPE_END:
+  case XEN_INIT_TYPE_RUN:
     *p1 = NULL;
     *p2 = NULL;
     break;
@@ -398,11 +368,11 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2)
   case XEN_INIT_TYPE_GRANT_ENTRIES:
     *p1 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     *p2 = *ptr;
-    *ptr += PtrToUlong(*p1) * sizeof(grant_entry_t);
+    *ptr += PtrToUlong(*p1) * sizeof(grant_ref_t);
     break;
-  case XEN_INIT_TYPE_COPY_PTR:
-    *p1 = __GET_XEN_INIT_STRING(ptr);
-    *p2 = __GET_XEN_INIT_PTR(ptr);
+//  case XEN_INIT_TYPE_COPY_PTR:
+//    *p1 = __GET_XEN_INIT_STRING(ptr);
+//    *p2 = __GET_XEN_INIT_PTR(ptr);
   }
   return retval;
 }

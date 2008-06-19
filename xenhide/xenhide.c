@@ -39,6 +39,18 @@ XenHide_AddDevice();
 
 static BOOLEAN gplpv;
 
+static NTSTATUS
+XenHide_Power(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PXENHIDE_DEVICE_DATA xhdd = (PXENHIDE_DEVICE_DATA)device_object->DeviceExtension;
+
+  PoStartNextPowerIrp(irp);
+  IoSkipCurrentIrpStackLocation(irp);
+  status = PoCallDriver(xhdd->lower_do, irp);
+  return status;
+}
+
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -140,6 +152,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   for (i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++)
     DriverObject->MajorFunction[i] = XenHide_Pass;
   DriverObject->MajorFunction[IRP_MJ_PNP] = XenHide_Pnp;
+  DriverObject->MajorFunction[IRP_MJ_POWER] = XenHide_Power;
   DriverObject->DriverExtension->AddDevice = XenHide_AddDevice;
 
   KdPrint((__DRIVER_NAME " <-- DriverEntry\n"));

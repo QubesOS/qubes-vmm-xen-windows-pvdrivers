@@ -146,7 +146,6 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
     access_range->RangeStart,
     access_range->RangeLength,
     !access_range->RangeInMemory);
-  //ptr = MmMapIoSpace(access_range->RangeStart, access_range->RangeLength, MmCached);
   if (ptr == NULL)
   {
     KdPrint((__DRIVER_NAME "     Unable to map range\n"));
@@ -221,17 +220,9 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
       break;
     case XEN_INIT_TYPE_GRANT_ENTRIES:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(setting)));
-      if (PtrToUlong(setting) != GRANT_ENTRIES)
-      {
-        KdPrint((__DRIVER_NAME "     grant entries mismatch\n"));
-        KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-        return SP_RETURN_BAD_CONFIG;
-      }
-      else
-      {
-        memcpy(&xvdd->grant_free_list, value, sizeof(ULONG) * PtrToUlong(setting));
-        xvdd->grant_free = GRANT_ENTRIES;
-      }
+      xvdd->grant_entries = (USHORT)PtrToUlong(setting);
+      memcpy(&xvdd->grant_free_list, value, sizeof(grant_ref_t) * xvdd->grant_entries);
+      xvdd->grant_free = xvdd->grant_entries;
       break;
     default:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
@@ -253,7 +244,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   xvdd->total_sectors /= xvdd->bytes_per_sector / 512;
   
   ConfigInfo->MaximumTransferLength = BLKIF_MAX_SEGMENTS_PER_REQUEST * PAGE_SIZE;
-  ConfigInfo->NumberOfPhysicalBreaks = BLKIF_MAX_SEGMENTS_PER_REQUEST - 1;
+  ConfigInfo->NumberOfPhysicalBreaks = 0; //BLKIF_MAX_SEGMENTS_PER_REQUEST - 1;
   ConfigInfo->ScatterGather = TRUE;
   ConfigInfo->AlignmentMask = 0;
   ConfigInfo->NumberOfBuses = 1;
@@ -367,7 +358,7 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  ASSERT(!(srb_offset == 0 && xvdd->split_request_in_progress));
+  //ASSERT(!(srb_offset == 0 && xvdd->split_request_in_progress));
   block_count = (srb->Cdb[7] << 8) | srb->Cdb[8];
   block_count *= xvdd->bytes_per_sector / 512;
   if (PtrToUlong(srb->DataBuffer) & 511) /* use SrbExtension intead of DataBuffer if DataBuffer is not aligned to sector size */
@@ -394,7 +385,6 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
     //KdPrint((__DRIVER_NAME "     No enough grants - deferring\n"));
     xvdd->pending_srb = srb;
     xvdd->no_free_grant_requests++;
-
     return;
   }
   
@@ -451,19 +441,8 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   if (notify)
     xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
 
-  /* we don't want another srb if we had to double buffer this one, it will put things out of order */
-  if (srb_offset + shadow->length == block_count * 512)
-  {
-    if (xvdd->shadow_free)
-    {
-      ScsiPortNotification(NextLuRequest, xvdd, 0, 0, 0);
-    }
-    xvdd->split_request_in_progress = FALSE;
-  }
-  else
-  {
-    xvdd->split_request_in_progress = TRUE;
-  }
+  if (xvdd->shadow_free && srb_offset == 0)
+    ScsiPortNotification(NextLuRequest, xvdd, 0, 0, 0);
 
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }

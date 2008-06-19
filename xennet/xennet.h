@@ -156,9 +156,6 @@ struct xennet_info
   PDEVICE_OBJECT lower_do;
   //WDFDEVICE wdf_device;
   WCHAR dev_desc[NAME_SIZE];
-  PMDL uncached_config_page;
-  PCM_RESOURCE_LIST new_crl_raw;
-  PCM_RESOURCE_LIST new_crl_translated;
 
   /* NDIS-related vars */
   NDIS_HANDLE adapter_handle;
@@ -179,6 +176,7 @@ struct xennet_info
   KEVENT shutdown_event;
   char backend_path[MAX_XENBUS_STR_LEN];
   ULONG backend_state;
+  PVOID config_page;
 
   /* Xen ring-related vars */
   KSPIN_LOCK rx_lock;

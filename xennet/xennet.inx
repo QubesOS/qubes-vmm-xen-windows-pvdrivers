@@ -63,9 +63,11 @@ HKR, Ndi\Params\ScatterGather\enum, 1, , "Enabled"
 
 [XenNet.CopyFiles]
 xennet.sys
+xenconfig.sys
 
 [SourceDisksFiles]
 xennet.sys=1
+xenconfig.sys=1
 
 [SourceDisksNames.x86]
 1 = %DISK_NAME%,,,\i386
@@ -75,6 +77,7 @@ xennet.sys=1
 
 [XenNet_Inst.Services]
 AddService=XenNet,2,XenNet_Service 
+AddService=XenConfig,0,XenConfig_Service
 
 [XenNet_Inst.NT.Services]
 AddService=XenNet,2,XenNet_Service 
@@ -93,9 +96,27 @@ AddReg = XenNet_Service_AddReg
 HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002bE10318},UpperFilters,0x00010008,XenHide
 
+[XenNet_Inst.NT.HW]
+AddReg = XenNet_UpperFilter_AddReg
+
+[XenNet_UpperFilter_AddReg]
+HKR,,UpperFilters,0x10000,XenConfig
+
+[XenConfig_Service]
+DisplayName    = %XenConfig.SVCDESC%                            
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+LoadOrderGroup = System Bus Extender
+ServiceBinary  = %12%\xenconfig.sys                            
+AddReg = XenConfig_Service_AddReg
+
+[XenConfig_Service_AddReg]
+HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+
 [Strings]
 XenGplPv = "Xen GPL PV Driver Developers"
-ClassName = "Network Adapters"
 XenNet.SVCDESC = "Xen Net Device Driver"
 XenNet.DRVDESC = "Xen Net Device Driver"
+XenConfig.SVCDESC = "Xen Config Resource Generator"
 DISK_NAME = "Xen Net Device Driver Install Disk"
