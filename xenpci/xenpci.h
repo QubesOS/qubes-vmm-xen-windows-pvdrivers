@@ -247,7 +247,11 @@ typedef struct
   PXENPCI_PDO_DEVICE_DATA context;
 } XEN_CHILD, *PXEN_CHILD;
 
+#ifdef __GNUC__
+#define SWINT(x) case x: asm ("int x"); break;
+#else
 #define SWINT(x) case x: __asm { int x } break;
+#endif
 
 #if defined(_X86_)
 static __inline VOID
@@ -305,9 +309,6 @@ sw_interrupt(UCHAR intno)
 
   
 #include "hypercall.h"
-
-typedef unsigned long xenbus_transaction_t;
-typedef uint32_t XENSTORE_RING_IDX;
 
 #define XBT_NIL ((xenbus_transaction_t)0)
 

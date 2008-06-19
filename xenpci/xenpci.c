@@ -24,15 +24,17 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define SHUTDOWN_PATH "control/shutdown"
 #define BALLOON_PATH "memory/target"
 
-DRIVER_INITIALIZE DriverEntry;
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (INIT, DriverEntry)
 #endif
 
 #pragma warning(disable : 4200) // zero-sized array
 
-static NTSTATUS
+#ifndef __MINGW32__
+#define DDKAPI
+#endif
+
+static DDKAPI NTSTATUS
 XenPci_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
@@ -46,7 +48,7 @@ XenPci_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   return status;
 }
 
-static NTSTATUS
+static DDKAPI NTSTATUS
 XenPci_Power(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
@@ -60,7 +62,7 @@ XenPci_Power(PDEVICE_OBJECT device_object, PIRP irp)
   return status;
 }
 
-static NTSTATUS
+static DDKAPI NTSTATUS
 XenPci_Irp_Create(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
@@ -74,7 +76,7 @@ XenPci_Irp_Create(PDEVICE_OBJECT device_object, PIRP irp)
   return status;
 }
 
-static NTSTATUS
+static DDKAPI NTSTATUS
 XenPci_Irp_Close(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
@@ -88,7 +90,7 @@ XenPci_Irp_Close(PDEVICE_OBJECT device_object, PIRP irp)
   return status;
 }
 
-static NTSTATUS
+static DDKAPI NTSTATUS
 XenPci_Irp_Read(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
@@ -102,7 +104,7 @@ XenPci_Irp_Read(PDEVICE_OBJECT device_object, PIRP irp)
   return status;
 }
 
-static NTSTATUS
+static DDKAPI NTSTATUS
 XenPci_Irp_Cleanup(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
@@ -116,7 +118,7 @@ XenPci_Irp_Cleanup(PDEVICE_OBJECT device_object, PIRP irp)
   return status;
 }
 
-static NTSTATUS
+static DDKAPI NTSTATUS
 XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObject)
 {
   NTSTATUS status;
