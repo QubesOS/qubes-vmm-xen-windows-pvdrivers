@@ -25,6 +25,7 @@
 
 #ifndef _XS_WIRE_H
 #define _XS_WIRE_H
+#include <errno.h>
 
 enum xsd_sockmsg_type
 {

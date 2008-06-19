@@ -24,13 +24,15 @@
 #define STR(x) __STR(x)
 
 #define HYPERCALL_STR(name)					\
-	"mov $xpdd->hypercall_stubs,%%eax; "				\
+	"mov $stub_addr,%%eax; "			    \
 	"add $("STR(__HYPERVISOR_##name)" * 32),%%eax; "	\
 	"call *%%eax"
 
 #define _hypercall2(type, name, a1, a2)                         \
 ({                                                              \
         long __res, __ign1, __ign2;                             \
+        char *stub_addr;                                        \
+        stub_addr = xpdd->hypercall_stubs;                      \
         asm volatile (                                          \
                 HYPERCALL_STR(name)                             \
                 : "=a" (__res), "=b" (__ign1), "=c" (__ign2)    \
@@ -87,8 +89,8 @@ static __inline void __writemsr(uint32_t msr, uint64_t value)
   hi = value >> 32;
   lo = value & 0xFFFFFFFF;
 
-  __asm__ __volatile__("wrmsr" \
-                       : /* no outputs */ \
+  __asm__ __volatile__("wrmsr"
+                       : /* no outputs */
                        : "c" (msr), "a" (lo), "d" (hi));
 }
 

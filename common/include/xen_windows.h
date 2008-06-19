@@ -36,7 +36,10 @@ typedef UINT64 uint64_t;
 #endif
 
 #ifdef __MINGW32__
+#include <stdio.h>
 #define RtlStringCbCopyA(dst, dst_len, src) strncpy(dst, src, dst_len)
+#define RtlStringCbPrintfA(args...) snprintf(args)
+#define RtlStringCbVPrintfA(args...) vsnprintf(args)
 #endif
 #include <xen.h>
 
@@ -56,7 +59,6 @@ typedef UINT64 uint64_t;
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 typedef unsigned long xenbus_transaction_t;
-typedef uint32_t XENSTORE_RING_IDX;
 
 #define XBT_NIL ((xenbus_transaction_t)0)
 
@@ -65,7 +67,7 @@ typedef uint32_t XENSTORE_RING_IDX;
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
 
-static char **
+static inline char **
 SplitString(char *String, char Split, int MaxParts, int *Count)
 {
   char **RetVal;
@@ -100,7 +102,7 @@ SplitString(char *String, char Split, int MaxParts, int *Count)
   return RetVal;
 }
 
-static VOID
+static inline VOID
 FreeSplitString(char **Bits, int Count)
 {
   int i;
@@ -140,19 +142,19 @@ AllocatePagesExtra(int Pages, int ExtraSize)
   return Mdl;
 }
 
-static PMDL
+static inline PMDL
 AllocatePages(int Pages)
 {
   return AllocatePagesExtra(Pages, 0);
 }
 
-static PMDL
+static inline PMDL
 AllocatePage()
 {
   return AllocatePagesExtra(1, 0);
 }
 
-static PMDL
+static inline PMDL
 AllocateUncachedPage()
 {
   PMDL mdl;
@@ -165,7 +167,7 @@ AllocateUncachedPage()
   return mdl;
 }  
 
-static VOID
+static inline VOID
 FreeUncachedPage(PMDL mdl)
 {
   PVOID buf = MmGetMdlVirtualAddress(mdl);
@@ -174,7 +176,7 @@ FreeUncachedPage(PMDL mdl)
   MmFreeNonCachedMemory(buf, PAGE_SIZE);
 }
 
-static VOID
+static inline VOID
 FreePages(PMDL Mdl)
 {
   PVOID Buf = MmGetMdlVirtualAddress(Mdl);

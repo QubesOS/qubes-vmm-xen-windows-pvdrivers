@@ -25,7 +25,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include <ntddk.h>
 
-#ifndef __MINGW32__
+#ifdef __MINGW32__
+#define KeMemoryBarrier() asm("mfence;")
+#else
+#define DDKAPI
 #include <wdm.h>
 //#include <wdf.h>
 #include <initguid.h>

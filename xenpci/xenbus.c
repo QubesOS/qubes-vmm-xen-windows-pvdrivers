@@ -29,11 +29,11 @@ struct write_req {
     unsigned len;
 };
 
-static void
+static DDKAPI void
 XenBus_ReadThreadProc(PVOID StartContext);
-static void
+static DDKAPI void
 XenBus_WatchThreadProc(PVOID StartContext);
-static BOOLEAN
+static DDKAPI BOOLEAN
 XenBus_Interrupt(PKINTERRUPT Interrupt, PVOID ServiceContext);
 
 static int allocate_xenbus_id(PXENPCI_DEVICE_DATA xpdd)
@@ -442,7 +442,7 @@ XenBus_List(
   return NULL;
 }
 
-static void
+static DDKAPI void
 XenBus_ReadThreadProc(PVOID StartContext)
 {
   int NewWriteIndex;
@@ -518,7 +518,7 @@ XenBus_ReadThreadProc(PVOID StartContext)
   }
 }
 
-static void
+static DDKAPI void
 XenBus_WatchThreadProc(PVOID StartContext)
 {
   int index;
@@ -802,7 +802,7 @@ XenBus_EndTransaction(
   return NULL;
 }
 
-static BOOLEAN
+static DDKAPI BOOLEAN
 XenBus_Interrupt(PKINTERRUPT Interrupt, PVOID ServiceContext)
 {
   PXENPCI_DEVICE_DATA xpdd = ServiceContext;

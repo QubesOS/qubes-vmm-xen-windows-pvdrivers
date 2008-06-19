@@ -31,10 +31,6 @@ DRIVER_INITIALIZE DriverEntry;
 
 #pragma warning(disable : 4200) // zero-sized array
 
-#ifndef __MINGW32__
-#define DDKAPI
-#endif
-
 static DDKAPI NTSTATUS
 XenPci_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
 {
