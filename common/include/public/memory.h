@@ -279,3 +279,4 @@ DEFINE_XEN_GUEST_HANDLE(xen_foreign_memory_map_t);
  * indent-tabs-mode: nil
  * End:
  */
+
