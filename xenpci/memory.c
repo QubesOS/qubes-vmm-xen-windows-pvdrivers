@@ -1,10 +1,9 @@
 #include "xenpci.h"
-#include <hypercall.h>
 
-static pgentry_t *demand_map_pgt;
+//static pgentry_t *demand_map_pgt;
 static void *demand_map_area_start;
 
-static NTSTATUS
+NTSTATUS
 hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
 {
   DWORD32 cpuid_output[4];
@@ -39,7 +38,7 @@ hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
   return STATUS_SUCCESS;
 }
 
-static NTSTATUS
+NTSTATUS
 hvm_free_stubs(PXENPCI_DEVICE_DATA xpdd)
 {
   ExFreePoolWithTag(xpdd->hypercall_stubs, XENPCI_POOL_TAG);
@@ -47,6 +46,7 @@ hvm_free_stubs(PXENPCI_DEVICE_DATA xpdd)
   return STATUS_SUCCESS;
 }
 
+#if 0
 PVOID
 map_frames(PULONG f, ULONG n)
 {
@@ -81,3 +81,4 @@ map_frames(PULONG f, ULONG n)
     return (PVOID)(ULONG)((ULONG)demand_map_area_start + x * PAGE_SIZE);
   }
 }
+#endif

@@ -322,6 +322,11 @@ XenPci_FreeMem(PVOID Ptr)
 }
 
 NTSTATUS
+hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd);
+NTSTATUS
+hvm_free_stubs(PXENPCI_DEVICE_DATA xpdd);
+
+NTSTATUS
 XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_Dummy_Fdo(PDEVICE_OBJECT device_object, PIRP irp);

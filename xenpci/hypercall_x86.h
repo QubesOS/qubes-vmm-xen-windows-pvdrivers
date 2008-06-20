@@ -1,3 +1,5 @@
+#ifndef HYPERCALL_X86_H
+#define HYPERCALL_X86_H
 /*
 PV Drivers for Windows Xen HVM Domains
 Copyright (C) 2007 James Harper
@@ -150,3 +152,4 @@ HYPERVISOR_event_channel_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *op)
   return __res;
 }
 
+#endif

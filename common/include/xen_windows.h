@@ -67,7 +67,7 @@ typedef unsigned long xenbus_transaction_t;
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
 
-static inline char **
+static __inline char **
 SplitString(char *String, char Split, int MaxParts, int *Count)
 {
   char **RetVal;
@@ -102,7 +102,7 @@ SplitString(char *String, char Split, int MaxParts, int *Count)
   return RetVal;
 }
 
-static inline VOID
+static __inline VOID
 FreeSplitString(char **Bits, int Count)
 {
   int i;
@@ -142,19 +142,19 @@ AllocatePagesExtra(int Pages, int ExtraSize)
   return Mdl;
 }
 
-static inline PMDL
+static __inline PMDL
 AllocatePages(int Pages)
 {
   return AllocatePagesExtra(Pages, 0);
 }
 
-static inline PMDL
+static __inline PMDL
 AllocatePage()
 {
   return AllocatePagesExtra(1, 0);
 }
 
-static inline PMDL
+static __inline PMDL
 AllocateUncachedPage()
 {
   PMDL mdl;
@@ -167,7 +167,7 @@ AllocateUncachedPage()
   return mdl;
 }  
 
-static inline VOID
+static __inline VOID
 FreeUncachedPage(PMDL mdl)
 {
   PVOID buf = MmGetMdlVirtualAddress(mdl);
@@ -176,7 +176,7 @@ FreeUncachedPage(PMDL mdl)
   MmFreeNonCachedMemory(buf, PAGE_SIZE);
 }
 
-static inline VOID
+static __inline VOID
 FreePages(PMDL Mdl)
 {
   PVOID Buf = MmGetMdlVirtualAddress(Mdl);
