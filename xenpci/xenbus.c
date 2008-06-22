@@ -312,7 +312,7 @@ XenBus_Init(PXENPCI_DEVICE_DATA xpdd)
   xpdd->xen_store_evtchn = (evtchn_port_t)hvm_get_parameter(xpdd, HVM_PARAM_STORE_EVTCHN);
 
   xen_store_mfn = (xen_ulong_t)hvm_get_parameter(xpdd, HVM_PARAM_STORE_PFN);
-  pa_xen_store_interface.QuadPart = xen_store_mfn << PAGE_SHIFT;
+  pa_xen_store_interface.QuadPart = (ULONGLONG)xen_store_mfn << PAGE_SHIFT;
   xpdd->xen_store_interface = MmMapIoSpace(pa_xen_store_interface, PAGE_SIZE, MmNonCached);
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)

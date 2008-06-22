@@ -3,7 +3,7 @@
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.10"
+!define Version "0.9.11-pre1"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 InstallDir "$PROGRAMFILES\${AppName}"
