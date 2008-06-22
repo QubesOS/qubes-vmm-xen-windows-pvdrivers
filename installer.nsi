@@ -3,7 +3,7 @@
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.11-pre1"
+!define Version "0.9.11-pre4"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 InstallDir "$PROGRAMFILES\${AppName}"
@@ -53,7 +53,7 @@ SectionEnd
   
 Section "Windows 2000" win2k
   SetOutPath $INSTDIR
-  File /r .\ca.cer
+  File /nonfatal .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\win2k\xenpci.inf
   File .\target\win2k\xennet.inf
@@ -72,14 +72,14 @@ SectionEnd
 
 Section "Windows XP" winxp
   SetOutPath $INSTDIR
-  File /r .\ca.cer
+  File /nonfatal .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winxp\xenpci.inf
   File .\target\winxp\xennet.inf
   File .\target\winxp\xenvbd.inf
   File .\target\winxp\xenscsi.inf
   File .\target\winxp\xenstub.inf
-  File /r .\target\winxp\xengplpv.cat
+  File /nonfatal .\target\winxp\xengplpv.cat
   SetOutPath $INSTDIR\drivers\i386
   File .\target\winxp\i386\xenpci.sys
   File .\target\winxp\i386\xenhide.sys
@@ -92,14 +92,14 @@ SectionEnd
 
 Section "Windows 2003 x32" win2k3x32
   SetOutPath $INSTDIR
-  File /r .\ca.cer
+  File /nonfatal .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
   File .\target\winnet\xenvbd.inf
   File .\target\winnet\xenscsi.inf
   File .\target\winnet\xenstub.inf
-  File /r .\target\winnet\xengplpv.cat
+  File /nonfatal .\target\winnet\xengplpv.cat
   SetOutPath $INSTDIR\drivers\i386
   File .\target\winnet\i386\xenpci.sys
   File .\target\winnet\i386\xenhide.sys
@@ -112,14 +112,14 @@ SectionEnd
 
 Section "Windows 2003 x64" win2k3x64
   SetOutPath $INSTDIR
-  File /r .\ca.cer
+  File /nonfatal .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
   File .\target\winnet\xenvbd.inf
   File .\target\winnet\xenscsi.inf
   File .\target\winnet\xenstub.inf
-  File /r .\target\winnet\xengplpv.cat
+  File /nonfatal .\target\winnet\xengplpv.cat
   SetOutPath $INSTDIR\drivers\amd64
   File .\target\winnet\amd64\xenpci.sys
   File .\target\winnet\amd64\xenhide.sys
@@ -132,14 +132,14 @@ SectionEnd
 
 Section "Windows 2008 x32" win2k8x32
   SetOutPath $INSTDIR
-  File /r .\ca.cer
+  File /nonfatal .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
   File .\target\winlh\xenvbd.inf
   File .\target\winlh\xenscsi.inf
   File .\target\winlh\xenstub.inf
-  File /r .\target\winlh\xengplpv.cat
+  File /nonfatal .\target\winlh\xengplpv.cat
   SetOutPath $INSTDIR\drivers\i386
   File .\target\winlh\i386\xenpci.sys
   File .\target\winlh\i386\xenhide.sys
@@ -152,14 +152,14 @@ SectionEnd
 
 Section "Windows 2008 x64" win2k8x64
   SetOutPath $INSTDIR
-  File /r .\ca.cer
+  File /nonfatal .\ca.cer
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
   File .\target\winlh\xenvbd.inf
   File .\target\winlh\xenscsi.inf
   File .\target\winlh\xenstub.inf
-  File /r .\target\winlh\xengplpv.cat
+  File /nonfatal .\target\winlh\xengplpv.cat
   SetOutPath $INSTDIR\drivers\amd64
   File .\target\winlh\amd64\xenpci.sys
   File .\target\winlh\amd64\xenhide.sys
