@@ -32,19 +32,37 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include <xen_guids.h>
 
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+
 #define XENHIDE_POOL_TAG (ULONG) 'XHID'
 
 //{CD433FE7-954F-4D51-BE29-D8A38DFA1108}
 //DEFINE_GUID(GUID_XENHIDE_IFACE, 0xCD433FE7, 0x954F, 0x4D51, 0xBE, 0x29, 0xD8, 0xA3, 0x8D, 0xFA, 0x11, 0x08);
 
-#define XENHIDE_TYPE_PCI 1
-#define XENHIDE_TYPE_HIDE 2
+#define XENHIDE_TYPE_NONE 0
+#define XENHIDE_TYPE_DEVICE 1
+#define XENHIDE_TYPE_PCI_BUS 2
 
-struct {
+typedef struct {
   PDEVICE_OBJECT filter_do;
   PDEVICE_OBJECT pdo;
   PDEVICE_OBJECT lower_do;
   IO_REMOVE_LOCK RemoveLock;
-} typedef XENHIDE_DEVICE_DATA, *PXENHIDE_DEVICE_DATA;
+  USHORT hide_type;
+} XENHIDE_DEVICE_DATA, *PXENHIDE_DEVICE_DATA;
+
+typedef struct
+{
+  LIST_ENTRY entry;
+  PDEVICE_OBJECT pdo;
+} XENHIDE_HIDE_LIST_ENTRY,  *PXENHIDE_HIDE_LIST_ENTRY;
+
+typedef struct
+{
+  PDEVICE_OBJECT pci_bus_pdo;
+  LIST_ENTRY hide_list_head;
+  KSPIN_LOCK hide_list_lock;
+  KEVENT hide_list_event;
+} XENHIDE_DRIVER_DATA, *PXENHIDE_DRIVER_DATA;
 
 #endif
