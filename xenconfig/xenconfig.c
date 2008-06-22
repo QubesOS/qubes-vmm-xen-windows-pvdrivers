@@ -349,7 +349,7 @@ XenConfig_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     prd->ShareDisposition = CmResourceShareDeviceExclusive;
     prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE;
     KdPrint((__DRIVER_NAME "     PFN[0] = %p\n", MmGetMdlPfnArray(mdl)[0]));
-    prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+    prd->u.Memory.Start.QuadPart = ((ULONGLONG)MmGetMdlPfnArray(mdl)[0]) << PAGE_SHIFT;
     prd->u.Memory.Length = PAGE_SIZE;
     KdPrint((__DRIVER_NAME "     Start = %08x:%08x, Length = %d\n", prd->u.Memory.Start.HighPart, prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
     stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl;
@@ -362,7 +362,7 @@ XenConfig_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     prd->Type = CmResourceTypeMemory;
     prd->ShareDisposition = CmResourceShareDeviceExclusive;
     prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE;
-    prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+    prd->u.Memory.Start.QuadPart = (ULONGLONG)MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
     prd->u.Memory.Length = PAGE_SIZE;
     stack->Parameters.StartDevice.AllocatedResources = new_crl;
 
