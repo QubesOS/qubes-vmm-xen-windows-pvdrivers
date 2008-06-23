@@ -251,9 +251,9 @@ typedef struct
 } XEN_CHILD, *PXEN_CHILD;
 
 #ifdef __GNUC__
-#define SWINT(x) case x: asm ("int x"); break;
+#define SWINT(x) if (intno == x) { asm ("int $"#x";"); return;}
 #else
-#define SWINT(x) case x: __asm { int x } break;
+#define SWINT(x) if (intno == x) { __asm { int x } return; }
 #endif
 
 #if defined(_X86_)
@@ -261,8 +261,6 @@ static __inline VOID
 sw_interrupt(UCHAR intno)
 {
   //KdPrint((__DRIVER_NAME "     Calling interrupt %02X\n", intno));
-  switch (intno)
-  {
   SWINT(0x10) SWINT(0x11) SWINT(0x12) SWINT(0x13) SWINT(0x14) SWINT(0x15) SWINT(0x16) SWINT(0x17)
   SWINT(0x18) SWINT(0x19) SWINT(0x1A) SWINT(0x1B) SWINT(0x1C) SWINT(0x1D) SWINT(0x1E) SWINT(0x1F)
   SWINT(0x20) SWINT(0x21) SWINT(0x22) SWINT(0x23) SWINT(0x24) SWINT(0x25) SWINT(0x26) SWINT(0x27)
@@ -294,11 +292,9 @@ sw_interrupt(UCHAR intno)
   SWINT(0xF0) SWINT(0xF1) SWINT(0xF2) SWINT(0xF3) SWINT(0xF4) SWINT(0xF5) SWINT(0xF6) SWINT(0xF7)
   SWINT(0xF8) SWINT(0xF9) SWINT(0xFA) SWINT(0xFB) SWINT(0xFC) SWINT(0xFD) SWINT(0xFE) SWINT(0xFF)
 
-  default:
-    KdPrint((__DRIVER_NAME "     interrupt %02X not set up. Blame James.\n", intno));
-    KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000002, (ULONG)intno, 0x00000000, 0x00000000);
-    break;
-  }
+  /* not found */
+  KdPrint((__DRIVER_NAME "     interrupt %02X not set up. Blame James.\n", intno));
+  KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000002, (ULONG)intno, 0x00000000, 0x00000000);
 }
 #else
 VOID _sw_interrupt(UCHAR);
