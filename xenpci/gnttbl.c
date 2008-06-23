@@ -101,6 +101,27 @@ GntTbl_GrantAccess(
   return ref;
 }
 
+#ifdef __MINGW32__
+/* from linux/include/asm-i386/cmpxchg.h */
+static inline short InterlockedCompareExchange16(
+  short volatile *dest,
+  short exch,
+  short comp)
+{
+  unsigned long prev;
+
+  __asm__ __volatile__("lock;"
+    "cmpxchgw %w1,%2"
+    : "=a"(prev)
+    : "r"(exch), "m"(*(dest)), "0"(comp)
+    : "memory");
+
+  KdPrint((__FUNC__ " Check that I work as expected!\n"));
+
+  return prev;
+}
+#endif
+
 BOOLEAN
 GntTbl_EndAccess(
   PVOID Context,

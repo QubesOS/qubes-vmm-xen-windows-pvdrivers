@@ -20,12 +20,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xenpci.h"
 
 #if defined(__MINGW32__)
-
-/* mingw-runtime 3.13 is buggy */
-#undef KeGetCurrentProcessorNumber
-#define KeGetCurrentProcessorNumber() \
-  ((ULONG)KeGetCurrentKPCR()->Number)
-
 /* mingw-runtime 3.13 lacks certain lowlevel intrinsics */
 NTSTATUS BitScanForward(unsigned long *index, unsigned long mask)
 {
@@ -35,9 +29,13 @@ NTSTATUS BitScanForward(unsigned long *index, unsigned long mask)
   {
     if (mask & (1 << i)) {
       *index = i + 1;
+      KdPrint((__FUNC__ __LINE__ " Check that I work as expected!\n"));
       return 1;
     }
   }
+
+  KdPrint((__FUNC__ __LINE__ " Check that I work as expected!\n"));
+
   return 0;
 }
 
@@ -52,7 +50,9 @@ static inline int test_and_set_bit(int nr, volatile long * addr)
     "btsl %2,%1\n\tsbbl %0,%0"
     :"=r" (oldbit),"+m" (*(volatile long *) addr)
     :"Ir" (nr) : "memory");
-  
+
+  KdPrint((__FUNC__ " Check that I work as expected!\n"));
+
   return oldbit;
 }
 static inline int test_and_clear_bit(int nr, volatile long * addr)
@@ -63,6 +63,9 @@ static inline int test_and_clear_bit(int nr, volatile long * addr)
     "btrl %2,%1\n\tsbbl %0,%0"
     :"=r" (oldbit),"+m" (*(volatile long *) addr)
     :"Ir" (nr) : "memory");
+
+  KdPrint((__FUNC__ " Check that I work as expected!\n"));
+
   return oldbit;
 }
 
