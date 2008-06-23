@@ -19,11 +19,66 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 
-#if defined(_WIN32)
+#if defined(__MINGW32__)
+
+/* mingw-runtime 3.13 is buggy */
+#undef KeGetCurrentProcessorNumber
+#define KeGetCurrentProcessorNumber() \
+  ((ULONG)KeGetCurrentKPCR()->Number)
+
+/* mingw-runtime 3.13 lacks certain lowlevel intrinsics */
+NTSTATUS BitScanForward(unsigned long *index, unsigned long mask)
+{
+  int i;
+
+  for (i = 0; i < sizeof(unsigned long)*8; i++)
+  {
+    if (mask & (1 << i)) {
+      *index = i + 1;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/**
+  From linux include/asm-i386/bitops.h
+ */
+static inline int test_and_set_bit(int nr, volatile long * addr)
+{
+  int oldbit;
+
+  __asm__ __volatile__( "lock;"
+    "btsl %2,%1\n\tsbbl %0,%0"
+    :"=r" (oldbit),"+m" (*(volatile long *) addr)
+    :"Ir" (nr) : "memory");
+  
+  return oldbit;
+}
+static inline int test_and_clear_bit(int nr, volatile long * addr)
+{
+  int oldbit;
+
+  __asm__ __volatile__( "lock;"
+    "btrl %2,%1\n\tsbbl %0,%0"
+    :"=r" (oldbit),"+m" (*(volatile long *) addr)
+    :"Ir" (nr) : "memory");
+  return oldbit;
+}
+
+  #define xchg(p1, p2) InterlockedExchange((xen_long_t * volatile)p1, p2)
+  #define synch_clear_bit(p1, p2) test_and_clear_bit(p1, p2)
+  #define synch_set_bit(p1, p2) test_and_set_bit(p1, p2)
+  #define bit_scan_forward(p1, p2) BitScanForward(p1, p2)
+
+#elif defined(_WIN32)
   #define xchg(p1, p2) _InterlockedExchange(p1, p2)
   #define synch_clear_bit(p1, p2) _interlockedbittestandreset(p2, p1)
   #define synch_set_bit(p1, p2) _interlockedbittestandset(p2, p1)
   #define bit_scan_forward(p1, p2) _BitScanForward(p1, p2)
+
+
+
 #else
   #define xchg(p1, p2) _InterlockedExchange64(p1, p2)
   #define synch_clear_bit(p1, p2) _interlockedbittestandreset64(p2, p1)
@@ -31,7 +86,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
   #define bit_scan_forward(p1, p2) _BitScanForward64(p1, p2)
 #endif
 
-static VOID
+static DDKAPI VOID
 EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemArgument2)
 {
   ev_action_t *action = Context;
@@ -46,7 +101,7 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
     action->ServiceRoutine(NULL, action->ServiceContext);
 }
 
-static BOOLEAN
+static DDKAPI BOOLEAN
 EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
 {
   int cpu = KeGetCurrentProcessorNumber() & (MAX_VIRT_CPUS - 1);
@@ -194,24 +249,29 @@ EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
 }
 
 NTSTATUS
-EvtChn_Mask(PXENPCI_DEVICE_DATA xpdd, evtchn_port_t Port)
+EvtChn_Mask(PVOID Context, evtchn_port_t Port)
 {
+  PXENPCI_DEVICE_DATA xpdd = Context;
+
   synch_set_bit(Port,
     (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[0]);
   return STATUS_SUCCESS;
 }
 
 NTSTATUS
-EvtChn_Unmask(PXENPCI_DEVICE_DATA xpdd , evtchn_port_t Port)
+EvtChn_Unmask(PVOID Context, evtchn_port_t Port)
 {
+  PXENPCI_DEVICE_DATA xpdd = Context;
+
   synch_clear_bit(Port,
     (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[0]);
   return STATUS_SUCCESS;
 }
 
 NTSTATUS
-EvtChn_Notify(PXENPCI_DEVICE_DATA xpdd, evtchn_port_t Port)
+EvtChn_Notify(PVOID Context, evtchn_port_t Port)
 {
+  PXENPCI_DEVICE_DATA xpdd = Context;
   struct evtchn_send send;
 
   send.port = Port;
