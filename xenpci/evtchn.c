@@ -98,10 +98,15 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
   UNREFERENCED_PARAMETER(SystemArgument1);
   UNREFERENCED_PARAMETER(SystemArgument2);
 
+if (((PXENPCI_DEVICE_DATA)action->xpdd)->suspending)
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
   if (action->type == EVT_ACTION_TYPE_IRQ)
     sw_interrupt((UCHAR)action->vector);
   else
     action->ServiceRoutine(NULL, action->ServiceContext);
+if (((PXENPCI_DEVICE_DATA)action->xpdd)->suspending)
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static DDKAPI BOOLEAN
@@ -117,7 +122,8 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
   unsigned int port;
   ev_action_t *ev_action;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
+if (xpdd->suspending)
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
   UNREFERENCED_PARAMETER(Interrupt);
 
@@ -151,7 +157,8 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
     }
   }
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+if (xpdd->suspending)
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return TRUE;
 }
@@ -172,6 +179,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
 
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
   xpdd->ev_actions[Port].ServiceContext = ServiceContext;
+  xpdd->ev_actions[Port].xpdd = xpdd;
   KeMemoryBarrier();
   xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_NORMAL;
 
@@ -198,6 +206,7 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRouti
 
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
   xpdd->ev_actions[Port].ServiceContext = ServiceContext;
+  xpdd->ev_actions[Port].xpdd = xpdd;
   KeInitializeDpc(&xpdd->ev_actions[Port].Dpc, EvtChn_DpcBounce, &xpdd->ev_actions[Port]);
   KeMemoryBarrier(); // make sure that the new service routine is only called once the context is set up
   xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_DPC;
@@ -225,6 +234,7 @@ EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector)
 
   KeInitializeDpc(&xpdd->ev_actions[Port].Dpc, EvtChn_DpcBounce, &xpdd->ev_actions[Port]);
   xpdd->ev_actions[Port].vector = vector;
+  xpdd->ev_actions[Port].xpdd = xpdd;
   KeMemoryBarrier();
   xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_IRQ;
 

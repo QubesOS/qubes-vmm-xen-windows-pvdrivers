@@ -78,6 +78,7 @@ typedef struct _ev_action_t {
   KDPC Dpc;
   ULONG vector;
   ULONG Count;
+  PVOID xpdd;
 } ev_action_t;
 
 typedef struct _XENBUS_WATCH_RING
@@ -172,6 +173,7 @@ typedef struct {
   KIRQL irq_level;
   KAFFINITY irq_affinity;
 
+  PHYSICAL_ADDRESS shared_info_area_unmapped;
   shared_info_t *shared_info_area;
 
   PHYSICAL_ADDRESS platform_mmio_addr;
