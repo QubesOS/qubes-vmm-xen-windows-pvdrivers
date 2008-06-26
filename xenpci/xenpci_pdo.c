@@ -411,7 +411,10 @@ XenPci_XenShutdownDevice(PVOID Context)
 }
 
 static NTSTATUS
-XenPci_XenConfigDevice(PVOID context)
+XenPci_XenConfigDevice(PVOID context);
+
+static NTSTATUS
+XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
 {
   PXENPCI_PDO_DEVICE_DATA xppdd = context;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
@@ -422,20 +425,20 @@ XenPci_XenConfigDevice(PVOID context)
   PCHAR res;
   PVOID address;
   UCHAR type;
-  PUCHAR in_ptr, in_start;
-  PUCHAR out_ptr, out_start;
+  PUCHAR in_ptr; //, in_start;
+  PUCHAR out_ptr; //, out_start;
   XENPCI_VECTORS vectors;
   ULONG event_channel;
   BOOLEAN run = FALSE;
   PMDL ring;
   grant_ref_t gref;
+  BOOLEAN done_xenbus_init = FALSE;
  
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  out_ptr = out_start = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
-  in_ptr = in_start = ExAllocatePoolWithTag(PagedPool, xppdd->config_page_length, XENPCI_POOL_TAG);
-  memcpy(in_ptr, out_ptr, xppdd->config_page_length);
-
+  in_ptr = src;
+  out_ptr = dst;
+  
   // always add vectors
   vectors.magic = XEN_DATA_MAGIC;
   vectors.length = sizeof(XENPCI_VECTORS);
@@ -453,10 +456,23 @@ XenPci_XenConfigDevice(PVOID context)
   vectors.XenPci_XenConfigDevice = XenPci_XenConfigDevice;
   vectors.XenPci_XenShutdownDevice = XenPci_XenShutdownDevice;
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors);
+  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_STATE_PTR, NULL, &xppdd->device_state);
 
   // first pass, possibly before state == Connected
   while((type = GET_XEN_INIT_REQ(&in_ptr, &setting, &value)) != XEN_INIT_TYPE_END)
   {
+    if (!done_xenbus_init)
+    {
+      if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
+      {
+        status = STATUS_UNSUCCESSFUL;
+        goto error;
+      }
+      done_xenbus_init = TRUE;
+    }
+    
+    ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, type, setting, value);
+
     switch (type)
     {
     case XEN_INIT_TYPE_RUN:
@@ -527,14 +543,17 @@ XenPci_XenConfigDevice(PVOID context)
   {
     goto error;
   }
-  if (run && XenPci_ChangeFrontendState(xppdd, XenbusStateConnected, XenbusStateConnected, 30000) != STATUS_SUCCESS)
+  if (run)
   {
-    status = STATUS_UNSUCCESSFUL;
-    goto error;
+    if (XenPci_ChangeFrontendState(xppdd, XenbusStateConnected, XenbusStateConnected, 30000) != STATUS_SUCCESS)
+    {
+      status = STATUS_UNSUCCESSFUL;
+      goto error;
+    }
   }
 
   // second pass, possibly after state == Connected
-  in_ptr = in_start;
+  in_ptr = src;
   while((type = GET_XEN_INIT_REQ(&in_ptr, &setting, &value)) != XEN_INIT_TYPE_END)
   {
     switch(type)
@@ -578,35 +597,47 @@ XenPci_XenConfigDevice(PVOID context)
   }
 
 error:
-  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_END, NULL, NULL);
-  MmUnmapIoSpace(out_start, xppdd->config_page_length);
-  ExFreePoolWithTag(in_start, XENPCI_POOL_TAG);
-
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (%08x\n", status));
 
   return status;
 }
 
 static NTSTATUS
-XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
+XenPci_XenConfigDevice(PVOID context)
 {
-  NTSTATUS status = STATUS_SUCCESS;
+  NTSTATUS status;
+  PUCHAR src, dst;
+  PXENPCI_PDO_DEVICE_DATA xppdd = context;  
+
+  src = ExAllocatePoolWithTag(PagedPool, xppdd->config_page_length, XENPCI_POOL_TAG);
+  dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
+  memcpy(src, dst, xppdd->config_page_length);
+  
+  status = XenPci_XenConfigDeviceSpecifyBuffers(xppdd, src, dst);
+
+  MmUnmapIoSpace(dst, xppdd->config_page_length);
+  ExFreePoolWithTag(src, XENPCI_POOL_TAG);
+  
+  return status;
+}
+
+static NTSTATUS
+XenPci_GetBackendAndAddWatch(PDEVICE_OBJECT device_object)
+{
   PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
-  PIO_STACK_LOCATION stack;
-  PCM_PARTIAL_RESOURCE_LIST prl;
-  PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
-  ULONG i;
   char path[128];
-  PCHAR value;
   PCHAR res;
- 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  PCHAR value;
 
-  DUMP_CURRENT_PNP_STATE(xppdd);
+  if (strlen(xppdd->backend_path) != 0)
+  {
+    // this must be the restore path - remove the existing watch
+    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+    KdPrint((__DRIVER_NAME "    Removing old watch on %s\n", path));
+    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+  }
   
-  stack = IoGetCurrentIrpStackLocation(irp);
-
   /* Get backend path */
   RtlStringCbPrintfA(path, ARRAY_SIZE(path),
     "%s/backend", xppdd->path);
@@ -624,12 +655,84 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
   XenBus_AddWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
 
-  if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
+  return STATUS_SUCCESS;
+}
+
+NTSTATUS
+XenPci_Resume(PDEVICE_OBJECT device_object)
+{
+  NTSTATUS status;
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  //PUCHAR in_ptr;
+  //UCHAR type;
+  //PVOID setting;
+  //PVOID value;
+  //CHAR path[256];
+  //PVOID address;
+  ULONG old_backend_state;
+  PUCHAR src, dst;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  old_backend_state = xppdd->backend_state;
+  status = XenPci_GetBackendAndAddWatch(device_object);
+  if (!NT_SUCCESS(status))
+    return status;
+  
+  if (xppdd->common.current_pnp_state == Started && old_backend_state == XenbusStateConnected)
   {
-    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
-    return STATUS_UNSUCCESSFUL;
+  
+    if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
+    {
+      // this is probably an unrecoverable situation...
+      return STATUS_UNSUCCESSFUL;
+    }
+    if (xppdd->assigned_resources_ptr)
+    {
+      // reset things - feed the 'requested resources' back in
+      ADD_XEN_INIT_RSP(&xppdd->requested_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL);
+      src = xppdd->requested_resources_start;
+      xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(PagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
+      xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;
+      
+      dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
+      
+      status = XenPci_XenConfigDeviceSpecifyBuffers(xppdd, src, dst);
+
+      MmUnmapIoSpace(dst, xppdd->config_page_length);
+      ExFreePoolWithTag(src, XENPCI_POOL_TAG);
+    }
+    if (XenPci_ChangeFrontendState(xppdd, XenbusStateConnected, XenbusStateConnected, 30000) != STATUS_SUCCESS)
+    {
+      // this is definitely an unrecoverable situation...
+      return STATUS_UNSUCCESSFUL;
+    }
   }
+  return STATUS_SUCCESS;
+} 
+
+static NTSTATUS
+XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  PIO_STACK_LOCATION stack;
+  PCM_PARTIAL_RESOURCE_LIST prl;
+  PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
+  ULONG i;
+  char path[128];
+ 
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  DUMP_CURRENT_PNP_STATE(xppdd);
+  
+  stack = IoGetCurrentIrpStackLocation(irp);
+
+  status = XenPci_GetBackendAndAddWatch(device_object);
+  if (!NT_SUCCESS(status))
+    return status;
 
   prl = &stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList;
   for (i = 0; i < prl->Count; i++)
@@ -649,8 +752,11 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
       KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
       xppdd->config_page_phys = prd->u.Memory.Start;
       xppdd->config_page_length = prd->u.Memory.Length;
+      xppdd->requested_resources_start = xppdd->requested_resources_ptr = ExAllocatePoolWithTag(PagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
       xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(PagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+      
       status = XenPci_XenConfigDevice(xppdd);
+
       if (!NT_SUCCESS(status))
       {
         RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
@@ -819,7 +925,7 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   PPNP_BUS_INFORMATION pbi;
   ULONG *usage_type;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   stack = IoGetCurrentIrpStackLocation(irp);
 
@@ -1060,7 +1166,7 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
     break;
       
   default:
-    KdPrint((__DRIVER_NAME "     Unhandled Minor = %d, Status = %08x\n", stack->MinorFunction, irp->IoStatus.Status));
+    //KdPrint((__DRIVER_NAME "     Unhandled Minor = %d, Status = %08x\n", stack->MinorFunction, irp->IoStatus.Status));
     status = irp->IoStatus.Status;
     break;
   }
@@ -1068,7 +1174,7 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   irp->IoStatus.Status = status;
   IoCompleteRequest(irp, IO_NO_INCREMENT);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return status;
 }

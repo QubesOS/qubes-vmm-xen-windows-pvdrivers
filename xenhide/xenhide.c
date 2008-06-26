@@ -187,7 +187,7 @@ XenHide_IdSuffixMatches(PDEVICE_OBJECT pdo, PWCHAR matching_id)
       
     if (!NT_SUCCESS(status))
     {
-      KdPrint((__DRIVER_NAME "     i = %d, status = %x, ids_length = %d\n", i, status, ids_length));
+      //KdPrint((__DRIVER_NAME "     i = %d, status = %x, ids_length = %d\n", i, status, ids_length));
       continue;
     }
     
@@ -201,12 +201,12 @@ XenHide_IdSuffixMatches(PDEVICE_OBJECT pdo, PWCHAR matching_id)
         ptr += string_length - wcslen(matching_id);
         string_length -= wcslen(matching_id);
       }
-      KdPrint((__DRIVER_NAME "     Comparing '%S' and '%S'\n", ptr, matching_id));
+      //KdPrint((__DRIVER_NAME "     Comparing '%S' and '%S'\n", ptr, matching_id));
       if (wcscmp(ptr, matching_id) == 0)
        return TRUE;
     }
   }
-  KdPrint((__DRIVER_NAME "     No match\n"));  
+  //KdPrint((__DRIVER_NAME "     No match\n"));  
   return FALSE;
 }
 
@@ -236,7 +236,7 @@ XenHide_AddDevice(
     device_description[0] = 0;
   }
 
-  KdPrint((__DRIVER_NAME "     Checking '%S'\n", device_description));
+  //KdPrint((__DRIVER_NAME "     Checking '%S'\n", device_description));
 
   length = sizeof(GUID);
   status = IoGetDeviceProperty(PhysicalDeviceObject, DevicePropertyBusTypeGuid, length, &bus_type, &length);
@@ -391,7 +391,7 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   ULONG i, j;
   KIRQL old_irql;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   stack = IoGetCurrentIrpStackLocation(irp);
 
@@ -453,7 +453,7 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     break;
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returning with status %08x)\n", status));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returning with status %08x)\n", status));
 
   return status;
 }

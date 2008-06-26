@@ -100,7 +100,10 @@ struct
   grant_ref_t grant_free_list[MAX_GRANT_ENTRIES];
   USHORT grant_free;
   USHORT grant_entries;
+  
+  PUCHAR device_base;
 
+  blkif_sring_t *sring;
   evtchn_port_t event_channel;
   union {
     blkif_front_ring_t ring;
@@ -116,6 +119,7 @@ struct
   ULONG bytes_per_sector;
   ULONGLONG total_sectors;
   XENPCI_VECTORS vectors;
+  PXENPCI_DEVICE_STATE device_state;
   PSCSI_REQUEST_BLOCK pending_srb;
   
   ULONGLONG interrupts;

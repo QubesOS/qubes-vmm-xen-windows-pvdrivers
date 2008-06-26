@@ -305,6 +305,7 @@ static VOID
 XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
 {
   PXENPCI_DEVICE_DATA xpdd;
+  PXEN_CHILD child;
 
   UNREFERENCED_PARAMETER(context);
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
@@ -312,6 +313,13 @@ XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
   xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
 
   XenBus_Resume(xpdd);
+
+  for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
+  {
+    XenPci_Resume(child->context->common.pdo);
+    child->context->device_state.resume_state = RESUME_STATE_FRONTEND_RESUME;
+    // how can we signal children that they are ready to restart again?
+  }
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -335,6 +343,8 @@ XenPci_Suspend(
   int cancelled;
   int i;
   PIO_WORKITEM work_item;
+  PXEN_CHILD child;
+  //PUCHAR gnttbl_backup[PAGE_SIZE * NR_GRANT_FRAMES];
 
   UNREFERENCED_PARAMETER(Dpc);
   UNREFERENCED_PARAMETER(SystemArgument2);
@@ -369,13 +379,25 @@ XenPci_Suspend(
   }
   KdPrint((__DRIVER_NAME "     all other processors are spinning\n"));
 
+  // make a backup of the grant table - we are going to keep it instead of throwing it away
+  //memcpy(gnttbl_backup, xpdd->gnttab_table, PAGE_SIZE * NR_GRANT_FRAMES);
+
   KdPrint((__DRIVER_NAME "     calling suspend\n"));
   cancelled = hvm_shutdown(Context, SHUTDOWN_suspend);
   KdPrint((__DRIVER_NAME "     back from suspend, cancelled = %d\n", cancelled));
 
   XenPci_Init(xpdd);
-
+  
   GntTbl_Map(Context, 0, NR_GRANT_FRAMES - 1);
+  
+  EvtChn_Resume(xpdd);
+
+  //memcpy(xpdd->gnttab_table, gnttbl_backup, PAGE_SIZE * NR_GRANT_FRAMES);
+
+  for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
+  {
+    child->context->device_state.resume_state = RESUME_STATE_BACKEND_RESUME;
+  }
 
   KeLowerIrql(old_irql);
   
@@ -426,6 +448,7 @@ XenPci_BeginSuspend(PXENPCI_DEVICE_DATA xpdd)
     {
       xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
     }
+    KeMemoryBarrier();
     KeFlushQueuedDpcs();
 
     //ActiveProcessorCount = KeQueryActiveProcessorCount(&ActiveProcessorMask); // this is for Vista+

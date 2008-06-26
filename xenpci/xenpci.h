@@ -245,8 +245,11 @@ typedef struct {
   ULONG backend_state;
   PHYSICAL_ADDRESS config_page_phys;
   ULONG config_page_length;
+  PUCHAR requested_resources_start;
+  PUCHAR requested_resources_ptr;
   PUCHAR assigned_resources_start;
   PUCHAR assigned_resources_ptr;
+  XENPCI_DEVICE_STATE device_state;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 typedef struct
@@ -358,7 +361,8 @@ XenPci_Irp_Read_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_Irp_Cleanup_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 
-
+NTSTATUS
+XenPci_Resume(PDEVICE_OBJECT device_object);
 
 char *
 XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value);
@@ -394,6 +398,8 @@ XenPci_AllocMMIO(PXENPCI_DEVICE_DATA xpdd, ULONG len);
 
 NTSTATUS
 EvtChn_Init(PXENPCI_DEVICE_DATA xpdd);
+VOID
+EvtChn_Resume(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
 EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd);
 
