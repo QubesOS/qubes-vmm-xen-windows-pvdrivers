@@ -120,8 +120,7 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
   unsigned int port;
   ev_action_t *ev_action;
 
-if (xpdd->suspending)
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
   UNREFERENCED_PARAMETER(Interrupt);
 
@@ -155,8 +154,7 @@ if (xpdd->suspending)
     }
   }
 
-if (xpdd->suspending)
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return TRUE;
 }
@@ -365,16 +363,10 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
   return status;
 }
 
-VOID
-EvtChn_Resume(PXENPCI_DEVICE_DATA xpdd)
-{
-  EvtChn_Connect(xpdd);
-}
-
 NTSTATUS
 EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd)
 {
-  UNREFERENCED_PARAMETER(xpdd);
+  IoDisconnectInterrupt(xpdd->interrupt);
 
   return STATUS_SUCCESS;
 }

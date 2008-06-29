@@ -248,24 +248,12 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   PLIST_ENTRY entry;
   PNDIS_PACKET packet;
   int notify;
-#if defined(XEN_PROFILE)
-  LARGE_INTEGER tsc, dummy;
-#endif
-
-#if DBG
-  int cycles = 0;
-#endif
   BOOLEAN success;
-
-#if defined(XEN_PROFILE)
-  tsc = KeQueryPerformanceCounter(&dummy);
-#endif
 
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   /* if empty, the above returns head*, not NULL */
   while (entry != &xi->tx_waiting_pkt_list)
   {
-    ASSERT(cycles++ < 65536);
     //KdPrint((__DRIVER_NAME "     Packet ready to send\n"));
     packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
     success = XenNet_HWSendPacket(xi, packet);
@@ -282,11 +270,6 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   {
     xi->vectors.EvtChn_Notify(xi->vectors.context, xi->event_channel);
   }
-
-#if defined(XEN_PROFILE)
-  ProfTime_SendQueuedPackets.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
-  ProfCount_SendQueuedPackets++;
-#endif
 }
 
 // Called at DISPATCH_LEVEL
@@ -299,34 +282,22 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   ULONG packet_count = 0;
   int moretodo;
   ULONG i;
-#if DBG
-  int cycles = 0;
-#endif
-#if defined(XEN_PROFILE)
-  LARGE_INTEGER tsc, dummy;
-#endif
 
   ASSERT(xi->connected);
   ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-#if defined(XEN_PROFILE)
-  tsc = KeQueryPerformanceCounter(&dummy);
-#endif
 
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
   do {
-    ASSERT(cycles++ < 65536);
     prod = xi->tx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'rsp_prod'. */
 
     for (cons = xi->tx.rsp_cons; cons != prod; cons++)
     {
       struct netif_tx_response *txrsp;
-
-      ASSERT(cycles++ < 65536);
 
       txrsp = RING_GET_RESPONSE(&xi->tx, cons);
       if (txrsp->status == NETIF_RSP_NULL)
@@ -375,14 +346,10 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-#if defined(XEN_PROFILE)
-  ProfTime_TxBufferGC.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
-  ProfCount_TxBufferGC++;
-#endif
-
   return NDIS_STATUS_SUCCESS;
 }
 
+// called at <= DISPATCH_LEVEL
 VOID
 XenNet_SendPackets(
   IN NDIS_HANDLE MiniportAdapterContext,
@@ -395,15 +362,6 @@ XenNet_SendPackets(
   UINT i;
   PLIST_ENTRY entry;
   KIRQL OldIrql;
-#if defined(XEN_PROFILE)
-  LARGE_INTEGER tsc, dummy;
-  KIRQL OldIrql2;
-#endif
-
-#if defined(XEN_PROFILE)
-  KeRaiseIrql(DISPATCH_LEVEL, &OldIrql2);
-  tsc = KeQueryPerformanceCounter(&dummy);
-#endif
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
@@ -415,40 +373,57 @@ XenNet_SendPackets(
     *(ULONG *)&packet->MiniportReservedEx = 0;
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(&xi->tx_waiting_pkt_list, entry);
-#if defined(XEN_PROFILE)
-    ProfCount_PacketsPerSendPackets++;
-#endif
   }
 
-  XenNet_SendQueuedPackets(xi);
+  if (xi->device_state->resume_state == RESUME_STATE_RUNNING)
+    XenNet_SendQueuedPackets(xi);
 
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 
-#if defined(XEN_PROFILE)
-  ProfTime_SendPackets.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
-  ProfCount_SendPackets++;
-  KeLowerIrql(OldIrql2);
-#endif
-
-#if defined(XEN_PROFILE)
-  if ((ProfCount_SendPackets & 1023) == 0)
-  {
-    KdPrint((__DRIVER_NAME "     ***\n"));
-    KdPrint((__DRIVER_NAME "     RxBufferAlloc     Count = %10d, Avg Time     = %10ld\n", ProfCount_RxBufferAlloc, (ProfCount_RxBufferAlloc == 0)?0:(ProfTime_RxBufferAlloc.QuadPart / ProfCount_RxBufferAlloc)));
-    KdPrint((__DRIVER_NAME "     ReturnPacket      Count = %10d, Avg Time     = %10ld\n", ProfCount_ReturnPacket, (ProfCount_ReturnPacket == 0)?0:(ProfTime_ReturnPacket.QuadPart / ProfCount_ReturnPacket)));
-    KdPrint((__DRIVER_NAME "     RxBufferCheck     Count = %10d, Avg Time     = %10ld\n", ProfCount_RxBufferCheck, (ProfCount_RxBufferCheck == 0)?0:(ProfTime_RxBufferCheck.QuadPart / ProfCount_RxBufferCheck)));
-    KdPrint((__DRIVER_NAME "     RxBufferCheckTop                      Avg Time     = %10ld\n", (ProfCount_RxBufferCheck == 0)?0:(ProfTime_RxBufferCheckTopHalf.QuadPart / ProfCount_RxBufferCheck)));
-    KdPrint((__DRIVER_NAME "     RxBufferCheckBot                      Avg Time     = %10ld\n", (ProfCount_RxBufferCheck == 0)?0:(ProfTime_RxBufferCheckBotHalf.QuadPart / ProfCount_RxBufferCheck)));
-    KdPrint((__DRIVER_NAME "     Linearize         Count = %10d, Avg Time     = %10ld\n", ProfCount_Linearize, (ProfCount_Linearize == 0)?0:(ProfTime_Linearize.QuadPart / ProfCount_Linearize)));
-    KdPrint((__DRIVER_NAME "     SendPackets       Count = %10d, Avg Time     = %10ld\n", ProfCount_SendPackets, (ProfCount_SendPackets == 0)?0:(ProfTime_SendPackets.QuadPart / ProfCount_SendPackets)));
-    KdPrint((__DRIVER_NAME "     Packets per SendPackets = %10d\n", (ProfCount_SendPackets == 0)?0:(ProfCount_PacketsPerSendPackets / ProfCount_SendPackets)));
-    KdPrint((__DRIVER_NAME "     SendQueuedPackets Count = %10d, Avg Time     = %10ld\n", ProfCount_SendQueuedPackets, (ProfCount_SendQueuedPackets == 0)?0:(ProfTime_SendQueuedPackets.QuadPart / ProfCount_SendQueuedPackets)));
-    KdPrint((__DRIVER_NAME "     TxBufferGC        Count = %10d, Avg Time     = %10ld\n", ProfCount_TxBufferGC, (ProfCount_TxBufferGC == 0)?0:(ProfTime_TxBufferGC.QuadPart / ProfCount_TxBufferGC)));
-    KdPrint((__DRIVER_NAME "     RxPackets         Total = %10d, Csum Offload = %10d, Calls To Receive = %10d\n", ProfCount_RxPacketsTotal, ProfCount_RxPacketsCsumOffload, ProfCount_CallsToIndicateReceive));
-    KdPrint((__DRIVER_NAME "     TxPackets         Total = %10d, Csum Offload = %10d, Large Offload    = %10d\n", ProfCount_TxPacketsTotal, ProfCount_TxPacketsCsumOffload, ProfCount_TxPacketsLargeOffload));
-  }
-#endif
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+}
+
+VOID
+XenNet_TxResumeStart(xennet_info_t *xi)
+{
+  int i;
+  KIRQL old_irql;
+  PLIST_ENTRY entry;
+
+  KeAcquireSpinLock(&xi->tx_lock, &old_irql);
+  for (i = 0; i < NET_TX_RING_SIZE; i++)
+  {
+    if (xi->tx_mdls[i])
+    {
+      XenFreelist_PutPage(&xi->tx_freelist, xi->tx_mdls[i]);
+      xi->tx_mdls[i] = NULL;
+    }
+    /* this may result in packets being sent out of order... I don't think it matters though */
+    if (xi->tx_pkts[i])
+    {
+      *(ULONG *)&xi->tx_pkts[i]->MiniportReservedEx = 0;
+      entry = (PLIST_ENTRY)&xi->tx_pkts[i]->MiniportReservedEx[sizeof(PVOID)];
+      InsertTailList(&xi->tx_waiting_pkt_list, entry);
+      xi->tx_pkts[i] = 0;
+    }
+  }
+  XenFreelist_ResumeStart(&xi->tx_freelist);
+  xi->tx_id_free = 0;
+  xi->tx_no_id_used = 0;
+  for (i = 0; i < NET_TX_RING_SIZE; i++)
+    put_id_on_freelist(xi, (USHORT)i);
+  KeReleaseSpinLock(&xi->tx_lock, old_irql);
+}
+
+VOID
+XenNet_TxResumeEnd(xennet_info_t *xi)
+{
+  KIRQL old_irql;
+
+  KeAcquireSpinLock(&xi->tx_lock, &old_irql);
+  XenFreelist_ResumeEnd(&xi->tx_freelist);
+  XenNet_SendQueuedPackets(xi);
+  KeReleaseSpinLock(&xi->tx_lock, old_irql);
 }
 
 BOOLEAN

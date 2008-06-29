@@ -321,6 +321,8 @@ XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
     // how can we signal children that they are ready to restart again?
   }
 
+  xpdd->suspending = 0;
+
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
@@ -329,6 +331,7 @@ struct {
   volatile LONG nr_spinning;
 } typedef SUSPEND_INFO, *PSUSPEND_INFO;
 
+/* Called at DISPATCH_LEVEL */
 static VOID
 XenPci_Suspend(
   PRKDPC Dpc,
@@ -341,7 +344,6 @@ XenPci_Suspend(
   ULONG ActiveProcessorCount;
   KIRQL old_irql;
   int cancelled;
-  int i;
   PIO_WORKITEM work_item;
   PXEN_CHILD child;
   //PUCHAR gnttbl_backup[PAGE_SIZE * NR_GRANT_FRAMES];
@@ -389,8 +391,9 @@ XenPci_Suspend(
   XenPci_Init(xpdd);
   
   GntTbl_Map(Context, 0, NR_GRANT_FRAMES - 1);
-  
-  EvtChn_Resume(xpdd);
+
+  /* this enabled interrupts again too */  
+  EvtChn_Init(xpdd);
 
   //memcpy(xpdd->gnttab_table, gnttbl_backup, PAGE_SIZE * NR_GRANT_FRAMES);
 
@@ -408,12 +411,6 @@ XenPci_Suspend(
       /* we should be able to wait more nicely than this... */
   }
   KdPrint((__DRIVER_NAME "     all other processors have stopped spinning\n"));
-
-  // enable xen interrupts again
-  for (i = 0; i < MAX_VIRT_CPUS; i++)
-  {
-    xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 0;
-  }
 
 	work_item = IoAllocateWorkItem(xpdd->common.fdo);
 	IoQueueWorkItem(work_item, XenPci_CompleteResume, DelayedWorkQueue, NULL);
@@ -441,14 +438,14 @@ XenPci_BeginSuspend(PXENPCI_DEVICE_DATA xpdd)
     suspend_info->do_spin = 1;
     RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO));
 
-    // TODO: Disable all our devices  
-    // TODO: Disable xenbus
+    // I think we need to synchronise with the interrupt here...
 
     for (i = 0; i < MAX_VIRT_CPUS; i++)
     {
       xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
     }
     KeMemoryBarrier();
+    EvtChn_Shutdown(xpdd);
     KeFlushQueuedDpcs();
 
     //ActiveProcessorCount = KeQueryActiveProcessorCount(&ActiveProcessorMask); // this is for Vista+
@@ -575,11 +572,11 @@ XenPci_DeviceWatchHandler(char *path, PVOID context)
   char *value;
   PXENPCI_DEVICE_DATA xpdd = context;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KdPrint((__DRIVER_NAME "     path = %s\n", path));
+//  KdPrint((__DRIVER_NAME "     path = %s\n", path));
   bits = SplitString(path, '/', 4, &count);
-  KdPrint((__DRIVER_NAME "     count = %d\n", count));
+//  KdPrint((__DRIVER_NAME "     count = %d\n", count));
 
   if (count == 3)
   {
@@ -599,7 +596,7 @@ XenPci_DeviceWatchHandler(char *path, PVOID context)
   }
   FreeSplitString(bits, count);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static VOID

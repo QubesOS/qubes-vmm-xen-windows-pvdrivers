@@ -146,6 +146,7 @@ typedef struct
   ULONG page_free_target;
   NDIS_MINIPORT_TIMER timer;
   PKSPIN_LOCK lock;
+  BOOLEAN grants_resumed;
 } freelist_t;
 
 struct xennet_info
@@ -168,9 +169,8 @@ struct xennet_info
   UINT8 curr_mac_addr[ETH_ALEN];
 
   /* Misc. Xen vars */
-  //XEN_IFACE XenInterface;
-  //PXENPCI_XEN_DEVICE_DATA pdo_data;
   XENPCI_VECTORS vectors;
+  PXENPCI_DEVICE_STATE device_state;
   evtchn_port_t event_channel;
   ULONG state;
   KEVENT shutdown_event;
@@ -195,7 +195,7 @@ struct xennet_info
   /* rx_related - protected by rx_lock */
   struct netif_rx_front_ring rx;
   ULONG rx_id_free;
-  PNDIS_BUFFER rx_buffers[NET_RX_RING_SIZE];
+  PNDIS_BUFFER rx_mdls[NET_RX_RING_SIZE];
   freelist_t rx_freelist;
   packet_info_t rxpi;
   PNDIS_PACKET rx_packet_list[NET_RX_RING_SIZE * 2];
@@ -220,6 +220,8 @@ struct xennet_info
 
   /* config stuff calculated from the above */
   ULONG config_max_pkt_size;
+
+  NDIS_MINIPORT_TIMER resume_timer;
 
   /* stats */
   ULONG64 stat_tx_ok;
@@ -275,8 +277,20 @@ XenNet_RxInit(xennet_info_t *xi);
 BOOLEAN
 XenNet_RxShutdown(xennet_info_t *xi);
 
+VOID
+XenNet_RxResumeStart(xennet_info_t *xi);
+
+VOID
+XenNet_RxResumeEnd(xennet_info_t *xi);
+
 NDIS_STATUS
 XenNet_TxBufferGC(struct xennet_info *xi);
+
+VOID
+XenNet_TxResumeStart(xennet_info_t *xi);
+
+VOID
+XenNet_TxResumeEnd(xennet_info_t *xi);
 
 VOID
 XenNet_SendPackets(
@@ -348,3 +362,7 @@ VOID
 XenFreelist_PutPage(freelist_t *fl, PMDL mdl);
 VOID
 XenFreelist_Dispose(freelist_t *fl);
+VOID
+XenFreelist_ResumeStart(freelist_t *fl);
+VOID
+XenFreelist_ResumeEnd(freelist_t *fl);

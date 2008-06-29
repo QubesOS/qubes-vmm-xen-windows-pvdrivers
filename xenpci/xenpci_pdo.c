@@ -691,7 +691,7 @@ XenPci_Resume(PDEVICE_OBJECT device_object)
     if (xppdd->assigned_resources_ptr)
     {
       // reset things - feed the 'requested resources' back in
-      ADD_XEN_INIT_RSP(&xppdd->requested_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL);
+      ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL);
       src = xppdd->requested_resources_start;
       xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(PagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
       xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;

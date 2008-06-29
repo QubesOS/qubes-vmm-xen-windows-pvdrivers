@@ -143,7 +143,7 @@ XenNet_GetData(
   return buffer;
 }
 
-
+/* Called at DISPATCH LEVEL */
 static VOID 
 XenFreelist_Timer(
   PVOID SystemSpecific1,
@@ -160,6 +160,9 @@ XenFreelist_Timer(
   UNREFERENCED_PARAMETER(SystemSpecific2);
   UNREFERENCED_PARAMETER(SystemSpecific3);
 
+  if (fl->xi->device_state->resume_state != RESUME_STATE_RUNNING && !fl->grants_resumed)
+    return;
+    
   KeAcquireSpinLockAtDpcLevel(fl->lock);
 
   //KdPrint((__DRIVER_NAME " --- timer - page_free_lowest = %d\n", fl->page_free_lowest));
@@ -192,6 +195,7 @@ XenFreelist_Init(struct xennet_info *xi, freelist_t *fl, PKSPIN_LOCK lock)
   fl->page_free = 0;
   fl->page_free_lowest = 0;
   fl->page_free_target = 16; /* tune this */
+  fl->grants_resumed = FALSE;
   NdisMInitializeTimer(&fl->timer, fl->xi->adapter_handle, XenFreelist_Timer, fl);
   NdisMSetPeriodicTimer(&fl->timer, 1000);
 }
@@ -209,6 +213,7 @@ XenFreelist_GetPage(freelist_t *fl)
     *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->vectors.GntTbl_GrantAccess(
       fl->xi->vectors.context, 0,
       (uint32_t)pfn, FALSE, 0);
+    /* we really should check if our grant was successful... */
   }
   else
   {
@@ -244,4 +249,33 @@ XenFreelist_Dispose(freelist_t *fl)
       *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
     FreePages(mdl);
   }
+}
+
+static VOID
+XenFreelist_ReGrantMdl(freelist_t *fl, PMDL mdl)
+{
+  PFN_NUMBER pfn;
+  pfn = *MmGetMdlPfnArray(mdl);
+  *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->vectors.GntTbl_GrantAccess(
+    fl->xi->vectors.context, 0,
+    (uint32_t)pfn, FALSE, 0);
+}
+
+/* re-grant all the pages, as the grant table was wiped on resume */
+VOID
+XenFreelist_ResumeStart(freelist_t *fl)
+{
+  ULONG i;
+  
+  for (i = 0; i < fl->page_free; i++)
+  {
+    XenFreelist_ReGrantMdl(fl, fl->page_list[i]);
+  }
+  fl->grants_resumed = TRUE;
+}
+
+VOID
+XenFreelist_ResumeEnd(freelist_t *fl)
+{
+  fl->grants_resumed = FALSE;
 }

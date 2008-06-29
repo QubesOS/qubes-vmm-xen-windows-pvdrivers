@@ -62,8 +62,8 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
     /* Give to netback */
     id = (USHORT)((req_prod + i) & (NET_RX_RING_SIZE - 1));
 //    KdPrint((__DRIVER_NAME "     id = %d\n", id));
-    ASSERT(xi->rx_buffers[id] == NULL);
-    xi->rx_buffers[id] = mdl;
+    ASSERT(xi->rx_mdls[id] == NULL);
+    xi->rx_mdls[id] = mdl;
     req = RING_GET_REQUEST(&xi->rx, req_prod + i);
     req->gref = get_grant_ref(mdl);
     req->id = id;
@@ -365,18 +365,8 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   struct netif_rx_response *rxrsp = NULL;
   struct netif_extra_info *ei;
   USHORT id;
-#if DBG
-  int cycles = 0;
-#endif
-#if defined(XEN_PROFILE)
-  LARGE_INTEGER tsc, dummy;
-#endif
   
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-#if defined(XEN_PROFILE)
-  tsc = KeQueryPerformanceCounter(&dummy);
-#endif
 
   ASSERT(xi->connected);
 
@@ -385,17 +375,15 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   //KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " xi->rx.sring->rsp_prod = %d, xi->rx.rsp_cons = %d\n", xi->rx.sring->rsp_prod, xi->rx.rsp_cons));
     
   do {
-    ASSERT(cycles++ < 256);
     prod = xi->rx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
 
     for (cons = xi->rx.rsp_cons; cons != prod && packet_count < MAXIMUM_PACKETS_PER_INDICATE; cons++)
     {
-      ASSERT(cycles++ < 256);
       id = (USHORT)(cons & (NET_RX_RING_SIZE - 1));
-      ASSERT(xi->rx_buffers[id]);
-      mdl = xi->rx_buffers[id];
-      xi->rx_buffers[id] = NULL;
+      ASSERT(xi->rx_mdls[id]);
+      mdl = xi->rx_mdls[id];
+      xi->rx_mdls[id] = NULL;
       xi->rx_id_free++;
       if (xi->rxpi.extra_info)
       {
@@ -464,9 +452,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     {
       KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
       NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
-#if defined(XEN_PROFILE)
-      ProfCount_CallsToIndicateReceive++;
-#endif
       KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
       total_packets += packet_count;
       packet_count = 0;
@@ -478,21 +463,16 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   /* Give netback more buffers */
   XenNet_RxBufferAlloc(xi);
 
-if (xi->rxpi.more_frags || xi->rxpi.extra_info)
-  KdPrint(("Partial receive (more_frags = %d, extra_info = %d, total_length = %d, mdl_count = %d)\n", xi->rxpi.more_frags, xi->rxpi.extra_info, xi->rxpi.total_length, xi->rxpi.mdl_count));
+  if (xi->rxpi.more_frags || xi->rxpi.extra_info)
+    KdPrint(("Partial receive (more_frags = %d, extra_info = %d, total_length = %d, mdl_count = %d)\n", xi->rxpi.more_frags, xi->rxpi.extra_info, xi->rxpi.total_length, xi->rxpi.mdl_count));
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
-
-#if defined(XEN_PROFILE)
-  ProfTime_RxBufferCheck.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
-  ProfCount_RxBufferCheck++;
-#endif
 
   return NDIS_STATUS_SUCCESS;
 }
 
 /* called at DISPATCH_LEVEL */
-
+/* it's okay for return packet to be called while resume_state != RUNNING as the packet will simply be added back to the freelist, the grants will be fixed later */
 VOID
 XenNet_ReturnPacket(
   IN NDIS_HANDLE MiniportAdapterContext,
@@ -501,25 +481,11 @@ XenNet_ReturnPacket(
 {
   struct xennet_info *xi = MiniportAdapterContext;
   PMDL mdl;
-#if DBG
-  int cycles = 0;
-#endif
-#if defined(XEN_PROFILE)
-  LARGE_INTEGER tsc, dummy;
-#endif
-
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (%p)\n", Packet));
-
-#if defined(XEN_PROFILE)
-  tsc = KeQueryPerformanceCounter(&dummy);
-#endif
-
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
 
   NdisUnchainBufferAtBack(Packet, &mdl);
   while (mdl)
   {
-    ASSERT(cycles++ < 256);
     NdisAdjustBufferLength(mdl, PAGE_SIZE);
     XenFreelist_PutPage(&xi->rx_freelist, mdl);
     NdisUnchainBufferAtBack(Packet, &mdl);
@@ -531,11 +497,6 @@ XenNet_ReturnPacket(
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
   
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
-#if defined(XEN_PROFILE)
-  ProfTime_ReturnPacket.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
-  ProfCount_ReturnPacket++;
-#endif
 }
 
 /*
@@ -555,15 +516,47 @@ XenNet_RxBufferFree(struct xennet_info *xi)
 
   for (i = 0; i < NET_RX_RING_SIZE; i++)
   {
-    KdPrint((__DRIVER_NAME "     Ring slot %d = %p\n", i, xi->rx_buffers[i]));
-    if (!xi->rx_buffers[i])
+    KdPrint((__DRIVER_NAME "     Ring slot %d = %p\n", i, xi->rx_mdls[i]));
+    if (!xi->rx_mdls[i])
       continue;
 
-    mdl = xi->rx_buffers[i];
+    mdl = xi->rx_mdls[i];
     NdisAdjustBufferLength(mdl, PAGE_SIZE);
     KdPrint((__DRIVER_NAME "     Calling PutPage - page_free = %d\n", xi->rx_freelist.page_free));
     XenFreelist_PutPage(&xi->rx_freelist, mdl);
   }
+}
+
+VOID
+XenNet_RxResumeStart(xennet_info_t *xi)
+{
+  int i;
+  KIRQL old_irql;
+
+  KeAcquireSpinLock(&xi->rx_lock, &old_irql);
+  for (i = 0; i < NET_RX_RING_SIZE; i++)
+  {
+    if (xi->rx_mdls[i])
+    {
+      XenFreelist_PutPage(&xi->rx_freelist, xi->rx_mdls[i]);
+      xi->rx_mdls[i] = NULL;
+    }
+  }
+  XenFreelist_ResumeStart(&xi->rx_freelist);
+  xi->rx_id_free = NET_RX_RING_SIZE;
+  xi->rx_outstanding = 0;
+  KeReleaseSpinLock(&xi->rx_lock, old_irql);
+}
+
+VOID
+XenNet_RxResumeEnd(xennet_info_t *xi)
+{
+  KIRQL old_irql;
+
+  KeAcquireSpinLock(&xi->rx_lock, &old_irql);
+  XenFreelist_ResumeEnd(&xi->rx_freelist);
+  XenNet_RxBufferAlloc(xi);
+  KeReleaseSpinLock(&xi->rx_lock, old_irql);
 }
 
 BOOLEAN
@@ -577,7 +570,7 @@ XenNet_RxInit(xennet_info_t *xi)
 
   for (i = 0; i < NET_RX_RING_SIZE; i++)
   {
-    xi->rx_buffers[i] = NULL;
+    xi->rx_mdls[i] = NULL;
   }
 
   xi->rx_outstanding = 0;

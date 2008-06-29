@@ -110,8 +110,117 @@ XenNet_InterruptDpc(NDIS_HANDLE  MiniportAdapterContext)
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
-// Called at <= DISPATCH_LEVEL
+static NDIS_STATUS
+XenNet_ConnectBackend(struct xennet_info *xi)
+{
+  PUCHAR ptr;
+  UCHAR type;
+  PCHAR setting, value;
+  UINT i;
 
+  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
+
+  ptr = xi->config_page;
+  while((type = GET_XEN_INIT_RSP(&ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+  {
+    switch(type)
+    {
+    case XEN_INIT_TYPE_RING: /* frontend ring */
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
+      if (strcmp(setting, "tx-ring-ref") == 0)
+      {
+        FRONT_RING_INIT(&xi->tx, (netif_tx_sring_t *)value, PAGE_SIZE);
+      } else if (strcmp(setting, "rx-ring-ref") == 0)
+      {
+        FRONT_RING_INIT(&xi->rx, (netif_rx_sring_t *)value, PAGE_SIZE);
+      }
+      break;
+    case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel */
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
+      if (strcmp(setting, "event-channel") == 0)
+      {
+        xi->event_channel = PtrToUlong(value);
+      }
+      break;
+    case XEN_INIT_TYPE_READ_STRING_BACK:
+    case XEN_INIT_TYPE_READ_STRING_FRONT:
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
+      if (strcmp(setting, "mac") == 0)
+      {
+        char *s, *e;
+        s = value;
+        for (i = 0; i < ETH_ALEN; i++) {
+          xi->perm_mac_addr[i] = (UINT8)simple_strtoul(s, &e, 16);
+          if ((s == e) || (*e != ((i == ETH_ALEN-1) ? '\0' : ':'))) {
+            KdPrint((__DRIVER_NAME "Error parsing MAC address\n"));
+          }
+          s = e + 1;
+        }
+        memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
+      }
+      break;
+    case XEN_INIT_TYPE_VECTORS:
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
+      if (((PXENPCI_VECTORS)value)->length != sizeof(XENPCI_VECTORS) ||
+        ((PXENPCI_VECTORS)value)->magic != XEN_DATA_MAGIC)
+      {
+        KdPrint((__DRIVER_NAME "     vectors mismatch (magic = %08x, length = %d)\n",
+          ((PXENPCI_VECTORS)value)->magic, ((PXENPCI_VECTORS)value)->length));
+        KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+        return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
+      }
+      else
+        memcpy(&xi->vectors, value, sizeof(XENPCI_VECTORS));
+      break;
+    default:
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
+      break;
+    }
+  }
+  return NDIS_STATUS_SUCCESS;
+}
+
+static VOID
+XenNet_Resume(PDEVICE_OBJECT device_object, PVOID context)
+{
+  struct xennet_info *xi = context;
+  
+  UNREFERENCED_PARAMETER(device_object);
+  
+  XenNet_RxResumeStart(xi);
+  XenNet_TxResumeStart(xi);
+  XenNet_ConnectBackend(xi);
+  xi->device_state->resume_state = RESUME_STATE_RUNNING;
+  XenNet_RxResumeEnd(xi);
+  XenNet_TxResumeEnd(xi);
+  NdisMSetPeriodicTimer(&xi->resume_timer, 100);
+}
+
+static VOID 
+XenResumeCheck_Timer(
+ PVOID SystemSpecific1,
+ PVOID FunctionContext,
+ PVOID SystemSpecific2,
+ PVOID SystemSpecific3
+)
+{
+  struct xennet_info *xi = FunctionContext;
+  PIO_WORKITEM work_item;
+  BOOLEAN timer_cancelled;
+ 
+  UNREFERENCED_PARAMETER(SystemSpecific1);
+  UNREFERENCED_PARAMETER(SystemSpecific2);
+  UNREFERENCED_PARAMETER(SystemSpecific3);
+ 
+  if (xi->device_state->resume_state == RESUME_STATE_FRONTEND_RESUME)
+  {
+    NdisMCancelTimer(&xi->resume_timer, &timer_cancelled);
+  	work_item = IoAllocateWorkItem(xi->fdo);
+  	IoQueueWorkItem(work_item, XenNet_Resume, DelayedWorkQueue, xi);
+  }
+}
+
+// Called at <= DISPATCH_LEVEL
 static NDIS_STATUS
 XenNet_Init(
   OUT PNDIS_STATUS OpenErrorStatus,
@@ -123,7 +232,6 @@ XenNet_Init(
   )
 {
   NDIS_STATUS status;
-  UINT i, j;
   BOOLEAN medium_found = FALSE;
   struct xennet_info *xi = NULL;
   ULONG nrl_length;
@@ -131,13 +239,14 @@ XenNet_Init(
   PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
   KIRQL irq_level = 0;
   ULONG irq_vector = 0;
-  UCHAR type;
-  PUCHAR ptr;
-  PCHAR setting, value;
-  ULONG length;
   NDIS_HANDLE config_handle;
   NDIS_STRING config_param_name;
   PNDIS_CONFIGURATION_PARAMETER config_param;
+  ULONG i;
+  PUCHAR ptr;
+  UCHAR type;
+  PCHAR setting, value;
+  ULONG length;
   CHAR buf[128];
   
   UNREFERENCED_PARAMETER(OpenErrorStatus);
@@ -284,6 +393,10 @@ XenNet_Init(
       else
         memcpy(&xi->vectors, value, sizeof(XENPCI_VECTORS));
       break;
+    case XEN_INIT_TYPE_STATE_PTR:
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
+      xi->device_state = (PXENPCI_DEVICE_STATE)value;
+      break;
     default:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
       break;
@@ -379,63 +492,7 @@ XenNet_Init(
   status = xi->vectors.XenPci_XenConfigDevice(xi->vectors.context);
   // check return value
 
-  ptr = xi->config_page;
-  while((type = GET_XEN_INIT_RSP(&ptr, &setting, &value)) != XEN_INIT_TYPE_END)
-  {
-    switch(type)
-    {
-    case XEN_INIT_TYPE_RING: /* frontend ring */
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
-      if (strcmp(setting, "tx-ring-ref") == 0)
-      {
-        FRONT_RING_INIT(&xi->tx, (netif_tx_sring_t *)value, PAGE_SIZE);
-      } else if (strcmp(setting, "rx-ring-ref") == 0)
-      {
-        FRONT_RING_INIT(&xi->rx, (netif_rx_sring_t *)value, PAGE_SIZE);
-      }
-      break;
-    case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel */
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
-      if (strcmp(setting, "event-channel") == 0)
-      {
-        xi->event_channel = PtrToUlong(value);
-      }
-      break;
-    case XEN_INIT_TYPE_READ_STRING_BACK:
-    case XEN_INIT_TYPE_READ_STRING_FRONT:
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
-      if (strcmp(setting, "mac") == 0)
-      {
-        char *s, *e;
-        s = value;
-        for (j = 0; j < ETH_ALEN; j++) {
-          xi->perm_mac_addr[j] = (UINT8)simple_strtoul(s, &e, 16);
-          if ((s == e) || (*e != ((j == ETH_ALEN-1) ? '\0' : ':'))) {
-            KdPrint((__DRIVER_NAME "Error parsing MAC address\n"));
-          }
-          s = e + 1;
-        }
-        memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
-      }
-      break;
-    case XEN_INIT_TYPE_VECTORS:
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
-      if (((PXENPCI_VECTORS)value)->length != sizeof(XENPCI_VECTORS) ||
-        ((PXENPCI_VECTORS)value)->magic != XEN_DATA_MAGIC)
-      {
-        KdPrint((__DRIVER_NAME "     vectors mismatch (magic = %08x, length = %d)\n",
-          ((PXENPCI_VECTORS)value)->magic, ((PXENPCI_VECTORS)value)->length));
-        KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-        return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
-      }
-      else
-        memcpy(&xi->vectors, value, sizeof(XENPCI_VECTORS));
-      break;
-    default:
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
-      break;
-    }
-  }
+  status = XenNet_ConnectBackend(xi);
   
   KeInitializeEvent(&xi->shutdown_event, SynchronizationEvent, FALSE);  
 
@@ -455,6 +512,9 @@ XenNet_Init(
     //status = NDIS_STATUS_FAILURE;
     //goto err;
   }
+
+  NdisMInitializeTimer(&xi->resume_timer, xi->adapter_handle, XenResumeCheck_Timer, xi);
+  NdisMSetPeriodicTimer(&xi->resume_timer, 100);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 

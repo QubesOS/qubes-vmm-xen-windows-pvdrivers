@@ -373,6 +373,12 @@ XenVbd_HwScsiTimer(PVOID DeviceExtension)
     }
     
     xvdd->device_state->resume_state = RESUME_STATE_RUNNING;
+    
+    if (i == 0)
+    {
+      /* no requests, so we might need to tell scsiport that we can accept a new one if we deferred one earlier */
+      ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
+    }
   }
   
   ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_HwScsiTimer, RESUME_CHECK_TIMER_INTERVAL);
@@ -759,6 +765,14 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
     Srb->SrbStatus = SRB_STATUS_BUSY;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
     KdPrint((__DRIVER_NAME " --- HwScsiStartIo (Still figuring out ring)\n"));
+    return TRUE;
+  }
+
+  if (xvdd->device_state->resume_state != RESUME_STATE_RUNNING)
+  {
+    Srb->SrbStatus = SRB_STATUS_BUSY;
+    ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
+    KdPrint((__DRIVER_NAME " --- HwScsiStartIo (Resuming)\n"));
     return TRUE;
   }
 
