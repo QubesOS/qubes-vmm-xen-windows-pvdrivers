@@ -361,6 +361,7 @@ XenPci_Suspend(
     KeMemoryBarrier();
     while(suspend_info->do_spin)
     {
+      HYPERVISOR_yield(xpdd);
       /* we should be able to wait more nicely than this... */
     }
     KeMemoryBarrier();
@@ -377,7 +378,7 @@ XenPci_Suspend(
   KdPrint((__DRIVER_NAME "     waiting for all other processors to spin\n"));
   while (suspend_info->nr_spinning < (LONG)ActiveProcessorCount - 1)
   {
-      /* we should be able to wait more nicely than this... */
+      HYPERVISOR_yield(xpdd);
   }
   KdPrint((__DRIVER_NAME "     all other processors are spinning\n"));
 
@@ -408,7 +409,7 @@ XenPci_Suspend(
   suspend_info->do_spin = 0;
   while (suspend_info->nr_spinning != 0)
   {
-      /* we should be able to wait more nicely than this... */
+    HYPERVISOR_yield(xpdd);
   }
   KdPrint((__DRIVER_NAME "     all other processors have stopped spinning\n"));
 
@@ -435,8 +436,8 @@ XenPci_BeginSuspend(PXENPCI_DEVICE_DATA xpdd)
   {
     xpdd->suspending = 1;
     suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);
-    suspend_info->do_spin = 1;
     RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO));
+    suspend_info->do_spin = 1;
 
     // I think we need to synchronise with the interrupt here...
 

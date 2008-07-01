@@ -74,3 +74,9 @@ hvm_shutdown(PXENPCI_DEVICE_DATA xpdd, unsigned int reason)
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return retval;
 }
+
+static __inline VOID
+HYPERVISOR_yield(PXENPCI_DEVICE_DATA xpdd)
+{
+  HYPERVISOR_sched_op(xpdd, SCHEDOP_yield, NULL);
+}

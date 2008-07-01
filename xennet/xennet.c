@@ -172,6 +172,10 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       else
         memcpy(&xi->vectors, value, sizeof(XENPCI_VECTORS));
       break;
+    case XEN_INIT_TYPE_STATE_PTR:
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
+      xi->device_state = (PXENPCI_DEVICE_STATE)value;
+      break;
     default:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
       break;
@@ -402,7 +406,7 @@ XenNet_Init(
       break;
     }
   }
-
+  
   // now build config page
   
   NdisOpenConfiguration(&status, &config_handle, WrapperConfigurationContext);

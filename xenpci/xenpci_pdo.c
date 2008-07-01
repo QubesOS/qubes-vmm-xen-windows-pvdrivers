@@ -532,11 +532,6 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
         goto error;
       }
       break;
-#if 0     
-    case XEN_INIT_TYPE_COPY_PTR:
-      ADD_XEN_INIT_RSP(&out_ptr, type, setting, value);
-      break;
-#endif      
     }
   }
   if (!NT_SUCCESS(status))
@@ -595,7 +590,8 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
       break;
     }
   }
-
+  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_END, NULL, NULL);
+  
 error:
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (%08x\n", status));
 
