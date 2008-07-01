@@ -26,11 +26,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <ntddk.h>
 
 #ifdef __MINGW32__
-#define KeMemoryBarrier() asm("mfence;")
-/* mingw-runtime 3.13 is buggy */
-#undef KeGetCurrentProcessorNumber
-#define KeGetCurrentProcessorNumber() \
-  ((ULONG)KeGetCurrentKPCR()->Number)
+#include "mingw_extras.h"
 #else
 #define DDKAPI
 #include <wdm.h>

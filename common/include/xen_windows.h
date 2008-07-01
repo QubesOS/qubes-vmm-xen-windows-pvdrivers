@@ -35,12 +35,6 @@ typedef UINT32 uint32_t;
 typedef UINT64 uint64_t;
 #endif
 
-#ifdef __MINGW32__
-#include <stdio.h>
-#define RtlStringCbCopyA(dst, dst_len, src) strncpy(dst, src, dst_len)
-#define RtlStringCbPrintfA(args...) snprintf(args)
-#define RtlStringCbVPrintfA(args...) vsnprintf(args)
-#endif
 #include <xen.h>
 
 #define _PAGE_PRESENT  0x001UL
