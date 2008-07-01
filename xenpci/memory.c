@@ -1,7 +1,7 @@
 #include "xenpci.h"
 
 //static pgentry_t *demand_map_pgt;
-static void *demand_map_area_start;
+//static void *demand_map_area_start;
 
 NTSTATUS
 hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
