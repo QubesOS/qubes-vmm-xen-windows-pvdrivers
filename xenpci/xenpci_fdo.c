@@ -303,7 +303,7 @@ XenBus_ShutdownIoCancel(PDEVICE_OBJECT device_object, PIRP irp)
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 }
 
-static VOID
+static DDKAPI VOID
 XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
 {
   PXENPCI_DEVICE_DATA xpdd;

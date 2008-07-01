@@ -23,6 +23,11 @@ KeLowerIrql(IN KIRQL irql);
 
 extern NTOSAPI CCHAR KeNumberProcessors;
 
+NTOSAPI
+VOID
+DDKAPI
+KeFlushQueuedDpcs(VOID);
+
 #define RtlStringCbCopyA(dst, dst_len, src) strncpy(dst, src, dst_len)
 #define RtlStringCbPrintfA(args...) snprintf(args)
 #define RtlStringCbVPrintfA(args...) vsnprintf(args)

@@ -10,7 +10,7 @@ the mingw32msvc cross-compiler.
    package from mingw.sf.net.
 
 3. Untar, then edit lib/ddk/ntoskrnl.def. Remove ";" from line ~545, which says
-   "KeNumberProcessors DATA".
+   "KeNumberProcessors DATA". Add a line "KeFlushQueuedDpcs@0"
 
 4. Type: "./configure i586-mingw32-msvc;make"
 
