@@ -121,7 +121,7 @@ XenPci_BackEndStateHandler(char *Path, PVOID Context)
     KdPrint((__DRIVER_NAME "     state unchanged\n"));
     //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
     return;
-  }    
+  }
 
   xppdd->backend_state = new_backend_state;
 
@@ -455,7 +455,7 @@ XenPci_XenConfigDevice(PVOID context)
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors);
 
   // first pass, possibly before state == Connected
-  while((type = GET_XEN_INIT_REQ(&in_ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+  while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value)) != XEN_INIT_TYPE_END)
   {
     switch (type)
     {
@@ -535,7 +535,7 @@ XenPci_XenConfigDevice(PVOID context)
 
   // second pass, possibly after state == Connected
   in_ptr = in_start;
-  while((type = GET_XEN_INIT_REQ(&in_ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+  while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value)) != XEN_INIT_TYPE_END)
   {
     switch(type)
     {
@@ -895,6 +895,10 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
     case DeviceUsageTypeHibernation:
       KdPrint((__DRIVER_NAME "     type = DeviceUsageTypeHibernation\n"));
       usage_type = &xppdd->common.device_usage_hibernation;
+      break;
+    default:
+      KdPrint((__DRIVER_NAME " Unknown usage type %x\n",
+        stack->Parameters.UsageNotification.Type));
       break;
     }
     KdPrint((__DRIVER_NAME "     inpath = %d\n", stack->Parameters.UsageNotification.InPath));

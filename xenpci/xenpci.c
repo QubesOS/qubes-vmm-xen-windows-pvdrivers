@@ -17,6 +17,7 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
+#define INITGUID
 #include "xenpci.h"
 #include <stdlib.h>
 
@@ -169,7 +170,7 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
 
   status = IoRegisterDeviceInterface(
     PhysicalDeviceObject,
-    (LPGUID)&GUID_XEN_IFACE,
+    &GUID_XEN_IFACE,
     NULL,
     &xpdd->interface_name);
 
