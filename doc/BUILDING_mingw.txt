@@ -1,0 +1,32 @@
+This driver is buildable using MinGW32. This may be preferable due to licensing
+reasons to using the Microsoft WDK/DDK.
+
+These instructions are for building the driver on a Linux Ubuntu system, using
+the mingw32msvc cross-compiler.
+
+1. sudo apt-get install mingw mingw-binutils mingw-runtime
+
+2. mingw-runtime headers need to be modified. Download the latest w32api-src.tar.gz
+   package from mingw.sf.net.
+
+3. Untar, then edit lib/ddk/ntoskrnl.def. Remove ";" from line ~545, which says
+   "KeNumberProcessors DATA". Add a line "KeFlushQueuedDpcs@0"
+
+4. Type: "./configure i586-mingw32-msvc;make"
+
+2. Use Mercurial and type:
+   "hg clone http://xenbits.xensource.com/ext/win-pvdrivers.hg"
+
+4. Change to the win-pvdrivers.hg/xenpci dir.
+
+5. Modify the W32API_PATH at the top of makefile.mingw to point to the lib/ddk
+   directory of the w32api package compiled above.
+
+6. Type: "make -f makefile.mingw"
+
+7. Building the shutdown monitor is not supported (maybe using Mono is an option
+   here?)
+
+8. This is still an extremely alpha build method, so this will give you a
+   .sys file but you're on your own for the rest!
+
