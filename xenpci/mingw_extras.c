@@ -16,8 +16,35 @@ RtlStringCbPrintfW(
   win_wchar_t *format,
   ...)
 {
-  /* TODO: fixme */
-  return STATUS_SUCCESS;
+  va_list args;
+  int len;
+  int i;
+  char tmp_buf[512];
+  NTSTATUS status = STATUS_SUCCESS;
+
+  if (dest_size > sizeof(tmp_buf))
+    dest_size = sizeof(tmp_buf);
+
+  /* we don't have a 2-byte version of vsnprintf, so write it to a single-byte
+     array using vsnprintf() and then copy result to the wchar buffer.
+     This should be seldom executed, so this inefficiency should be ok. */
+  va_start(args, format);
+  len = vsnprintf(tmp_buf, sizeof(tmp_buf), (char *)format, args);
+  va_end(args);
+
+  if (len >= (dest_size * sizeof(win_wchar_t))) {
+    /* output buffer truncated */
+    status = STATUS_BUFFER_OVERFLOW;
+    tmp_buf[sizeof(tmp_buf)-1] = '\0';
+  }
+
+  /* copy byte-string to short_string, incl NULL */
+  for (i = 0; i < (len + 1); i++)
+  {
+    dest_str[i] = tmp_buf[i];
+  }
+
+  return status;
 }
 
 /* ----- BEGIN Other people's code --------- */
