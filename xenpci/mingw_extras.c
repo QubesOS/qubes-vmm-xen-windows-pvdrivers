@@ -35,7 +35,8 @@ RtlStringCbPrintfW(
   if (len >= (dest_size * sizeof(win_wchar_t))) {
     /* output buffer truncated */
     status = STATUS_BUFFER_OVERFLOW;
-    tmp_buf[sizeof(tmp_buf)-1] = '\0';
+    len = sizeof(tmp_buf) - 1;
+    tmp_buf[len] = '\0';
   }
 
   /* copy byte-string to short_string, incl NULL */
