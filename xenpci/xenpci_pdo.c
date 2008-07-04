@@ -106,6 +106,8 @@ XenPci_BackEndStateHandler(char *Path, PVOID Context)
   err = XenBus_Read(xpdd, XBT_NIL, Path, &value);
   if (err)
   {
+    if (xpdd->suspending)
+      return;
     KdPrint(("Failed to read %s, assuming closed\n", path, err));
     new_backend_state = XenbusStateClosed;
     XenPci_FreeMem(err);

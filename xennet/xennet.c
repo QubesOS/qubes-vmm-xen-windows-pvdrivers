@@ -22,32 +22,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <io/xenbus.h>
 #include "xennet.h"
 
-LARGE_INTEGER ProfTime_TxBufferGC;
-LARGE_INTEGER ProfTime_RxBufferAlloc;
-LARGE_INTEGER ProfTime_ReturnPacket;
-LARGE_INTEGER ProfTime_RxBufferCheck;
-LARGE_INTEGER ProfTime_Linearize;
-LARGE_INTEGER ProfTime_SendPackets;
-LARGE_INTEGER ProfTime_SendQueuedPackets;
-LARGE_INTEGER ProfTime_RxBufferCheckTopHalf;
-LARGE_INTEGER ProfTime_RxBufferCheckBotHalf;
-
-int ProfCount_TxBufferGC;
-int ProfCount_RxBufferAlloc;
-int ProfCount_ReturnPacket;
-int ProfCount_RxBufferCheck;
-int ProfCount_Linearize;
-int ProfCount_SendPackets;
-int ProfCount_PacketsPerSendPackets;
-int ProfCount_SendQueuedPackets;
-
-int ProfCount_TxPacketsTotal;
-int ProfCount_TxPacketsCsumOffload;
-int ProfCount_TxPacketsLargeOffload;
-int ProfCount_RxPacketsTotal;
-int ProfCount_RxPacketsCsumOffload;
-int ProfCount_CallsToIndicateReceive;
-
 /* This function copied from linux's lib/vsprintf.c, see it for attribution */
 static unsigned long
 simple_strtoul(const char *cp,char **endp,unsigned int base)
@@ -603,32 +577,6 @@ DriverEntry(
   NTSTATUS status;
   NDIS_HANDLE ndis_wrapper_handle;
   NDIS_MINIPORT_CHARACTERISTICS mini_chars;
-
-  ProfTime_TxBufferGC.QuadPart = 0;
-  ProfTime_RxBufferAlloc.QuadPart = 0;
-  ProfTime_ReturnPacket.QuadPart = 0;
-  ProfTime_RxBufferCheck.QuadPart = 0;
-  ProfTime_RxBufferCheckTopHalf.QuadPart = 0;
-  ProfTime_RxBufferCheckBotHalf.QuadPart = 0;
-  ProfTime_Linearize.QuadPart = 0;
-  ProfTime_SendPackets.QuadPart = 0;
-  ProfTime_SendQueuedPackets.QuadPart = 0;
-
-  ProfCount_TxBufferGC = 0;
-  ProfCount_RxBufferAlloc = 0;
-  ProfCount_ReturnPacket = 0;
-  ProfCount_RxBufferCheck = 0;
-  ProfCount_Linearize = 0;
-  ProfCount_SendPackets = 0;
-  ProfCount_PacketsPerSendPackets = 0;
-  ProfCount_SendQueuedPackets = 0;
-
-  ProfCount_TxPacketsTotal = 0;
-  ProfCount_TxPacketsCsumOffload = 0;
-  ProfCount_TxPacketsLargeOffload = 0;
-  ProfCount_RxPacketsTotal = 0;
-  ProfCount_RxPacketsCsumOffload = 0;
-  ProfCount_CallsToIndicateReceive = 0;
 
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));
 

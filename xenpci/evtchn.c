@@ -73,15 +73,11 @@ static inline int test_and_clear_bit(int nr, volatile long * addr)
   #define synch_clear_bit(p1, p2) test_and_clear_bit(p1, p2)
   #define synch_set_bit(p1, p2) test_and_set_bit(p1, p2)
   #define bit_scan_forward(p1, p2) BitScanForward(p1, p2)
-
-#elif defined(_WIN32)
+#elif defined(_X86_)
   #define xchg(p1, p2) _InterlockedExchange(p1, p2)
   #define synch_clear_bit(p1, p2) _interlockedbittestandreset(p2, p1)
   #define synch_set_bit(p1, p2) _interlockedbittestandset(p2, p1)
   #define bit_scan_forward(p1, p2) _BitScanForward(p1, p2)
-
-
-
 #else
   #define xchg(p1, p2) _InterlockedExchange64(p1, p2)
   #define synch_clear_bit(p1, p2) _interlockedbittestandreset64(p2, p1)

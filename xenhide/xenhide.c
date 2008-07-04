@@ -226,7 +226,7 @@ XenHide_AddDevice(
   USHORT hide_type;
   PXENHIDE_HIDE_LIST_ENTRY list_entry;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   
   length = 512;
@@ -268,11 +268,11 @@ XenHide_AddDevice(
 
   if (hide_type == XENHIDE_TYPE_NONE)
   {
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (filter not required for %S)\n", device_description));
+    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (filter not required for %S)\n", device_description));
     return STATUS_SUCCESS;
   }
 
-  KdPrint((__DRIVER_NAME "     Installing Filter for %S\n", device_description));
+  //KdPrint((__DRIVER_NAME "     Installing Filter for %S\n", device_description));
 
   if (gplpv && hide_type == XENHIDE_TYPE_DEVICE)
   {
@@ -316,7 +316,7 @@ XenHide_AddDevice(
 
   deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return STATUS_SUCCESS;
 }
@@ -397,16 +397,16 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
 
   switch (stack->MinorFunction) {
   case IRP_MN_START_DEVICE:
-    KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE\n"));
+    //KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE\n"));
     if (xhdd->hide_type == XENHIDE_TYPE_DEVICE)
     {
-      KdPrint((__DRIVER_NAME "     hide_type == XENHIDE_TYPE_DEVICE\n"));
+      //KdPrint((__DRIVER_NAME "     hide_type == XENHIDE_TYPE_DEVICE\n"));
       status = irp->IoStatus.Status = STATUS_UNSUCCESSFUL;
       IoCompleteRequest(irp, IO_NO_INCREMENT);
     }
     else
     {
-      KdPrint((__DRIVER_NAME "     hide_type != XENHIDE_TYPE_DEVICE\n"));
+      //KdPrint((__DRIVER_NAME "     hide_type != XENHIDE_TYPE_DEVICE\n"));
       IoSkipCurrentIrpStackLocation(irp);
       status = IoCallDriver(xhdd->lower_do, irp);
     }
@@ -414,7 +414,7 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   case IRP_MN_QUERY_DEVICE_RELATIONS:
     if (xhdd->hide_type == XENHIDE_TYPE_PCI_BUS && stack->Parameters.QueryDeviceRelations.Type == BusRelations)
     {
-      KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS - BusRelations\n"));
+      //KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS - BusRelations\n"));
       IoMarkIrpPending(irp);
       status = XenHide_SendAndWaitForIrp(device_object, irp);
       relations = (PDEVICE_RELATIONS)irp->IoStatus.Information;
@@ -428,7 +428,7 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
         {
           if (relations->Objects[i] == list_entry->pdo)
           {
-            KdPrint((__DRIVER_NAME "     Hiding %p\n", relations->Objects[i]));
+            //KdPrint((__DRIVER_NAME "     Hiding %p\n", relations->Objects[i]));
             break;
           }
           list_entry = (PXENHIDE_HIDE_LIST_ENTRY)list_entry->entry.Flink;
