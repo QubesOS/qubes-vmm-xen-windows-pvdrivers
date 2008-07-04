@@ -366,7 +366,23 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 NTSTATUS
 EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd)
 {
+#if (NTDDI_VERSION < NTDDI_WINXP)
+  int i;
+#endif
+
   IoDisconnectInterrupt(xpdd->interrupt);
+
+#if (NTDDI_VERSION >= NTDDI_WINXP)
+  KeFlushQueuedDpcs();
+#else
+  for (i = 0; i < NR_EVENTS; i++)
+  {
+    if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_DPC || xpdd->ev_actions[i].type == EVT_ACTION_TYPE_IRQ)
+    {
+      KeRemoveQueueDpc(&xpdd->ev_actions[i].Dpc);
+    }
+  }
+#endif
 
   return STATUS_SUCCESS;
 }

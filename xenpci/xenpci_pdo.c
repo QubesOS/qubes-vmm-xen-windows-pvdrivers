@@ -461,6 +461,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   // first pass, possibly before state == Connected
   while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value)) != XEN_INIT_TYPE_END)
   {
+  
     if (!done_xenbus_init)
     {
       if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
@@ -498,7 +499,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
           ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, type, setting, ring);
           // add the grant entry too so it gets freed automatically
           __ADD_XEN_INIT_UCHAR(&xppdd->assigned_resources_ptr, XEN_INIT_TYPE_GRANT_ENTRIES);
-          __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, PtrToUlong(1));
+          __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, 1);
           __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, gref);
         }
         else

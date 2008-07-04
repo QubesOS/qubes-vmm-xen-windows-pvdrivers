@@ -199,7 +199,7 @@ XenHide_IdSuffixMatches(PDEVICE_OBJECT pdo, PWCHAR matching_id)
       if (string_length >= wcslen(matching_id))
       {
         ptr += string_length - wcslen(matching_id);
-        string_length -= wcslen(matching_id);
+        string_length -= (ULONG)wcslen(matching_id);
       }
       //KdPrint((__DRIVER_NAME "     Comparing '%S' and '%S'\n", ptr, matching_id));
       if (wcscmp(ptr, matching_id) == 0)
