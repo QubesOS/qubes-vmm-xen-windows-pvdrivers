@@ -97,9 +97,14 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   if (action->type == EVT_ACTION_TYPE_IRQ)
+  {
+    //KdPrint((__DRIVER_NAME "     Calling interrupt vector %02x\n", action->vector));
     sw_interrupt((UCHAR)action->vector);
+  }
   else
+  {
     action->ServiceRoutine(NULL, action->ServiceContext);
+  }
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
@@ -115,8 +120,9 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
   unsigned long evt_bit;
   unsigned int port;
   ev_action_t *ev_action;
+  BOOLEAN handled = FALSE;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
   UNREFERENCED_PARAMETER(Interrupt);
 
@@ -131,6 +137,7 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
     evt_words &= ~(1 << evt_word);
     while (bit_scan_forward(&evt_bit, shared_info_area->evtchn_pending[evt_word] & ~shared_info_area->evtchn_mask[evt_word]))
     {
+      handled = TRUE;
       port = (evt_word << 5) + evt_bit;
       ev_action = &xpdd->ev_actions[port];
       switch (ev_action->type)
@@ -150,9 +157,9 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
     }
   }
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-  return TRUE;
+  return handled;
 }
 
 NTSTATUS
