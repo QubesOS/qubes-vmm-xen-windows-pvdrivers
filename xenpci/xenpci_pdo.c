@@ -741,7 +741,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     {
     case CmResourceTypeInterrupt:
       KdPrint((__DRIVER_NAME "     CmResourceTypeInterrupt\n"));
-      KdPrint((__DRIVER_NAME "     irq_vector = %03x\n", prd->u.Interrupt.Vector));
+      KdPrint((__DRIVER_NAME "     irq_vector = %02x\n", prd->u.Interrupt.Vector));
       KdPrint((__DRIVER_NAME "     irq_level = %d\n", prd->u.Interrupt.Level));
       xppdd->irq_vector = prd->u.Interrupt.Vector;
       xppdd->irq_level = (KIRQL)prd->u.Interrupt.Level;
