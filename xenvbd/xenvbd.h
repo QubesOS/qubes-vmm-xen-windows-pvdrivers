@@ -90,6 +90,12 @@ typedef enum {
   XENVBD_DEVICETYPE_CONTROLLER // Not yet used
 } XENVBD_DEVICETYPE;
 
+typedef enum {
+  XENVBD_DEVICEMODE_UNKNOWN,
+  XENVBD_DEVICEMODE_READ,
+  XENVBD_DEVICEMODE_WRITE
+} XENVBD_DEVICEMODE;
+
 struct
 {
   blkif_shadow_t shadows[SHADOW_ENTRIES];
@@ -115,6 +121,7 @@ struct
   UCHAR last_additional_sense_code;
   blkif_response_t tmp_rep;
   XENVBD_DEVICETYPE device_type;
+  XENVBD_DEVICEMODE device_mode;
   DISK_GEOMETRY Geometry;
   ULONG bytes_per_sector;
   ULONGLONG total_sectors;

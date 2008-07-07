@@ -180,6 +180,24 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
           xvdd->device_type = XENVBD_DEVICETYPE_UNKNOWN;
         }
       }
+      else if (strcmp(setting, "mode") == 0)
+      {
+        if (strncmp(value, "r", 1) == 0)
+        {
+          KdPrint((__DRIVER_NAME "     mode = r\n"));    
+          xvdd->device_mode = XENVBD_DEVICEMODE_READ;
+        }
+        else if (strncmp(value, "w", 1) == 0)
+        {
+          KdPrint((__DRIVER_NAME "     mode = w\n"));    
+          xvdd->device_mode = XENVBD_DEVICEMODE_WRITE;
+        }
+        else
+        {
+          KdPrint((__DRIVER_NAME "     mode = unknown\n"));
+          xvdd->device_mode = XENVBD_DEVICEMODE_UNKNOWN;
+        }
+      }
       break;
     case XEN_INIT_TYPE_VECTORS:
       //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
@@ -543,6 +561,12 @@ XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
   parameter_header->DeviceSpecificParameter = 0;
   parameter_header->BlockDescriptorLength = 0;
   offset += sizeof(MODE_PARAMETER_HEADER);
+  
+  if (xvdd->device_mode == XENVBD_DEVICEMODE_READ)
+  {
+    KdPrint((__DRIVER_NAME " Mode sense to a read only disk.\n"));
+    parameter_header->DeviceSpecificParameter|=MODE_DSP_WRITE_PROTECT; 
+  }
   
   if (!cdb->MODE_SENSE.Dbd)
   {

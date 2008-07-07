@@ -60,8 +60,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   UNICODE_STRING RegValueName;
   HANDLE RegHandle;
   OBJECT_ATTRIBUTES RegObjectAttributes;
-  char Buf[200];
-  ULONG BufLen = 200;
+  char Buf[300];// Sometimes bigger then 200 if system reboot from crash
+  ULONG BufLen = 300;
   PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
   int State = 0;
   size_t StartPos = 0;
@@ -249,8 +249,9 @@ XenHide_AddDevice(
   if (gplpv)
   {
     /* hide only specific devices */
-    if (XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_8086&DEV_7010")
-      || XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_10EC&DEV_8139"))
+    if (XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_8086&DEV_7010") // Qemu IDE
+      || XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_10EC&DEV_8139") // Qemu Network
+      || XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_1000&DEV_0012"))// Qemu SCSI
     {
       hide_type = XENHIDE_TYPE_DEVICE;
     }

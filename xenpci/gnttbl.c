@@ -149,28 +149,59 @@ GntTbl_EndAccess(
   return TRUE;
 }
 
+#if defined(_X86_)
+static unsigned int 
+GntTbl_QueryMaxFrames(PXENPCI_DEVICE_DATA xpdd)
+{
+  struct gnttab_query_size query;
+  int rc;
+
+  query.dom = DOMID_SELF;
+
+  rc = HYPERVISOR_grant_table_op(xpdd,GNTTABOP_query_size, &query, 1);
+  if ((rc < 0) || (query.status != GNTST_okay))
+  {
+    KdPrint((__DRIVER_NAME "     ***CANNOT QUERY MAX GRANT FRAME***\n"));
+    return 4; /* Legacy max supported number of frames */
+  }
+  return query.max_nr_frames;
+}
+#endif
+
 VOID
 GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
 {
   int i;
-
+  int max_grant_frames = NR_GRANT_FRAMES;
+  int max_grant_entries = NR_GRANT_ENTRIES;
   //KdPrint((__DRIVER_NAME " --> GntTbl_Init\n"));
   
   KeInitializeSpinLock(&xpdd->grant_lock);
 
-  for (i = NR_RESERVED_ENTRIES; i < NR_GRANT_ENTRIES; i++)
+#if defined(_X86_)
+  max_grant_frames = GntTbl_QueryMaxFrames(xpdd);
+  max_grant_entries = min(NR_GRANT_ENTRIES,(max_grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
+  KdPrint((__DRIVER_NAME "     max_grant_entries : %d\n",max_grant_entries));
+#else
+  #if defined(_AMD64_)
+    KdPrint((__DRIVER_NAME "     AMD64 cannot support HYPERVISOR_grant_table_op now\n"));
+  #endif
+#endif
+
+  xpdd->gnttab_list = ExAllocatePoolWithTag(NonPagedPool, sizeof(grant_ref_t) * max_grant_entries, XENPCI_POOL_TAG);// Where to free?
+  for (i = NR_RESERVED_ENTRIES; i < max_grant_entries; i++)
     GntTbl_PutRef(xpdd, i);
 
   xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd,
-    PAGE_SIZE * NR_GRANT_FRAMES);
+    PAGE_SIZE * max_grant_frames);
   xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical,
-    PAGE_SIZE * NR_GRANT_FRAMES, MmNonCached);
+    PAGE_SIZE * max_grant_frames, MmNonCached);
   if (!xpdd->gnttab_table)
   {
     KdPrint((__DRIVER_NAME "     Error Mapping Grant Table Shared Memory\n"));
     return;
   }
-  GntTbl_Map(xpdd, 0, NR_GRANT_FRAMES - 1);
+  GntTbl_Map(xpdd, 0, max_grant_frames - 1);
 
   //KdPrint((__DRIVER_NAME " <-- GntTbl_Init table mapped at %p\n", gnttab_table));
 }

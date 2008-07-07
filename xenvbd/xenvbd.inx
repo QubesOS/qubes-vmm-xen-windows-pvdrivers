@@ -62,6 +62,7 @@ AddReg = XenVbd_XenConfig_AddReg, XenVbd_UpperFilter_AddReg
 HKR,"XenConfig\ring-ref", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_RING%
 HKR,"XenConfig\event-channel", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_EVENT_CHANNEL_IRQ%
 HKR,"XenConfig\device-type", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_READ_STRING_FRONT%
+HKR,"XenConfig\mode", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_READ_STRING_BACK%
 HKR,"XenConfig\sectors", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_READ_STRING_BACK%
 HKR,"XenConfig\sector-size", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_READ_STRING_BACK%
 HKR,"XenConfig\vectors", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_VECTORS%
