@@ -10,8 +10,3 @@ RtlStringCbPrintfW(
   win_wchar_t *format,
   ...);
 
-/* stuff needed for xennet */
-#include <ndis.h>
-
-//#define GCCNOANON u.s2.
-
