@@ -172,12 +172,13 @@ XenHide_IdSuffixMatches(PDEVICE_OBJECT pdo, PWCHAR matching_id)
 {
   NTSTATUS status;
   ULONG remaining;
-  ULONG string_length;
+  size_t string_length;
   WCHAR ids[512];
   PWCHAR ptr;
   ULONG ids_length;
   int i;
   
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   for (i = 0; i < 2; i++)
   {
     if (i == 0)
@@ -187,26 +188,29 @@ XenHide_IdSuffixMatches(PDEVICE_OBJECT pdo, PWCHAR matching_id)
       
     if (!NT_SUCCESS(status))
     {
-      //KdPrint((__DRIVER_NAME "     i = %d, status = %x, ids_length = %d\n", i, status, ids_length));
+//      KdPrint((__DRIVER_NAME "     i = %d, status = %x, ids_length = %d\n", i, status, ids_length));
       continue;
     }
     
     remaining = ids_length / 2;
     for (ptr = ids; *ptr != 0; ptr += string_length + 1)
     {
-      RtlStringCchLengthW(ptr, remaining, (size_t *)&string_length);
-      remaining -= string_length - 1;
+      RtlStringCchLengthW(ptr, remaining, &string_length);
+      remaining -= (ULONG)string_length + 1;
       if (string_length >= wcslen(matching_id))
       {
         ptr += string_length - wcslen(matching_id);
-        string_length -= (ULONG)wcslen(matching_id);
+        string_length = (ULONG)wcslen(matching_id);
       }
-      //KdPrint((__DRIVER_NAME "     Comparing '%S' and '%S'\n", ptr, matching_id));
+//      KdPrint((__DRIVER_NAME "     Comparing '%S' and '%S'\n", ptr, matching_id));
       if (wcscmp(ptr, matching_id) == 0)
-       return TRUE;
+      {
+        KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (Match)\n"));
+        return TRUE;
+      }
     }
   }
-  //KdPrint((__DRIVER_NAME "     No match\n"));  
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (No match)\n"));
   return FALSE;
 }
 
