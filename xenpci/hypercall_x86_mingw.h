@@ -23,18 +23,6 @@
 #define __STR(x) #x
 #define STR(x) __STR(x)
 
-#if 0
-#define HYPERCALL_STR(name)                                     \
-	"mov $stub_addr,%%eax; "                                      \
-	"add $("STR(__HYPERVISOR_##name)" * 32),%%eax; "              \
-	"call *%%eax"
-#endif
-
-#define HYPERCALL_STR(name)                                     \
-	"mov %3,%%eax; "                                      \
-	"add $("STR(__HYPERVISOR_##name)" * 32),%%eax; "              \
-	"call *%%eax"
-
 #define _hypercall2(type, name, a1, a2)                         \
 ({                                                              \
   long __res, __ign1, __ign2;                                   \
@@ -109,8 +97,11 @@ HYPERVISOR_event_channel_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *arg)
 	return _hypercall2(int, event_channel_op, cmd, arg);
 }
 static inline int
-HYPERVISOR_grant_table_op(PXENPCI_DEVICE_DATA xpdd,	unsigned int cmd, void *uop,
- unsigned int count)
+HYPERVISOR_grant_table_op(
+  PXENPCI_DEVICE_DATA xpdd,
+  unsigned int cmd,
+  void *uop,
+  unsigned int count)
 {
 	return _hypercall3(int, grant_table_op, cmd, uop, count);
 }
