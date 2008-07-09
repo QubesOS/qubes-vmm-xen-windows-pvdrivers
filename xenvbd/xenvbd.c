@@ -17,6 +17,7 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
+#define INITGUID
 #include "xenvbd.h"
 #include <io/blkif.h>
 #include <scsi.h>
@@ -29,9 +30,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #pragma warning(disable: 4127)
 
-DRIVER_INITIALIZE DriverEntry;
-
 #ifdef ALLOC_PRAGMA
+DRIVER_INITIALIZE DriverEntry;
 #pragma alloc_text (INIT, DriverEntry)
 #endif
 
