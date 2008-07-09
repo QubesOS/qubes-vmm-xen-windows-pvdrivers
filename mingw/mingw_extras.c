@@ -7,7 +7,8 @@
  * and licensed under the GPLv2.
  */
 
-#include "xenpci.h"
+#include <ntddk.h>
+#include "mingw_extras.h"
 
 NTSTATUS
 RtlStringCbPrintfW(
