@@ -185,6 +185,9 @@ typedef struct {
   grant_entry_t *gnttab_table;
   PHYSICAL_ADDRESS gnttab_table_physical;
   grant_ref_t *gnttab_list;
+  /* this is the maximum number of grant frames we have memory allocated for */
+  /* after a resume it may not be the actual number of grant frames we have though */
+  ULONG max_grant_frames;
 
   ev_action_t ev_actions[NR_EVENTS];
 //  unsigned long bound_ports[NR_EVENTS/(8*sizeof(unsigned long))];
@@ -418,7 +421,8 @@ EvtChn_AllocUnbound(PVOID Context, domid_t Domain);
 
 VOID
 GntTbl_Init(PXENPCI_DEVICE_DATA xpdd);
-
+VOID
+GntTbl_InitMap(PXENPCI_DEVICE_DATA xpdd);
 grant_ref_t
 GntTbl_GrantAccess(PVOID Context, domid_t domid, uint32_t, int readonly, grant_ref_t ref);
 BOOLEAN

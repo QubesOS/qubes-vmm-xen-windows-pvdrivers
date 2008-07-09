@@ -384,21 +384,16 @@ XenPci_Suspend(
   }
   KdPrint((__DRIVER_NAME "     all other processors are spinning\n"));
 
-  // make a backup of the grant table - we are going to keep it instead of throwing it away
-  //memcpy(gnttbl_backup, xpdd->gnttab_table, PAGE_SIZE * NR_GRANT_FRAMES);
-
   KdPrint((__DRIVER_NAME "     calling suspend\n"));
   cancelled = hvm_shutdown(Context, SHUTDOWN_suspend);
   KdPrint((__DRIVER_NAME "     back from suspend, cancelled = %d\n", cancelled));
 
   XenPci_Init(xpdd);
   
-  GntTbl_Map(Context, 0, NR_GRANT_FRAMES - 1);
+  GntTbl_InitMap(Context);
 
   /* this enabled interrupts again too */  
   EvtChn_Init(xpdd);
-
-  //memcpy(xpdd->gnttab_table, gnttbl_backup, PAGE_SIZE * NR_GRANT_FRAMES);
 
   for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
   {

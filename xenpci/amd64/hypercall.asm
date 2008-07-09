@@ -31,4 +31,17 @@ _hypercall2 proc
     pop rdi
     ret
 _hypercall2 endp
+
+_hypercall3 proc
+    push rdi
+    push rsi
+    mov rdi, rdx
+    mov rsi, r8
+    mov rdx, r9
+    mov rax, rcx
+    call rax
+    pop rsi
+    pop rdi
+    ret
+_hypercall3 endp
 END
