@@ -161,7 +161,7 @@ XenNet_SumPacketData(
         KdPrint((__DRIVER_NAME "     Ran out of buffers\n"));
         return;
       }
-      NdisQueryBufferSafe(mdl, &buffer, &buffer_length, NormalPagePriority);
+      NdisQueryBufferSafe(mdl, (PVOID) &buffer, &buffer_length, NormalPagePriority);
       csum += ((USHORT)buffer[0]);
       buffer_offset = (USHORT)-1;
     }
@@ -176,7 +176,7 @@ XenNet_SumPacketData(
           KdPrint((__DRIVER_NAME "     Ran out of buffers\n"));
           return;
         }
-        NdisQueryBufferSafe(mdl, &buffer, &buffer_length, NormalPagePriority);
+        NdisQueryBufferSafe(mdl, (PVOID) &buffer, &buffer_length, NormalPagePriority);
         buffer_offset = 0;
       }
       csum += GET_NET_USHORT(buffer[buffer_offset]);
@@ -473,7 +473,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
 /* called at DISPATCH_LEVEL */
 /* it's okay for return packet to be called while resume_state != RUNNING as the packet will simply be added back to the freelist, the grants will be fixed later */
-VOID
+VOID DDKAPI
 XenNet_ReturnPacket(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN PNDIS_PACKET Packet

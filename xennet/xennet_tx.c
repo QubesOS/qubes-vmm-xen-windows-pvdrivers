@@ -350,7 +350,7 @@ XenNet_TxBufferGC(struct xennet_info *xi)
 }
 
 // called at <= DISPATCH_LEVEL
-VOID
+VOID DDKAPI
 XenNet_SendPackets(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN PPNDIS_PACKET PacketArray,

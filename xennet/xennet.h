@@ -21,9 +21,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable: 4201)
 #pragma warning(disable: 4214)
 
+#ifdef __MINGW32__
+#include <ntddk.h>
+#define NDIS50_MINIPORT 1
+#include <ndis.h>
+#include "../mingw/mingw_extras.h"
+
+#else
+#define DDKAPI
 #include <ntddk.h>
 #include <wdm.h>
-
 #define NDIS_MINIPORT_DRIVER
 #if NTDDI_VERSION < NTDDI_WINXP
 # define NDIS50_MINIPORT 1
@@ -31,9 +38,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 # define NDIS51_MINIPORT 1
 #endif
 #include <ndis.h>
-
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
+#endif
 
 
 #define __DRIVER_NAME "XenNet"
@@ -165,8 +172,8 @@ struct xennet_info
   NDIS_MINIPORT_INTERRUPT interrupt;
   ULONG packet_filter;
   int connected;
-  UINT8 perm_mac_addr[ETH_ALEN];
-  UINT8 curr_mac_addr[ETH_ALEN];
+  uint8_t perm_mac_addr[ETH_ALEN];
+  uint8_t curr_mac_addr[ETH_ALEN];
 
   /* Misc. Xen vars */
   XENPCI_VECTORS vectors;
@@ -265,7 +272,7 @@ extern int ProfCount_CallsToIndicateReceive;
 NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi);
 
-VOID
+VOID DDKAPI
 XenNet_ReturnPacket(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN PNDIS_PACKET Packet
@@ -292,7 +299,7 @@ XenNet_TxResumeStart(xennet_info_t *xi);
 VOID
 XenNet_TxResumeEnd(xennet_info_t *xi);
 
-VOID
+VOID DDKAPI
 XenNet_SendPackets(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN PPNDIS_PACKET PacketArray,
@@ -305,7 +312,7 @@ XenNet_TxInit(xennet_info_t *xi);
 BOOLEAN
 XenNet_TxShutdown(xennet_info_t *xi);
 
-NDIS_STATUS 
+NDIS_STATUS DDKAPI
 XenNet_QueryInformation(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN NDIS_OID Oid,
@@ -314,7 +321,7 @@ XenNet_QueryInformation(
   OUT PULONG BytesWritten,
   OUT PULONG BytesNeeded);
 
-NDIS_STATUS 
+NDIS_STATUS DDKAPI
 XenNet_SetInformation(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN NDIS_OID Oid,

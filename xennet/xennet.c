@@ -48,9 +48,72 @@ int ProfCount_RxPacketsTotal;
 int ProfCount_RxPacketsCsumOffload;
 int ProfCount_CallsToIndicateReceive;
 
-/* This function copied from linux's lib/vsprintf.c, see it for attribution */
-static unsigned long
-simple_strtoul(const char *cp,char **endp,unsigned int base)
+/* ----- BEGIN Other people's code --------- */
+/* from linux/include/linux/ctype.h, used under GPLv2 */
+#define _U      0x01    /* upper */
+#define _L      0x02    /* lower */
+#define _D      0x04    /* digit */
+#define _C      0x08    /* cntrl */
+#define _P      0x10    /* punct */
+#define _S      0x20    /* white space (space/lf/tab) */
+#define _X      0x40    /* hex digit */
+#define _SP     0x80    /* hard space (0x20) */
+
+/* from linux/include/lib/ctype.c, used under GPLv2 */
+unsigned char _ctype[] = {
+_C,_C,_C,_C,_C,_C,_C,_C,                        /* 0-7 */
+_C,_C|_S,_C|_S,_C|_S,_C|_S,_C|_S,_C,_C,         /* 8-15 */
+_C,_C,_C,_C,_C,_C,_C,_C,                        /* 16-23 */
+_C,_C,_C,_C,_C,_C,_C,_C,                        /* 24-31 */
+_S|_SP,_P,_P,_P,_P,_P,_P,_P,                    /* 32-39 */
+_P,_P,_P,_P,_P,_P,_P,_P,                        /* 40-47 */
+_D,_D,_D,_D,_D,_D,_D,_D,                        /* 48-55 */
+_D,_D,_P,_P,_P,_P,_P,_P,                        /* 56-63 */
+_P,_U|_X,_U|_X,_U|_X,_U|_X,_U|_X,_U|_X,_U,      /* 64-71 */
+_U,_U,_U,_U,_U,_U,_U,_U,                        /* 72-79 */
+_U,_U,_U,_U,_U,_U,_U,_U,                        /* 80-87 */
+_U,_U,_U,_P,_P,_P,_P,_P,                        /* 88-95 */
+_P,_L|_X,_L|_X,_L|_X,_L|_X,_L|_X,_L|_X,_L,      /* 96-103 */
+_L,_L,_L,_L,_L,_L,_L,_L,                        /* 104-111 */
+_L,_L,_L,_L,_L,_L,_L,_L,                        /* 112-119 */
+_L,_L,_L,_P,_P,_P,_P,_C,                        /* 120-127 */
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,                /* 128-143 */
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,                /* 144-159 */
+_S|_SP,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,   /* 160-175 */
+_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,_P,       /* 176-191 */
+_U,_U,_U,_U,_U,_U,_U,_U,_U,_U,_U,_U,_U,_U,_U,_U,       /* 192-207 */
+_U,_U,_U,_U,_U,_U,_U,_P,_U,_U,_U,_U,_U,_U,_U,_L,       /* 208-223 */
+_L,_L,_L,_L,_L,_L,_L,_L,_L,_L,_L,_L,_L,_L,_L,_L,       /* 224-239 */
+_L,_L,_L,_L,_L,_L,_L,_P,_L,_L,_L,_L,_L,_L,_L,_L};      /* 240-255 */
+
+/* from linux/include/linux/ctype.h, used under GPLv2 */
+#define __ismask(x) (_ctype[(int)(unsigned char)(x)])
+
+#define isalnum(c)      ((__ismask(c)&(_U|_L|_D)) != 0)
+#define isalpha(c)      ((__ismask(c)&(_U|_L)) != 0)
+#define iscntrl(c)      ((__ismask(c)&(_C)) != 0)
+#define isdigit(c)      ((__ismask(c)&(_D)) != 0)
+#define isgraph(c)      ((__ismask(c)&(_P|_U|_L|_D)) != 0)
+#define islower(c)      ((__ismask(c)&(_L)) != 0)
+#define isprint(c)      ((__ismask(c)&(_P|_U|_L|_D|_SP)) != 0)
+#define ispunct(c)      ((__ismask(c)&(_P)) != 0)
+#define isspace(c)      ((__ismask(c)&(_S)) != 0)
+#define isupper(c)      ((__ismask(c)&(_U)) != 0)
+#define isxdigit(c)     ((__ismask(c)&(_D|_X)) != 0)
+
+#define TOLOWER(x) ((x) | 0x20)
+
+/* from linux/lib/vsprintf.c, used under GPLv2 */
+/* Copyright (C) 1991, 1992  Linus Torvalds
+ * Wirzenius wrote this portably, Torvalds fucked it up :-)
+ */
+/**
+ * simple_strtoul - convert a string to an unsigned long
+ * @cp: The start of the string
+ * @endp: A pointer to the end of the parsed string will be placed here
+ * @base: The number base to use
+ */
+unsigned long simple_strtoul(const char *cp,char **endp,unsigned int base)
 {
   unsigned long result = 0,value;
 
@@ -59,28 +122,30 @@ simple_strtoul(const char *cp,char **endp,unsigned int base)
     if (*cp == '0') {
       base = 8;
       cp++;
-      if ((toupper(*cp) == 'X') && isxdigit(cp[1])) {
+      if ((TOLOWER(*cp) == 'x') && isxdigit(cp[1])) {
         cp++;
         base = 16;
       }
     }
   } else if (base == 16) {
-    if (cp[0] == '0' && toupper(cp[1]) == 'X')
-    cp += 2;
+    if (cp[0] == '0' && TOLOWER(cp[1]) == 'x')
+      cp += 2;
   }
   while (isxdigit(*cp) &&
-  (value = isdigit(*cp) ? *cp-'0' : toupper(*cp)-'A'+10) < base) {
+    (value = isdigit(*cp) ? *cp-'0' : TOLOWER(*cp)-'a'+10) < base) {
     result = result*base + value;
     cp++;
   }
   if (endp)
-  *endp = (char *)cp;
+    *endp = (char *)cp;
   return result;
 }
+/* end vsprintf.c code */
+/* ----- END Other people's code --------- */
 
 // Called at DISPATCH_LEVEL
 
-static VOID
+static DDKAPI VOID
 XenNet_InterruptIsr(
   PBOOLEAN InterruptRecognized,
   PBOOLEAN QueueMiniportHandleInterrupt,
@@ -96,7 +161,7 @@ XenNet_InterruptIsr(
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
-static VOID
+static DDKAPI VOID
 XenNet_InterruptDpc(NDIS_HANDLE  MiniportAdapterContext)
 {
   struct xennet_info *xi = MiniportAdapterContext;
@@ -121,7 +186,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
   ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   ptr = xi->config_page;
-  while((type = GET_XEN_INIT_RSP(&ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+  while((type = GET_XEN_INIT_RSP(&ptr, (PVOID)&setting, (PVOID)&value)) != XEN_INIT_TYPE_END)
   {
     switch(type)
     {
@@ -150,7 +215,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
         char *s, *e;
         s = value;
         for (i = 0; i < ETH_ALEN; i++) {
-          xi->perm_mac_addr[i] = (UINT8)simple_strtoul(s, &e, 16);
+          xi->perm_mac_addr[i] = (uint8_t)simple_strtoul(s, &e, 16);
           if ((s == e) || (*e != ((i == ETH_ALEN-1) ? '\0' : ':'))) {
             KdPrint((__DRIVER_NAME "Error parsing MAC address\n"));
           }
@@ -167,7 +232,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
         KdPrint((__DRIVER_NAME "     vectors mismatch (magic = %08x, length = %d)\n",
           ((PXENPCI_VECTORS)value)->magic, ((PXENPCI_VECTORS)value)->length));
         KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-        return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
+        return NDIS_STATUS_ADAPTER_NOT_FOUND;
       }
       else
         memcpy(&xi->vectors, value, sizeof(XENPCI_VECTORS));
@@ -184,7 +249,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
-static VOID
+static DDKAPI VOID
 XenNet_Resume(PDEVICE_OBJECT device_object, PVOID context)
 {
   struct xennet_info *xi = context;
@@ -200,7 +265,7 @@ XenNet_Resume(PDEVICE_OBJECT device_object, PVOID context)
   NdisMSetPeriodicTimer(&xi->resume_timer, 100);
 }
 
-static VOID 
+static DDKAPI VOID 
 XenResumeCheck_Timer(
  PVOID SystemSpecific1,
  PVOID FunctionContext,
@@ -225,7 +290,7 @@ XenResumeCheck_Timer(
 }
 
 // Called at <= DISPATCH_LEVEL
-static NDIS_STATUS
+static DDKAPI NDIS_STATUS
 XenNet_Init(
   OUT PNDIS_STATUS OpenErrorStatus,
   OUT PUINT SelectedMediumIndex,
@@ -275,7 +340,7 @@ XenNet_Init(
   *SelectedMediumIndex = i;
 
   /* Alloc memory for adapter private info */
-  status = NdisAllocateMemoryWithTag(&xi, sizeof(*xi), XENNET_POOL_TAG);
+  status = NdisAllocateMemoryWithTag((PVOID)&xi, sizeof(*xi), XENNET_POOL_TAG);
   if (!NT_SUCCESS(status))
   {
     KdPrint(("NdisAllocateMemoryWithTag failed with 0x%x\n", status));
@@ -295,18 +360,18 @@ XenNet_Init(
   NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
     NULL, (PUINT)&nrl_length);
   KdPrint((__DRIVER_NAME "     nrl_length = %d\n", nrl_length));
-  status = NdisAllocateMemoryWithTag(&nrl, nrl_length, XENNET_POOL_TAG);
+  status = NdisAllocateMemoryWithTag((PVOID)&nrl, nrl_length, XENNET_POOL_TAG);
   if (status != NDIS_STATUS_SUCCESS)
   {
     KdPrint((__DRIVER_NAME "     Could not get allocate memory for Adapter Resources 0x%x\n", status));
-    return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
+    return NDIS_STATUS_RESOURCES;
   }
   NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
     nrl, (PUINT)&nrl_length);
   if (status != NDIS_STATUS_SUCCESS)
   {
     KdPrint((__DRIVER_NAME "     Could not get Adapter Resources 0x%x\n", status));
-    return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
+    return NDIS_STATUS_RESOURCES;
   }
   xi->event_channel = 0;
   xi->config_csum = 1;
@@ -380,7 +445,7 @@ XenNet_Init(
   }
 
   ptr = xi->config_page;
-  while((type = GET_XEN_INIT_RSP(&ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+  while((type = GET_XEN_INIT_RSP(&ptr, (PVOID)&setting, (PVOID)&value)) != XEN_INIT_TYPE_END)
   {
     switch(type)
     {
@@ -392,7 +457,7 @@ XenNet_Init(
         KdPrint((__DRIVER_NAME "     vectors mismatch (magic = %08x, length = %d)\n",
           ((PXENPCI_VECTORS)value)->magic, ((PXENPCI_VECTORS)value)->length));
         KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-        return NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
+        return NDIS_STATUS_FAILURE;
       }
       else
         memcpy(&xi->vectors, value, sizeof(XENPCI_VECTORS));
@@ -485,7 +550,7 @@ XenNet_Init(
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", buf);
-  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", xi->config_sg);
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", (int)xi->config_sg);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", buf);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !!xi->config_gso);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-gso-tcpv4", buf);
@@ -547,7 +612,7 @@ XenNet_PnPEventNotify(
 }
 
 /* Called when machine is shutting down, so just quiesce the HW and be done fast. */
-VOID
+VOID DDKAPI
 XenNet_Shutdown(
   IN NDIS_HANDLE MiniportAdapterContext
   )
@@ -560,7 +625,7 @@ XenNet_Shutdown(
 }
 
 /* Opposite of XenNet_Init */
-VOID
+VOID DDKAPI
 XenNet_Halt(
   IN NDIS_HANDLE MiniportAdapterContext
   )

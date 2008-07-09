@@ -31,7 +31,7 @@ XenNet_ParsePacketHeader(
 
   ASSERT(pi->mdls[0]);
   
-  NdisQueryBufferSafe(pi->mdls[0], &pi->header, &header_length, NormalPagePriority);
+  NdisQueryBufferSafe(pi->mdls[0], (PVOID) &pi->header, &header_length, NormalPagePriority);
 
 // what about if the buffer isn't completely on one page???
   if (ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(pi->mdls[0]), header_length) != 1)
@@ -144,7 +144,7 @@ XenNet_GetData(
 }
 
 /* Called at DISPATCH LEVEL */
-static VOID 
+static VOID DDKAPI
 XenFreelist_Timer(
   PVOID SystemSpecific1,
   PVOID FunctionContext,
