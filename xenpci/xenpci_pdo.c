@@ -106,6 +106,8 @@ XenPci_BackEndStateHandler(char *Path, PVOID Context)
   err = XenBus_Read(xpdd, XBT_NIL, Path, &value);
   if (err)
   {
+    if (xpdd->suspending)
+      return;
     KdPrint(("Failed to read %s, assuming closed\n", path, err));
     new_backend_state = XenbusStateClosed;
     XenPci_FreeMem(err);
@@ -461,6 +463,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   // first pass, possibly before state == Connected
   while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value)) != XEN_INIT_TYPE_END)
   {
+  
     if (!done_xenbus_init)
     {
       if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
@@ -498,7 +501,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
           ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, type, setting, ring);
           // add the grant entry too so it gets freed automatically
           __ADD_XEN_INIT_UCHAR(&xppdd->assigned_resources_ptr, XEN_INIT_TYPE_GRANT_ENTRIES);
-          __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, PtrToUlong(1));
+          __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, 1);
           __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, gref);
         }
         else
@@ -738,7 +741,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     {
     case CmResourceTypeInterrupt:
       KdPrint((__DRIVER_NAME "     CmResourceTypeInterrupt\n"));
-      KdPrint((__DRIVER_NAME "     irq_vector = %03x\n", prd->u.Interrupt.Vector));
+      KdPrint((__DRIVER_NAME "     irq_vector = %02x\n", prd->u.Interrupt.Vector));
       KdPrint((__DRIVER_NAME "     irq_level = %d\n", prd->u.Interrupt.Level));
       xppdd->irq_vector = prd->u.Interrupt.Vector;
       xppdd->irq_level = (KIRQL)prd->u.Interrupt.Level;
@@ -804,17 +807,19 @@ XenPci_Pnp_RemoveDevice(PDEVICE_OBJECT device_object, PIRP irp)
 static NTSTATUS
 XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
 {
-  //PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
-  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
   PIO_RESOURCE_REQUIREMENTS_LIST irrl;
   PIO_RESOURCE_DESCRIPTOR ird;
   ULONG length;
+  ULONG available_interrupts[] = {2, 3, 4, 5, 7, 10, 11, 14, 15};
+  int i;
 
   UNREFERENCED_PARAMETER(device_object);
 
   length = FIELD_OFFSET(IO_RESOURCE_REQUIREMENTS_LIST, List) +
     FIELD_OFFSET(IO_RESOURCE_LIST, Descriptors) +
-    sizeof(IO_RESOURCE_DESCRIPTOR) * 2;
+    sizeof(IO_RESOURCE_DESCRIPTOR) * ARRAY_SIZE(available_interrupts);
   irrl = ExAllocatePoolWithTag(PagedPool,
     length,
     XENPCI_POOL_TAG);
@@ -828,34 +833,19 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   irrl->List[0].Revision = 1;
   irrl->List[0].Count = 0;
 
-  ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
-  ird->Option = 0;
-  ird->Type = CmResourceTypeInterrupt;
-  ird->ShareDisposition = CmResourceShareShared;
-  ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
-  ird->u.Interrupt.MinimumVector = 1;
-  ird->u.Interrupt.MaximumVector = 6;
-
-  ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
-  ird->Option = IO_RESOURCE_ALTERNATIVE;
-  ird->Type = CmResourceTypeInterrupt;
-  ird->ShareDisposition = CmResourceShareShared;
-  ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
-  ird->u.Interrupt.MinimumVector = 10;
-  ird->u.Interrupt.MaximumVector = 14;
+  for (i = 0; i < ARRAY_SIZE(available_interrupts); i++)
+  {
+    if (i == (int)xpdd->irq_number)
+      continue;
+    ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
+    ird->Option = i?IO_RESOURCE_ALTERNATIVE:0;
+    ird->Type = CmResourceTypeInterrupt;
+    ird->ShareDisposition = CmResourceShareShared;
+    ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+    ird->u.Interrupt.MinimumVector = available_interrupts[i];
+    ird->u.Interrupt.MaximumVector = available_interrupts[i];
+  }
   
-#if 0 
-  ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
-  ird->Option = 0;  
-  ird->Type = CmResourceTypeMemory;
-  ird->ShareDisposition = CmResourceShareDeviceExclusive;
-  ird->Flags = CM_RESOURCE_MEMORY_READ_WRITE;
-  ird->u.Memory.Length = PAGE_SIZE;
-  ird->u.Memory.Alignment = PAGE_SIZE;
-  ird->u.Memory.MinimumAddress.QuadPart = 0; //MmGetMdlPfnArray(xppdd->config_mdl)[0] << PAGE_SHIFT;
-  ird->u.Memory.MaximumAddress.QuadPart = 0xFFFFFFFFFFFFFFFF; //ird->u.Memory.MinimumAddress.QuadPart + PAGE_SIZE - 1;
-#endif
-
   irp->IoStatus.Information = (ULONG_PTR)irrl;
   return STATUS_SUCCESS;
 }

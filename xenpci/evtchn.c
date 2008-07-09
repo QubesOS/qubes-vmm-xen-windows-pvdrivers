@@ -73,15 +73,11 @@ static inline int test_and_clear_bit(int nr, volatile long * addr)
   #define synch_clear_bit(p1, p2) test_and_clear_bit(p1, p2)
   #define synch_set_bit(p1, p2) test_and_set_bit(p1, p2)
   #define bit_scan_forward(p1, p2) BitScanForward(p1, p2)
-
-#elif defined(_WIN32)
+#elif defined(_X86_)
   #define xchg(p1, p2) _InterlockedExchange(p1, p2)
   #define synch_clear_bit(p1, p2) _interlockedbittestandreset(p2, p1)
   #define synch_set_bit(p1, p2) _interlockedbittestandset(p2, p1)
   #define bit_scan_forward(p1, p2) _BitScanForward(p1, p2)
-
-
-
 #else
   #define xchg(p1, p2) _InterlockedExchange64(p1, p2)
   #define synch_clear_bit(p1, p2) _interlockedbittestandreset64(p2, p1)
@@ -101,9 +97,14 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   if (action->type == EVT_ACTION_TYPE_IRQ)
+  {
+    //KdPrint((__DRIVER_NAME "     Calling interrupt vector %02x\n", action->vector));
     sw_interrupt((UCHAR)action->vector);
+  }
   else
+  {
     action->ServiceRoutine(NULL, action->ServiceContext);
+  }
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
@@ -119,8 +120,9 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
   unsigned long evt_bit;
   unsigned int port;
   ev_action_t *ev_action;
+  BOOLEAN handled = FALSE;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
   UNREFERENCED_PARAMETER(Interrupt);
 
@@ -135,6 +137,7 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
     evt_words &= ~(1 << evt_word);
     while (bit_scan_forward(&evt_bit, shared_info_area->evtchn_pending[evt_word] & ~shared_info_area->evtchn_mask[evt_word]))
     {
+      handled = TRUE;
       port = (evt_word << 5) + evt_bit;
       ev_action = &xpdd->ev_actions[port];
       switch (ev_action->type)
@@ -154,9 +157,9 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
     }
   }
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-  return TRUE;
+  return handled;
 }
 
 NTSTATUS
@@ -366,7 +369,23 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 NTSTATUS
 EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd)
 {
+#if (NTDDI_VERSION < NTDDI_WINXP)
+  int i;
+#endif
+
   IoDisconnectInterrupt(xpdd->interrupt);
+
+#if (NTDDI_VERSION >= NTDDI_WINXP)
+  KeFlushQueuedDpcs();
+#else
+  for (i = 0; i < NR_EVENTS; i++)
+  {
+    if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_DPC || xpdd->ev_actions[i].type == EVT_ACTION_TYPE_IRQ)
+    {
+      KeRemoveQueueDpc(&xpdd->ev_actions[i].Dpc);
+    }
+  }
+#endif
 
   return STATUS_SUCCESS;
 }

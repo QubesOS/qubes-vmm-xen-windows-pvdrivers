@@ -57,7 +57,7 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define XENPCI_POOL_TAG (ULONG) 'XenP'
 
 #define NR_RESERVED_ENTRIES 8
-#define NR_GRANT_FRAMES 4
+#define NR_GRANT_FRAMES 32
 #define NR_GRANT_ENTRIES (NR_GRANT_FRAMES * PAGE_SIZE / sizeof(grant_entry_t))
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -184,7 +184,7 @@ typedef struct {
 
   grant_entry_t *gnttab_table;
   PHYSICAL_ADDRESS gnttab_table_physical;
-  grant_ref_t gnttab_list[NR_GRANT_ENTRIES];
+  grant_ref_t *gnttab_list;
 
   ev_action_t ev_actions[NR_EVENTS];
 //  unsigned long bound_ports[NR_EVENTS/(8*sizeof(unsigned long))];

@@ -449,7 +449,6 @@ XenPci_BeginSuspend(PXENPCI_DEVICE_DATA xpdd)
     }
     KeMemoryBarrier();
     EvtChn_Shutdown(xpdd);
-    KeFlushQueuedDpcs();
 
     //ActiveProcessorCount = KeQueryActiveProcessorCount(&ActiveProcessorMask); // this is for Vista+
     ActiveProcessorCount = (ULONG)KeNumberProcessors;
