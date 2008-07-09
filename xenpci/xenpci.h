@@ -26,7 +26,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <ntddk.h>
 
 #ifdef __MINGW32__
-#include "mingw_extras.h"
+#include "../mingw/mingw_extras.h"
 #else
 #define DDKAPI
 #include <wdm.h>
