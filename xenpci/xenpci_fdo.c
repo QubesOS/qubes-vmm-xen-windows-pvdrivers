@@ -390,7 +390,7 @@ XenPci_Suspend(
 
   XenPci_Init(xpdd);
   
-  GntTbl_Map(Context, 0, NR_GRANT_FRAMES - 1);
+  GntTbl_InitMap(Context);
 
   /* this enabled interrupts again too */  
   EvtChn_Init(xpdd);
