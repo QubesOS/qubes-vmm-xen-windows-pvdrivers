@@ -3,7 +3,7 @@
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.11-pre5"
+!define Version "0.9.11-pre6"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 InstallDir "$PROGRAMFILES\${AppName}"
@@ -176,11 +176,6 @@ SectionEnd
 
 Section "Install Drivers" installdrivers
   Push "$INSTDIR\drivers"
-  Push "$INSTDIR\drivers\xenpci.inf"
-  Push "PCI\VEN_5853&DEV_0001"
-  Call InstallUpgradeDriver
-
-  Push "$INSTDIR\drivers"
   Push "$INSTDIR\drivers\xennet.inf"
   Push "XEN\VIF"
   Call InstallUpgradeDriver
@@ -208,6 +203,11 @@ Section "Install Drivers" installdrivers
   Push "$INSTDIR\drivers"
   Push "$INSTDIR\drivers\xenstub.inf"
   Push "XEN\VKBD"
+  Call InstallUpgradeDriver
+
+  Push "$INSTDIR\drivers"
+  Push "$INSTDIR\drivers\xenpci.inf"
+  Push "PCI\VEN_5853&DEV_0001"
   Call InstallUpgradeDriver
 SectionEnd
 
