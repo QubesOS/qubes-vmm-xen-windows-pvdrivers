@@ -9,24 +9,26 @@ the mingw32msvc cross-compiler.
 2. mingw-runtime headers need to be modified. Download the latest w32api-src.tar.gz
    package from mingw.sf.net.
 
-3. Untar, then edit lib/ddk/ntoskrnl.def. Remove ";" from line ~545, which says
-   "KeNumberProcessors DATA". Add a line "KeFlushQueuedDpcs@0"
+3. Untar to a directory.
 
-4. Type: "./configure i586-mingw32-msvc;make"
-
-2. Use Mercurial and type:
+4. Use Mercurial and type:
    "hg clone http://xenbits.xensource.com/ext/win-pvdrivers.hg"
 
-4. Change to the win-pvdrivers.hg/xenpci dir.
+5. Apply the patch "w32api.diff" in the mingw directory to the untarred w32api
+   source: "cd w32api-<version>;patch -p1 < ~/hg/win-pvdrivers.hg/mingw/w32api.diff"
 
-5. Modify the W32API_PATH at the top of makefile.mingw to point to the lib/ddk
+6. Type: "./configure i586-mingw32-msvc;make"
+
+7. Change to the win-pvdrivers.hg/xenpci dir.
+
+8. Modify the W32API_PATH at the top of makefile.mingw to point to the lib/ddk
    directory of the w32api package compiled above.
 
-6. Type: "make -f makefile.mingw"
+9. Type: "make -f makefile.mingw"
 
-7. Building the shutdown monitor is not supported (maybe using Mono is an option
+10. Building the shutdown monitor is not supported (maybe using Mono is an option
    here?)
 
-8. This is still an extremely alpha build method, so this will give you a
+11. This is still an extremely alpha build method, so this will give you a
    .sys file but you're on your own for the rest!
 
