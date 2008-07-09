@@ -149,7 +149,6 @@ GntTbl_EndAccess(
   return TRUE;
 }
 
-#if defined(_X86_)
 static unsigned int 
 GntTbl_QueryMaxFrames(PXENPCI_DEVICE_DATA xpdd)
 {
@@ -166,42 +165,58 @@ GntTbl_QueryMaxFrames(PXENPCI_DEVICE_DATA xpdd)
   }
   return query.max_nr_frames;
 }
-#endif
+
+VOID
+GntTbl_InitMap(PXENPCI_DEVICE_DATA xpdd)
+{
+  int i;
+  ULONG grant_frames;
+  int grant_entries;
+  //KdPrint((__DRIVER_NAME " --> GntTbl_Init\n"));
+
+  grant_frames = GntTbl_QueryMaxFrames(xpdd);
+  grant_entries = min(NR_GRANT_ENTRIES, (grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
+  KdPrint((__DRIVER_NAME "     grant_entries : %d\n", grant_entries));
+
+  if (xpdd->gnttab_list)
+  {
+    if (grant_frames > xpdd->max_grant_frames)
+    {
+      ExFreePoolWithTag(xpdd->gnttab_list, XENPCI_POOL_TAG);
+      MmUnmapIoSpace(xpdd->gnttab_table, PAGE_SIZE * xpdd->max_grant_frames);
+      xpdd->gnttab_list = NULL;
+    }
+  }
+  
+  if (!xpdd->gnttab_list)
+  {  
+    xpdd->gnttab_list = ExAllocatePoolWithTag(NonPagedPool, sizeof(grant_ref_t) * grant_entries, XENPCI_POOL_TAG);
+    xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd,
+      PAGE_SIZE * grant_frames);
+    xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical,
+      PAGE_SIZE * grant_frames, MmNonCached);
+    if (!xpdd->gnttab_table)
+    {
+      KdPrint((__DRIVER_NAME "     Error Mapping Grant Table Shared Memory\n"));
+      // this should be a show stopper...
+      return;
+    }
+    xpdd->max_grant_frames = grant_frames;
+  }
+  RtlZeroMemory(xpdd->gnttab_list, sizeof(grant_ref_t) * grant_entries);
+  for (i = NR_RESERVED_ENTRIES; i < grant_entries; i++)
+    GntTbl_PutRef(xpdd, i);
+  
+  GntTbl_Map(xpdd, 0, grant_frames - 1);
+}
 
 VOID
 GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
 {
-  int i;
-  int max_grant_frames = NR_GRANT_FRAMES;
-  int max_grant_entries = NR_GRANT_ENTRIES;
   //KdPrint((__DRIVER_NAME " --> GntTbl_Init\n"));
   
   KeInitializeSpinLock(&xpdd->grant_lock);
-
-#if defined(_X86_)
-  max_grant_frames = GntTbl_QueryMaxFrames(xpdd);
-  max_grant_entries = min(NR_GRANT_ENTRIES,(max_grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
-  KdPrint((__DRIVER_NAME "     max_grant_entries : %d\n",max_grant_entries));
-#else
-  #if defined(_AMD64_)
-    KdPrint((__DRIVER_NAME "     AMD64 cannot support HYPERVISOR_grant_table_op now\n"));
-  #endif
-#endif
-
-  xpdd->gnttab_list = ExAllocatePoolWithTag(NonPagedPool, sizeof(grant_ref_t) * max_grant_entries, XENPCI_POOL_TAG);// Where to free?
-  for (i = NR_RESERVED_ENTRIES; i < max_grant_entries; i++)
-    GntTbl_PutRef(xpdd, i);
-
-  xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd,
-    PAGE_SIZE * max_grant_frames);
-  xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical,
-    PAGE_SIZE * max_grant_frames, MmNonCached);
-  if (!xpdd->gnttab_table)
-  {
-    KdPrint((__DRIVER_NAME "     Error Mapping Grant Table Shared Memory\n"));
-    return;
-  }
-  GntTbl_Map(xpdd, 0, max_grant_frames - 1);
-
+  GntTbl_InitMap(xpdd);
+  
   //KdPrint((__DRIVER_NAME " <-- GntTbl_Init table mapped at %p\n", gnttab_table));
 }

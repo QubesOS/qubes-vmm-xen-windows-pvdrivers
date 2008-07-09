@@ -17,14 +17,15 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
-extern int _hypercall2(VOID *address, int cmd, void *arg);
+extern int _hypercall2(VOID *address, xen_ulong_t a1, xen_ulong_t a2);
+extern int _hypercall3(VOID *address, xen_ulong_t a1, xen_ulong_t a2, xen_ulong_t a3);
 
 static __inline int
 HYPERVISOR_memory_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *arg)
 {
   PCHAR memory_op_func = xpdd->hypercall_stubs;
   memory_op_func += __HYPERVISOR_memory_op * 32;
-  return _hypercall2(memory_op_func, cmd, arg);
+  return _hypercall2(memory_op_func, (xen_ulong_t)cmd, (xen_ulong_t)arg);
 }
 
 static __inline int
@@ -32,31 +33,18 @@ HYPERVISOR_xen_version(PXENPCI_DEVICE_DATA xpdd, int cmd, void *arg)
 {
   PCHAR xen_version_func = xpdd->hypercall_stubs;
   xen_version_func += __HYPERVISOR_xen_version * 32;
-  return _hypercall2(xen_version_func, cmd, arg);
+  return _hypercall2(xen_version_func, (xen_ulong_t)cmd, (xen_ulong_t)arg);
 }
 
-#if 0
 static __inline int
 HYPERVISOR_grant_table_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *uop, unsigned int count)
 {
-  ASSERTMSG("grant_table_op not yet supported under AMD64", FALSE);
-/*
-  char *hypercall_stubs = xpdd->hypercall_stubs;
-  long __res;
-  __asm {
-    mov ebx, cmd
-    mov ecx, uop
-    mov edx, count
-    mov eax, hypercall_stubs
-    add eax, (__HYPERVISOR_grant_table_op * 32)
-    call eax
-    mov [__res], eax
-  }
-  return __res;
-*/
-  return -1;
+  PCHAR grant_table_op_func = xpdd->hypercall_stubs;
+  grant_table_op_func += __HYPERVISOR_grant_table_op * 32;
+  return _hypercall3(grant_table_op_func, (xen_ulong_t)cmd, (xen_ulong_t)uop, (xen_ulong_t)count);
 }
 
+#if 0
 static __inline int
 HYPERVISOR_mmu_update(PXENPCI_DEVICE_DATA xpdd, mmu_update_t *req, int count, int *success_count, domid_t domid)
 {
@@ -79,27 +67,6 @@ HYPERVISOR_mmu_update(PXENPCI_DEVICE_DATA xpdd, mmu_update_t *req, int count, in
 */
   return -1;
 }
-
-static __inline int
-HYPERVISOR_console_io(PXENPCI_DEVICE_DATA xpdd, int cmd, int count, char *string)
-{
-  ASSERTMSG("console_io not yet supported under AMD64", FALSE);
-/*
-  char *hypercall_stubs = xpdd->hypercall_stubs;
-  long __res;
-  __asm {
-    mov ebx, cmd
-    mov ecx, count
-    mov edx, string
-    mov eax, hypercall_stubs
-    add eax, (__HYPERVISOR_console_io * 32)
-    call eax
-    mov [__res], eax
-  }
-  return __res;
-*/
-  return -1;
-}
 #endif
 
 static __inline int
@@ -107,7 +74,7 @@ HYPERVISOR_hvm_op(PXENPCI_DEVICE_DATA xpdd, int op, struct xen_hvm_param *arg)
 {
   PCHAR hvm_op_func = xpdd->hypercall_stubs;
   hvm_op_func += __HYPERVISOR_hvm_op * 32;
-  return _hypercall2(hvm_op_func, op, arg);
+  return _hypercall2(hvm_op_func, (xen_ulong_t)op, (xen_ulong_t)arg);
 }
 
 static __inline int
@@ -115,7 +82,7 @@ HYPERVISOR_event_channel_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *op)
 {
   PCHAR event_channel_op_func = xpdd->hypercall_stubs;
   event_channel_op_func += __HYPERVISOR_event_channel_op * 32;
-  return _hypercall2(event_channel_op_func, cmd, op);
+  return _hypercall2(event_channel_op_func, (xen_ulong_t)cmd, (xen_ulong_t)op);
 }
 
 static __inline int
@@ -123,7 +90,7 @@ HYPERVISOR_sched_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *arg)
 {
   PCHAR sched_op_func = xpdd->hypercall_stubs;
   sched_op_func += __HYPERVISOR_sched_op * 32;
-  return _hypercall2(sched_op_func, cmd, arg);
+  return _hypercall2(sched_op_func, (xen_ulong_t)cmd, (xen_ulong_t)arg);
 }
 
 static __inline int
