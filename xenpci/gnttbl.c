@@ -23,13 +23,19 @@ VOID
 GntTbl_PutRef(PVOID Context, grant_ref_t ref)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
-  KIRQL OldIrql;
+  KIRQL OldIrql = PASSIVE_LEVEL;
 
-  ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-  KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
+  if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
+  {
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
+  }
   xpdd->gnttab_list[ref] = xpdd->gnttab_list[0];
   xpdd->gnttab_list[0]  = ref;
-  KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
+  if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
+  {
+    KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
+  }
 }
 
 grant_ref_t
@@ -37,13 +43,21 @@ GntTbl_GetRef(PVOID Context)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
   unsigned int ref;
-  KIRQL OldIrql;
+  KIRQL OldIrql = PASSIVE_LEVEL;
+  
+  UNREFERENCED_PARAMETER(OldIrql);
 
-  ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-  KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
+  if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
+  {
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
+  }
   ref = xpdd->gnttab_list[0];
   xpdd->gnttab_list[0] = xpdd->gnttab_list[ref];
-  KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
+  if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
+  {
+    KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
+  }
 
   return ref;
 }
@@ -182,6 +196,7 @@ GntTbl_InitMap(PXENPCI_DEVICE_DATA xpdd)
   {
     if (grant_frames > xpdd->max_grant_frames)
     {
+      /* this won't actually work as it will be called at HIGH_IRQL and the free and unmap functions won't work... */
       ExFreePoolWithTag(xpdd->gnttab_list, XENPCI_POOL_TAG);
       MmUnmapIoSpace(xpdd->gnttab_table, PAGE_SIZE * xpdd->max_grant_frames);
       xpdd->gnttab_list = NULL;

@@ -303,9 +303,16 @@ XenBus_ShutdownIoCancel(PDEVICE_OBJECT device_object, PIRP irp)
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 }
 
+struct {
+  volatile ULONG do_spin;
+  volatile LONG nr_spinning;
+  KEVENT stopped_spinning_event;
+} typedef SUSPEND_INFO, *PSUSPEND_INFO;
+
 static DDKAPI VOID
 XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
 {
+  PSUSPEND_INFO suspend_info = context;
   PXENPCI_DEVICE_DATA xpdd;
   PXEN_CHILD child;
 
@@ -314,6 +321,13 @@ XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
 
   xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
 
+  while (suspend_info->nr_spinning != 0)
+  {
+    KdPrint((__DRIVER_NAME "     %d processors are still spinning\n", suspend_info->nr_spinning));
+    KeWaitForSingleObject(&suspend_info->stopped_spinning_event, Executive, KernelMode, FALSE, NULL);
+  }
+  KdPrint((__DRIVER_NAME "     all other processors have stopped spinning\n"));
+
   XenBus_Resume(xpdd);
 
   for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
@@ -321,17 +335,13 @@ XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
     XenPci_Resume(child->context->common.pdo);
     child->context->device_state.resume_state = RESUME_STATE_FRONTEND_RESUME;
     // how can we signal children that they are ready to restart again?
+    // maybe we can fake an interrupt?
   }
 
-  xpdd->suspending = 0;
+  xpdd->suspend_state = SUSPEND_STATE_NONE;
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
-
-struct {
-  volatile ULONG do_spin;
-  volatile LONG nr_spinning;
-} typedef SUSPEND_INFO, *PSUSPEND_INFO;
 
 /* Called at DISPATCH_LEVEL */
 static DDKAPI VOID
@@ -348,6 +358,7 @@ XenPci_Suspend(
   int cancelled;
   PIO_WORKITEM work_item;
   PXEN_CHILD child;
+  int i;
   //PUCHAR gnttbl_backup[PAGE_SIZE * NR_GRANT_FRAMES];
 
   UNREFERENCED_PARAMETER(Dpc);
@@ -363,14 +374,17 @@ XenPci_Suspend(
     KeMemoryBarrier();
     while(suspend_info->do_spin)
     {
-      HYPERVISOR_yield(xpdd);
-      /* we should be able to wait more nicely than this... */
+      for (i = 0; i < 65536; i++)
+        __asm { hlt }
+      KeMemoryBarrier();
+      /* can't call HYPERVISOR_yield() here as the stubs will be reset and we will crash */
     }
     KeMemoryBarrier();
     InterlockedDecrement(&suspend_info->nr_spinning);    
     KdPrint((__DRIVER_NAME "     ...done spinning\n"));
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n", KeGetCurrentProcessorNumber()));
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (cpu = %d)\n", KeGetCurrentProcessorNumber()));
     KeLowerIrql(old_irql);
+    KeSetEvent(&suspend_info->stopped_spinning_event, IO_NO_INCREMENT, FALSE);
     return;
   }
   ActiveProcessorCount = (ULONG)KeNumberProcessors;
@@ -380,10 +394,13 @@ XenPci_Suspend(
   KdPrint((__DRIVER_NAME "     waiting for all other processors to spin\n"));
   while (suspend_info->nr_spinning < (LONG)ActiveProcessorCount - 1)
   {
+      __asm { hlt }
       HYPERVISOR_yield(xpdd);
   }
   KdPrint((__DRIVER_NAME "     all other processors are spinning\n"));
 
+  xpdd->suspend_state = SUSPEND_STATE_HIGH_IRQL;
+  
   KdPrint((__DRIVER_NAME "     calling suspend\n"));
   cancelled = hvm_shutdown(Context, SHUTDOWN_suspend);
   KdPrint((__DRIVER_NAME "     back from suspend, cancelled = %d\n", cancelled));
@@ -392,7 +409,7 @@ XenPci_Suspend(
   
   GntTbl_InitMap(Context);
 
-  /* this enabled interrupts again too */  
+  /* this enables interrupts again too */  
   EvtChn_Init(xpdd);
 
   for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
@@ -400,18 +417,14 @@ XenPci_Suspend(
     child->context->device_state.resume_state = RESUME_STATE_BACKEND_RESUME;
   }
 
+  xpdd->suspend_state = SUSPEND_STATE_RESUMING;
   KeLowerIrql(old_irql);
   
   KdPrint((__DRIVER_NAME "     waiting for all other processors to stop spinning\n"));
   suspend_info->do_spin = 0;
-  while (suspend_info->nr_spinning != 0)
-  {
-    HYPERVISOR_yield(xpdd);
-  }
-  KdPrint((__DRIVER_NAME "     all other processors have stopped spinning\n"));
 
 	work_item = IoAllocateWorkItem(xpdd->common.fdo);
-	IoQueueWorkItem(work_item, XenPci_CompleteResume, DelayedWorkQueue, NULL);
+	IoQueueWorkItem(work_item, XenPci_CompleteResume, DelayedWorkQueue, suspend_info);
   
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -429,11 +442,12 @@ XenPci_BeginSuspend(PXENPCI_DEVICE_DATA xpdd)
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  if (!xpdd->suspending)
+  if (xpdd->suspend_state == SUSPEND_STATE_NONE)
   {
-    xpdd->suspending = 1;
+    xpdd->suspend_state = SUSPEND_STATE_SCHEDULED;
     suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);
     RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO));
+    KeInitializeEvent(&suspend_info->stopped_spinning_event, SynchronizationEvent, FALSE);
     suspend_info->do_spin = 1;
 
     // I think we need to synchronise with the interrupt here...

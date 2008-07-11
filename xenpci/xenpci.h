@@ -158,6 +158,11 @@ static __inline void REVERT_PNP_STATE(PXENPCI_COMMON common)
 
 #define SHUTDOWN_RING_SIZE 128
 
+#define SUSPEND_STATE_NONE      0 /* no suspend in progress */
+#define SUSPEND_STATE_SCHEDULED 1 /* suspend scheduled */
+#define SUSPEND_STATE_HIGH_IRQL 2 /* all processors are at high IRQL and spinning */
+#define SUSPEND_STATE_RESUMING  3
+
 typedef struct {  
   XENPCI_COMMON common;
   
@@ -214,7 +219,7 @@ typedef struct {
 
   LIST_ENTRY child_list;
   
-  int suspending;
+  int suspend_state;
   
   UNICODE_STRING interface_name;
   BOOLEAN interface_open;

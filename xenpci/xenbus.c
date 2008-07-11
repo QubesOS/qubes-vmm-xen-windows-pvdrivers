@@ -385,8 +385,8 @@ XenBus_Close(PXENPCI_DEVICE_DATA xpdd)
 
   xpdd->XenBus_ShuttingDown = TRUE;
 
-  KeSetEvent(&xpdd->XenBus_ReadThreadEvent, 1, FALSE);
-  KeSetEvent(&xpdd->XenBus_WatchThreadEvent, 1, FALSE);
+  KeSetEvent(&xpdd->XenBus_ReadThreadEvent, IO_NO_INCREMENT, FALSE);
+  KeSetEvent(&xpdd->XenBus_WatchThreadEvent, IO_NO_INCREMENT, FALSE);
   ObReferenceObjectByHandle(xpdd->XenBus_ReadThreadHandle, THREAD_ALL_ACCESS, NULL, KernelMode, &WaitArray[0], NULL);
   ObReferenceObjectByHandle(xpdd->XenBus_WatchThreadHandle, THREAD_ALL_ACCESS, NULL, KernelMode, &WaitArray[1], NULL);
   KeWaitForSingleObject(WaitArray[0], Executive, KernelMode, FALSE, NULL);
@@ -491,7 +491,7 @@ XenBus_ReadThreadProc(PVOID StartContext)
           MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons),
           msg.len + sizeof(msg));
         xpdd->xen_store_interface->rsp_cons += msg.len + sizeof(msg);
-        KeSetEvent(&xpdd->req_info[msg.req_id].WaitEvent, 1, FALSE);
+        KeSetEvent(&xpdd->req_info[msg.req_id].WaitEvent, IO_NO_INCREMENT, FALSE);
       }
       else // a watch: add to watch ring and signal watch thread
       {
@@ -518,7 +518,7 @@ XenBus_ReadThreadProc(PVOID StartContext)
 
         ExFreePoolWithTag(payload, XENPCI_POOL_TAG);
         //KdPrint((__DRIVER_NAME " +++ Watch Path = %s Token = %s\n", path, token));
-        KeSetEvent(&xpdd->XenBus_WatchThreadEvent, 1, FALSE);
+        KeSetEvent(&xpdd->XenBus_WatchThreadEvent, IO_NO_INCREMENT, FALSE);
       }
     }
   }
@@ -565,7 +565,7 @@ XenBus_WatchThreadProc(PVOID StartContext)
       entry->Count++;
       entry->ServiceRoutine(xpdd->XenBus_WatchRing[xpdd->XenBus_WatchRingReadIndex].Path, entry->ServiceContext);
       entry->Running = 0;
-      KeSetEvent(&entry->CompleteEvent, 1, FALSE);
+      KeSetEvent(&entry->CompleteEvent, IO_NO_INCREMENT, FALSE);
     }
   }
 }    
@@ -828,7 +828,7 @@ XenBus_Interrupt(PKINTERRUPT Interrupt, PVOID ServiceContext)
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  KeSetEvent(&xpdd->XenBus_ReadThreadEvent, 1, FALSE);
+  KeSetEvent(&xpdd->XenBus_ReadThreadEvent, IO_NO_INCREMENT, FALSE);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
