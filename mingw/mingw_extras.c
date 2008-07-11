@@ -10,6 +10,55 @@
 #include <ntddk.h>
 #include "mingw_extras.h"
 
+NTSTATUS bit_scan_forward(unsigned long *index, unsigned long mask)
+{
+  int i;
+
+  for (i = 0; i < sizeof(unsigned long)*8; i++)
+  {
+    if (mask & (1 << i)) {
+      *index = i + 1;
+      KdPrint((__FUNC__ __LINE__ " Check that I work as expected!\n"));
+      return 1;
+    }
+  }
+
+  KdPrint((__FUNC__ __LINE__ " Check that I work as expected!\n"));
+
+  return 0;
+}
+
+/**
+  From linux include/asm-i386/bitops.h
+ */
+int synch_set_bit(int nr, volatile long * addr)
+{
+  int oldbit;
+
+  __asm__ __volatile__( "lock;"
+    "btsl %2,%1\n\tsbbl %0,%0"
+    :"=r" (oldbit),"+m" (*(volatile long *) addr)
+    :"Ir" (nr) : "memory");
+
+  KdPrint((__FUNC__ " Check that I work as expected!\n"));
+
+  return oldbit;
+}
+
+int synch_clear_bit(int nr, volatile long * addr)
+{
+  int oldbit;
+
+  __asm__ __volatile__( "lock;"
+    "btrl %2,%1\n\tsbbl %0,%0"
+    :"=r" (oldbit),"+m" (*(volatile long *) addr)
+    :"Ir" (nr) : "memory");
+
+  KdPrint((__FUNC__ " Check that I work as expected!\n"));
+
+  return oldbit;
+}
+
 NTSTATUS
 RtlStringCbPrintfW(
   win_wchar_t *dest_str,

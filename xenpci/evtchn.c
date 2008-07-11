@@ -20,59 +20,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xenpci.h"
 
 #if defined(__MINGW32__)
-/* mingw-runtime 3.13 lacks certain lowlevel intrinsics */
-NTSTATUS BitScanForward(unsigned long *index, unsigned long mask)
-{
-  int i;
-
-  for (i = 0; i < sizeof(unsigned long)*8; i++)
-  {
-    if (mask & (1 << i)) {
-      *index = i + 1;
-      KdPrint((__FUNC__ __LINE__ " Check that I work as expected!\n"));
-      return 1;
-    }
-  }
-
-  KdPrint((__FUNC__ __LINE__ " Check that I work as expected!\n"));
-
-  return 0;
-}
-
-/**
-  From linux include/asm-i386/bitops.h
- */
-static inline int test_and_set_bit(int nr, volatile long * addr)
-{
-  int oldbit;
-
-  __asm__ __volatile__( "lock;"
-    "btsl %2,%1\n\tsbbl %0,%0"
-    :"=r" (oldbit),"+m" (*(volatile long *) addr)
-    :"Ir" (nr) : "memory");
-
-  KdPrint((__FUNC__ " Check that I work as expected!\n"));
-
-  return oldbit;
-}
-static inline int test_and_clear_bit(int nr, volatile long * addr)
-{
-  int oldbit;
-
-  __asm__ __volatile__( "lock;"
-    "btrl %2,%1\n\tsbbl %0,%0"
-    :"=r" (oldbit),"+m" (*(volatile long *) addr)
-    :"Ir" (nr) : "memory");
-
-  KdPrint((__FUNC__ " Check that I work as expected!\n"));
-
-  return oldbit;
-}
-
   #define xchg(p1, p2) InterlockedExchange((xen_long_t * volatile)p1, p2)
-  #define synch_clear_bit(p1, p2) test_and_clear_bit(p1, p2)
-  #define synch_set_bit(p1, p2) test_and_set_bit(p1, p2)
-  #define bit_scan_forward(p1, p2) BitScanForward(p1, p2)
+  /* rest implemented in mingw_extras.c */
 #elif defined(_X86_)
   #define xchg(p1, p2) _InterlockedExchange(p1, p2)
   #define synch_clear_bit(p1, p2) _interlockedbittestandreset(p2, p1)

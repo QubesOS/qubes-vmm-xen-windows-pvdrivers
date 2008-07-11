@@ -132,7 +132,7 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
   xvdd->event_channel = 0;
   
   ptr = xvdd->device_base;
-  while((type = GET_XEN_INIT_RSP(&ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+  while((type = GET_XEN_INIT_RSP(&ptr, (PVOID) &setting, (PVOID) &value)) != XEN_INIT_TYPE_END)
   {
     switch(type)
     {
@@ -239,7 +239,19 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
   }
 
   /* for some reason total_sectors is measured in 512 byte sectors always, so correct this to be in bytes_per_sectors */
+#ifdef __MINGW32__
+  /* mingw can't divide, so shift instead (assumes bps is ^2 and at least 512) */
+  {
+    ULONG num_512_byte_sectors = xvdd->bytes_per_sector / 512;
+    ULONG index;
+
+    bit_scan_forward(&index, num_512_byte_sectors);
+    xvdd->total_sectors <<= index-1;
+  }
+#else
   xvdd->total_sectors /= xvdd->bytes_per_sector / 512;
+#endif
+
 
   xvdd->shadow_free = 0;
   memset(xvdd->shadows, 0, sizeof(blkif_shadow_t) * SHADOW_ENTRIES);
@@ -412,7 +424,7 @@ XenVbd_HwScsiTimer(PVOID DeviceExtension)
   ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_HwScsiTimer, RESUME_CHECK_TIMER_INTERVAL);
 }
 
-static ULONG
+static ULONG DDKAPI
 XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
 {
 //  PACCESS_RANGE AccessRange;
@@ -490,7 +502,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   return SP_RETURN_FOUND;
 }
 
-static BOOLEAN
+static BOOLEAN DDKAPI
 XenVbd_HwScsiInitialize(PVOID DeviceExtension)
 {
   PXENVBD_DEVICE_DATA xvdd = (PXENVBD_DEVICE_DATA)DeviceExtension;
@@ -655,7 +667,7 @@ XenVbd_MakeAutoSense(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
   srb->SrbStatus |= SRB_STATUS_AUTOSENSE_VALID;
 }
 
-static BOOLEAN
+static BOOLEAN DDKAPI
 XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 {
   PXENVBD_DEVICE_DATA xvdd = (PXENVBD_DEVICE_DATA)DeviceExtension;
@@ -790,7 +802,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   return FALSE; /* we just don't know... */
 }
 
-static BOOLEAN
+static BOOLEAN DDKAPI
 XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
 {
   PUCHAR DataBuffer;
@@ -1096,7 +1108,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   return TRUE;
 }
 
-static BOOLEAN
+static BOOLEAN DDKAPI
 XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
 {
   UNREFERENCED_PARAMETER(DeviceExtension);
@@ -1113,7 +1125,7 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
   return TRUE;
 }
 
-static BOOLEAN
+static BOOLEAN DDKAPI
 XenVbd_HwScsiAdapterState(PVOID DeviceExtension, PVOID Context, BOOLEAN SaveState)
 {
   UNREFERENCED_PARAMETER(DeviceExtension);
@@ -1128,7 +1140,7 @@ XenVbd_HwScsiAdapterState(PVOID DeviceExtension, PVOID Context, BOOLEAN SaveStat
   return TRUE;
 }
 
-static SCSI_ADAPTER_CONTROL_STATUS
+static SCSI_ADAPTER_CONTROL_STATUS DDKAPI
 XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE ControlType, PVOID Parameters)
 {
   SCSI_ADAPTER_CONTROL_STATUS Status = ScsiAdapterControlSuccess;

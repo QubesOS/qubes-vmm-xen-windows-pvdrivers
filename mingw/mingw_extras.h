@@ -1,5 +1,9 @@
 #include <stdio.h>
 
+NTSTATUS bit_scan_forward(unsigned long *index, unsigned long mask);
+int synch_set_bit(int nr, volatile long * addr);
+int synch_clear_bit(int nr, volatile long * addr);
+
 /* windows wchar 2 bytes, Linux's is 4! */
 typedef unsigned short win_wchar_t;
 
@@ -9,9 +13,4 @@ RtlStringCbPrintfW(
   size_t dest_size,
   win_wchar_t *format,
   ...);
-
-/* stuff needed for xennet */
-#include <ndis.h>
-
-//#define GCCNOANON u.s2.
 

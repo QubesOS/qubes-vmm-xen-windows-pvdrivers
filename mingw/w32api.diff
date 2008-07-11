@@ -1,6 +1,6 @@
-diff -r 79e257d5a1f7 include/ddk/ndis.h
---- a/include/ddk/ndis.h	Tue Jul 08 22:16:37 2008 -0700
-+++ b/include/ddk/ndis.h	Wed Jul 09 00:34:21 2008 -0700
+diff -r 8a2d0356d23d include/ddk/ndis.h
+--- a/include/ddk/ndis.h	Wed Jul 09 12:54:30 2008 -0700
++++ b/include/ddk/ndis.h	Wed Jul 09 12:54:42 2008 -0700
 @@ -52,12 +52,16 @@ extern "C" {
  #if defined(NDIS50_MINIPORT)
  #ifndef NDIS50
@@ -240,9 +240,9 @@ diff -r 79e257d5a1f7 include/ddk/ndis.h
  NDISAPI
  VOID
  DDKAPI
-diff -r 79e257d5a1f7 include/ddk/ntddndis.h
---- a/include/ddk/ntddndis.h	Tue Jul 08 22:16:37 2008 -0700
-+++ b/include/ddk/ntddndis.h	Wed Jul 09 00:34:21 2008 -0700
+diff -r 8a2d0356d23d include/ddk/ntddndis.h
+--- a/include/ddk/ntddndis.h	Wed Jul 09 12:54:30 2008 -0700
++++ b/include/ddk/ntddndis.h	Wed Jul 09 12:54:42 2008 -0700
 @@ -179,6 +179,13 @@ typedef struct _NDIS_PNP_CAPABILITIES {
  #define NDIS_MINIPORT_SUPPORTS_CANCEL_SEND_PACKETS    0x00800000
  #define NDIS_MINIPORT_64BITS_DMA                      0x01000000
@@ -257,9 +257,26 @@ diff -r 79e257d5a1f7 include/ddk/ntddndis.h
  #pragma pack(pop)
  
  #ifdef __cplusplus
-diff -r 79e257d5a1f7 include/ddk/winddk.h
---- a/include/ddk/winddk.h	Tue Jul 08 22:16:37 2008 -0700
-+++ b/include/ddk/winddk.h	Wed Jul 09 00:34:21 2008 -0700
+diff -r 8a2d0356d23d include/ddk/scsi.h
+--- a/include/ddk/scsi.h	Wed Jul 09 12:54:30 2008 -0700
++++ b/include/ddk/scsi.h	Wed Jul 09 12:54:42 2008 -0700
+@@ -1272,6 +1272,13 @@ typedef struct _SENSE_DATA {
+ #define IOCTL_SCSI_MINIPORT_NOT_QUORUM_CAPABLE  ((FILE_DEVICE_SCSI << 16) + 0x0520)
+ #define IOCTL_SCSI_MINIPORT_NOT_CLUSTER_CAPABLE ((FILE_DEVICE_SCSI << 16) + 0x0521)
+ 
++/* READ_TOC formats */
++#define READ_TOC_FORMAT_TOC         0x00
++#define READ_TOC_FORMAT_SESSION     0x01
++#define READ_TOC_FORMAT_FULL_TOC    0x02
++#define READ_TOC_FORMAT_PMA         0x03
++#define READ_TOC_FORMAT_ATIP        0x04
++
+ /* Read Capacity Data. Returned in Big Endian format */
+ typedef struct _READ_CAPACITY_DATA {
+   ULONG  LogicalBlockAddress;
+diff -r 8a2d0356d23d include/ddk/winddk.h
+--- a/include/ddk/winddk.h	Wed Jul 09 12:54:30 2008 -0700
++++ b/include/ddk/winddk.h	Wed Jul 09 12:54:42 2008 -0700
 @@ -4896,6 +4896,10 @@ RtlStringFromGUID(
    /*IN*/ REFGUID  Guid, 
    /*OUT*/ PUNICODE_STRING  GuidString);
@@ -293,20 +310,16 @@ diff -r 79e257d5a1f7 include/ddk/winddk.h
 -#define KeRaiseIrql(a,b) *(b) = KfRaiseIrql(a)
 -
 -#else
--
--NTOSAPI
--VOID
--DDKAPI
 +NTOSAPI
 +VOID
 +DDKAPI
 +KeRaiseIrql(
 +  /*IN*/ KIRQL new_irql,
 +  /*OUT*/ PKIRQL old_irql);
-+
-+NTOSAPI
-+VOID
-+DDKAPI
+ 
+ NTOSAPI
+ VOID
+ DDKAPI
  KeLowerIrql(
 -  /*IN*/ KIRQL  NewIrql);
 -
@@ -321,9 +334,9 @@ diff -r 79e257d5a1f7 include/ddk/winddk.h
  
  NTOSAPI
  KIRQL
-diff -r 79e257d5a1f7 lib/ddk/ndis.def
---- a/lib/ddk/ndis.def	Tue Jul 08 22:16:37 2008 -0700
-+++ b/lib/ddk/ndis.def	Wed Jul 09 00:34:21 2008 -0700
+diff -r 8a2d0356d23d lib/ddk/ndis.def
+--- a/lib/ddk/ndis.def	Wed Jul 09 12:54:30 2008 -0700
++++ b/lib/ddk/ndis.def	Wed Jul 09 12:54:42 2008 -0700
 @@ -130,8 +130,8 @@ NdisImmediateReadSharedMemory@16
  ;NdisImmediateWritePortUlong
  ;NdisImmediateWritePortUshort
@@ -371,3 +384,15 @@ diff -r 79e257d5a1f7 lib/ddk/ndis.def
  ;NdisSetPacketStatus
  ;NdisSetProtocolFilter
  ;NdisSetTimer
+diff -r 8a2d0356d23d lib/ddk/scsiport.def
+--- a/lib/ddk/scsiport.def	Wed Jul 09 12:54:30 2008 -0700
++++ b/lib/ddk/scsiport.def	Wed Jul 09 12:54:42 2008 -0700
+@@ -8,7 +8,7 @@ ScsiPortFlushDma@4
+ ScsiPortFlushDma@4
+ ScsiPortFreeDeviceBase@8
+ ScsiPortGetBusData@24
+-ScsiPortGetDeviceBase@24
++ScsiPortGetDeviceBase@28
+ ScsiPortGetLogicalUnit@16
+ ScsiPortGetPhysicalAddress@16
+ ScsiPortGetSrb@20
