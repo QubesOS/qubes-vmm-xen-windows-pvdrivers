@@ -358,7 +358,6 @@ XenPci_Suspend(
   int cancelled;
   PIO_WORKITEM work_item;
   PXEN_CHILD child;
-  int i;
   //PUCHAR gnttbl_backup[PAGE_SIZE * NR_GRANT_FRAMES];
 
   UNREFERENCED_PARAMETER(Dpc);
@@ -374,8 +373,7 @@ XenPci_Suspend(
     KeMemoryBarrier();
     while(suspend_info->do_spin)
     {
-      for (i = 0; i < 65536; i++)
-        __asm { hlt }
+      KeStallExecutionProcessor(1);
       KeMemoryBarrier();
       /* can't call HYPERVISOR_yield() here as the stubs will be reset and we will crash */
     }
@@ -394,8 +392,8 @@ XenPci_Suspend(
   KdPrint((__DRIVER_NAME "     waiting for all other processors to spin\n"));
   while (suspend_info->nr_spinning < (LONG)ActiveProcessorCount - 1)
   {
-      __asm { hlt }
       HYPERVISOR_yield(xpdd);
+      KeMemoryBarrier();
   }
   KdPrint((__DRIVER_NAME "     all other processors are spinning\n"));
 
@@ -422,6 +420,7 @@ XenPci_Suspend(
   
   KdPrint((__DRIVER_NAME "     waiting for all other processors to stop spinning\n"));
   suspend_info->do_spin = 0;
+  KeMemoryBarrier();
 
 	work_item = IoAllocateWorkItem(xpdd->common.fdo);
 	IoQueueWorkItem(work_item, XenPci_CompleteResume, DelayedWorkQueue, suspend_info);
