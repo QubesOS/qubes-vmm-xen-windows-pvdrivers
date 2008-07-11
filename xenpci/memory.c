@@ -3,6 +3,8 @@
 //static pgentry_t *demand_map_pgt;
 //static void *demand_map_area_start;
 
+/* must be called at <= DISPATCH_LEVEL if hypercall_stubs == NULL */
+
 NTSTATUS
 hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
 {
@@ -24,7 +26,11 @@ hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
   msr = cpuid_output[1];
   //KdPrint((__DRIVER_NAME " Hypercall area is %u pages.\n", pages));
 
-  xpdd->hypercall_stubs = ExAllocatePoolWithTag(NonPagedPool, pages * PAGE_SIZE, XENPCI_POOL_TAG);
+  if (!xpdd->hypercall_stubs)
+  {
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    xpdd->hypercall_stubs = ExAllocatePoolWithTag(NonPagedPool, pages * PAGE_SIZE, XENPCI_POOL_TAG);
+  }
   KdPrint((__DRIVER_NAME " Hypercall area at %p\n", xpdd->hypercall_stubs));
 
   if (!xpdd->hypercall_stubs)

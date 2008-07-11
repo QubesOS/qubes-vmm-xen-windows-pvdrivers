@@ -141,6 +141,8 @@ XenPci_Init(PXENPCI_DEVICE_DATA xpdd)
 
   if (!xpdd->shared_info_area_unmapped.QuadPart)
   {
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    /* this should be safe as this part will never be called on resume where IRQL == HIGH_LEVEL */
     xpdd->shared_info_area_unmapped = XenPci_AllocMMIO(xpdd, PAGE_SIZE);
     xpdd->shared_info_area = MmMapIoSpace(xpdd->shared_info_area_unmapped,
       PAGE_SIZE, MmNonCached);
