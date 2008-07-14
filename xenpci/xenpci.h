@@ -402,8 +402,12 @@ XenPci_AllocMMIO(PXENPCI_DEVICE_DATA xpdd, ULONG len);
 
 NTSTATUS
 EvtChn_Init(PXENPCI_DEVICE_DATA xpdd);
+NTSTATUS
+EvtChn_ConnectInterrupt(PXENPCI_DEVICE_DATA xpdd);
+/*
 VOID
 EvtChn_Resume(PXENPCI_DEVICE_DATA xpdd);
+*/
 NTSTATUS
 EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd);
 

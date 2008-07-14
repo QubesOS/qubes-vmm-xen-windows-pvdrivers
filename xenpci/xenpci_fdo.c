@@ -311,6 +311,7 @@ struct {
   KEVENT stopped_spinning_event;
 } typedef SUSPEND_INFO, *PSUSPEND_INFO;
 
+/* runs at PASSIVE_LEVEL */
 static DDKAPI VOID
 XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
 {
@@ -329,6 +330,9 @@ XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
     KeWaitForSingleObject(&suspend_info->stopped_spinning_event, Executive, KernelMode, FALSE, NULL);
   }
   KdPrint((__DRIVER_NAME "     all other processors have stopped spinning\n"));
+
+  /* this has to be done at PASSIVE_LEVEL */
+  EvtChn_ConnectInterrupt(xpdd);
 
   XenBus_Resume(xpdd);
 
@@ -400,6 +404,7 @@ XenPci_Suspend(
   KdPrint((__DRIVER_NAME "     all other processors are spinning\n"));
 
   xpdd->suspend_state = SUSPEND_STATE_HIGH_IRQL;
+  KeMemoryBarrier();
   
   KdPrint((__DRIVER_NAME "     calling suspend\n"));
   cancelled = hvm_shutdown(Context, SHUTDOWN_suspend);
@@ -417,8 +422,9 @@ XenPci_Suspend(
     child->context->device_state.resume_state = RESUME_STATE_BACKEND_RESUME;
   }
 
-  xpdd->suspend_state = SUSPEND_STATE_RESUMING;
   KeLowerIrql(old_irql);
+  xpdd->suspend_state = SUSPEND_STATE_RESUMING;
+  KeMemoryBarrier();
   
   KdPrint((__DRIVER_NAME "     waiting for all other processors to stop spinning\n"));
   suspend_info->do_spin = 0;
@@ -451,9 +457,7 @@ XenPci_BeginSuspend(PXENPCI_DEVICE_DATA xpdd)
     KeInitializeEvent(&suspend_info->stopped_spinning_event, SynchronizationEvent, FALSE);
     suspend_info->do_spin = 1;
 
-    // I think we need to synchronise with the interrupt here...
-
-    for (i = 0; i < MAX_VIRT_CPUS; i++)
+     for (i = 0; i < MAX_VIRT_CPUS; i++)
     {
       xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
     }
@@ -626,6 +630,7 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
   GntTbl_Init(xpdd);
 
   EvtChn_Init(xpdd);
+  EvtChn_ConnectInterrupt(xpdd);
 
   XenBus_Init(xpdd);
 

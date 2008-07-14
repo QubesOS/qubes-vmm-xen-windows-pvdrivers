@@ -251,8 +251,8 @@ EvtChn_AllocUnbound(PVOID Context, domid_t Domain)
   return op.port;
 }
 
-static VOID
-EvtChn_Connect(PXENPCI_DEVICE_DATA xpdd)
+NTSTATUS
+EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 {
   int i;
 
@@ -285,15 +285,17 @@ EvtChn_Connect(PXENPCI_DEVICE_DATA xpdd)
   }
   
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  
+  return STATUS_SUCCESS;
 }
 
 NTSTATUS
-EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
+EvtChn_ConnectInterrupt(PXENPCI_DEVICE_DATA xpdd)
 {
   NTSTATUS status;
   
-  EvtChn_Connect(xpdd);
-  
+  ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
+
   status = IoConnectInterrupt(
     &xpdd->interrupt,
   	EvtChn_Interrupt,
