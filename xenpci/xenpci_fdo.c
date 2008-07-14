@@ -438,26 +438,29 @@ XenPci_Suspend(
 
 /* Called at PASSIVE_LEVEL */
 static VOID
-XenPci_BeginSuspend(PXENPCI_DEVICE_DATA xpdd)
+XenPci_BeginSuspend(PDEVICE_OBJECT device_object, PVOID context)
 {
   //KAFFINITY ActiveProcessorMask = 0; // this is for Vista+
+  PXENPCI_DEVICE_DATA xpdd = device_object->DeviceExtension;
   ULONG ActiveProcessorCount;
   ULONG i;
   PSUSPEND_INFO suspend_info;
   PKDPC Dpc;
   KIRQL OldIrql;
 
+  UNREFERENCED_PARAMETER(context);
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   if (xpdd->suspend_state == SUSPEND_STATE_NONE)
   {
+    XenBus_StopThreads(xpdd);
     xpdd->suspend_state = SUSPEND_STATE_SCHEDULED;
     suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);
     RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO));
     KeInitializeEvent(&suspend_info->stopped_spinning_event, SynchronizationEvent, FALSE);
     suspend_info->do_spin = 1;
 
-     for (i = 0; i < MAX_VIRT_CPUS; i++)
+    for (i = 0; i < MAX_VIRT_CPUS; i++)
     {
       xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
     }
@@ -486,6 +489,7 @@ XenPci_ShutdownHandler(char *path, PVOID context)
   char *res;
   char *value;
   KIRQL old_irql;
+  PIO_WORKITEM work_item;
 
   UNREFERENCED_PARAMETER(path);
 
@@ -506,7 +510,10 @@ XenPci_ShutdownHandler(char *path, PVOID context)
     if (strcmp(value, "suspend") == 0)
     {
       KdPrint((__DRIVER_NAME "     Suspend detected\n"));
-      XenPci_BeginSuspend(xpdd);
+      /* we have to queue this as a work item as we stop the xenbus thread, which we are currently running in! */
+    	work_item = IoAllocateWorkItem(xpdd->common.fdo);
+      IoQueueWorkItem(work_item, XenPci_BeginSuspend, DelayedWorkQueue, NULL);
+      //XenPci_BeginSuspend(xpdd);
     }
     else
     {

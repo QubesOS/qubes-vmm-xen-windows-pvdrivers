@@ -202,6 +202,9 @@ typedef struct {
   HANDLE XenBus_WatchThreadHandle;
   KEVENT XenBus_WatchThreadEvent;
 
+  KSPIN_LOCK xenbus_id_lock;
+  KEVENT xenbus_id_event;
+  
   XENBUS_WATCH_RING XenBus_WatchRing[WATCH_RING_SIZE];
   int XenBus_WatchRingReadIndex;
   int XenBus_WatchRingWriteIndex;
@@ -394,8 +397,10 @@ NTSTATUS
 XenBus_Start(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
 XenBus_Stop(PXENPCI_DEVICE_DATA xpdd);
-VOID
+NTSTATUS
 XenBus_Resume(PXENPCI_DEVICE_DATA xpdd);
+NTSTATUS
+XenBus_StopThreads(PXENPCI_DEVICE_DATA xpdd);
 
 PHYSICAL_ADDRESS
 XenPci_AllocMMIO(PXENPCI_DEVICE_DATA xpdd, ULONG len);
@@ -404,10 +409,6 @@ NTSTATUS
 EvtChn_Init(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
 EvtChn_ConnectInterrupt(PXENPCI_DEVICE_DATA xpdd);
-/*
-VOID
-EvtChn_Resume(PXENPCI_DEVICE_DATA xpdd);
-*/
 NTSTATUS
 EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd);
 

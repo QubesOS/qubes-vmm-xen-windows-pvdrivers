@@ -196,6 +196,7 @@ GntTbl_InitMap(PXENPCI_DEVICE_DATA xpdd)
   {
     if (grant_frames > xpdd->max_grant_frames)
     {
+      ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
       /* this won't actually work as it will be called at HIGH_IRQL and the free and unmap functions won't work... */
       ExFreePoolWithTag(xpdd->gnttab_list, XENPCI_POOL_TAG);
       MmUnmapIoSpace(xpdd->gnttab_table, PAGE_SIZE * xpdd->max_grant_frames);
@@ -204,7 +205,8 @@ GntTbl_InitMap(PXENPCI_DEVICE_DATA xpdd)
   }
   
   if (!xpdd->gnttab_list)
-  {  
+  {
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
     xpdd->gnttab_list = ExAllocatePoolWithTag(NonPagedPool, sizeof(grant_ref_t) * grant_entries, XENPCI_POOL_TAG);
     xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd,
       PAGE_SIZE * grant_frames);
