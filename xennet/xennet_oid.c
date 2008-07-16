@@ -104,12 +104,12 @@ XenNet_QueryInformation(
       if (!xi->connected)
       {
         temp_data = NdisHardwareStatusInitializing;
-        FUNCTION_MSG("NdisHardwareStatusInitializing\n");
+        FUNCTION_MSG(("NdisHardwareStatusInitializing\n"));
       }
       else
       {
         temp_data = NdisHardwareStatusReady;
-        FUNCTION_MSG("NdisHardwareStatusReady\n");
+        FUNCTION_MSG(("NdisHardwareStatusReady\n"));
       }
       break;
     case OID_GEN_MEDIA_SUPPORTED:
@@ -361,7 +361,7 @@ XenNet_QueryInformation(
   if (len > InformationBufferLength)
   {
     *BytesNeeded = len;
-    FUNCTION_MSG("(BUFFER_TOO_SHORT %d > %d)\n", len, InformationBufferLength);
+    FUNCTION_MSG(("(BUFFER_TOO_SHORT %d > %d)\n", len, InformationBufferLength));
     return NDIS_STATUS_BUFFER_TOO_SHORT;
   }
 
