@@ -1,5 +1,7 @@
 #include <stdio.h>
 
+#define __FUNCTION__ __func__
+
 NTSTATUS bit_scan_forward(unsigned long *index, unsigned long mask);
 int synch_set_bit(int nr, volatile long * addr);
 int synch_clear_bit(int nr, volatile long * addr);

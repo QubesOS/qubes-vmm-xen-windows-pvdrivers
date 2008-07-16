@@ -92,7 +92,7 @@ XenNet_QueryInformation(
   *BytesNeeded = 0;
   *BytesWritten = 0;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+// FUNCTION_ENTER()
 
   switch(Oid)
   {
@@ -104,12 +104,12 @@ XenNet_QueryInformation(
       if (!xi->connected)
       {
         temp_data = NdisHardwareStatusInitializing;
-        KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " NdisHardwareStatusInitializing\n"));
+        FUNCTION_MSG("NdisHardwareStatusInitializing\n");
       }
       else
       {
         temp_data = NdisHardwareStatusReady;
-        KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " NdisHardwareStatusReady\n"));
+        FUNCTION_MSG("NdisHardwareStatusReady\n");
       }
       break;
     case OID_GEN_MEDIA_SUPPORTED:
@@ -354,14 +354,14 @@ XenNet_QueryInformation(
 
   if (!NT_SUCCESS(status))
   {
-  //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (returned error)\n"));
+    // FUNCTION_ERROR_EXIT();
     return status;
   }
 
   if (len > InformationBufferLength)
   {
     *BytesNeeded = len;
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (BUFFER_TOO_SHORT %d > %d)\n", len, InformationBufferLength));
+    FUNCTION_MSG("(BUFFER_TOO_SHORT %d > %d)\n", len, InformationBufferLength);
     return NDIS_STATUS_BUFFER_TOO_SHORT;
   }
 

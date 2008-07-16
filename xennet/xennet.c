@@ -127,12 +127,12 @@ XenNet_InterruptIsr(
 {
   struct xennet_info *xi = MiniportAdapterContext;
   
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //FUNCTION_ENTER();
 
   *QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
   *InterruptRecognized = FALSE; /* we can't be sure here... */
 
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //FUNCTION_EXIT();
 }
 
 static DDKAPI VOID
@@ -140,13 +140,13 @@ XenNet_InterruptDpc(NDIS_HANDLE  MiniportAdapterContext)
 {
   struct xennet_info *xi = MiniportAdapterContext;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //FUNCTION_ENTER();
   if (xi->connected)
   {
     XenNet_TxBufferGC(xi);
     XenNet_RxBufferCheck(xi);
   }
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //FUNCTION_EXIT();
 }
 
 static NDIS_STATUS
@@ -205,7 +205,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       {
         KdPrint((__DRIVER_NAME "     vectors mismatch (magic = %08x, length = %d)\n",
           ((PXENPCI_VECTORS)value)->magic, ((PXENPCI_VECTORS)value)->length));
-        KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+        FUNCTION_ERROR_EXIT();
         return NDIS_STATUS_ADAPTER_NOT_FOUND;
       }
       else
@@ -294,7 +294,8 @@ XenNet_Init(
   
   UNREFERENCED_PARAMETER(OpenErrorStatus);
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
+
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   /* deal with medium stuff */
@@ -430,7 +431,7 @@ XenNet_Init(
       {
         KdPrint((__DRIVER_NAME "     vectors mismatch (magic = %08x, length = %d)\n",
           ((PXENPCI_VECTORS)value)->magic, ((PXENPCI_VECTORS)value)->length));
-        KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+        FUNCTION_ERROR_EXIT();
         return NDIS_STATUS_FAILURE;
       }
       else
@@ -559,13 +560,13 @@ XenNet_Init(
   NdisMInitializeTimer(&xi->resume_timer, xi->adapter_handle, XenResumeCheck_Timer, xi);
   NdisMSetPeriodicTimer(&xi->resume_timer, 100);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 
   return NDIS_STATUS_SUCCESS;
 
 err:
   NdisFreeMemory(xi, 0, 0);
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (error path)\n"));
+  FUNCTION_ERROR_EXIT();
   return status;
 }
 
@@ -582,7 +583,7 @@ XenNet_PnPEventNotify(
   UNREFERENCED_PARAMETER(InformationBuffer);
   UNREFERENCED_PARAMETER(InformationBufferLength);
 
-  KdPrint((__FUNCTION__ " called\n"));
+  FUNCTION_CALLED();
 }
 
 /* Called when machine is shutting down, so just quiesce the HW and be done fast. */
@@ -593,7 +594,7 @@ XenNet_Shutdown(
 {
   struct xennet_info *xi = MiniportAdapterContext;
 
-  KdPrint((__FUNCTION__ " called\n"));
+  FUNCTION_CALLED();
 
   NdisMDeregisterInterrupt(&xi->interrupt);
 }
@@ -609,7 +610,7 @@ XenNet_Halt(
 //  PVOID if_cxt = xi->XenInterface.InterfaceHeader.Context;
 //  LARGE_INTEGER timeout;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   // Disables the interrupt
@@ -630,10 +631,10 @@ XenNet_Halt(
 
   NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 }
 
-NTSTATUS
+NTSTATUS DDKAPI
 DriverEntry(
   PDRIVER_OBJECT DriverObject,
   PUNICODE_STRING RegistryPath
@@ -642,6 +643,8 @@ DriverEntry(
   NTSTATUS status;
   NDIS_HANDLE ndis_wrapper_handle;
   NDIS_MINIPORT_CHARACTERISTICS mini_chars;
+
+  FUNCTION_ENTER();
 
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));
 
@@ -683,6 +686,8 @@ DriverEntry(
     NdisTerminateWrapper(ndis_wrapper_handle, NULL);
     return status;
   }
+
+  FUNCTION_EXIT();
 
   return status;
 }

@@ -564,7 +564,7 @@ XenNet_RxInit(xennet_info_t *xi)
 {
   int i;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   xi->rx_id_free = NET_RX_RING_SIZE;
 
@@ -579,7 +579,7 @@ XenNet_RxInit(xennet_info_t *xi)
 
   XenNet_RxBufferAlloc(xi);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 
   return TRUE;
 }
@@ -589,7 +589,7 @@ XenNet_RxShutdown(xennet_info_t *xi)
 {
   KIRQL OldIrql;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
@@ -605,7 +605,7 @@ XenNet_RxShutdown(xennet_info_t *xi)
 
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 
   return TRUE;
 }

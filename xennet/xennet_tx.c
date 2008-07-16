@@ -460,7 +460,7 @@ XenNet_TxShutdown(xennet_info_t *xi)
   ULONG i;
   KIRQL OldIrql;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   ASSERT(!xi->connected);
 
@@ -490,7 +490,7 @@ XenNet_TxShutdown(xennet_info_t *xi)
 
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 
   return TRUE;
 }

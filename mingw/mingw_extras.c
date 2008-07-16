@@ -18,12 +18,12 @@ NTSTATUS bit_scan_forward(unsigned long *index, unsigned long mask)
   {
     if (mask & (1 << i)) {
       *index = i + 1;
-      KdPrint((__FUNC__ __LINE__ " Check that I work as expected!\n"));
+      KdPrint(("file %s line %s Check that I work as expected!\n", __FILE__, __LINE__));
       return 1;
     }
   }
 
-  KdPrint((__FUNC__ __LINE__ " Check that I work as expected!\n"));
+  KdPrint(("file %s line %s Check that I work as expected!\n", __FILE__, __LINE__));
 
   return 0;
 }
@@ -40,7 +40,7 @@ int synch_set_bit(int nr, volatile long * addr)
     :"=r" (oldbit),"+m" (*(volatile long *) addr)
     :"Ir" (nr) : "memory");
 
-  KdPrint((__FUNC__ " Check that I work as expected!\n"));
+  KdPrint(("file %s line %s Check that I work as expected!\n", __FILE__, __LINE__));
 
   return oldbit;
 }
@@ -54,7 +54,7 @@ int synch_clear_bit(int nr, volatile long * addr)
     :"=r" (oldbit),"+m" (*(volatile long *) addr)
     :"Ir" (nr) : "memory");
 
-  KdPrint((__FUNC__ " Check that I work as expected!\n"));
+  KdPrint(("file %s line %s Check that I work as expected!\n", __FILE__, __LINE__));
 
   return oldbit;
 }
