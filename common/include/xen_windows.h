@@ -64,7 +64,7 @@ typedef unsigned long xenbus_transaction_t;
 #define FUNCTION_ENTER()      KdPrint((__DRIVER_NAME " --> %s\n", __FUNCTION__))
 #define FUNCTION_EXIT()       KdPrint((__DRIVER_NAME " <-- %s\n", __FUNCTION__))
 #define FUNCTION_ERROR_EXIT() KdPrint((__DRIVER_NAME " <-- %s (error path)\n", __FUNCTION__))
-#define FUNCTION_CALLED()     KdPrint((__DRIVER_NAME " %s called\n", __FUNCTION__))
+#define FUNCTION_CALLED()     KdPrint((__DRIVER_NAME " %s called (line %d)\n", __FUNCTION__, __LINE__))
 #ifdef __MINGW32__
 #define FUNCTION_MSG(_x) _FUNCTION_MSG _x
 #define _FUNCTION_MSG(format, args...) KdPrint((__DRIVER_NAME " %s called: " format, __FUNCTION__, ##args))
