@@ -128,7 +128,7 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
   PXENPCI_DEVICE_DATA xpdd;
   //PWSTR InterfaceList;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   status = IoCreateDevice(DriverObject,
     sizeof(XENPCI_DEVICE_DATA),
@@ -185,18 +185,18 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
   
   fdo->Flags &= ~DO_DEVICE_INITIALIZING;
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  FUNCTION_EXIT();
   return status;
 }
 
-NTSTATUS
+NTSTATUS DDKAPI
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
   NTSTATUS status = STATUS_SUCCESS;
 
   UNREFERENCED_PARAMETER(RegistryPath);
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   //InitializeListHead(&ShutdownMsgList);
   //KeInitializeSpinLock(&ShutdownMsgLock);
@@ -212,7 +212,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   DriverObject->MajorFunction[IRP_MJ_WRITE] = NULL; //XenPci_Dummy;
   DriverObject->MajorFunction[IRP_MJ_SYSTEM_CONTROL] = NULL; //XenPci_Dummy;
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 
   return status;
 }

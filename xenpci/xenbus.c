@@ -604,7 +604,7 @@ XenBus_Resume(PXENPCI_DEVICE_DATA xpdd)
   NTSTATUS status;
   int i;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   status = XenBus_Connect(xpdd);
   if (!NT_SUCCESS(status))
@@ -620,7 +620,7 @@ XenBus_Resume(PXENPCI_DEVICE_DATA xpdd)
       XenBus_SendAddWatch(xpdd, XBT_NIL, xpdd->XenBus_WatchEntries[i].Path, i);
     }
   }
-  KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
+  FUNCTION_EXIT();
   
   return STATUS_SUCCESS;
 }

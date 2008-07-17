@@ -116,7 +116,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
   
   if (xpdd->ev_actions[Port].type != EVT_ACTION_TYPE_EMPTY)
   {
@@ -133,7 +133,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
 
   EvtChn_Unmask(Context, Port);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 
   return STATUS_SUCCESS;
 }
@@ -143,7 +143,7 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRouti
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   if (xpdd->ev_actions[Port].type != EVT_ACTION_TYPE_EMPTY)
   {
@@ -161,7 +161,7 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRouti
 
   EvtChn_Unmask(Context, Port);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 
   return STATUS_SUCCESS;
 }
@@ -171,7 +171,7 @@ EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   if (xpdd->ev_actions[Port].type != EVT_ACTION_TYPE_EMPTY)
   {
@@ -188,7 +188,7 @@ EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector)
 
   EvtChn_Unmask(Context, Port);
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 
   return STATUS_SUCCESS;
 }
@@ -256,7 +256,7 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 {
   int i;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   for (i = 0; i < NR_EVENTS; i++)
   {
@@ -284,7 +284,7 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
     xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 0;
   }
   
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
   
   return STATUS_SUCCESS;
 }
