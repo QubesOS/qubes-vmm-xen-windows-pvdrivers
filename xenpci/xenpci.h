@@ -161,7 +161,7 @@ static __inline void REVERT_PNP_STATE(PXENPCI_COMMON common)
 #define SUSPEND_STATE_NONE      0 /* no suspend in progress */
 #define SUSPEND_STATE_SCHEDULED 1 /* suspend scheduled */
 #define SUSPEND_STATE_HIGH_IRQL 2 /* all processors are at high IRQL and spinning */
-#define SUSPEND_STATE_RESUMING  3
+#define SUSPEND_STATE_RESUMING  3 /* we are the other side of the suspend and things are starting to get back to normal */
 
 typedef struct {  
   XENPCI_COMMON common;

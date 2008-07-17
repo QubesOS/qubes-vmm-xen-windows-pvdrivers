@@ -89,6 +89,10 @@ XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
   return status;
 }
 
+/*
+Called at PASSIVE_LEVEL(?)
+Called during restore
+*/
 static VOID
 XenPci_BackEndStateHandler(char *Path, PVOID Context)
 {
@@ -196,6 +200,10 @@ struct dummy_sring {
     uint8_t  pad[48];
 };
 
+/*
+Called at PASSIVE_LEVEL
+Called during restore
+*/
 static NTSTATUS
 XenPci_ChangeFrontendState(PXENPCI_PDO_DEVICE_DATA xppdd, ULONG frontend_state_set, ULONG backend_state_response, ULONG maximum_wait_ms)
 {
@@ -608,7 +616,7 @@ XenPci_XenConfigDevice(PVOID context)
   PUCHAR src, dst;
   PXENPCI_PDO_DEVICE_DATA xppdd = context;  
 
-  src = ExAllocatePoolWithTag(PagedPool, xppdd->config_page_length, XENPCI_POOL_TAG);
+  src = ExAllocatePoolWithTag(NonPagedPool, xppdd->config_page_length, XENPCI_POOL_TAG);
   dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
   memcpy(src, dst, xppdd->config_page_length);
   
@@ -692,7 +700,7 @@ XenPci_Resume(PDEVICE_OBJECT device_object)
       // reset things - feed the 'requested resources' back in
       ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL);
       src = xppdd->requested_resources_start;
-      xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(PagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
+      xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
       xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;
       
       dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
@@ -751,8 +759,8 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
       KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
       xppdd->config_page_phys = prd->u.Memory.Start;
       xppdd->config_page_length = prd->u.Memory.Length;
-      xppdd->requested_resources_start = xppdd->requested_resources_ptr = ExAllocatePoolWithTag(PagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
-      xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(PagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+      xppdd->requested_resources_start = xppdd->requested_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+      xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
       
       status = XenPci_XenConfigDevice(xppdd);
 
@@ -820,7 +828,7 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   length = FIELD_OFFSET(IO_RESOURCE_REQUIREMENTS_LIST, List) +
     FIELD_OFFSET(IO_RESOURCE_LIST, Descriptors) +
     sizeof(IO_RESOURCE_DESCRIPTOR) * ARRAY_SIZE(available_interrupts);
-  irrl = ExAllocatePoolWithTag(PagedPool,
+  irrl = ExAllocatePoolWithTag(NonPagedPool,
     length,
     XENPCI_POOL_TAG);
   
