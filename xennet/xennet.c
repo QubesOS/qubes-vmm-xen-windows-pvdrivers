@@ -140,6 +140,18 @@ XenNet_InterruptDpc(NDIS_HANDLE  MiniportAdapterContext)
 {
   struct xennet_info *xi = MiniportAdapterContext;
 
+  if (xi->device_state->resume_state != RESUME_STATE_RUNNING)
+  {
+    KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " device_state event\n"));
+    // there should be a better way to synchronise with rx and tx...
+    KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
+    KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
+    KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
+    KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
+    xi->device_state->resume_state_ack = xi->device_state->resume_state;
+    return;
+  }
+
   //FUNCTION_ENTER();
   if (xi->connected)
   {

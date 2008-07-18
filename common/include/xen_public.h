@@ -119,14 +119,16 @@ typedef struct {
 } XENPCI_VECTORS, *PXENPCI_VECTORS;
 
 #define RESUME_STATE_RUNNING            0
-#define RESUME_STATE_BACKEND_RESUME     1
-#define RESUME_STATE_FRONTEND_RESUME    2
+#define RESUME_STATE_SUSPENDING         1
+#define RESUME_STATE_BACKEND_RESUME     2
+#define RESUME_STATE_FRONTEND_RESUME    3
 
 typedef struct {
   ULONG magic;
   USHORT length;
 
   ULONG resume_state;
+  ULONG resume_state_ack;
 } XENPCI_DEVICE_STATE, *PXENPCI_DEVICE_STATE;
 
 #define XEN_INIT_TYPE_END               0

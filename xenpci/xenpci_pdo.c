@@ -155,25 +155,28 @@ XenPci_BackEndStateHandler(char *Path, PVOID Context)
 
   case XenbusStateClosing:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));
-    if (xppdd->common.device_usage_paging
-      || xppdd->common.device_usage_dump
-      || xppdd->common.device_usage_hibernation)
+    if (xpdd->suspend_state == SUSPEND_STATE_NONE)
     {
-      KdPrint((__DRIVER_NAME "     Not closing device because it is in use\n"));
-      /* in use by page file, dump file, or hiber file - can't close */
-      /* we should probably re-check if the device usage changes in the future */
-    }
-    else
-    {
-      if (xppdd->common.current_pnp_state == Started)
+      if (xppdd->common.device_usage_paging
+        || xppdd->common.device_usage_dump
+        || xppdd->common.device_usage_hibernation)
       {
-        KdPrint((__DRIVER_NAME "     Sending RequestDeviceEject\n"));
-        xppdd->eject_requested = TRUE;
-        IoRequestDeviceEject(xppdd->common.pdo);
+        KdPrint((__DRIVER_NAME "     Not closing device because it is in use\n"));
+        /* in use by page file, dump file, or hiber file - can't close */
+        /* we should probably re-check if the device usage changes in the future */
       }
       else
       {
-        KdPrint((__DRIVER_NAME "     Not closing device because it is not started\n"));
+        if (xppdd->common.current_pnp_state == Started)
+        {
+          KdPrint((__DRIVER_NAME "     Sending RequestDeviceEject\n"));
+          xppdd->eject_requested = TRUE;
+          IoRequestDeviceEject(xppdd->common.pdo);
+        }
+        else
+        {
+          KdPrint((__DRIVER_NAME "     Not closing device because it is not started\n"));
+        }
       }
     }
     break;
@@ -213,7 +216,10 @@ XenPci_ChangeFrontendState(PXENPCI_PDO_DEVICE_DATA xppdd, ULONG frontend_state_s
   ULONG thiswait;
   char path[128];
   
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
   /* Tell backend we're going down */
+  //strcpy(path, xppdd->path);
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
   XenBus_Printf(xpdd, XBT_NIL, path, "%d", frontend_state_set);
 
@@ -233,6 +239,7 @@ XenPci_ChangeFrontendState(PXENPCI_PDO_DEVICE_DATA xppdd, ULONG frontend_state_s
       KdPrint((__DRIVER_NAME "     Still waiting for %d (currently %d)...\n", backend_state_response, xppdd->backend_state));
     }
   }
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return STATUS_SUCCESS;
 }
 
@@ -666,7 +673,7 @@ XenPci_GetBackendAndAddWatch(PDEVICE_OBJECT device_object)
 }
 
 NTSTATUS
-XenPci_Resume(PDEVICE_OBJECT device_object)
+XenPci_Pdo_Resume(PDEVICE_OBJECT device_object)
 {
   NTSTATUS status;
   PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
@@ -687,7 +694,7 @@ XenPci_Resume(PDEVICE_OBJECT device_object)
   if (!NT_SUCCESS(status))
     return status;
   
-  if (xppdd->common.current_pnp_state == Started && old_backend_state == XenbusStateConnected)
+  if (xppdd->common.current_pnp_state == Started && old_backend_state == XenbusStateClosed)
   {
   
     if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
@@ -718,6 +725,43 @@ XenPci_Resume(PDEVICE_OBJECT device_object)
   }
   return STATUS_SUCCESS;
 } 
+
+/* called at DISPATCH_LEVEL */
+NTSTATUS
+XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  LARGE_INTEGER wait_time;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (%s | %s)\n", xppdd->path, xppdd->device));
+
+  if (xppdd->backend_state == XenbusStateConnected)
+  {
+    xppdd->device_state.resume_state_ack = RESUME_STATE_RUNNING;
+    KeMemoryBarrier();
+    xppdd->device_state.resume_state = RESUME_STATE_SUSPENDING;
+    KeMemoryBarrier();
+    KdPrint((__DRIVER_NAME "     Calling interrupt\n"));
+    sw_interrupt((UCHAR)xppdd->irq_vector);
+    KdPrint((__DRIVER_NAME "     Back from interrupt call\n"));
+    while(xppdd->device_state.resume_state_ack != RESUME_STATE_SUSPENDING)
+    {
+      KdPrint((__DRIVER_NAME "     Starting delay - resume_state = %d, resume_state_ack = %d\n", xppdd->device_state.resume_state, xppdd->device_state.resume_state_ack));
+      wait_time.QuadPart = 5000 * (-1 * 10 * 1000);
+      KeDelayExecutionThread(KernelMode, FALSE, &wait_time);
+      KdPrint((__DRIVER_NAME "     Done with delay\n"));
+    }
+    KdPrint((__DRIVER_NAME "     resume_state acknowledged\n"));
+
+    XenPci_ChangeFrontendState(xppdd, XenbusStateClosing, XenbusStateClosing, 30000);
+    XenPci_ChangeFrontendState(xppdd, XenbusStateClosed, XenbusStateClosed, 30000);
+  }
+  
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  
+  return status;
+}
 
 static NTSTATUS
 XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)

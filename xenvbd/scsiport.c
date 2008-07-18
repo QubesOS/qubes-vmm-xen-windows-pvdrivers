@@ -682,6 +682,14 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+  if (xvdd->device_state->resume_state != RESUME_STATE_RUNNING)
+  {
+    KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " device_state event\n"));
+    xvdd->device_state->resume_state_ack = xvdd->device_state->resume_state;
+    KeMemoryBarrier();
+    return FALSE;
+  }
+
   xvdd->interrupts++;
   while (more_to_do)
   {

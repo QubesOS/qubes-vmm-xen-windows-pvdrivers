@@ -338,7 +338,7 @@ XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
 
   for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
   {
-    XenPci_Resume(child->context->common.pdo);
+    XenPci_Pdo_Resume(child->context->common.pdo);
     child->context->device_state.resume_state = RESUME_STATE_FRONTEND_RESUME;
     // how can we signal children that they are ready to restart again?
     // maybe we can fake an interrupt?
@@ -447,14 +447,23 @@ XenPci_BeginSuspend(PDEVICE_OBJECT device_object, PVOID context)
   PSUSPEND_INFO suspend_info;
   PKDPC Dpc;
   KIRQL OldIrql;
+  PXEN_CHILD child;
 
   UNREFERENCED_PARAMETER(context);
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   if (xpdd->suspend_state == SUSPEND_STATE_NONE)
   {
-    XenBus_StopThreads(xpdd);
     xpdd->suspend_state = SUSPEND_STATE_SCHEDULED;
+    KeMemoryBarrier();
+    
+    for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
+    {
+      XenPci_Pdo_Suspend(child->context->common.pdo);
+    }
+
+    XenBus_StopThreads(xpdd);
+
     suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);
     RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO));
     KeInitializeEvent(&suspend_info->stopped_spinning_event, SynchronizationEvent, FALSE);

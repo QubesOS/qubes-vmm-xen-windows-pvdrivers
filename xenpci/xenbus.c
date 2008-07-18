@@ -210,7 +210,7 @@ xenbus_msg_reply(
   xb_write(xpdd, type, id, trans, io, nr_reqs);
 
   KeWaitForSingleObject(&xpdd->req_info[id].WaitEvent, Executive, KernelMode, FALSE, NULL);
-
+  
   release_xenbus_id(xpdd, id);
 
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
@@ -854,7 +854,7 @@ XenBus_Printf(
   char buf[512];
   char *retval;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   va_start(ap, fmt);
@@ -862,7 +862,7 @@ XenBus_Printf(
   va_end(ap);
   retval = XenBus_Write(xpdd, xbt, path, buf);
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return retval;
 }

@@ -369,7 +369,9 @@ NTSTATUS
 XenPci_Irp_Cleanup_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 
 NTSTATUS
-XenPci_Resume(PDEVICE_OBJECT device_object);
+XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object);
+NTSTATUS
+XenPci_Pdo_Resume(PDEVICE_OBJECT device_object);
 
 char *
 XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value);
