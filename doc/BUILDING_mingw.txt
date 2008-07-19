@@ -4,7 +4,7 @@ reasons to using the Microsoft WDK/DDK.
 These instructions are for building the driver on a Linux Ubuntu system, using
 the mingw32msvc cross-compiler.
 
-1. sudo apt-get install mingw mingw-binutils mingw-runtime
+1. sudo apt-get install mingw32 mingw32-binutils mingw32-runtime
 
 2. mingw-runtime headers need to be modified. Download the latest w32api-src.tar.gz
    package from mingw.sf.net.
@@ -17,7 +17,7 @@ the mingw32msvc cross-compiler.
 5. Apply the patch "w32api.diff" in the mingw directory to the untarred w32api
    source: "cd w32api-<version>;patch -p1 < ~/hg/win-pvdrivers.hg/mingw/w32api.diff"
 
-6. Type: "./configure i586-mingw32-msvc;make"
+6. Type: "./configure i586-mingw32msvc;make"
 
 7. Change to the win-pvdrivers.hg/xenpci dir.
 

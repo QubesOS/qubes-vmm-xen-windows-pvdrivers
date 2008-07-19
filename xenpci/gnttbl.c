@@ -130,7 +130,7 @@ static inline short InterlockedCompareExchange16(
     : "r"(exch), "m"(*(dest)), "0"(comp)
     : "memory");
 
-  KdPrint((__FUNC__ " Check that I work as expected!\n"));
+  FUNCTION_MSG(("Check that I work as expected!\n"));
 
   return prev;
 }

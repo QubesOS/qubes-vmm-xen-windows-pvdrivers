@@ -125,11 +125,11 @@ XenNet_GetData(
   PNDIS_BUFFER mdl = pi->mdls[pi->curr_mdl];
   PUCHAR buffer = (PUCHAR)MmGetMdlVirtualAddress(mdl) + pi->curr_mdl_offset;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //FUNCTION_ENTER();
 
   *length = (USHORT)min(req_length, MmGetMdlByteCount(mdl) - pi->curr_mdl_offset);
 
-//  KdPrint((__DRIVER_NAME "     req_length = %d, length = %d\n", req_length, *length));
+  //FUNCTION_MSG(("req_length = %d, length = %d\n", req_length, *length));
 
   pi->curr_mdl_offset = pi->curr_mdl_offset + *length;
   if (pi->curr_mdl_offset == MmGetMdlByteCount(mdl))
@@ -138,7 +138,7 @@ XenNet_GetData(
     pi->curr_mdl_offset = 0;
   }
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //FUNCTION_EXIT();
 
   return buffer;
 }
@@ -162,11 +162,10 @@ XenFreelist_Timer(
 
   if (fl->xi->device_state->resume_state != RESUME_STATE_RUNNING && !fl->grants_resumed)
     return;
-    
+
   KeAcquireSpinLockAtDpcLevel(fl->lock);
 
-  //KdPrint((__DRIVER_NAME " --- timer - page_free_lowest = %d\n", fl->page_free_lowest));
-//  KdPrint((__DRIVER_NAME " --- rx_outstanding = %d, rx_id_free = %d\n", xi->rx_outstanding, xi->rx_id_free));
+  //FUNCTION_MSG((" --- timer - page_free_lowest = %d\n", fl->page_free_lowest));
 
   if (fl->page_free_lowest > fl->page_free_target) // lots of potential for tuning here
   {
@@ -177,14 +176,12 @@ XenFreelist_Timer(
         *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
       FreePages(mdl);
     }
-    //KdPrint((__DRIVER_NAME " --- timer - freed %d pages\n", i));
+    //FUNCTION_MSG((__DRIVER_NAME " --- timer - freed %d pages\n", i));
   }
 
   fl->page_free_lowest = fl->page_free;
 
   KeReleaseSpinLockFromDpcLevel(fl->lock);
-
-  return;
 }
 
 VOID

@@ -210,7 +210,7 @@ xenbus_msg_reply(
   xb_write(xpdd, type, id, trans, io, nr_reqs);
 
   KeWaitForSingleObject(&xpdd->req_info[id].WaitEvent, Executive, KernelMode, FALSE, NULL);
-  
+
   release_xenbus_id(xpdd, id);
 
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
@@ -604,7 +604,7 @@ XenBus_Resume(PXENPCI_DEVICE_DATA xpdd)
   NTSTATUS status;
   int i;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   status = XenBus_Connect(xpdd);
   if (!NT_SUCCESS(status))
@@ -620,7 +620,7 @@ XenBus_Resume(PXENPCI_DEVICE_DATA xpdd)
       XenBus_SendAddWatch(xpdd, XBT_NIL, xpdd->XenBus_WatchEntries[i].Path, i);
     }
   }
-  KdPrint((__DRIVER_NAME " <-- XenBus_AddWatch\n"));
+  FUNCTION_EXIT();
   
   return STATUS_SUCCESS;
 }
@@ -854,7 +854,7 @@ XenBus_Printf(
   char buf[512];
   char *retval;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   va_start(ap, fmt);
@@ -862,7 +862,7 @@ XenBus_Printf(
   va_end(ap);
   retval = XenBus_Write(xpdd, xbt, path, buf);
 
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return retval;
 }

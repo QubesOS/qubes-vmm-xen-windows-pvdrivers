@@ -289,7 +289,7 @@ XenNet_Init(
   NDIS_STATUS status;
   BOOLEAN medium_found = FALSE;
   struct xennet_info *xi = NULL;
-  ULONG nrl_length;
+  UINT nrl_length;
   PNDIS_RESOURCE_LIST nrl;
   PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
   KIRQL irq_level = 0;
