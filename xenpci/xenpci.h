@@ -216,6 +216,7 @@ typedef struct {
   XENBUS_WATCH_ENTRY XenBus_WatchEntries[MAX_WATCH_ENTRIES];
 
   KSPIN_LOCK WatchLock;
+  FAST_MUTEX xenbus_mutex;
   KSPIN_LOCK grant_lock;
 
   //KGUARDED_MUTEX WatchHandlerMutex;

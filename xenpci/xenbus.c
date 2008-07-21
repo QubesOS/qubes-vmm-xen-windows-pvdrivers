@@ -36,6 +36,7 @@ XenBus_WatchThreadProc(PVOID StartContext);
 static DDKAPI BOOLEAN
 XenBus_Interrupt(PKINTERRUPT Interrupt, PVOID ServiceContext);
 
+/* called with xenbus_mutex held */
 static int allocate_xenbus_id(PXENPCI_DEVICE_DATA xpdd)
 {
   static int probe;
@@ -73,6 +74,7 @@ static int allocate_xenbus_id(PXENPCI_DEVICE_DATA xpdd)
   return o_probe;
 }
 
+/* called with xenbus_mutex held */
 static void release_xenbus_id(PXENPCI_DEVICE_DATA xpdd, int id)
 {
   KIRQL old_irql;
@@ -120,6 +122,7 @@ static void memcpy_from_ring(const void *Ring,
   memcpy(dest + c1, ring, c2);
 }
 
+/* called with xenbus_mutex held */
 static void xb_write(
   PXENPCI_DEVICE_DATA xpdd,
   int type,
@@ -193,6 +196,7 @@ static void xb_write(
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
+/* called with xenbus_mutex held */
 static struct xsd_sockmsg *
 xenbus_msg_reply(
   PXENPCI_DEVICE_DATA xpdd,
@@ -218,6 +222,10 @@ xenbus_msg_reply(
   return xpdd->req_info[id].Reply;
 }
 
+/*
+Called at PASSIVE_LEVEL
+Acquires the mutex
+*/
 char *
 XenBus_Read(
   PVOID Context,
@@ -235,7 +243,11 @@ XenBus_Read(
 
   ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
+  // get mutex or wait for mutex to be acquired
+  
+  ExAcquireFastMutex(&xpdd->xenbus_mutex);
   rep = xenbus_msg_reply(xpdd, XS_READ, xbt, req, ARRAY_SIZE(req));
+  ExReleaseFastMutex(&xpdd->xenbus_mutex);
   msg = errmsg(rep);
   if (msg) {
     *value = NULL;
@@ -252,6 +264,10 @@ XenBus_Read(
   return NULL;
 }
 
+/*
+Called at PASSIVE_LEVEL
+Acquires the mutex
+*/
 char *
 XenBus_Write(
   PVOID Context,
@@ -271,7 +287,9 @@ XenBus_Write(
 
   ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
+  ExAcquireFastMutex(&xpdd->xenbus_mutex);
   rep = xenbus_msg_reply(xpdd, XS_WRITE, xbt, req, ARRAY_SIZE(req));
+  ExReleaseFastMutex(&xpdd->xenbus_mutex);
   msg = errmsg(rep);
   if (msg)
     return msg;
@@ -327,6 +345,7 @@ XenBus_Init(PXENPCI_DEVICE_DATA xpdd)
   ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   KeInitializeSpinLock(&xpdd->WatchLock);
+  ExInitializeFastMutex(&xpdd->xenbus_mutex);
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
   {
@@ -569,6 +588,10 @@ XenBus_WatchThreadProc(PVOID StartContext)
   }
 }    
 
+/*
+Called at PASSIVE_LEVEL
+Acquires the mutex
+*/
 static char *
 XenBus_SendAddWatch(
   PVOID Context,
@@ -589,7 +612,10 @@ XenBus_SendAddWatch(
   req[1].data = Token;
   req[1].len = (ULONG)strlen(Token) + 1;
 
+  ExAcquireFastMutex(&xpdd->xenbus_mutex);
   rep = xenbus_msg_reply(xpdd, XS_WATCH, xbt, req, ARRAY_SIZE(req));
+  ExReleaseFastMutex(&xpdd->xenbus_mutex);
+
   msg = errmsg(rep);
   if (!msg)
     ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
