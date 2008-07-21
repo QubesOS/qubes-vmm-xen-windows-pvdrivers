@@ -1122,12 +1122,12 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
   UNREFERENCED_PARAMETER(DeviceExtension);
   UNREFERENCED_PARAMETER(PathId);
 
-  KdPrint((__DRIVER_NAME " --> HwScsiResetBus\n"));
+//  KdPrint((__DRIVER_NAME " --> HwScsiResetBus\n"));
 
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
   ScsiPortNotification(NextRequest, DeviceExtension);
 
-  KdPrint((__DRIVER_NAME " <-- HwScsiResetBus\n"));
+//  KdPrint((__DRIVER_NAME " <-- HwScsiResetBus\n"));
 
 
   return TRUE;

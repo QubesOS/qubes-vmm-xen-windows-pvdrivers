@@ -93,33 +93,49 @@ XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 Called at PASSIVE_LEVEL(?)
 Called during restore
 */
-static VOID
-XenPci_BackEndStateHandler(char *Path, PVOID Context)
+
+static ULONG
+XenPci_ReadBackendState(PXENPCI_PDO_DEVICE_DATA xppdd)
 {
-  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)Context;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  char path[128];
   char *value;
   char *err;
+  ULONG backend_state;
+  
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+  err = XenBus_Read(xpdd, XBT_NIL, path, &value);
+  if (err)
+  {
+    XenPci_FreeMem(err);
+    return XenbusStateUnknown;
+  }
+  else
+  {
+    backend_state = atoi(value);
+    XenPci_FreeMem(value);
+    return backend_state;
+  }
+}
+
+static VOID
+XenPci_BackEndStateHandler(char *path, PVOID context)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
   ULONG new_backend_state;
-  char path[128];
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   /* check that path == device/id/state */
-  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
-  err = XenBus_Read(xpdd, XBT_NIL, Path, &value);
-  if (err)
+  //RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
+  new_backend_state = XenPci_ReadBackendState(xppdd);
+  if (new_backend_state == XenbusStateUnknown)
   {
     if (xpdd->suspend_state != SUSPEND_STATE_NONE)
       return;
-    KdPrint(("Failed to read %s, assuming closed\n", path, err));
+    KdPrint(("Failed to read %s, assuming closed\n", path));
     new_backend_state = XenbusStateClosed;
-    XenPci_FreeMem(err);
-  }
-  else
-  {
-    new_backend_state = atoi(value);
-    XenPci_FreeMem(value);
   }
 
   if (xppdd->backend_state == new_backend_state)
@@ -224,7 +240,8 @@ XenPci_ChangeFrontendState(PXENPCI_PDO_DEVICE_DATA xppdd, ULONG frontend_state_s
   XenBus_Printf(xpdd, XBT_NIL, path, "%d", frontend_state_set);
 
   remaining = maximum_wait_ms;
-  while (xppdd->backend_state != backend_state_response)
+  /* we can't rely on xppdd->backend_state here - events can occasionally be missed on startup or resume! */
+  while (XenPci_ReadBackendState(xppdd) != backend_state_response)
   {
     thiswait = min((LONG)remaining, 1000); // 1 second or remaining time, whichever is less
     timeout.QuadPart = (LONGLONG)-1 * thiswait * 1000 * 10;
@@ -668,7 +685,7 @@ XenPci_GetBackendAndAddWatch(PDEVICE_OBJECT device_object)
   /* Add watch on backend state */
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
   XenBus_AddWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
-
+  
   return STATUS_SUCCESS;
 }
 
@@ -755,7 +772,7 @@ XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object)
     while(xppdd->device_state.resume_state_ack != RESUME_STATE_SUSPENDING)
     {
       KdPrint((__DRIVER_NAME "     Starting delay - resume_state = %d, resume_state_ack = %d\n", xppdd->device_state.resume_state, xppdd->device_state.resume_state_ack));
-      wait_time.QuadPart = 5000 * (-1 * 10 * 1000);
+      wait_time.QuadPart = 100 * (-1 * 10 * 1000);
       KeDelayExecutionThread(KernelMode, FALSE, &wait_time);
       KdPrint((__DRIVER_NAME "     Done with delay\n"));
     }
@@ -873,7 +890,7 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   PIO_RESOURCE_REQUIREMENTS_LIST irrl;
   PIO_RESOURCE_DESCRIPTOR ird;
   ULONG length;
-  ULONG available_interrupts[] = {2, 3, 4, 5, 7, 10, 11, 14, 15};
+  ULONG available_interrupts[] = {3, 4, 5, 10, 11, 14};
   int i;
 
   UNREFERENCED_PARAMETER(device_object);

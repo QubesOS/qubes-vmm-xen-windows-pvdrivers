@@ -38,6 +38,9 @@ XenHide_AddDevice();
 #endif
 
 static BOOLEAN gplpv;
+static BOOLEAN qemu_ide_device_filter_installed;
+static BOOLEAN qemu_scsi_device_filter_installed;
+static KEVENT add_device_event;
 static XENHIDE_DRIVER_DATA xenhide_global_data;
 
 static NTSTATUS
@@ -91,6 +94,10 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     ZwClose(RegHandle);
   KeyPartialValue = (PKEY_VALUE_PARTIAL_INFORMATION)Buf;
   SystemStartOptions = (WCHAR *)KeyPartialValue->Data;
+
+  qemu_ide_device_filter_installed = FALSE;
+  qemu_scsi_device_filter_installed = FALSE;
+  KeInitializeEvent(&add_device_event, SynchronizationEvent, FALSE);
 
   gplpv = FALSE;
 
@@ -253,9 +260,19 @@ XenHide_AddDevice(
   if (gplpv)
   {
     /* hide only specific devices */
-    if (XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_8086&DEV_7010") // Qemu IDE
-      || XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_10EC&DEV_8139") // Qemu Network
-      || XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_1000&DEV_0012"))// Qemu SCSI
+    if (XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_8086&DEV_7010")) // Qemu IDE
+    {
+      hide_type = XENHIDE_TYPE_DEVICE;
+      qemu_ide_device_filter_installed = TRUE;
+      KeSetEvent(&add_device_event, IO_NO_INCREMENT, FALSE);
+    }
+    else if (XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_1000&DEV_0012"))// Qemu SCSI
+    {
+      hide_type = XENHIDE_TYPE_DEVICE;
+      qemu_scsi_device_filter_installed = TRUE;
+      KeSetEvent(&add_device_event, IO_NO_INCREMENT, FALSE);
+    }
+    else if (XenHide_IdSuffixMatches(PhysicalDeviceObject, L"VEN_10EC&DEV_8139")) // Qemu Network
     {
       hide_type = XENHIDE_TYPE_DEVICE;
     }

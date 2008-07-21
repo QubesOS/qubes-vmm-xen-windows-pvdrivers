@@ -547,10 +547,57 @@ XenPci_ShutdownHandler(char *path, PVOID context)
   FUNCTION_EXIT();
 }
 
+static DDKAPI void
+XenBus_DummyXenbusThreadProc(PVOID StartContext)
+{
+  PXENPCI_DEVICE_DATA xpdd = StartContext;
+  char *value;
+  char *err;
+  LARGE_INTEGER wait_time;
+  int thread_id;
+  
+  thread_id = (int)PsGetCurrentThreadId();
+  for(;;)
+  {
+    KdPrint((__DRIVER_NAME "     %08X: writing 666\n", thread_id));
+    XenBus_Write(xpdd, XBT_NIL, "james", "666");
+    err = XenBus_Read(xpdd, XBT_NIL, "james", &value);
+    if (err)
+    {
+      KdPrint((__DRIVER_NAME "     %08X: error on read - %s\n", thread_id, err));
+      XenPci_FreeMem(err);
+    }
+    else
+    {
+      KdPrint((__DRIVER_NAME "     %08X: read %s\n", thread_id, value));
+      XenPci_FreeMem(value);
+    }
+    KdPrint((__DRIVER_NAME "     %08X: writing 362436\n", thread_id));
+    XenBus_Write(xpdd, XBT_NIL, "james", "362436");
+    err = XenBus_Read(xpdd, XBT_NIL, "james", &value);
+    if (err)
+    {
+      KdPrint((__DRIVER_NAME "     %08X: error on read - %s\n", thread_id, err));
+      XenPci_FreeMem(err);
+    }
+    else
+    {
+      KdPrint((__DRIVER_NAME "     %08X: read %s\n", thread_id, value));
+      XenPci_FreeMem(value);
+    }
+/*
+    wait_time.QuadPart = 1000 * (-1 * 10 * 1000);
+    KeDelayExecutionThread(KernelMode, FALSE, &wait_time);
+*/
+  }
+}
+
 static VOID
 XenPci_SysrqHandler(char *path, PVOID context)
 {
   PXENPCI_DEVICE_DATA xpdd = context;
+  NTSTATUS status;
+  HANDLE thread_handle;
   char *value;
   char letter;
   char *res;
@@ -588,6 +635,9 @@ XenPci_SysrqHandler(char *path, PVOID context)
   {
   case 'B':
     KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000001, 0x00000000, 0x00000000, 0x00000000);
+    break;
+  case 'X':
+    status = PsCreateSystemThread(&thread_handle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_DummyXenbusThreadProc, xpdd);
     break;
   default:
     KdPrint(("     Unhandled sysrq letter %c\n", letter));
