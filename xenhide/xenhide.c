@@ -299,7 +299,7 @@ XenHide_AddDevice(
   if (gplpv && hide_type == XENHIDE_TYPE_DEVICE)
   {
     KeAcquireSpinLock(&xenhide_global_data.hide_list_lock, &old_irql);
-    list_entry = ExAllocatePoolWithTag(PagedPool, sizeof(XENHIDE_HIDE_LIST_ENTRY), XENHIDE_POOL_TAG);
+    list_entry = ExAllocatePoolWithTag(NonPagedPool, sizeof(XENHIDE_HIDE_LIST_ENTRY), XENHIDE_POOL_TAG);
     list_entry->pdo = PhysicalDeviceObject;
     InsertTailList(&xenhide_global_data.hide_list_head, (PLIST_ENTRY)list_entry);
     KeReleaseSpinLock(&xenhide_global_data.hide_list_lock, old_irql);
