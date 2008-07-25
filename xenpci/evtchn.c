@@ -75,10 +75,10 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
-  if (no_more_interrupts)
+  if (xpdd->interrupts_masked)
   {
-    KdPrint((__DRIVER_NAME "     no_more_interrupts = TRUE\n"));
-    KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000000, 0x00000000, 0x00000000);
+    KdPrint((__DRIVER_NAME "     unhandled interrupt\n"));
+    //KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000000, 0x00000000, 0x00000000);
   }
     
   //ASSERT(!no_more_interrupts);
@@ -287,13 +287,14 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
     xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
   }
 
-  no_more_interrupts = FALSE;
   KeMemoryBarrier();
 
   hvm_set_parameter(xpdd, HVM_PARAM_CALLBACK_IRQ, xpdd->irq_number);
 
   for (i = 0; i < MAX_VIRT_CPUS; i++)
-    xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 0;
+    xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 0;  
+  xpdd->interrupts_masked = FALSE;
+  KeMemoryBarrier();
 
   
   FUNCTION_EXIT();
@@ -336,12 +337,14 @@ EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd)
   int i;
 //  LARGE_INTEGER wait_time;
 
+  xpdd->interrupts_masked = TRUE;
   for (i = 0; i < MAX_VIRT_CPUS; i++)
     xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
+  KeMemoryBarrier();
   hvm_set_parameter(xpdd, HVM_PARAM_CALLBACK_IRQ, 0);
-  KeMemoryBarrier();
-  no_more_interrupts = TRUE;
-  KeMemoryBarrier();
+  //KeMemoryBarrier();
+  //no_more_interrupts = TRUE;
+  //KeMemoryBarrier();
 
 #if (NTDDI_VERSION >= NTDDI_WINXP)
   KeFlushQueuedDpcs();

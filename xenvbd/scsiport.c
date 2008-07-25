@@ -684,7 +684,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   if (xvdd->device_state->resume_state != RESUME_STATE_RUNNING)
   {
-    KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " device_state event\n"));
+    //KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " device_state event\n"));
     xvdd->device_state->resume_state_ack = xvdd->device_state->resume_state;
     KeMemoryBarrier();
     return FALSE;
@@ -832,7 +832,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   {
     Srb->SrbStatus = SRB_STATUS_BUSY;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
-    KdPrint((__DRIVER_NAME " --- HwScsiStartIo (Resuming)\n"));
+    //KdPrint((__DRIVER_NAME " --- HwScsiStartIo (Resuming)\n"));
     return TRUE;
   }
 

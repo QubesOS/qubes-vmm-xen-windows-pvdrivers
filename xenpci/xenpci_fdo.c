@@ -304,6 +304,7 @@ XenBus_ShutdownIoCancel(PDEVICE_OBJECT device_object, PIRP irp)
 
 struct {
   volatile ULONG spin_state;
+  volatile ULONG abort_spin;
   volatile LONG nr_spinning_dpc1;
   volatile LONG nr_spinning_high;
   volatile LONG nr_spinning_dpc2;
@@ -362,6 +363,9 @@ XenPci_Suspend(
   int cancelled;
   PIO_WORKITEM work_item;
   PXEN_CHILD child;
+  LARGE_INTEGER spin_abort_time;
+  LARGE_INTEGER current_time;
+  
   //PUCHAR gnttbl_backup[PAGE_SIZE * NR_GRANT_FRAMES];
 
   UNREFERENCED_PARAMETER(Dpc);
@@ -373,12 +377,28 @@ XenPci_Suspend(
   if (KeGetCurrentProcessorNumber() != 0)
   {
     KdPrint((__DRIVER_NAME "     CPU %d spinning at dpc1...\n", KeGetCurrentProcessorNumber()));
+    KeQuerySystemTime(&spin_abort_time);
+    spin_abort_time.QuadPart += 10 * 1000 * 5000;
     InterlockedIncrement(&suspend_info->nr_spinning_dpc1);
-    while(suspend_info->spin_state == SPIN_STATE_DPC1)
+    while(suspend_info->spin_state == SPIN_STATE_DPC1 && !suspend_info->abort_spin)
     {
       KeStallExecutionProcessor(1);
       KeMemoryBarrier();
+      KeQuerySystemTime(&current_time);
+      if (current_time.QuadPart > spin_abort_time.QuadPart)
+      {
+        suspend_info->abort_spin = TRUE;
+        KeMemoryBarrier();
+        InterlockedDecrement(&suspend_info->nr_spinning_dpc1);    
+        KdPrint((__DRIVER_NAME "     CPU %d waited long enough - aborting\n", KeGetCurrentProcessorNumber()));
+        return;
+      }
       /* can't call HYPERVISOR_yield() here as the stubs will be reset and we will crash */
+    }
+    if (suspend_info->abort_spin)
+    {
+      KdPrint((__DRIVER_NAME "     CPU %d spin aborted\n", KeGetCurrentProcessorNumber()));
+      return;
     }
     InterlockedDecrement(&suspend_info->nr_spinning_dpc1);    
     KdPrint((__DRIVER_NAME "     CPU %d done spinning at dpc1\n", KeGetCurrentProcessorNumber()));
@@ -412,10 +432,27 @@ XenPci_Suspend(
   ActiveProcessorCount = (ULONG)KeNumberProcessors;
 
   KdPrint((__DRIVER_NAME "     waiting for all other processors to spin at dpc1\n"));
-  while (suspend_info->nr_spinning_dpc1 < (LONG)ActiveProcessorCount - 1)
+  KeQuerySystemTime(&spin_abort_time);
+  spin_abort_time.QuadPart += 10 * 1000 * 5000;
+  while (suspend_info->nr_spinning_dpc1 < (LONG)ActiveProcessorCount - 1 && !suspend_info->abort_spin)
   {
-      HYPERVISOR_yield(xpdd);
+    KeStallExecutionProcessor(1);
+    //HYPERVISOR_yield(xpdd);
+    KeMemoryBarrier();
+    KeQuerySystemTime(&current_time);
+    if (current_time.QuadPart > spin_abort_time.QuadPart)
+    {
+      suspend_info->abort_spin = TRUE;
       KeMemoryBarrier();
+      InterlockedDecrement(&suspend_info->nr_spinning_dpc1);    
+      KdPrint((__DRIVER_NAME "     CPU %d waited long enough - aborting\n", KeGetCurrentProcessorNumber()));
+      return;
+    }
+  }
+  if (suspend_info->abort_spin)
+  {
+    KdPrint((__DRIVER_NAME "     CPU %d spin aborted\n", KeGetCurrentProcessorNumber()));
+    return;
   }
   KdPrint((__DRIVER_NAME "     all other processors are spinning at dpc1\n"));
   KeRaiseIrql(HIGH_LEVEL, &old_irql);

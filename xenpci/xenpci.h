@@ -176,6 +176,7 @@ typedef struct {
 
   PHYSICAL_ADDRESS shared_info_area_unmapped;
   shared_info_t *shared_info_area;
+  BOOLEAN interrupts_masked;
 
   PHYSICAL_ADDRESS platform_mmio_addr;
   ULONG platform_mmio_orig_len;
