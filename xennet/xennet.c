@@ -561,13 +561,14 @@ XenNet_Init(
 
   status = NdisMRegisterInterrupt(&xi->interrupt, MiniportAdapterHandle, irq_vector, irq_level,
     TRUE, TRUE, NdisInterruptLatched);
-  /* send fake arp? */
   if (!NT_SUCCESS(status))
   {
     KdPrint(("NdisMRegisterInterrupt failed with 0x%x\n", status));
-    //status = NDIS_STATUS_FAILURE;
-    //goto err;
+    status = NDIS_STATUS_FAILURE;
+    goto err;
   }
+
+  /* send fake arp? */
 
   NdisMInitializeTimer(&xi->resume_timer, xi->adapter_handle, XenResumeCheck_Timer, xi);
   NdisMSetPeriodicTimer(&xi->resume_timer, 100);

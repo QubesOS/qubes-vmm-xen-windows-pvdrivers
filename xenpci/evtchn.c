@@ -57,6 +57,8 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
+BOOLEAN no_more_interrupts;
+
 static DDKAPI BOOLEAN
 EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
 {
@@ -73,6 +75,14 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
+  if (no_more_interrupts)
+  {
+    KdPrint((__DRIVER_NAME "     no_more_interrupts = TRUE\n"));
+    KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000000, 0x00000000, 0x00000000);
+  }
+    
+  //ASSERT(!no_more_interrupts);
+  
   UNREFERENCED_PARAMETER(Interrupt);
 
   vcpu_info = &shared_info_area->vcpu_info[cpu];
@@ -277,12 +287,14 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
     xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
   }
 
+  no_more_interrupts = FALSE;
+  KeMemoryBarrier();
+
   hvm_set_parameter(xpdd, HVM_PARAM_CALLBACK_IRQ, xpdd->irq_number);
 
   for (i = 0; i < MAX_VIRT_CPUS; i++)
-  {
     xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 0;
-  }
+
   
   FUNCTION_EXIT();
   
@@ -292,7 +304,7 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 NTSTATUS
 EvtChn_ConnectInterrupt(PXENPCI_DEVICE_DATA xpdd)
 {
-  NTSTATUS status;
+  NTSTATUS status = STATUS_SUCCESS;
   
   ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
 
@@ -314,17 +326,22 @@ EvtChn_ConnectInterrupt(PXENPCI_DEVICE_DATA xpdd)
     KdPrint((__DRIVER_NAME "     IoConnectInterrupt failed 0x%08x\n", status));
     return status;
   }
+
   return status;
 }
 
 NTSTATUS
 EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd)
 {
-#if (NTDDI_VERSION < NTDDI_WINXP)
   int i;
-#endif
+//  LARGE_INTEGER wait_time;
 
-  IoDisconnectInterrupt(xpdd->interrupt);
+  for (i = 0; i < MAX_VIRT_CPUS; i++)
+    xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
+  hvm_set_parameter(xpdd, HVM_PARAM_CALLBACK_IRQ, 0);
+  KeMemoryBarrier();
+  no_more_interrupts = TRUE;
+  KeMemoryBarrier();
 
 #if (NTDDI_VERSION >= NTDDI_WINXP)
   KeFlushQueuedDpcs();
@@ -337,6 +354,14 @@ EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd)
     }
   }
 #endif
+
+/*
+KdPrint((__DRIVER_NAME "     Starting fake delay (IRQL = %d)\n", KeGetCurrentIrql()));
+wait_time.QuadPart = 1000 * (-1 * 10 * 1000);
+KeDelayExecutionThread(KernelMode, FALSE, &wait_time);
+KdPrint((__DRIVER_NAME "     Done with fake delay\n"));
+*/
+  //IoDisconnectInterrupt(xpdd->interrupt);
 
   return STATUS_SUCCESS;
 }

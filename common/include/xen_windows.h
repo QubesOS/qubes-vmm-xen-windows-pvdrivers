@@ -60,7 +60,6 @@ typedef unsigned long xenbus_transaction_t;
 
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
-
 #define FUNCTION_ENTER()       KdPrint((__DRIVER_NAME " --> %s\n", __FUNCTION__))
 #define FUNCTION_EXIT()        KdPrint((__DRIVER_NAME " <-- %s\n", __FUNCTION__))
 #define FUNCTION_EXIT_STATUS(_status) KdPrint((__DRIVER_NAME " <-- %s, status = %08x\n", __FUNCTION__, _status))

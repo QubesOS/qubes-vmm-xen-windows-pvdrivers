@@ -309,8 +309,8 @@ XenConfig_QueueWorkItem(PDEVICE_OBJECT device_object, PIO_WORKITEM_ROUTINE routi
   PIO_WORKITEM work_item;
   NTSTATUS status = STATUS_SUCCESS;
 
-	work_item = IoAllocateWorkItem(device_object);
-	IoQueueWorkItem(work_item, routine, DelayedWorkQueue, context);
+  work_item = IoAllocateWorkItem(device_object);
+  IoQueueWorkItem(work_item, routine, DelayedWorkQueue, context);
 	
   return status;
 }

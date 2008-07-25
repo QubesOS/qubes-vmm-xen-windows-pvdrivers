@@ -150,27 +150,27 @@ XenPci_BackEndStateHandler(char *path, PVOID context)
   switch (xppdd->backend_state)
   {
   case XenbusStateUnknown:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Unknown\n"));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Unknown (%s)\n", path));  
     break;
 
   case XenbusStateInitialising:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialising\n"));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialising (%s)\n", path));  
     break;
 
   case XenbusStateInitWait:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait\n"));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait (%s)\n", path));  
     break;
 
   case XenbusStateInitialised:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialised\n"));
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialised (%s)\n", path));  
     break;
 
   case XenbusStateConnected:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Connected\n"));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Connected (%s)\n", path));    
     break;
 
   case XenbusStateClosing:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing (%s)\n", path));  
     if (xpdd->suspend_state == SUSPEND_STATE_NONE)
     {
       if (xppdd->common.device_usage_paging
@@ -198,11 +198,11 @@ XenPci_BackEndStateHandler(char *path, PVOID context)
     break;
 
   case XenbusStateClosed:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Closed\n"));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closed (%s)\n", path));  
     break;
 
   default:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d\n", xppdd->backend_state));
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d (%s)\n", xppdd->backend_state, path));
     break;
   }
 
@@ -240,8 +240,8 @@ XenPci_ChangeFrontendState(PXENPCI_PDO_DEVICE_DATA xppdd, ULONG frontend_state_s
   XenBus_Printf(xpdd, XBT_NIL, path, "%d", frontend_state_set);
 
   remaining = maximum_wait_ms;
-  /* we can't rely on xppdd->backend_state here - events can occasionally be missed on startup or resume! */
-  while (XenPci_ReadBackendState(xppdd) != backend_state_response)
+
+  while (xppdd->backend_state != backend_state_response)
   {
     thiswait = min((LONG)remaining, 1000); // 1 second or remaining time, whichever is less
     timeout.QuadPart = (LONGLONG)-1 * thiswait * 1000 * 10;
@@ -709,15 +709,16 @@ XenPci_Pdo_Resume(PDEVICE_OBJECT device_object)
   old_backend_state = xppdd->backend_state;
   status = XenPci_GetBackendAndAddWatch(device_object);
   if (!NT_SUCCESS(status)) {
+    KdPrint((__DRIVER_NAME "     Failed to remove old watch\n"));
     FUNCTION_ERROR_EXIT();
     return status;
   }
   
   if (xppdd->common.current_pnp_state == Started && old_backend_state == XenbusStateClosed)
-  {
-  
+  {  
     if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
     {
+      KdPrint((__DRIVER_NAME "     Failed to change frontend state to Initialising\n"));
       // this is probably an unrecoverable situation...
       FUNCTION_ERROR_EXIT();
       return STATUS_UNSUCCESSFUL;
@@ -740,17 +741,24 @@ XenPci_Pdo_Resume(PDEVICE_OBJECT device_object)
     if (XenPci_ChangeFrontendState(xppdd, XenbusStateConnected, XenbusStateConnected, 30000) != STATUS_SUCCESS)
     {
       // this is definitely an unrecoverable situation...
+      KdPrint((__DRIVER_NAME "     Failed to change frontend state to connected\n"));
       FUNCTION_ERROR_EXIT();
       return STATUS_UNSUCCESSFUL;
     }
   }
+  else
+  {
+    KdPrint((__DRIVER_NAME "     Not resuming - current_pnp_state = %d, old_backend_state = %d\n", xppdd->common.current_pnp_state, old_backend_state));
+  }
+  KeMemoryBarrier();
+  xppdd->device_state.resume_state = RESUME_STATE_FRONTEND_RESUME;
 
   FUNCTION_EXIT();
 
   return STATUS_SUCCESS;
 } 
 
-/* called at DISPATCH_LEVEL */
+/* called at PASSIVE_LEVEL */
 NTSTATUS
 XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object)
 {
@@ -890,7 +898,17 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   PIO_RESOURCE_REQUIREMENTS_LIST irrl;
   PIO_RESOURCE_DESCRIPTOR ird;
   ULONG length;
-  ULONG available_interrupts[] = {3, 4, 5, 10, 11, 14};
+  //ULONG available_interrupts[] = {16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}; //{3, 4, 5, 10, 11, 14};
+  ULONG available_interrupts[] = {
+    //62, 61, 60, 59, 58, 57, 56,
+    //55, 54, 53, 52, 51, 50, 49, 48,
+    47, 46, 45, 44, 43, 42, 41, 40,
+    39, 38, 37, 36, 35, 34, 33, 32,
+    31, 30, 29, 28, 27, 26, 25, 24,
+    23, 22, 21, 20, 19, 18, 17, 16,
+    //15, 14, 13, 12, 11, 10, 8,
+    //7, 6, 5, 4, 3, 1
+  };
   int i;
 
   UNREFERENCED_PARAMETER(device_object);
@@ -903,7 +921,7 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
     XENPCI_POOL_TAG);
   
   irrl->ListSize = length;
-  irrl->InterfaceType = Internal;
+  irrl->InterfaceType = PCIBus;
   irrl->BusNumber = 0;
   irrl->SlotNumber = 0;
   irrl->AlternativeLists = 1;
@@ -918,7 +936,13 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
     ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
     ird->Option = i?IO_RESOURCE_ALTERNATIVE:0;
     ird->Type = CmResourceTypeInterrupt;
-    ird->ShareDisposition = CmResourceShareShared;
+    if (available_interrupts[i] >= 16)
+    {
+      ird->Option |= IO_RESOURCE_PREFERRED;
+      ird->ShareDisposition = CmResourceShareDeviceExclusive;
+    }
+    else
+      ird->ShareDisposition = CmResourceShareShared;
     ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
     ird->u.Interrupt.MinimumVector = available_interrupts[i];
     ird->u.Interrupt.MaximumVector = available_interrupts[i];

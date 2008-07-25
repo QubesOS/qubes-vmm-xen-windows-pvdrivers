@@ -30,15 +30,7 @@ static VOID
 XenBus_BalloonHandler(char *Path, PVOID Data);
 #endif
 
-/*
-static VOID
-XenPCI_XenBusWatchHandler(char *Path, PVOID Data);
-*/
-
 #pragma warning(disable : 4200) // zero-sized array
-
-//CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptRaw;
-//CM_PARTIAL_RESOURCE_DESCRIPTOR InterruptTranslated;
 
 NTSTATUS
 XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
@@ -305,10 +297,17 @@ XenBus_ShutdownIoCancel(PDEVICE_OBJECT device_object, PIRP irp)
   FUNCTION_EXIT();
 }
 
+#define SPIN_STATE_NONE 0
+#define SPIN_STATE_DPC1 1
+#define SPIN_STATE_HIGH 2
+#define SPIN_STATE_DPC2 3
+
 struct {
-  volatile ULONG do_spin;
-  volatile LONG nr_spinning;
-  KEVENT stopped_spinning_event;
+  volatile ULONG spin_state;
+  volatile LONG nr_spinning_dpc1;
+  volatile LONG nr_spinning_high;
+  volatile LONG nr_spinning_dpc2;
+  KEVENT spin_event;
 } typedef SUSPEND_INFO, *PSUSPEND_INFO;
 
 /* runs at PASSIVE_LEVEL */
@@ -324,22 +323,21 @@ XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
 
   xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
 
-  while (suspend_info->nr_spinning != 0)
+  while (suspend_info->nr_spinning_dpc2 != 0)
   {
-    KdPrint((__DRIVER_NAME "     %d processors are still spinning\n", suspend_info->nr_spinning));
-    KeWaitForSingleObject(&suspend_info->stopped_spinning_event, Executive, KernelMode, FALSE, NULL);
+    KdPrint((__DRIVER_NAME "     %d processors are still spinning at dpc2\n", suspend_info->nr_spinning_dpc2));
+    KeWaitForSingleObject(&suspend_info->spin_event, Executive, KernelMode, FALSE, NULL);
   }
-  KdPrint((__DRIVER_NAME "     all other processors have stopped spinning\n"));
+  KdPrint((__DRIVER_NAME "     all other processors have stopped spinning at dpc2\n"));
 
   /* this has to be done at PASSIVE_LEVEL */
-  EvtChn_ConnectInterrupt(xpdd);
+  //EvtChn_ConnectInterrupt(xpdd);
 
   XenBus_Resume(xpdd);
 
   for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
   {
     XenPci_Pdo_Resume(child->context->common.pdo);
-    child->context->device_state.resume_state = RESUME_STATE_FRONTEND_RESUME;
     // how can we signal children that they are ready to restart again?
     // maybe we can fake an interrupt?
   }
@@ -374,44 +372,69 @@ XenPci_Suspend(
 
   if (KeGetCurrentProcessorNumber() != 0)
   {
-    KeRaiseIrql(HIGH_LEVEL, &old_irql);
-    KdPrint((__DRIVER_NAME "     spinning...\n"));
-    InterlockedIncrement(&suspend_info->nr_spinning);
-    KeMemoryBarrier();
-    while(suspend_info->do_spin)
+    KdPrint((__DRIVER_NAME "     CPU %d spinning at dpc1...\n", KeGetCurrentProcessorNumber()));
+    InterlockedIncrement(&suspend_info->nr_spinning_dpc1);
+    while(suspend_info->spin_state == SPIN_STATE_DPC1)
     {
       KeStallExecutionProcessor(1);
       KeMemoryBarrier();
       /* can't call HYPERVISOR_yield() here as the stubs will be reset and we will crash */
     }
-    KeMemoryBarrier();
-    InterlockedDecrement(&suspend_info->nr_spinning);    
-    KdPrint((__DRIVER_NAME "     ...done spinning\n"));
-    FUNCTION_MSG(("(CPU = %d)\n", KeGetCurrentProcessorNumber()));
+    InterlockedDecrement(&suspend_info->nr_spinning_dpc1);    
+    KdPrint((__DRIVER_NAME "     CPU %d done spinning at dpc1\n", KeGetCurrentProcessorNumber()));
+    KeRaiseIrql(HIGH_LEVEL, &old_irql);
+    KdPrint((__DRIVER_NAME "     CPU %d spinning at high...\n", KeGetCurrentProcessorNumber()));
+    InterlockedIncrement(&suspend_info->nr_spinning_high);
+    while(suspend_info->spin_state == SPIN_STATE_HIGH)
+    {
+      KeStallExecutionProcessor(1);
+      KeMemoryBarrier();
+      /* can't call HYPERVISOR_yield() here as the stubs will be reset and we will crash */
+    }
+    InterlockedDecrement(&suspend_info->nr_spinning_high);    
+    KdPrint((__DRIVER_NAME "     CPU %d done spinning at high\n", KeGetCurrentProcessorNumber()));
     KeLowerIrql(old_irql);
-    KeSetEvent(&suspend_info->stopped_spinning_event, IO_NO_INCREMENT, FALSE);
+
+    KdPrint((__DRIVER_NAME "     CPU %d spinning at dpc2...\n", KeGetCurrentProcessorNumber()));
+    InterlockedIncrement(&suspend_info->nr_spinning_dpc2);
+    while(suspend_info->spin_state == SPIN_STATE_DPC2)
+    {
+      KeStallExecutionProcessor(1);
+      KeMemoryBarrier();
+      /* can't call HYPERVISOR_yield() here as the stubs will be reset and we will crash */
+    }
+    InterlockedDecrement(&suspend_info->nr_spinning_dpc2);
+    KdPrint((__DRIVER_NAME "     CPU %d done spinning at dpc2\n", KeGetCurrentProcessorNumber()));
+    KeSetEvent(&suspend_info->spin_event, IO_NO_INCREMENT, FALSE);
     FUNCTION_EXIT();
     return;
   }
   ActiveProcessorCount = (ULONG)KeNumberProcessors;
 
-  KeRaiseIrql(HIGH_LEVEL, &old_irql);
-  
-  KdPrint((__DRIVER_NAME "     waiting for all other processors to spin\n"));
-  while (suspend_info->nr_spinning < (LONG)ActiveProcessorCount - 1)
+  KdPrint((__DRIVER_NAME "     waiting for all other processors to spin at dpc1\n"));
+  while (suspend_info->nr_spinning_dpc1 < (LONG)ActiveProcessorCount - 1)
   {
       HYPERVISOR_yield(xpdd);
       KeMemoryBarrier();
   }
-  KdPrint((__DRIVER_NAME "     all other processors are spinning\n"));
-
+  KdPrint((__DRIVER_NAME "     all other processors are spinning at dpc1\n"));
+  KeRaiseIrql(HIGH_LEVEL, &old_irql);
+  
+  suspend_info->spin_state = SPIN_STATE_HIGH;
   xpdd->suspend_state = SUSPEND_STATE_HIGH_IRQL;
   KeMemoryBarrier();
-  
+
+  KdPrint((__DRIVER_NAME "     waiting for all other processors to spin at high\n"));
+  while (suspend_info->nr_spinning_high < (LONG)ActiveProcessorCount - 1)
+  {
+      HYPERVISOR_yield(xpdd);
+      KeMemoryBarrier();
+  }
+  KdPrint((__DRIVER_NAME "     all other processors are spinning at high\n"));
   KdPrint((__DRIVER_NAME "     calling suspend\n"));
   cancelled = hvm_shutdown(Context, SHUTDOWN_suspend);
   KdPrint((__DRIVER_NAME "     back from suspend, cancelled = %d\n", cancelled));
-
+  
   XenPci_Init(xpdd);
   
   GntTbl_InitMap(Context);
@@ -423,13 +446,20 @@ XenPci_Suspend(
   {
     child->context->device_state.resume_state = RESUME_STATE_BACKEND_RESUME;
   }
-
   KeLowerIrql(old_irql);
   xpdd->suspend_state = SUSPEND_STATE_RESUMING;
+  suspend_info->spin_state = SPIN_STATE_DPC2;
   KeMemoryBarrier();
   
+  KdPrint((__DRIVER_NAME "     waiting for all other processors to spin at dpc2\n"));
+  while (suspend_info->nr_spinning_dpc2 < (LONG)ActiveProcessorCount - 1)
+  {
+      HYPERVISOR_yield(xpdd);
+      KeMemoryBarrier();
+  }
+  KdPrint((__DRIVER_NAME "     all other processors are spinning at dpc2\n"));
   KdPrint((__DRIVER_NAME "     waiting for all other processors to stop spinning\n"));
-  suspend_info->do_spin = 0;
+  suspend_info->spin_state = SPIN_STATE_NONE;
   KeMemoryBarrier();
 
 	work_item = IoAllocateWorkItem(xpdd->common.fdo);
@@ -468,26 +498,24 @@ XenPci_BeginSuspend(PDEVICE_OBJECT device_object, PVOID context)
 
     suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);
     RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO));
-    KeInitializeEvent(&suspend_info->stopped_spinning_event, SynchronizationEvent, FALSE);
-    suspend_info->do_spin = 1;
+    KeInitializeEvent(&suspend_info->spin_event, SynchronizationEvent, FALSE);
 
-    for (i = 0; i < MAX_VIRT_CPUS; i++)
-    {
-      xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
-    }
-    KeMemoryBarrier();
     EvtChn_Shutdown(xpdd);
 
     //ActiveProcessorCount = KeQueryActiveProcessorCount(&ActiveProcessorMask); // this is for Vista+
     ActiveProcessorCount = (ULONG)KeNumberProcessors;
     KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    suspend_info->spin_state = SPIN_STATE_DPC1;
     for (i = 0; i < ActiveProcessorCount; i++)
     {
       Dpc = ExAllocatePoolWithTag(NonPagedPool, sizeof(KDPC), XENPCI_POOL_TAG);
       KeInitializeDpc(Dpc, XenPci_Suspend, xpdd);
       KeSetTargetProcessorDpc(Dpc, (CCHAR)i);
+      KdPrint((__DRIVER_NAME "     queuing Dpc for CPU %d\n", i));
       KeInsertQueueDpc(Dpc, suspend_info, NULL);
     }
+    KdPrint((__DRIVER_NAME "     All Dpc's queued\n"));
+    KeMemoryBarrier();
     KeLowerIrql(OldIrql);
   }
   FUNCTION_EXIT();
@@ -553,7 +581,6 @@ XenBus_DummyXenbusThreadProc(PVOID StartContext)
   PXENPCI_DEVICE_DATA xpdd = StartContext;
   char *value;
   char *err;
-  LARGE_INTEGER wait_time;
   int thread_id;
   
   thread_id = (int)PsGetCurrentThreadId();
@@ -1039,16 +1066,45 @@ XenPci_Pnp_FilterResourceRequirementsCallback(PDEVICE_OBJECT device_object, PVOI
   NTSTATUS status = STATUS_SUCCESS;
   //PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   PIRP irp = context;
-  PIO_RESOURCE_REQUIREMENTS_LIST irrl;
-  ULONG irl;
-  ULONG ird;
+#if 0
+  PIO_RESOURCE_REQUIREMENTS_LIST old_irrl;
+  PIO_RESOURCE_REQUIREMENTS_LIST new_irrl;
+  //ULONG irl;
+  //ULONG ird;
+  PIO_RESOURCE_LIST irl;
+  PIO_RESOURCE_DESCRIPTOR ird;
+#endif
 
   UNREFERENCED_PARAMETER(device_object);
 
   FUNCTION_ENTER();
   FUNCTION_MSG(("IoStatus.status = %08X\n", irp->IoStatus.Status));
+
+#if 0  
+  /* this assumes that AlternativeLists == 1 */
+  old_irrl = (PIO_RESOURCE_REQUIREMENTS_LIST)irp->IoStatus.Information;
+  new_irrl = ExAllocatePoolWithTag(NonPagedPool, old_irrl->ListSize + sizeof(IO_RESOURCE_DESCRIPTOR) * 1, XENPCI_POOL_TAG);
+  memcpy(new_irrl, old_irrl, old_irrl->ListSize);
   
-  irrl = (PIO_RESOURCE_REQUIREMENTS_LIST)irp->IoStatus.Information;
+  irl = &new_irrl->List[0];
+  ird = &irl->Descriptors[irl->Count++];
+  RtlZeroMemory(ird, sizeof(IO_RESOURCE_DESCRIPTOR));
+  ird->Option = 0;
+  ird->Type = CmResourceTypeInterrupt;
+  ird->ShareDisposition = CmResourceShareDeviceExclusive;
+  ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+  ird->u.Interrupt.MinimumVector = 16;
+  ird->u.Interrupt.MaximumVector = 63;
+/*
+  ird->u.AffinityPolicy = IrqPolicyMachineDefault;
+  ird->u.PriorityPolicy = IrqPriorityNormal;
+  ird->u.TargetedProcessors = 0;
+*/
+
+  irp->IoStatus.Information = (ULONG_PTR)new_irrl;
+  // free old_irrl
+#endif
+/*
   for (irl = 0; irl < irrl->AlternativeLists; irl++)
   {
     for (ird = 0; ird < irrl->List[irl].Count; ird++)
@@ -1059,6 +1115,7 @@ XenPci_Pnp_FilterResourceRequirementsCallback(PDEVICE_OBJECT device_object, PVOI
       }
     }
   }
+*/
   irp->IoStatus.Status = status;
   IoCompleteRequest (irp, IO_NO_INCREMENT);
   
