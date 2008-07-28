@@ -78,7 +78,7 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
   if (xpdd->interrupts_masked)
   {
     KdPrint((__DRIVER_NAME "     unhandled interrupt\n"));
-    //KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000000, 0x00000000, 0x00000000);
+    return TRUE;
   }
     
   //ASSERT(!no_more_interrupts);
@@ -112,7 +112,7 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
         KdPrint((__DRIVER_NAME "     Unhandled Event!!!\n"));
         break;
       }
-      synch_clear_bit(port, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
+      synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
     }
   }
 
@@ -220,22 +220,22 @@ EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
 }
 
 NTSTATUS
-EvtChn_Mask(PVOID Context, evtchn_port_t Port)
+EvtChn_Mask(PVOID Context, evtchn_port_t port)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 
-  synch_set_bit(Port,
-    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[0]);
+  synch_set_bit(port & 31,
+    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[port >> 5]);
   return STATUS_SUCCESS;
 }
 
 NTSTATUS
-EvtChn_Unmask(PVOID Context, evtchn_port_t Port)
+EvtChn_Unmask(PVOID context, evtchn_port_t port)
 {
-  PXENPCI_DEVICE_DATA xpdd = Context;
+  PXENPCI_DEVICE_DATA xpdd = context;
 
-  synch_clear_bit(Port,
-    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[0]);
+  synch_clear_bit(port & 31,
+    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[port >> 5]);
   return STATUS_SUCCESS;
 }
 
@@ -261,6 +261,16 @@ EvtChn_AllocUnbound(PVOID Context, domid_t Domain)
   return op.port;
 }
 
+VOID
+EvtChn_Close(PVOID Context, evtchn_port_t port )
+{
+  PXENPCI_DEVICE_DATA xpdd = Context;
+  evtchn_close_t op;
+  op.port = port;
+  HYPERVISOR_event_channel_op(xpdd, EVTCHNOP_close, &op);
+  return;
+}
+
 NTSTATUS
 EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 {
@@ -284,7 +294,7 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
   {
     xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_pending = 0;
     xpdd->shared_info_area->vcpu_info[i].evtchn_pending_sel = 0;
-    xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
+    xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1; /* apparantly this doesn't do anything */
   }
 
   KeMemoryBarrier();
