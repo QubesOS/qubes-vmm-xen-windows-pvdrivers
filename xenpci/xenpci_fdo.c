@@ -144,7 +144,7 @@ XenPci_Init(PXENPCI_DEVICE_DATA xpdd)
   xatp.idx = 0;
   xatp.space = XENMAPSPACE_shared_info;
   xatp.gpfn = (xen_pfn_t)(xpdd->shared_info_area_unmapped.QuadPart >> PAGE_SHIFT);
-  KdPrint((__DRIVER_NAME " gpfn = %d\n", xatp.gpfn));
+  KdPrint((__DRIVER_NAME " gpfn = %x\n", xatp.gpfn));
   ret = HYPERVISOR_memory_op(xpdd, XENMEM_add_to_physmap, &xatp);
   KdPrint((__DRIVER_NAME " hypervisor memory op ret = %d\n", ret));
 
@@ -297,18 +297,13 @@ XenBus_ShutdownIoCancel(PDEVICE_OBJECT device_object, PIRP irp)
   FUNCTION_EXIT();
 }
 
-#define SPIN_STATE_NONE 0
-#define SPIN_STATE_DPC1 1
-#define SPIN_STATE_HIGH 2
-#define SPIN_STATE_DPC2 3
-
 struct {
-  volatile ULONG spin_state;
+  volatile ULONG do_spin;
   volatile ULONG abort_spin;
-  volatile LONG nr_spinning_dpc1;
-  volatile LONG nr_spinning_high;
-  volatile LONG nr_spinning_dpc2;
+  volatile LONG nr_spinning;
+  KDPC dpcs[MAX_VIRT_CPUS];
   KEVENT spin_event;
+  KEVENT resume_event;
 } typedef SUSPEND_INFO, *PSUSPEND_INFO;
 
 /* runs at PASSIVE_LEVEL */
@@ -324,15 +319,12 @@ XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
 
   xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
 
-  while (suspend_info->nr_spinning_dpc2 != 0)
+  while (suspend_info->nr_spinning)
   {
-    KdPrint((__DRIVER_NAME "     %d processors are still spinning at dpc2\n", suspend_info->nr_spinning_dpc2));
+    KdPrint((__DRIVER_NAME "     %d processors are still spinning\n", suspend_info->nr_spinning));
     KeWaitForSingleObject(&suspend_info->spin_event, Executive, KernelMode, FALSE, NULL);
   }
-  KdPrint((__DRIVER_NAME "     all other processors have stopped spinning at dpc2\n"));
-
-  /* this has to be done at PASSIVE_LEVEL */
-  //EvtChn_ConnectInterrupt(xpdd);
+  KdPrint((__DRIVER_NAME "     all other processors have stopped spinning\n"));
 
   XenBus_Resume(xpdd);
 
@@ -360,8 +352,7 @@ XenPci_Suspend(
   PSUSPEND_INFO suspend_info = SystemArgument1;
   ULONG ActiveProcessorCount;
   KIRQL old_irql;
-  int cancelled;
-  PIO_WORKITEM work_item;
+  int cancelled = 0;
   PXEN_CHILD child;
   LARGE_INTEGER spin_abort_time;
   LARGE_INTEGER current_time;
@@ -376,11 +367,12 @@ XenPci_Suspend(
 
   if (KeGetCurrentProcessorNumber() != 0)
   {
-    KdPrint((__DRIVER_NAME "     CPU %d spinning at dpc1...\n", KeGetCurrentProcessorNumber()));
+    KdPrint((__DRIVER_NAME "     CPU %d spinning...\n", KeGetCurrentProcessorNumber()));
     KeQuerySystemTime(&spin_abort_time);
-    spin_abort_time.QuadPart += 10 * 1000 * 5000;
-    InterlockedIncrement(&suspend_info->nr_spinning_dpc1);
-    while(suspend_info->spin_state == SPIN_STATE_DPC1 && !suspend_info->abort_spin)
+    spin_abort_time.QuadPart += 10 * 1000 * 10000;
+    KeRaiseIrql(HIGH_LEVEL, &old_irql);
+    InterlockedIncrement(&suspend_info->nr_spinning);
+    while(suspend_info->do_spin && !suspend_info->abort_spin)
     {
       KeStallExecutionProcessor(1);
       KeMemoryBarrier();
@@ -389,8 +381,9 @@ XenPci_Suspend(
       {
         suspend_info->abort_spin = TRUE;
         KeMemoryBarrier();
-        InterlockedDecrement(&suspend_info->nr_spinning_dpc1);    
+        InterlockedDecrement(&suspend_info->nr_spinning);
         KdPrint((__DRIVER_NAME "     CPU %d waited long enough - aborting\n", KeGetCurrentProcessorNumber()));
+KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000000, 0x00000000, 0x00000000);
         return;
       }
       /* can't call HYPERVISOR_yield() here as the stubs will be reset and we will crash */
@@ -398,76 +391,46 @@ XenPci_Suspend(
     if (suspend_info->abort_spin)
     {
       KdPrint((__DRIVER_NAME "     CPU %d spin aborted\n", KeGetCurrentProcessorNumber()));
+KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000001, 0x00000000, 0x00000000);
       return;
     }
-    InterlockedDecrement(&suspend_info->nr_spinning_dpc1);    
-    KdPrint((__DRIVER_NAME "     CPU %d done spinning at dpc1\n", KeGetCurrentProcessorNumber()));
-    KeRaiseIrql(HIGH_LEVEL, &old_irql);
-    KdPrint((__DRIVER_NAME "     CPU %d spinning at high...\n", KeGetCurrentProcessorNumber()));
-    InterlockedIncrement(&suspend_info->nr_spinning_high);
-    while(suspend_info->spin_state == SPIN_STATE_HIGH)
-    {
-      KeStallExecutionProcessor(1);
-      KeMemoryBarrier();
-      /* can't call HYPERVISOR_yield() here as the stubs will be reset and we will crash */
-    }
-    InterlockedDecrement(&suspend_info->nr_spinning_high);    
-    KdPrint((__DRIVER_NAME "     CPU %d done spinning at high\n", KeGetCurrentProcessorNumber()));
     KeLowerIrql(old_irql);
-
-    KdPrint((__DRIVER_NAME "     CPU %d spinning at dpc2...\n", KeGetCurrentProcessorNumber()));
-    InterlockedIncrement(&suspend_info->nr_spinning_dpc2);
-    while(suspend_info->spin_state == SPIN_STATE_DPC2)
-    {
-      KeStallExecutionProcessor(1);
-      KeMemoryBarrier();
-      /* can't call HYPERVISOR_yield() here as the stubs will be reset and we will crash */
-    }
-    InterlockedDecrement(&suspend_info->nr_spinning_dpc2);
-    KdPrint((__DRIVER_NAME "     CPU %d done spinning at dpc2\n", KeGetCurrentProcessorNumber()));
+    InterlockedDecrement(&suspend_info->nr_spinning);
+    KdPrint((__DRIVER_NAME "     CPU %d done spinning\n", KeGetCurrentProcessorNumber()));
     KeSetEvent(&suspend_info->spin_event, IO_NO_INCREMENT, FALSE);
     FUNCTION_EXIT();
     return;
   }
   ActiveProcessorCount = (ULONG)KeNumberProcessors;
 
-  KdPrint((__DRIVER_NAME "     waiting for all other processors to spin at dpc1\n"));
+  KdPrint((__DRIVER_NAME "     waiting for all other processors to spin\n"));
   KeQuerySystemTime(&spin_abort_time);
-  spin_abort_time.QuadPart += 10 * 1000 * 5000;
-  while (suspend_info->nr_spinning_dpc1 < (LONG)ActiveProcessorCount - 1 && !suspend_info->abort_spin)
+  spin_abort_time.QuadPart += 10 * 1000 * 10000;
+  KeRaiseIrql(HIGH_LEVEL, &old_irql);
+  xpdd->suspend_state = SUSPEND_STATE_HIGH_IRQL;
+  while (suspend_info->nr_spinning < (LONG)ActiveProcessorCount - 1 && !suspend_info->abort_spin)
   {
     KeStallExecutionProcessor(1);
     //HYPERVISOR_yield(xpdd);
     KeMemoryBarrier();
+
     KeQuerySystemTime(&current_time);
     if (current_time.QuadPart > spin_abort_time.QuadPart)
     {
       suspend_info->abort_spin = TRUE;
       KeMemoryBarrier();
-      InterlockedDecrement(&suspend_info->nr_spinning_dpc1);    
       KdPrint((__DRIVER_NAME "     CPU %d waited long enough - aborting\n", KeGetCurrentProcessorNumber()));
+KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000002, 0x00000000, 0x00000000);
       return;
     }
   }
   if (suspend_info->abort_spin)
   {
     KdPrint((__DRIVER_NAME "     CPU %d spin aborted\n", KeGetCurrentProcessorNumber()));
+KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000003, 0x00000000, 0x00000000);
     return;
   }
-  KdPrint((__DRIVER_NAME "     all other processors are spinning at dpc1\n"));
-  KeRaiseIrql(HIGH_LEVEL, &old_irql);
-  
-  suspend_info->spin_state = SPIN_STATE_HIGH;
-  xpdd->suspend_state = SUSPEND_STATE_HIGH_IRQL;
-  KeMemoryBarrier();
-
-  KdPrint((__DRIVER_NAME "     waiting for all other processors to spin at high\n"));
-  while (suspend_info->nr_spinning_high < (LONG)ActiveProcessorCount - 1)
-  {
-      HYPERVISOR_yield(xpdd);
-      KeMemoryBarrier();
-  }
-  KdPrint((__DRIVER_NAME "     all other processors are spinning at high\n"));
+  KdPrint((__DRIVER_NAME "     all other processors are spinning\n"));
   KdPrint((__DRIVER_NAME "     calling suspend\n"));
   cancelled = hvm_shutdown(Context, SHUTDOWN_suspend);
   KdPrint((__DRIVER_NAME "     back from suspend, cancelled = %d\n", cancelled));
@@ -485,23 +448,15 @@ XenPci_Suspend(
   }
   KeLowerIrql(old_irql);
   xpdd->suspend_state = SUSPEND_STATE_RESUMING;
-  suspend_info->spin_state = SPIN_STATE_DPC2;
-  KeMemoryBarrier();
-  
-  KdPrint((__DRIVER_NAME "     waiting for all other processors to spin at dpc2\n"));
-  while (suspend_info->nr_spinning_dpc2 < (LONG)ActiveProcessorCount - 1)
-  {
-      HYPERVISOR_yield(xpdd);
-      KeMemoryBarrier();
-  }
-  KdPrint((__DRIVER_NAME "     all other processors are spinning at dpc2\n"));
-  KdPrint((__DRIVER_NAME "     waiting for all other processors to stop spinning\n"));
-  suspend_info->spin_state = SPIN_STATE_NONE;
-  KeMemoryBarrier();
+  suspend_info->do_spin = FALSE;
+  KeMemoryBarrier();  
+  KeSetEvent(&suspend_info->resume_event, IO_NO_INCREMENT, FALSE);
 
+/*
 	work_item = IoAllocateWorkItem(xpdd->common.fdo);
+  KdPrint((__DRIVER_NAME "     work_item = %x\n", work_item));
 	IoQueueWorkItem(work_item, XenPci_CompleteResume, DelayedWorkQueue, suspend_info);
-  
+*/  
   FUNCTION_EXIT();
 }
 
@@ -514,7 +469,7 @@ XenPci_BeginSuspend(PDEVICE_OBJECT device_object, PVOID context)
   ULONG ActiveProcessorCount;
   ULONG i;
   PSUSPEND_INFO suspend_info;
-  PKDPC Dpc;
+  //PKDPC Dpc;
   KIRQL OldIrql;
   PXEN_CHILD child;
 
@@ -525,35 +480,40 @@ XenPci_BeginSuspend(PDEVICE_OBJECT device_object, PVOID context)
   {
     xpdd->suspend_state = SUSPEND_STATE_SCHEDULED;
     KeMemoryBarrier();
+
+    suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);
+    RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO));
+    KeInitializeEvent(&suspend_info->spin_event, SynchronizationEvent, FALSE);
+    KeInitializeEvent(&suspend_info->resume_event, SynchronizationEvent, FALSE);
     
     for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
     {
       XenPci_Pdo_Suspend(child->context->common.pdo);
     }
 
-    XenBus_StopThreads(xpdd);
-
-    suspend_info = ExAllocatePoolWithTag(NonPagedPool, sizeof(SUSPEND_INFO), XENPCI_POOL_TAG);
-    RtlZeroMemory(suspend_info, sizeof(SUSPEND_INFO));
-    KeInitializeEvent(&suspend_info->spin_event, SynchronizationEvent, FALSE);
+    XenBus_Suspend(xpdd);
 
     EvtChn_Shutdown(xpdd);
 
     //ActiveProcessorCount = KeQueryActiveProcessorCount(&ActiveProcessorMask); // this is for Vista+
     ActiveProcessorCount = (ULONG)KeNumberProcessors;
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
-    suspend_info->spin_state = SPIN_STATE_DPC1;
+    /* Go to HIGH_LEVEL to prevent any races with Dpc's on the current processor */
+    KeRaiseIrql(HIGH_LEVEL, &OldIrql);
+    suspend_info->do_spin = TRUE;
     for (i = 0; i < ActiveProcessorCount; i++)
     {
-      Dpc = ExAllocatePoolWithTag(NonPagedPool, sizeof(KDPC), XENPCI_POOL_TAG);
-      KeInitializeDpc(Dpc, XenPci_Suspend, xpdd);
-      KeSetTargetProcessorDpc(Dpc, (CCHAR)i);
+      //Dpc = ExAllocatePoolWithTag(NonPagedPool, sizeof(KDPC), XENPCI_POOL_TAG);
+      KeInitializeDpc(&suspend_info->dpcs[i], XenPci_Suspend, xpdd);
+      KeSetTargetProcessorDpc(&suspend_info->dpcs[i], (CCHAR)i);
+      KeSetImportanceDpc(&suspend_info->dpcs[i], HighImportance);
       KdPrint((__DRIVER_NAME "     queuing Dpc for CPU %d\n", i));
-      KeInsertQueueDpc(Dpc, suspend_info, NULL);
+      KeInsertQueueDpc(&suspend_info->dpcs[i], suspend_info, NULL);
     }
     KdPrint((__DRIVER_NAME "     All Dpc's queued\n"));
     KeMemoryBarrier();
     KeLowerIrql(OldIrql);
+    KeWaitForSingleObject(&suspend_info->resume_event, Executive, KernelMode, FALSE, NULL);
+    XenPci_CompleteResume(device_object, suspend_info);
   }
   FUNCTION_EXIT();
 }
@@ -662,6 +622,7 @@ XenPci_SysrqHandler(char *path, PVOID context)
   PXENPCI_DEVICE_DATA xpdd = context;
   NTSTATUS status;
   HANDLE thread_handle;
+  PIO_WORKITEM work_item;
   char *value;
   char letter;
   char *res;
@@ -702,6 +663,11 @@ XenPci_SysrqHandler(char *path, PVOID context)
     break;
   case 'X':
     status = PsCreateSystemThread(&thread_handle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_DummyXenbusThreadProc, xpdd);
+    break;
+  case 'S':
+    /* call shutdown from here for testing */
+  	work_item = IoAllocateWorkItem(xpdd->common.fdo);
+    IoQueueWorkItem(work_item, XenPci_BeginSuspend, DelayedWorkQueue, NULL);
     break;
   default:
     KdPrint(("     Unhandled sysrq letter %c\n", letter));

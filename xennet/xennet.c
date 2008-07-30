@@ -177,7 +177,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
     switch(type)
     {
     case XEN_INIT_TYPE_RING: /* frontend ring */
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
+      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
       if (strcmp(setting, "tx-ring-ref") == 0)
       {
         FRONT_RING_INIT(&xi->tx, (netif_tx_sring_t *)value, PAGE_SIZE);
@@ -187,7 +187,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       }
       break;
     case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel */
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
+      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
       if (strcmp(setting, "event-channel") == 0)
       {
         xi->event_channel = PtrToUlong(value);
@@ -195,7 +195,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       break;
     case XEN_INIT_TYPE_READ_STRING_BACK:
     case XEN_INIT_TYPE_READ_STRING_FRONT:
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
+      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
       if (strcmp(setting, "mac") == 0)
       {
         char *s, *e;
@@ -211,7 +211,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       }
       break;
     case XEN_INIT_TYPE_VECTORS:
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
+      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
       if (((PXENPCI_VECTORS)value)->length != sizeof(XENPCI_VECTORS) ||
         ((PXENPCI_VECTORS)value)->magic != XEN_DATA_MAGIC)
       {
@@ -224,7 +224,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
         memcpy(&xi->vectors, value, sizeof(XENPCI_VECTORS));
       break;
     case XEN_INIT_TYPE_STATE_PTR:
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
+      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
       xi->device_state = (PXENPCI_DEVICE_STATE)value;
       break;
     default:

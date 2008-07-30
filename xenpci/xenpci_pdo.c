@@ -428,6 +428,7 @@ XenPci_XenShutdownDevice(PVOID Context)
         break;
       case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
         EvtChn_Unbind(xpdd, PtrToUlong(value));
+        EvtChn_Close(xpdd, PtrToUlong(value));
         break;
       case XEN_INIT_TYPE_GRANT_ENTRIES:
         for (i = 0; i < PtrToUlong(setting); i++)
@@ -513,7 +514,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
     case XEN_INIT_TYPE_RUN:
       run = TRUE;
     case XEN_INIT_TYPE_WRITE_STRING: /* frontend setting = value */
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_WRITE_STRING - %s = %s\n", setting, value));
+      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_WRITE_STRING - %s = %s\n", setting, value));
       RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
       XenBus_Printf(xpdd, XBT_NIL, path, "%s", value);
       break;
@@ -522,7 +523,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
       if ((ring = AllocatePage()) != 0)
       {
         address = MmGetMdlVirtualAddress(ring);
-        KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, address));
+        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, address));
         SHARED_RING_INIT((struct dummy_sring *)address);
         if ((gref = GntTbl_GrantAccess(
           xpdd, 0, (ULONG)*MmGetMdlPfnArray(ring), FALSE, 0)) != 0)
@@ -553,7 +554,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
     case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
       if ((event_channel = EvtChn_AllocUnbound(xpdd, 0)) != 0)
       {
-        KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, event_channel));
+        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, event_channel));
         RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
         XenBus_Printf(xpdd, XBT_NIL, path, "%d", event_channel);
         ADD_XEN_INIT_RSP(&out_ptr, type, setting, UlongToPtr(event_channel));
@@ -597,13 +598,13 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
       res = XenBus_Read(xpdd, XBT_NIL, path, &value);
       if (res)
       {
-        KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = <failed>\n", setting));
+        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = <failed>\n", setting));
         XenPci_FreeMem(res);
         ADD_XEN_INIT_RSP(&out_ptr, type, setting, NULL);
       }
       else
       {
-        KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
+        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
         ADD_XEN_INIT_RSP(&out_ptr, type, setting, value);
         XenPci_FreeMem(value);
       }
@@ -612,7 +613,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
       // this is always done so ignore the request
       break;
     case XEN_INIT_TYPE_GRANT_ENTRIES:
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(value)));
+      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(value)));
       __ADD_XEN_INIT_UCHAR(&out_ptr, type);
       __ADD_XEN_INIT_UCHAR(&xppdd->assigned_resources_ptr, type);
       __ADD_XEN_INIT_ULONG(&out_ptr, PtrToUlong(value));
@@ -661,14 +662,6 @@ XenPci_GetBackendAndAddWatch(PDEVICE_OBJECT device_object)
   PCHAR res;
   PCHAR value;
 
-  if (strlen(xppdd->backend_path) != 0)
-  {
-    // this must be the restore path - remove the existing watch
-    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-    KdPrint((__DRIVER_NAME "    Removing old watch on %s\n", path));
-    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
-  }
-  
   /* Get backend path */
   RtlStringCbPrintfA(path, ARRAY_SIZE(path),
     "%s/backend", xppdd->path);
@@ -707,15 +700,12 @@ XenPci_Pdo_Resume(PDEVICE_OBJECT device_object)
   FUNCTION_ENTER();
 
   old_backend_state = xppdd->backend_state;
-  status = XenPci_GetBackendAndAddWatch(device_object);
-  if (!NT_SUCCESS(status)) {
-    KdPrint((__DRIVER_NAME "     Failed to remove old watch\n"));
-    FUNCTION_ERROR_EXIT();
-    return status;
-  }
-  
-  if (xppdd->common.current_pnp_state == Started && old_backend_state == XenbusStateClosed)
+
+  //if (xppdd->common.current_pnp_state == Started && old_backend_state == XenbusStateClosed)
+  if (xppdd->restart_on_resume)
   {  
+    status = XenPci_GetBackendAndAddWatch(device_object);
+  
     if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
     {
       KdPrint((__DRIVER_NAME "     Failed to change frontend state to Initialising\n"));
@@ -764,12 +754,19 @@ XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object)
 {
   NTSTATUS status = STATUS_SUCCESS;
   PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
   LARGE_INTEGER wait_time;
+  char path[128];
+  PUCHAR in_ptr;
+  UCHAR type;
+  PVOID setting;
+  PVOID value;
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (%s | %s)\n", xppdd->path, xppdd->device));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (%s)\n", xppdd->path));
 
   if (xppdd->backend_state == XenbusStateConnected)
   {
+    xppdd->restart_on_resume = TRUE;
     xppdd->device_state.resume_state_ack = RESUME_STATE_RUNNING;
     KeMemoryBarrier();
     xppdd->device_state.resume_state = RESUME_STATE_SUSPENDING;
@@ -788,8 +785,33 @@ XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object)
 
     XenPci_ChangeFrontendState(xppdd, XenbusStateClosing, XenbusStateClosing, 30000);
     XenPci_ChangeFrontendState(xppdd, XenbusStateClosed, XenbusStateClosed, 30000);
+    XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000);
+
+    if (xppdd->assigned_resources_start != NULL)
+    {
+      in_ptr = xppdd->assigned_resources_ptr;
+      ADD_XEN_INIT_RSP(&in_ptr, XEN_INIT_TYPE_END, NULL, NULL);
+      in_ptr = xppdd->assigned_resources_start;
+      while((type = GET_XEN_INIT_RSP(&in_ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+      {
+        switch (type)
+        {
+        case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+        case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
+          EvtChn_Close(xpdd, PtrToUlong(value));
+          break;
+        }
+      }
+    }
+
+    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);  
   }
-  
+  else
+  {
+    xppdd->restart_on_resume = FALSE;
+  }
+
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   
   return status;

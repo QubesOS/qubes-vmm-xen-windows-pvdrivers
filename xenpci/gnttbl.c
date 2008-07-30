@@ -225,6 +225,7 @@ GntTbl_InitMap(PXENPCI_DEVICE_DATA xpdd)
     GntTbl_PutRef(xpdd, i);
   
   GntTbl_Map(xpdd, 0, grant_frames - 1);
+  RtlZeroMemory(xpdd->gnttab_table, PAGE_SIZE * grant_frames);
 }
 
 VOID

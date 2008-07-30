@@ -198,9 +198,9 @@ typedef struct {
   ev_action_t ev_actions[NR_EVENTS];
 //  unsigned long bound_ports[NR_EVENTS/(8*sizeof(unsigned long))];
 
-  HANDLE XenBus_ReadThreadHandle;
+  PKTHREAD XenBus_ReadThread;
   KEVENT XenBus_ReadThreadEvent;
-  HANDLE XenBus_WatchThreadHandle;
+  PKTHREAD XenBus_WatchThread;
   KEVENT XenBus_WatchThreadEvent;
 
   KSPIN_LOCK xenbus_id_lock;
@@ -259,6 +259,7 @@ typedef struct {
   PUCHAR assigned_resources_start;
   PUCHAR assigned_resources_ptr;
   XENPCI_DEVICE_STATE device_state;
+  BOOLEAN restart_on_resume;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 typedef struct
@@ -402,6 +403,8 @@ XenBus_Start(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
 XenBus_Stop(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
+XenBus_Suspend(PXENPCI_DEVICE_DATA xpdd);
+NTSTATUS
 XenBus_Resume(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
 XenBus_StopThreads(PXENPCI_DEVICE_DATA xpdd);
@@ -430,6 +433,8 @@ NTSTATUS
 EvtChn_Unbind(PVOID Context, evtchn_port_t Port);
 NTSTATUS
 EvtChn_Notify(PVOID Context, evtchn_port_t Port);
+VOID
+EvtChn_Close(PVOID Context, evtchn_port_t Port);
 evtchn_port_t
 EvtChn_AllocUnbound(PVOID Context, domid_t Domain);
 
