@@ -943,7 +943,7 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
     XENPCI_POOL_TAG);
   
   irrl->ListSize = length;
-  irrl->InterfaceType = PCIBus;
+  irrl->InterfaceType = Internal;
   irrl->BusNumber = 0;
   irrl->SlotNumber = 0;
   irrl->AlternativeLists = 1;
