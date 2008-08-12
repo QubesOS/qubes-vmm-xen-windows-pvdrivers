@@ -26,26 +26,20 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
 {
   unsigned short id;
   PMDL mdl;
-  int i, batch_target, notify;
+  ULONG i, notify;
+  ULONG batch_target;
   RING_IDX req_prod = xi->rx.req_prod_pvt;
   netif_rx_request_t *req;
-#if DBG
-  int cycles = 0;
-#endif
-#if defined(XEN_PROFILE)
-  LARGE_INTEGER tsc, dummy;
-#endif
 
 //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-#if defined(XEN_PROFILE)
-  tsc = KeQueryPerformanceCounter(&dummy);
-#endif
 
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
 
+  if (batch_target < (xi->rx_target >> 2))
+    return NDIS_STATUS_SUCCESS; /* only refill if we are less than 3/4 full already */
+
   for (i = 0; i < batch_target; i++)
   {
-    ASSERT(cycles++ < 256);
     if (xi->rx_id_free == 0)
     {
       KdPrint((__DRIVER_NAME "     Added %d out of %d buffers to rx ring (ran out of id's)\n", i, batch_target));
@@ -61,7 +55,6 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
 
     /* Give to netback */
     id = (USHORT)((req_prod + i) & (NET_RX_RING_SIZE - 1));
-//    KdPrint((__DRIVER_NAME "     id = %d\n", id));
     ASSERT(xi->rx_mdls[id] == NULL);
     xi->rx_mdls[id] = mdl;
     req = RING_GET_REQUEST(&xi->rx, req_prod + i);
@@ -76,15 +69,105 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
     xi->vectors.EvtChn_Notify(xi->vectors.context, xi->event_channel);
   }
 
-
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-#if defined(XEN_PROFILE)
-  ProfTime_RxBufferAlloc.QuadPart += KeQueryPerformanceCounter(&dummy).QuadPart - tsc.QuadPart;
-  ProfCount_RxBufferAlloc++;
-#endif
-
   return NDIS_STATUS_SUCCESS;
+}
+
+static PNDIS_PACKET
+get_packet_from_freelist(struct xennet_info *xi)
+{
+  NDIS_STATUS status;
+  PNDIS_PACKET packet;
+
+  if (!xi->rx_packet_free)
+  {
+    NdisAllocatePacket(&status, &packet, xi->packet_pool);
+    ASSERT(status == NDIS_STATUS_SUCCESS);
+    NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
+  }
+  else
+  {
+    xi->rx_packet_free--;
+    packet = xi->rx_packet_list[xi->rx_packet_free];
+  }
+  return packet;
+}
+
+static VOID
+put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
+{
+  NdisReinitializePacket(packet);
+  xi->rx_packet_list[xi->rx_packet_free] = packet;
+  xi->rx_packet_free++;
+}
+
+static VOID
+packet_freelist_dispose(struct xennet_info *xi)
+{
+  while(xi->rx_packet_free != 0)
+  {
+    xi->rx_packet_free--;
+    NdisFreePacket(xi->rx_packet_list[xi->rx_packet_free]);
+  }
+}
+
+static PNDIS_PACKET
+XenNet_MakePacket(struct xennet_info *xi)
+{
+  PNDIS_PACKET packet;
+  PUCHAR in_buffer;
+  PNDIS_BUFFER out_mdl;
+  PUCHAR out_buffer;
+  USHORT out_offset;
+  USHORT out_remaining;
+  USHORT length;
+  USHORT new_ip4_length;
+  //NDIS_STATUS status;
+  USHORT i;
+
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  if (!xi->rxpi.split_required)
+  {
+    packet = get_packet_from_freelist(xi);
+    xi->rx_outstanding++;
+    for (i = 0; i < xi->rxpi.mdl_count; i++)
+      NdisChainBufferAtBack(packet, xi->rxpi.mdls[i]);
+    NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
+  }
+  else
+  {
+    out_mdl = XenFreelist_GetPage(&xi->rx_freelist);
+    if (!out_mdl)
+      return NULL;
+    packet = get_packet_from_freelist(xi);
+    xi->rx_outstanding++;
+    out_buffer = MmGetMdlVirtualAddress(out_mdl);
+    out_offset = XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
+    out_remaining = min(xi->rxpi.mss, xi->rxpi.tcp_remaining);
+    NdisAdjustBufferLength(out_mdl, out_offset + out_remaining);
+    memcpy(out_buffer, xi->rxpi.header, out_offset);
+    new_ip4_length = out_remaining + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
+    SET_NET_USHORT(out_buffer[XN_HDR_SIZE + 2], new_ip4_length);
+    SET_NET_ULONG(out_buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4], xi->rxpi.tcp_seq);
+    xi->rxpi.tcp_seq += out_remaining;
+    xi->rxpi.tcp_remaining = xi->rxpi.tcp_remaining - out_remaining;
+    do 
+    {
+      ASSERT(xi->rxpi.curr_mdl < xi->rxpi.mdl_count);
+      in_buffer = XenNet_GetData(&xi->rxpi, out_remaining, &length);
+      memcpy(&out_buffer[out_offset], in_buffer, length);
+      out_remaining = out_remaining - length;
+      out_offset = out_offset + length;
+    } while (out_remaining != 0); // && in_buffer != NULL);
+    NdisChainBufferAtBack(packet, out_mdl);
+    XenNet_SumIpHeader(out_buffer, xi->rxpi.ip4_header_length);
+    NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
+  }
+
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (%p)\n", packet));
+  return packet;
 }
 
 /*
@@ -109,12 +192,8 @@ XenNet_SumPacketData(
   PUSHORT csum_ptr;
   USHORT remaining;
   USHORT ip4_length;
-
+  
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  #if defined(XEN_PROFILE)
-  ProfCount_RxPacketsCsumOffload++;
-  #endif
 
   NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);
   ASSERT(mdl);
@@ -190,114 +269,20 @@ XenNet_SumPacketData(
     csum = (csum & 0xFFFF) + (csum >> 16);
   *csum_ptr = (USHORT)~GET_NET_USHORT(csum);
 
-//  KdPrint((__DRIVER_NAME "     csum = %04x\n", *csum_ptr));
-
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
-static PNDIS_PACKET
-get_packet_from_freelist(struct xennet_info *xi)
-{
-  NDIS_STATUS status;
-  PNDIS_PACKET packet;
-
-  if (!xi->rx_packet_free)
-  {
-    NdisAllocatePacket(&status, &packet, xi->packet_pool);
-    ASSERT(status == NDIS_STATUS_SUCCESS);
-    NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
-  }
-  else
-  {
-    xi->rx_packet_free--;
-    packet = xi->rx_packet_list[xi->rx_packet_free];
-  }
-  return packet;
-}
-
-static VOID
-put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
-{
-  NdisReinitializePacket(packet);
-  xi->rx_packet_list[xi->rx_packet_free] = packet;
-  xi->rx_packet_free++;
-}
-
-static VOID
-packet_freelist_dispose(struct xennet_info *xi)
-{
-  while(xi->rx_packet_free != 0)
-  {
-    xi->rx_packet_free--;
-    NdisFreePacket(xi->rx_packet_list[xi->rx_packet_free]);
-  }
-}
-
-static PNDIS_PACKET
-XenNet_MakePacket(
-  struct xennet_info *xi
-)
-{
-  PNDIS_PACKET packet;
-  PUCHAR in_buffer;
-  PNDIS_BUFFER out_mdl;
-  PUCHAR out_buffer;
-  USHORT out_offset;
-  USHORT out_remaining;
-  USHORT length;
-  USHORT new_ip4_length;
-  //NDIS_STATUS status;
-  USHORT i;
-
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  packet = get_packet_from_freelist(xi);
-  xi->rx_outstanding++;
-
-  if (!xi->rxpi.split_required)
-  {
-    for (i = 0; i < xi->rxpi.mdl_count; i++)
-      NdisChainBufferAtBack(packet, xi->rxpi.mdls[i]);
-    NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
-  }
-  else
-  {
-    out_mdl = XenFreelist_GetPage(&xi->rx_freelist);
-    out_buffer = MmGetMdlVirtualAddress(out_mdl);
-    out_offset = XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
-    out_remaining = min(xi->rxpi.mss, xi->rxpi.tcp_remaining);
-    NdisAdjustBufferLength(out_mdl, out_offset + out_remaining);
-    memcpy(out_buffer, xi->rxpi.header, out_offset);
-    new_ip4_length = out_remaining + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
-    SET_NET_USHORT(out_buffer[XN_HDR_SIZE + 2], new_ip4_length);
-    SET_NET_ULONG(out_buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4], xi->rxpi.tcp_seq);
-    xi->rxpi.tcp_seq += out_remaining;
-    xi->rxpi.tcp_remaining = xi->rxpi.tcp_remaining - out_remaining;
-    do 
-    {
-      ASSERT(xi->rxpi.curr_mdl < xi->rxpi.mdl_count);
-      in_buffer = XenNet_GetData(&xi->rxpi, out_remaining, &length);
-      memcpy(&out_buffer[out_offset], in_buffer, length);
-      out_remaining = out_remaining - length;
-      out_offset = out_offset + length;
-    } while (out_remaining != 0); // && in_buffer != NULL);
-    NdisChainBufferAtBack(packet, out_mdl);
-    XenNet_SumIpHeader(out_buffer, xi->rxpi.ip4_header_length);
-    NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
-  }
-
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (%p)\n", packet));
-  return packet;
-}
-
-static VOID
+static ULONG
 XenNet_MakePackets(
   struct xennet_info *xi,
-  PNDIS_PACKET *packets,
-  PULONG packet_count_p
+  PLIST_ENTRY rx_packet_list
 )
 {
   USHORT i;
+  ULONG packet_count = 0;
+  PNDIS_PACKET packet;
+  PLIST_ENTRY entry;
+  UCHAR psh;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "(packets = %p, packet_count = %d)\n", packets, *packet_count_p));
 
@@ -309,44 +294,65 @@ XenNet_MakePackets(
       break;
     // fallthrough
   case 17:  // UDP
-    ASSERT(*packet_count_p < NET_RX_RING_SIZE);
-    packets[*packet_count_p] = XenNet_MakePacket(xi);
+    packet = XenNet_MakePacket(xi);
     if (xi->rxpi.csum_calc_required)
-      XenNet_SumPacketData(&xi->rxpi, packets[*packet_count_p]);
-    (*packet_count_p)++;
-    return;
+      XenNet_SumPacketData(&xi->rxpi, packet);
+    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
+    InsertTailList(rx_packet_list, entry);
+    RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));
+    return 1;
   default:
-    ASSERT(*packet_count_p < NET_RX_RING_SIZE);
-    packets[*packet_count_p] = XenNet_MakePacket(xi);
-    (*packet_count_p)++;
-    return;
+    packet = XenNet_MakePacket(xi);
+    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
+    InsertTailList(rx_packet_list, entry);
+    RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));
+    return 1;
   }
-//  KdPrint((__DRIVER_NAME "     splitting packet\n"));
+
   xi->rxpi.tcp_remaining = xi->rxpi.tcp_length;
   if (MmGetMdlByteCount(xi->rxpi.mdls[0]) > (ULONG)(XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length))
     xi->rxpi.curr_mdl_offset = XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
   else
     xi->rxpi.curr_mdl = 1;
 
+  // we can make this assumption as we are only ever doing this for tcp4
+  psh = xi->rxpi.header[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 14] & 16;
   while (xi->rxpi.tcp_remaining)
   {
-    ASSERT(*packet_count_p < NET_RX_RING_SIZE);
-    packets[*packet_count_p] = XenNet_MakePacket(xi);
-    XenNet_SumPacketData(&xi->rxpi, packets[*packet_count_p]);
-    (*packet_count_p)++;
+    PUCHAR buffer;
+    PMDL mdl;
+    UINT total_length;
+    UINT buffer_length;
+    packet = XenNet_MakePacket(xi);
+    if (!packet)
+      break; /* we are out of memory - just drop the packets */
+    if (psh)
+    {
+      NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);
+      if (xi->rxpi.tcp_remaining)
+      {
+        buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 14] &= ~16;
+      }
+      else
+        buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 14] |= 16;
+    }
+    XenNet_SumPacketData(&xi->rxpi, packet);
+    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
+    InsertTailList(rx_packet_list, entry);
+    packet_count++;
   }
 
   ASSERT(xi->rxpi.curr_mdl == xi->rxpi.mdl_count);
-  // TODO: restore psh status to last packet
   for (i = 0; i < xi->rxpi.mdl_count; i++)
   {
     NdisAdjustBufferLength(xi->rxpi.mdls[i], PAGE_SIZE);
     XenFreelist_PutPage(&xi->rx_freelist, xi->rxpi.mdls[i]);
   }
+  RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));  
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (split)\n"));
+  return packet_count;
 }
 
-#define MAXIMUM_PACKETS_PER_INTERRUPT 128
 #define MAXIMUM_PACKETS_PER_INDICATE 32
 
 // Called at DISPATCH_LEVEL
@@ -354,14 +360,11 @@ NDIS_STATUS
 XenNet_RxBufferCheck(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
-  /* the highest number of packets we receive could be (65535 - header) / mss
-     for a low mss this could be even higher than NET_RX_RING_SIZE...
-     what can we do? */
-  PNDIS_PACKET packets[NET_RX_RING_SIZE];
+  LIST_ENTRY rx_packet_list;
+  PLIST_ENTRY entry;
+  PNDIS_PACKET packets[MAXIMUM_PACKETS_PER_INDICATE];
   ULONG packet_count = 0;
-  ULONG total_packets = 0;
   PMDL mdl;
-  int moretodo;
   struct netif_rx_response *rxrsp = NULL;
   struct netif_extra_info *ei;
   USHORT id;
@@ -372,13 +375,14 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
 
+  InitializeListHead(&rx_packet_list);
   //KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " xi->rx.sring->rsp_prod = %d, xi->rx.rsp_cons = %d\n", xi->rx.sring->rsp_prod, xi->rx.rsp_cons));
-    
+
   do {
     prod = xi->rx.sring->rsp_prod;
-    KeMemoryBarrier(); /* Ensure we see responses up to 'rp'. */
+    KeMemoryBarrier(); /* Ensure we see responses up to 'prop'. */
 
-    for (cons = xi->rx.rsp_cons; cons != prod && packet_count < MAXIMUM_PACKETS_PER_INDICATE; cons++)
+    for (cons = xi->rx.rsp_cons; cons != prod; cons++)
     {
       id = (USHORT)(cons & (NET_RX_RING_SIZE - 1));
       ASSERT(xi->rx_mdls[id]);
@@ -437,37 +441,37 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       /* Packet done, add it to the list */
       if (!xi->rxpi.more_frags && !xi->rxpi.extra_info)
       {
-        /* we should probably check here and make sure that we have enough
-           space for these packets, and if we don't, defer MakePackets until
-           we have Indicated the current packets... */
-        XenNet_MakePackets(xi, packets, &packet_count);
-        RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));
+        packet_count += XenNet_MakePackets(xi, &rx_packet_list);
       }
     }
     xi->rx.rsp_cons = cons;
-
-    XenNet_RxBufferAlloc(xi);
-
-    if (packet_count > 0)
+    if (!RING_HAS_UNCONSUMED_RESPONSES(&xi->rx))
     {
-      KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
-      NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
-      KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
-      total_packets += packet_count;
-      packet_count = 0;
+      xi->rx.sring->rsp_event = cons + 1; //new_ring_buffer_size + 1;
+      KeMemoryBarrier();
     }
+  } while (RING_HAS_UNCONSUMED_RESPONSES(&xi->rx));
 
-    RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, moretodo);
-  } while (moretodo && total_packets < MAXIMUM_PACKETS_PER_INTERRUPT);
+  if (xi->rxpi.more_frags || xi->rxpi.extra_info)
+    KdPrint((__DRIVER_NAME "     Partial receive (more_frags = %d, extra_info = %d, total_length = %d, mdl_count = %d)\n", xi->rxpi.more_frags, xi->rxpi.extra_info, xi->rxpi.total_length, xi->rxpi.mdl_count));
 
   /* Give netback more buffers */
   XenNet_RxBufferAlloc(xi);
 
-  if (xi->rxpi.more_frags || xi->rxpi.extra_info)
-    KdPrint(("Partial receive (more_frags = %d, extra_info = %d, total_length = %d, mdl_count = %d)\n", xi->rxpi.more_frags, xi->rxpi.extra_info, xi->rxpi.total_length, xi->rxpi.mdl_count));
-
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 
+  entry = RemoveHeadList(&rx_packet_list);
+  packet_count = 0;
+  while (entry != &rx_packet_list)
+  {
+    packets[packet_count++] = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
+    entry = RemoveHeadList(&rx_packet_list);
+    if (packet_count == MAXIMUM_PACKETS_PER_INDICATE || entry == &rx_packet_list)
+    {
+      NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
+      packet_count = 0;
+    }
+  }
   return NDIS_STATUS_SUCCESS;
 }
 
@@ -574,7 +578,6 @@ XenNet_RxInit(xennet_info_t *xi)
   }
 
   xi->rx_outstanding = 0;
-
   XenFreelist_Init(xi, &xi->rx_freelist, &xi->rx_lock);
 
   XenNet_RxBufferAlloc(xi);

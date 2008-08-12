@@ -115,7 +115,6 @@ typedef struct {
   PXEN_GNTTBL_ENDACCESS GntTbl_EndAccess;
   PXEN_XENPCI_XEN_CONFIG_DEVICE XenPci_XenConfigDevice;
   PXEN_XENPCI_XEN_SHUTDOWN_DEVICE XenPci_XenShutdownDevice;
-
 } XENPCI_VECTORS, *PXENPCI_VECTORS;
 
 #define RESUME_STATE_RUNNING            0

@@ -130,13 +130,13 @@ XenNet_InterruptIsr(
   //FUNCTION_ENTER();
 
   *QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
-  *InterruptRecognized = FALSE; /* we can't be sure here... */
+  *InterruptRecognized = TRUE;
 
   //FUNCTION_EXIT();
 }
 
 static DDKAPI VOID
-XenNet_InterruptDpc(NDIS_HANDLE  MiniportAdapterContext)
+XenNet_InterruptDpc(NDIS_HANDLE MiniportAdapterContext)
 {
   struct xennet_info *xi = MiniportAdapterContext;
 
@@ -399,6 +399,7 @@ XenNet_Init(
   KeInitializeSpinLock(&xi->rx_lock);
 
   InitializeListHead(&xi->tx_waiting_pkt_list);
+  InitializeListHead(&xi->tx_sent_pkt_list);
 
   NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN * 8,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
@@ -560,7 +561,7 @@ XenNet_Init(
   KeMemoryBarrier(); // packets could be received anytime after we set Frontent to Connected
 
   status = NdisMRegisterInterrupt(&xi->interrupt, MiniportAdapterHandle, irq_vector, irq_level,
-    TRUE, TRUE, NdisInterruptLatched);
+    TRUE, FALSE, NdisInterruptLatched);
   if (!NT_SUCCESS(status))
   {
     KdPrint(("NdisMRegisterInterrupt failed with 0x%x\n", status));

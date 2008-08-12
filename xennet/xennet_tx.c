@@ -22,12 +22,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define FREELIST_ID_ERROR 0xFFFF
 
-#ifdef XEN_PROFILE
-#define PC_INC(var) var++
-#else
-#define PC_INC(var)
-#endif
-
 static ULONG
 free_requests(struct xennet_info *xi)
 {
@@ -86,7 +80,7 @@ XenNet_PutOnTxRing(
 
   id = get_id_from_freelist(xi);
   ASSERT(id != FREELIST_ID_ERROR);
-  ASSERT(xi->tx_pkts[id] == NULL);
+  //ASSERT(xi->tx_pkts[id] == NULL);
   tx = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
   tx->gref = get_grant_ref(mdl);
   xi->tx_mdls[id] = mdl;
@@ -94,7 +88,6 @@ XenNet_PutOnTxRing(
   tx->offset = 0;
   tx->size = (USHORT)MmGetMdlByteCount(mdl);
   tx->flags = flags;
-  PC_INC(ProfCount_TxPacketsTotal);
 
   return tx;
 }
@@ -109,7 +102,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   struct netif_tx_request *tx = NULL;
   struct netif_extra_info *ei = NULL;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
-  UINT total_packet_length;
+  //UINT total_packet_length;
   ULONG mss;
   PMDL in_mdl;
   PUCHAR in_buffer = NULL;
@@ -123,15 +116,12 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   int pages_required;
   int page_num;
   USHORT copied;
+  UINT first_buffer_length; /* not used */
+  UINT total_length;
   
-#if defined(XEN_PROFILE)
-  LARGE_INTEGER tsc, dummy;
-
-  tsc = KeQueryPerformanceCounter(&dummy);
-#endif
-
   RtlZeroMemory(&pi, sizeof(pi));
-
+  NdisGetFirstBufferFromPacketSafe(packet, &in_mdl, &pi.header, &first_buffer_length, &total_length, NormalPagePriority);
+  
   csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
     packet, TcpIpChecksumPacketInfo);
   mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
@@ -139,9 +129,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   if (mss)
     ndis_lso = TRUE;
 
-  NdisQueryPacket(packet, NULL, NULL, &in_mdl, &total_packet_length);
-
-  pages_required = (total_packet_length + PAGE_SIZE - 1) / PAGE_SIZE;
+  pages_required = (total_length + PAGE_SIZE - 1) / PAGE_SIZE;
 
   if (pages_required + !!ndis_lso > (int)free_requests(xi))
   {
@@ -152,8 +140,16 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   for (page_num = 0, in_remaining = 0; page_num < pages_required; page_num++)
   {
     pi.mdls[page_num] = XenFreelist_GetPage(&xi->tx_freelist);
+    if (!pi.mdls[page_num])
+    {
+      KdPrint((__DRIVER_NAME "     Out of buffers on send\n"));
+      pages_required = page_num;
+      for (page_num = 0; page_num < pages_required; page_num++)
+        XenFreelist_PutPage(&xi->tx_freelist, pi.mdls[page_num]);
+      return FALSE;
+    }
     out_buffer = MmGetMdlVirtualAddress(pi.mdls[page_num]);
-    out_remaining = (USHORT)min(PAGE_SIZE, total_packet_length - page_num * PAGE_SIZE);
+    out_remaining = (USHORT)min(PAGE_SIZE, total_length - page_num * PAGE_SIZE);
     NdisAdjustBufferLength(pi.mdls[page_num], out_remaining);
     while (out_remaining > 0)
     {
@@ -180,7 +176,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     || csum_info->Transmit.NdisPacketUdpChecksum)
   {
     flags |= NETTXF_csum_blank | NETTXF_data_validated;
-    PC_INC(ProfCount_TxPacketsCsumOffload);
   }
 
   if (ndis_lso)
@@ -202,7 +197,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 
   /* (A) */
   tx = XenNet_PutOnTxRing(xi, pi.mdls[0], flags);
-  tx->size = (USHORT)total_packet_length;
+  tx->size = (USHORT)total_length;
   xi->tx.req_prod_pvt++;
 
   /* (B) */
@@ -229,13 +224,14 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   }
 
   /* only set the packet on the last buffer, clear more_data */
-  xi->tx_pkts[tx->id] = packet;
   tx->flags &= ~NETTXF_more_data;
 
   if (ndis_lso)
   {
     NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo) = UlongToPtr(pi.tcp_length);
   }
+
+  xi->stat_tx_ok++;
 
   return TRUE;
 }
@@ -254,10 +250,12 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   /* if empty, the above returns head*, not NULL */
   while (entry != &xi->tx_waiting_pkt_list)
   {
-    //KdPrint((__DRIVER_NAME "     Packet ready to send\n"));
     packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
+    //KdPrint((__DRIVER_NAME "     Packet ready to send\n"));
     success = XenNet_HWSendPacket(xi, packet);
-    if (!success)
+    if (success)
+      InsertTailList(&xi->tx_sent_pkt_list, entry);
+    else
     {
       InsertHeadList(&xi->tx_waiting_pkt_list, entry);
       break;
@@ -272,22 +270,51 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   }
 }
 
+// Called at <= DISPATCH_LEVEL with tx spinlock _NOT_ held
+static VOID
+XenNet_ReturnSentPackets(struct xennet_info *xi)
+{
+  PLIST_ENTRY entry;
+  PNDIS_PACKET packets[32];
+  int packet_index = 0;
+  int i = 0;
+  KIRQL old_irql;
+  
+  old_irql = KeRaiseIrqlToDpcLevel();
+  KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
+  entry = RemoveHeadList(&xi->tx_sent_pkt_list);
+  
+  while (entry != &xi->tx_sent_pkt_list)
+  {
+    packets[packet_index++] = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
+    entry = RemoveHeadList(&xi->tx_sent_pkt_list);
+    // try to minimize the need to acquire the spinlock repeatedly
+    if (packet_index == 32 || entry == &xi->tx_sent_pkt_list)
+    {
+      KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
+      for (i = 0; i < packet_index; i++)
+        NdisMSendComplete(xi->adapter_handle, packets[i], NDIS_STATUS_SUCCESS);
+      if (entry != &xi->tx_sent_pkt_list) /* don't acquire the lock if we have no more packets to SendComplete */
+        KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
+      packet_index = 0;
+    }
+  }
+  if (!i) /* i will be == 0 if we didn't SendComplete any packets, and thus we will still have the lock */
+    KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
+  KeLowerIrql(old_irql);
+}
+
 // Called at DISPATCH_LEVEL
 NDIS_STATUS
 XenNet_TxBufferGC(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
   unsigned short id;
-  PNDIS_PACKET packets[NET_TX_RING_SIZE];
-  ULONG packet_count = 0;
-  int moretodo;
-  ULONG i;
 
   ASSERT(xi->connected);
   ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
 
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
@@ -302,20 +329,12 @@ XenNet_TxBufferGC(struct xennet_info *xi)
       txrsp = RING_GET_RESPONSE(&xi->tx, cons);
       if (txrsp->status == NETIF_RSP_NULL)
       {
-//        KdPrint((__DRIVER_NAME "     NETIF_RSP_NULL\n"));
         put_no_id_on_freelist(xi);
         continue; // This would be the response to an extra_info packet
       }
 
       id = txrsp->id;
  
-      packets[packet_count] = xi->tx_pkts[id];
-      if (packets[packet_count])
-      {
-        xi->tx_pkts[id] = NULL;
-        packet_count++;
-        xi->stat_tx_ok++;
-      }
       if (xi->tx_mdls[id])
       {
         NdisAdjustBufferLength(xi->tx_mdls[id], PAGE_SIZE);
@@ -326,25 +345,16 @@ XenNet_TxBufferGC(struct xennet_info *xi)
     }
 
     xi->tx.rsp_cons = prod;
-
-    RING_FINAL_CHECK_FOR_RESPONSES(&xi->tx, moretodo);
-  } while (moretodo);
+    xi->tx.sring->rsp_event = prod + (NET_TX_RING_SIZE >> 2);
+    KeMemoryBarrier();
+  } while (prod != xi->tx.sring->rsp_prod);
 
   /* if queued packets, send them now */
   XenNet_SendQueuedPackets(xi);
 
   KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
-//  if (packet_count)
-//    KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " %d packets completed\n"));
-  for (i = 0; i < packet_count; i++)
-  {
-    /* A miniport driver must release any spin lock that it is holding before
-       calling NdisMSendComplete. */
-    NdisMSendComplete(xi->adapter_handle, packets[i], NDIS_STATUS_SUCCESS);
-  }
-
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  XenNet_ReturnSentPackets(xi);
 
   return NDIS_STATUS_SUCCESS;
 }
@@ -379,7 +389,8 @@ XenNet_SendPackets(
     XenNet_SendQueuedPackets(xi);
 
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
-
+  
+  XenNet_ReturnSentPackets(xi);
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
@@ -388,7 +399,7 @@ XenNet_TxResumeStart(xennet_info_t *xi)
 {
   int i;
   KIRQL old_irql;
-  PLIST_ENTRY entry;
+//  PLIST_ENTRY entry;
 
   KeAcquireSpinLock(&xi->tx_lock, &old_irql);
   for (i = 0; i < NET_TX_RING_SIZE; i++)
@@ -398,6 +409,7 @@ XenNet_TxResumeStart(xennet_info_t *xi)
       XenFreelist_PutPage(&xi->tx_freelist, xi->tx_mdls[i]);
       xi->tx_mdls[i] = NULL;
     }
+#if 0
     /* this may result in packets being sent out of order... I don't think it matters though */
     if (xi->tx_pkts[i])
     {
@@ -406,6 +418,7 @@ XenNet_TxResumeStart(xennet_info_t *xi)
       InsertTailList(&xi->tx_waiting_pkt_list, entry);
       xi->tx_pkts[i] = 0;
     }
+#endif
   }
   XenFreelist_ResumeStart(&xi->tx_freelist);
   xi->tx_id_free = 0;
@@ -424,6 +437,7 @@ XenNet_TxResumeEnd(xennet_info_t *xi)
   XenFreelist_ResumeEnd(&xi->tx_freelist);
   XenNet_SendQueuedPackets(xi);
   KeReleaseSpinLock(&xi->tx_lock, old_irql);
+  XenNet_ReturnSentPackets(xi);
 }
 
 BOOLEAN
@@ -478,9 +492,11 @@ XenNet_TxShutdown(xennet_info_t *xi)
   /* free sent-but-not-completed packets */
   for (i = 0; i < NET_TX_RING_SIZE; i++)
   {
+/*  
     packet = xi->tx_pkts[i];
     if (packet)
       NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
+*/
     mdl = xi->tx_mdls[i];
     if (mdl)
       XenFreelist_PutPage(&xi->tx_freelist, xi->tx_mdls[i]);

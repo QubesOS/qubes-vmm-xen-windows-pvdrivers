@@ -99,20 +99,26 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
       handled = TRUE;
       port = (evt_word << 5) + evt_bit;
       ev_action = &xpdd->ev_actions[port];
+      ev_action->count++;
       switch (ev_action->type)
       {
       case EVT_ACTION_TYPE_NORMAL:
+        synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
         break;
+      case EVT_ACTION_TYPE_IRQ:
+        synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
+        sw_interrupt((UCHAR)ev_action->vector);
+        break;
       case EVT_ACTION_TYPE_DPC:
-      case EVT_ACTION_TYPE_IRQ: /* we have to call the IRQ from DPC or we risk mucking up IRQLs */
+        synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
         break;
       default:
+        synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         KdPrint((__DRIVER_NAME "     Unhandled Event!!!\n"));
         break;
       }
-      synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
     }
   }
 
@@ -282,7 +288,7 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
   {
     EvtChn_Mask(xpdd, i);
     xpdd->ev_actions[i].type = EVT_ACTION_TYPE_EMPTY;
-    xpdd->ev_actions[i].Count = 0;
+    xpdd->ev_actions[i].count = 0;
   }
 
   for (i = 0; i < 8; i++)

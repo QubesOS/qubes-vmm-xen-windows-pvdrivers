@@ -119,7 +119,7 @@ XenNet_QueryInformation(
       temp_data = NdisMedium802_3;
       break;
     case OID_GEN_MAXIMUM_LOOKAHEAD:
-      temp_data = XN_DATA_SIZE;
+      temp_data = PAGE_SIZE; //XN_DATA_SIZE;
       break;
     case OID_GEN_MAXIMUM_FRAME_SIZE:
       // According to the specs, OID_GEN_MAXIMUM_FRAME_SIZE does not include the header, so
@@ -132,7 +132,6 @@ XenNet_QueryInformation(
     case OID_GEN_TRANSMIT_BUFFER_SPACE:
       /* pkts times sizeof ring, maybe? */
       /* multiply this by some small number as we can queue additional packets */
-//      temp_data = XN_MAX_PKT_SIZE * NET_TX_RING_SIZE;
       temp_data = PAGE_SIZE * NET_TX_RING_SIZE * 4;
       break;
     case OID_GEN_RECEIVE_BUFFER_SPACE:

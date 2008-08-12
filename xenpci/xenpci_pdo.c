@@ -817,6 +817,18 @@ XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object)
   return status;
 }
 
+VOID
+XenPci_DumpPdoConfig(PDEVICE_OBJECT device_object)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+
+  KdPrint((__DRIVER_NAME "     path = %s\n", xppdd->path));
+  KdPrint((__DRIVER_NAME "     backend_path = %s\n", xppdd->backend_path));
+  KdPrint((__DRIVER_NAME "     irq_number = %d\n", xppdd->irq_number));
+  KdPrint((__DRIVER_NAME "     irq_level = %d\n", xppdd->irq_level));
+  KdPrint((__DRIVER_NAME "     irq_vector = %x\n", xppdd->irq_vector));
+}
+
 static NTSTATUS
 XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 {
@@ -839,6 +851,22 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
   if (!NT_SUCCESS(status)) {
     FUNCTION_ERROR_EXIT();
     return status;
+  }
+
+  prl = &stack->Parameters.StartDevice.AllocatedResources->List[0].PartialResourceList;
+  for (i = 0; i < prl->Count; i++)
+  {
+    prd = & prl->PartialDescriptors[i];
+    switch (prd->Type)
+    {
+    case CmResourceTypeInterrupt:
+      KdPrint((__DRIVER_NAME "     CmResourceTypeInterrupt\n"));
+      KdPrint((__DRIVER_NAME "     irq_number = %02x\n", prd->u.Interrupt.Vector));
+      //KdPrint((__DRIVER_NAME "     irq_level = %d\n", prd->u.Interrupt.Level));
+      xppdd->irq_number = prd->u.Interrupt.Vector;
+      //xppdd->irq_level = (KIRQL)prd->u.Interrupt.Level;
+      break;
+    }
   }
 
   prl = &stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList;
@@ -1346,6 +1374,23 @@ XenPci_Irp_Read_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 
 NTSTATUS
 XenPci_Irp_Cleanup_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  FUNCTION_ENTER();
+  
+  status = irp->IoStatus.Status;
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
+  
+  FUNCTION_EXIT();
+
+  return status;
+}
+
+DDKAPI NTSTATUS
+XenPci_SystemControl_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
 

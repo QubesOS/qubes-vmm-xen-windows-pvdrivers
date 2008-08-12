@@ -73,7 +73,7 @@ typedef struct _ev_action_t {
   ULONG type; /* EVT_ACTION_TYPE_* */
   KDPC Dpc;
   ULONG vector;
-  ULONG Count;
+  ULONG count;
   PVOID xpdd;
 } ev_action_t;
 
@@ -246,6 +246,7 @@ typedef struct {
   char path[128];
   char device[128];
   ULONG index;
+  ULONG irq_number;
   ULONG irq_vector;
   KIRQL irq_level;
   char backend_path[128];
@@ -355,6 +356,8 @@ NTSTATUS
 XenPci_Irp_Read_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_Irp_Cleanup_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_SystemControl_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
 
 NTSTATUS
 XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
@@ -370,11 +373,16 @@ NTSTATUS
 XenPci_Irp_Read_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_Irp_Cleanup_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_SystemControl_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 
 NTSTATUS
 XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object);
 NTSTATUS
 XenPci_Pdo_Resume(PDEVICE_OBJECT device_object);
+
+VOID
+XenPci_DumpPdoConfig(PDEVICE_OBJECT device_object);
 
 char *
 XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value);

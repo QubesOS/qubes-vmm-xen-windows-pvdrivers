@@ -117,6 +117,41 @@ XenPci_Irp_Cleanup(PDEVICE_OBJECT device_object, PIRP irp)
 }
 
 static DDKAPI NTSTATUS
+XenPci_SystemControl(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PXENPCI_COMMON common = device_object->DeviceExtension;
+  
+  if (common->lower_do)
+    status = XenPci_SystemControl_Fdo(device_object, irp);
+  else
+    status = XenPci_SystemControl_Pdo(device_object, irp);  
+
+  return status;
+}
+
+static DDKAPI NTSTATUS
+XenPci_Dummy(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  PXENPCI_COMMON common = device_object->DeviceExtension;
+  
+  FUNCTION_ENTER();
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  stack = IoGetCurrentIrpStackLocation(irp);
+  KdPrint((__DRIVER_NAME "     Major = %d, Minor = %d\n", stack->MajorFunction, stack->MinorFunction));
+  IoSkipCurrentIrpStackLocation(irp);
+  status = IoCallDriver(common->lower_do, irp);
+
+  FUNCTION_EXIT();
+  
+  return status;
+}
+
+static DDKAPI NTSTATUS
 XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObject)
 {
   NTSTATUS status;
@@ -207,10 +242,10 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   DriverObject->MajorFunction[IRP_MJ_CREATE] = XenPci_Irp_Create;
   DriverObject->MajorFunction[IRP_MJ_CLOSE] = XenPci_Irp_Close;
   DriverObject->MajorFunction[IRP_MJ_CLEANUP] = XenPci_Irp_Cleanup;
-  DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = NULL; //XenPci_Dummy;
+  DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = XenPci_Dummy;
   DriverObject->MajorFunction[IRP_MJ_READ] = XenPci_Irp_Read;
-  DriverObject->MajorFunction[IRP_MJ_WRITE] = NULL; //XenPci_Dummy;
-  DriverObject->MajorFunction[IRP_MJ_SYSTEM_CONTROL] = NULL; //XenPci_Dummy;
+  DriverObject->MajorFunction[IRP_MJ_WRITE] = XenPci_Dummy;
+  DriverObject->MajorFunction[IRP_MJ_SYSTEM_CONTROL] = XenPci_SystemControl;
 
   FUNCTION_EXIT();
 

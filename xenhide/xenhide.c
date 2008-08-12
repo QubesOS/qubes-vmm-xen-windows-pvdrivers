@@ -349,8 +349,13 @@ XenHide_Pass(PDEVICE_OBJECT DeviceObject, PIRP Irp)
   PXENHIDE_DEVICE_DATA xhdd = (PXENHIDE_DEVICE_DATA)DeviceObject->DeviceExtension;
   NTSTATUS status;
     
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
   IoSkipCurrentIrpStackLocation(Irp);
   status = IoCallDriver(xhdd->lower_do, Irp);
+
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+
   return status;
 }
 
@@ -413,7 +418,7 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   ULONG i, j;
   KIRQL old_irql;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (device_object = %p)\n", device_object));
 
   stack = IoGetCurrentIrpStackLocation(irp);
 
@@ -437,7 +442,7 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     if (xhdd->hide_type == XENHIDE_TYPE_PCI_BUS && stack->Parameters.QueryDeviceRelations.Type == BusRelations)
     {
       //KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS - BusRelations\n"));
-      IoMarkIrpPending(irp);
+      //IoMarkIrpPending(irp);
       status = XenHide_SendAndWaitForIrp(device_object, irp);
       relations = (PDEVICE_RELATIONS)irp->IoStatus.Information;
       for (i = 0, j = 0; i < relations->Count; i++)
@@ -465,11 +470,22 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     }
     else
     {
+      //KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_DEVICE_RELATIONS - %d\n", stack->Parameters.QueryDeviceRelations.Type));
       IoSkipCurrentIrpStackLocation(irp);
       status = IoCallDriver(xhdd->lower_do, irp);
     }
     break;
+  case IRP_MN_REMOVE_DEVICE:
+    //KdPrint((__DRIVER_NAME "     IRP_MN_REMOVE_DEVICE\n"));
+    IoSkipCurrentIrpStackLocation(irp);
+    status = IoCallDriver(xhdd->lower_do, irp);
+    IoDetachDevice(xhdd->lower_do);
+    IoDeleteDevice(device_object);
+    //irp->IoStatus.Status = status;
+    //IoCompleteRequest(irp, IO_NO_INCREMENT);
+    break;
   default:
+    //KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));
     IoSkipCurrentIrpStackLocation(irp);
     status = IoCallDriver(xhdd->lower_do, irp);
     break;

@@ -103,7 +103,6 @@ XenStub_Irp_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   {
   case IRP_MN_START_DEVICE:
     //KdPrint((__DRIVER_NAME "     IRP_MN_START_DEVICE\n"));
-    IoMarkIrpPending(irp);
     status = XenStub_SendAndWaitForIrp(device_object, irp);
     status = irp->IoStatus.Status = STATUS_SUCCESS;
     IoCompleteRequest(irp, IO_NO_INCREMENT);
@@ -256,6 +255,28 @@ XenStub_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObje
 }
 
 NTSTATUS
+XenStub_Pass(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  PXENSTUB_DEVICE_DATA xsdd = device_object->DeviceExtension;
+  
+  FUNCTION_ENTER();
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  stack = IoGetCurrentIrpStackLocation(irp);
+  //KdPrint((__DRIVER_NAME "     Minor = %d\n", stack->MinorFunction));
+  IoSkipCurrentIrpStackLocation(irp);
+  status = IoCallDriver(xsdd->lower_do, irp);
+
+  FUNCTION_EXIT();
+  
+  return status;
+}
+
+
+NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
   NTSTATUS status = STATUS_SUCCESS;
@@ -267,13 +288,13 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   DriverObject->DriverExtension->AddDevice = XenStub_AddDevice;
   DriverObject->MajorFunction[IRP_MJ_PNP] = XenStub_Irp_Pnp;
   DriverObject->MajorFunction[IRP_MJ_POWER] = XenStub_Irp_Power;
-  DriverObject->MajorFunction[IRP_MJ_CREATE] = NULL;
-  DriverObject->MajorFunction[IRP_MJ_CLOSE] = NULL;
-  DriverObject->MajorFunction[IRP_MJ_CLEANUP] = NULL;
-  DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = NULL;
-  DriverObject->MajorFunction[IRP_MJ_READ] = NULL;
-  DriverObject->MajorFunction[IRP_MJ_WRITE] = NULL;
-  DriverObject->MajorFunction[IRP_MJ_SYSTEM_CONTROL] = NULL;
+  DriverObject->MajorFunction[IRP_MJ_CREATE] = XenStub_Pass;
+  DriverObject->MajorFunction[IRP_MJ_CLOSE] = XenStub_Pass;
+  DriverObject->MajorFunction[IRP_MJ_CLEANUP] = XenStub_Pass;
+  DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = XenStub_Pass;
+  DriverObject->MajorFunction[IRP_MJ_READ] = XenStub_Pass;
+  DriverObject->MajorFunction[IRP_MJ_WRITE] = XenStub_Pass;
+  DriverObject->MajorFunction[IRP_MJ_SYSTEM_CONTROL] = XenStub_Pass;
 
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 

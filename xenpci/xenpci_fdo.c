@@ -40,7 +40,6 @@ XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   POWER_STATE_TYPE power_type;
   POWER_STATE power_state;
   PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
-  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
 
   UNREFERENCED_PARAMETER(device_object);
   
@@ -53,6 +52,7 @@ XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   switch (stack->MinorFunction)
   {
   case IRP_MN_POWER_SEQUENCE:
+    //irp->IoStatus.Status = STATUS_NOT_IMPLEMENTED;
     KdPrint((__DRIVER_NAME "     IRP_MN_POWER_SEQUENCE\n"));
     break;
   case IRP_MN_QUERY_POWER:
@@ -68,15 +68,19 @@ XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
       KdPrint((__DRIVER_NAME "     SystemPowerState\n"));
       break;
     default:
-      break;
+      KdPrint((__DRIVER_NAME "     %d\n", power_type));
     }    
     break;
   case IRP_MN_WAIT_WAKE:
+    KdPrint((__DRIVER_NAME "     IRP_MN_WAIT_WAKE\n"));
     break;
+  default:
+    KdPrint((__DRIVER_NAME "     IRP_MN_%d\n", stack->MinorFunction));
+    break;  
   }
   PoStartNextPowerIrp(irp);
   IoSkipCurrentIrpStackLocation(irp);
-  status =  PoCallDriver (xpdd->common.lower_do, irp);
+  status = PoCallDriver(xpdd->common.lower_do, irp);
   
   FUNCTION_EXIT();
 
@@ -616,6 +620,17 @@ XenBus_DummyXenbusThreadProc(PVOID StartContext)
   }
 }
 
+static VOID 
+XenPci_DumpPdoConfigs(PXENPCI_DEVICE_DATA xpdd)
+{
+  PXEN_CHILD child;
+
+  for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
+  {
+    XenPci_DumpPdoConfig(child->context->common.pdo);
+  }  
+}
+
 static VOID
 XenPci_SysrqHandler(char *path, PVOID context)
 {
@@ -658,6 +673,8 @@ XenPci_SysrqHandler(char *path, PVOID context)
 
   switch (letter)
   {
+  case 0:
+    break;
   case 'B':
     KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000001, 0x00000000, 0x00000000, 0x00000000);
     break;
@@ -668,6 +685,10 @@ XenPci_SysrqHandler(char *path, PVOID context)
     /* call shutdown from here for testing */
   	work_item = IoAllocateWorkItem(xpdd->common.fdo);
     IoQueueWorkItem(work_item, XenPci_BeginSuspend, DelayedWorkQueue, NULL);
+    break;
+  case 'C':
+    /* call shutdown from here for testing */
+  	XenPci_DumpPdoConfigs(xpdd);
     break;
   default:
     KdPrint(("     Unhandled sysrq letter %c\n", letter));
@@ -1211,7 +1232,7 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   PIO_STACK_LOCATION stack;
   PXENPCI_DEVICE_DATA xpdd;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
 
@@ -1344,14 +1365,14 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
     break;
     
   default:
-    //KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));
+    KdPrint((__DRIVER_NAME "     Unhandled Minor = %d\n", stack->MinorFunction));
     IoSkipCurrentIrpStackLocation(irp);
     break;
   }
 
   status = IoCallDriver(xpdd->common.lower_do, irp);
 
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
 
   return status;
 }
@@ -1445,6 +1466,27 @@ XenPci_Irp_Cleanup_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   
   FUNCTION_EXIT();
 
+  return status;
+}
+
+DDKAPI NTSTATUS
+XenPci_SystemControl_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  PXENPCI_COMMON common = device_object->DeviceExtension;
+  
+  FUNCTION_ENTER();
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  stack = IoGetCurrentIrpStackLocation(irp);
+  KdPrint((__DRIVER_NAME "     Minor = %d\n", stack->MinorFunction));
+  IoSkipCurrentIrpStackLocation(irp);
+  status = IoCallDriver(common->lower_do, irp);
+
+  FUNCTION_EXIT();
+  
   return status;
 }
 

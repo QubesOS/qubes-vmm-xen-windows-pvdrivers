@@ -55,7 +55,7 @@ XenNet_ParsePacketHeader(
     pi->ip4_header_length = (pi->header[XN_HDR_SIZE + 0] & 0x0F) << 2;
     if (header_length < (ULONG)(pi->ip4_header_length + 20))
     {
-      KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d\n", XN_HDR_SIZE + header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)));
+      KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (1)\n", XN_HDR_SIZE + header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)));
       // we need to do something conclusive here...
       return PARSE_TOO_SMALL;
     }
@@ -78,7 +78,7 @@ XenNet_ParsePacketHeader(
 
   if (header_length < (ULONG)(pi->ip4_header_length + pi->tcp_header_length))
   {
-    KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d\n", XN_HDR_SIZE + header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)));
+    KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (2)\n", XN_HDR_SIZE + header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)));
     return PARSE_TOO_SMALL;
   }
 
@@ -172,6 +172,8 @@ XenFreelist_Timer(
     for (i = 0; i < (int)min(16, fl->page_free_lowest - fl->page_free_target); i++)
     {
       mdl = XenFreelist_GetPage(fl);
+      if (!mdl)
+        break;
       fl->xi->vectors.GntTbl_EndAccess(fl->xi->vectors.context,
         *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
       FreePages(mdl);
@@ -206,6 +208,8 @@ XenFreelist_GetPage(freelist_t *fl)
   if (fl->page_free == 0)
   {
     mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
+    if (!mdl)
+      return NULL;
     pfn = *MmGetMdlPfnArray(mdl);
     *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->vectors.GntTbl_GrantAccess(
       fl->xi->vectors.context, 0,

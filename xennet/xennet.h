@@ -189,11 +189,12 @@ struct xennet_info
   /* tx related - protected by tx_lock */
   KSPIN_LOCK tx_lock;
   LIST_ENTRY tx_waiting_pkt_list;
+  LIST_ENTRY tx_sent_pkt_list;
   struct netif_tx_front_ring tx;
   ULONG tx_id_free;
   ULONG tx_no_id_used;
   USHORT tx_id_list[NET_TX_RING_SIZE];
-  PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
+  //PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
   PNDIS_BUFFER tx_mdls[NET_TX_RING_SIZE];
   freelist_t tx_freelist;
 
