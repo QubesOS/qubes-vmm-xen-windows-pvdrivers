@@ -1,4 +1,4 @@
-VERSION=0.9.10.11
+VERSION=0.9.10.12
 TARGETPATH=..\Target\$(DDK_TARGET_OS)
 MSC_WARNING_LEVEL=/W4
 INCLUDES = ..\common\include;..\common\include\public

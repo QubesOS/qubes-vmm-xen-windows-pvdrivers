@@ -40,10 +40,20 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
   ULONG status;
   HW_INITIALIZATION_DATA HwInitializationData;
+  PCONFIGURATION_INFORMATION conf_info;
 
   KdPrint((__DRIVER_NAME " --> "__FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
+  conf_info = IoGetConfigurationInformation();
+  KdPrint((__DRIVER_NAME "     conf_info->DiskCount = %d\n", conf_info->DiskCount));
+  if (conf_info->DiskCount)
+  {
+    KdPrint((__DRIVER_NAME "     Not loaded at boot time so not loading\n"));
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+    return STATUS_UNSUCCESSFUL;
+  }
+  
   RtlZeroMemory(&HwInitializationData, sizeof(HW_INITIALIZATION_DATA));
 
   HwInitializationData.HwInitializationDataSize = sizeof(HW_INITIALIZATION_DATA);

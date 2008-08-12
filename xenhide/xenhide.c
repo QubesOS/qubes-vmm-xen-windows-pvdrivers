@@ -38,6 +38,7 @@ XenHide_AddDevice();
 #endif
 
 static BOOLEAN gplpv;
+static BOOLEAN at_boot;
 static BOOLEAN qemu_ide_device_filter_installed;
 static BOOLEAN qemu_scsi_device_filter_installed;
 static KEVENT add_device_event;
