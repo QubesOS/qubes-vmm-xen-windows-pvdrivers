@@ -93,7 +93,12 @@ EvtChn_AckEvent(PVOID context, evtchn_port_t port)
 static DDKAPI BOOLEAN
 EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
 {
-  int cpu = KeGetCurrentProcessorNumber() & (MAX_VIRT_CPUS - 1);
+/*
+For HVM domains, Xen always triggers the event on CPU0. Because the
+interrupt is delivered via the virtual PCI device it might get delivered
+to CPU != 0, but we should always use vcpu_info[0]
+*/
+  int cpu = 0;
   vcpu_info_t *vcpu_info;
   PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)Context;
   shared_info_t *shared_info_area = xpdd->shared_info_area;

@@ -83,7 +83,8 @@ get_packet_from_freelist(struct xennet_info *xi)
   if (!xi->rx_packet_free)
   {
     NdisAllocatePacket(&status, &packet, xi->packet_pool);
-    ASSERT(status == NDIS_STATUS_SUCCESS);
+    if (status != NDIS_STATUS_SUCCESS)
+      return NULL;
     NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
   }
   else
@@ -97,6 +98,12 @@ get_packet_from_freelist(struct xennet_info *xi)
 static VOID
 put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
 {
+  if (xi->rx_packet_free == NET_RX_RING_SIZE * 2 - 1)
+  {
+    //KdPrint((__DRIVER_NAME "     packet free list full - releasing packet\n"));
+    NdisFreePacket(packet);
+    return;
+  }
   NdisReinitializePacket(packet);
   xi->rx_packet_list[xi->rx_packet_free] = packet;
   xi->rx_packet_free++;
@@ -131,6 +138,12 @@ XenNet_MakePacket(struct xennet_info *xi)
   if (!xi->rxpi.split_required)
   {
     packet = get_packet_from_freelist(xi);
+    if (packet == NULL)
+    {
+      for (i = 0; i < xi->rxpi.mdl_count; i++)
+        XenFreelist_PutPage(&xi->rx_freelist, xi->rxpi.mdls[i]);
+      return NULL;
+    }
     xi->rx_outstanding++;
     for (i = 0; i < xi->rxpi.mdl_count; i++)
       NdisChainBufferAtBack(packet, xi->rxpi.mdls[i]);
@@ -142,6 +155,11 @@ XenNet_MakePacket(struct xennet_info *xi)
     if (!out_mdl)
       return NULL;
     packet = get_packet_from_freelist(xi);
+    if (packet == NULL)
+    {
+      XenFreelist_PutPage(&xi->rx_freelist, out_mdl);
+      return NULL;
+    }
     xi->rx_outstanding++;
     out_buffer = MmGetMdlVirtualAddress(out_mdl);
     out_offset = XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
@@ -295,6 +313,11 @@ XenNet_MakePackets(
     // fallthrough
   case 17:  // UDP
     packet = XenNet_MakePacket(xi);
+    if (packet == NULL)
+    {
+      xi->stat_rx_no_buffer++;
+      return 0;
+    }
     if (xi->rxpi.csum_calc_required)
       XenNet_SumPacketData(&xi->rxpi, packet);
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
@@ -303,6 +326,11 @@ XenNet_MakePackets(
     return 1;
   default:
     packet = XenNet_MakePacket(xi);
+    if (packet == NULL)
+    {
+      xi->stat_rx_no_buffer++;
+      return 0;
+    }
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
     RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));
@@ -325,7 +353,10 @@ XenNet_MakePackets(
     UINT buffer_length;
     packet = XenNet_MakePacket(xi);
     if (!packet)
+    {
+      xi->stat_rx_no_buffer++;
       break; /* we are out of memory - just drop the packets */
+    }
     if (psh)
     {
       NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);

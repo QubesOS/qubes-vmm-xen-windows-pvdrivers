@@ -230,8 +230,18 @@ XenFreelist_GetPage(freelist_t *fl)
 VOID
 XenFreelist_PutPage(freelist_t *fl, PMDL mdl)
 {
-  fl->page_list[fl->page_free] = mdl;
-  fl->page_free++;
+  if (fl->page_free == PAGE_LIST_SIZE - 1)
+  {
+    /* our page list is full. free the buffer instead. This will be a bit sucky performancewise... */
+    fl->xi->vectors.GntTbl_EndAccess(fl->xi->vectors.context,
+      *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
+    FreePages(mdl);
+  }
+  else
+  {
+    fl->page_list[fl->page_free] = mdl;
+    fl->page_free++;
+  }
 }
 
 VOID
