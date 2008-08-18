@@ -520,13 +520,11 @@ XenNet_RxBufferFree(struct xennet_info *xi)
 
   for (i = 0; i < NET_RX_RING_SIZE; i++)
   {
-    KdPrint((__DRIVER_NAME "     Ring slot %d = %p\n", i, xi->rx_mdls[i]));
     if (!xi->rx_mdls[i])
       continue;
 
     mdl = xi->rx_mdls[i];
     NdisAdjustBufferLength(mdl, PAGE_SIZE);
-    KdPrint((__DRIVER_NAME "     Calling PutPage - page_free = %d\n", xi->rx_freelist.page_free));
     XenFreelist_PutPage(&xi->rx_freelist, mdl);
   }
 }

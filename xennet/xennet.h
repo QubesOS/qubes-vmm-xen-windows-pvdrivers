@@ -69,7 +69,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define ETH_ALEN 6
 
-
 #define __NET_USHORT_BYTE_0(x) ((USHORT)(x & 0xFF))
 #define __NET_USHORT_BYTE_1(x) ((USHORT)((PUCHAR)&x)[1] & 0xFF)
 
@@ -79,6 +78,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define GET_NET_ULONG(x) ((GET_NET_USHORT(x) << 16) | GET_NET_USHORT(((PUCHAR)&x)[2]))
 #define SET_NET_ULONG(y, x) *((ULONG *)&(y)) = ((GET_NET_USHORT(x) << 16) | GET_NET_USHORT(((PUCHAR)&x)[2]))
 
+#define SUPPORTED_PACKET_FILTERS (\
+  NDIS_PACKET_TYPE_DIRECTED | \
+  NDIS_PACKET_TYPE_MULTICAST | \
+  NDIS_PACKET_TYPE_BROADCAST | \
+  NDIS_PACKET_TYPE_ALL_MULTICAST)
 
 /* couldn't get regular xen ring macros to work...*/
 #define __NET_RING_SIZE(type, _sz) \

@@ -61,6 +61,13 @@ HKR, Ndi\Params\ScatterGather, type, , "enum"
 HKR, Ndi\Params\ScatterGather\enum, 0, , "Disabled"
 HKR, Ndi\Params\ScatterGather\enum, 1, , "Enabled"
 
+HKR, Ndi\Params\NetworkAddress, ParamDesc, , "Locally Administered Address"
+HKR, Ndi\Params\NetworkAddress, Type, , "edit"
+HKR, Ndi\Params\NetworkAddress, LimitText, , "12"
+HKR, Ndi\Params\NetworkAddress, UpperCase, , "1"
+HKR, Ndi\Params\NetworkAddress, Default, , ""
+HKR, Ndi\Params\NetworkAddress, Optional, , "1"
+
 [XenNet.CopyFiles]
 xennet.sys
 xenconfig.sys

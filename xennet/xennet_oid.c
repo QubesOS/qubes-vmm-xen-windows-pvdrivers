@@ -60,6 +60,8 @@ NDIS_OID supported_oids[] =
   OID_TCP_TASK_OFFLOAD,
 };
 
+
+
 /* return 4 or 8 depending on size of buffer */
 #define HANDLE_STAT_RETURN \
   {if (InformationBufferLength == 4) { \
@@ -458,6 +460,30 @@ XenNet_SetInformation(
       break;
     case OID_GEN_CURRENT_PACKET_FILTER:
       KdPrint(("Set OID_GEN_CURRENT_PACKET_FILTER\n"));
+      if (*(ULONG *)data & NDIS_PACKET_TYPE_DIRECTED)
+        KdPrint(("  NDIS_PACKET_TYPE_DIRECTED\n"));
+      if (*(ULONG *)data & NDIS_PACKET_TYPE_MULTICAST)
+        KdPrint(("  NDIS_PACKET_TYPE_MULTICAST\n"));
+      if (*(ULONG *)data & NDIS_PACKET_TYPE_ALL_MULTICAST)
+        KdPrint(("  NDIS_PACKET_TYPE_ALL_MULTICAST\n"));
+      if (*(ULONG *)data & NDIS_PACKET_TYPE_BROADCAST)
+        KdPrint(("  NDIS_PACKET_TYPE_BROADCAST\n"));
+      if (*(ULONG *)data & NDIS_PACKET_TYPE_PROMISCUOUS)
+        KdPrint(("  NDIS_PACKET_TYPE_PROMISCUOUS (not supported)\n"));
+      if (*(ULONG *)data & NDIS_PACKET_TYPE_ALL_FUNCTIONAL)
+        KdPrint(("  NDIS_PACKET_TYPE_ALL_FUNCTIONAL (not supported)\n"));
+      if (*(ULONG *)data & NDIS_PACKET_TYPE_ALL_LOCAL)
+        KdPrint(("  NDIS_PACKET_TYPE_ALL_LOCAL (not supported)\n"));
+      if (*(ULONG *)data & NDIS_PACKET_TYPE_FUNCTIONAL)
+        KdPrint(("  NDIS_PACKET_TYPE_FUNCTIONAL (not supported)\n"));
+      if (*(ULONG *)data & NDIS_PACKET_TYPE_GROUP)
+        KdPrint(("  NDIS_PACKET_TYPE_GROUP (not supported)\n"));
+      if (*(ULONG *)data & ~SUPPORTED_PACKET_FILTERS)
+      {
+        status = NDIS_STATUS_NOT_SUPPORTED;
+        KdPrint(("  returning NDIS_STATUS_NOT_SUPPORTED\n"));
+        break;
+      }
       xi->packet_filter = *(ULONG *)data;
       status = NDIS_STATUS_SUCCESS;
       break;
@@ -520,8 +546,10 @@ XenNet_SetInformation(
       KdPrint(("Unsupported set OID_802_3_CURRENT_ADDRESS\n"));
       break;
     case OID_802_3_MULTICAST_LIST:
-      status = NDIS_STATUS_NOT_SUPPORTED;
-      KdPrint(("Unsupported set OID_802_3_MULTICAST_LIST\n"));
+      KdPrint(("     Set OID_802_3_MULTICAST_LIST\n"));
+      KdPrint(("       Length = %d\n", InformationBufferLength));
+      KdPrint(("       Entries = %d\n", InformationBufferLength / 6));
+      status = NDIS_STATUS_SUCCESS;
       break;
     case OID_802_3_MAXIMUM_LIST_SIZE:
       status = NDIS_STATUS_NOT_SUPPORTED;

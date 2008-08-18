@@ -213,7 +213,7 @@ XenFreelist_GetPage(freelist_t *fl)
     pfn = *MmGetMdlPfnArray(mdl);
     *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->vectors.GntTbl_GrantAccess(
       fl->xi->vectors.context, 0,
-      (uint32_t)pfn, FALSE, 0);
+      (uint32_t)pfn, FALSE, INVALID_GRANT_REF);
     /* we really should check if our grant was successful... */
   }
   else
@@ -259,7 +259,7 @@ XenFreelist_ReGrantMdl(freelist_t *fl, PMDL mdl)
   pfn = *MmGetMdlPfnArray(mdl);
   *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->vectors.GntTbl_GrantAccess(
     fl->xi->vectors.context, 0,
-    (uint32_t)pfn, FALSE, 0);
+    (uint32_t)pfn, FALSE, INVALID_GRANT_REF);
 }
 
 /* re-grant all the pages, as the grant table was wiped on resume */

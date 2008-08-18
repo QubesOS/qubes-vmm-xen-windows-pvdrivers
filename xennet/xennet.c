@@ -207,7 +207,11 @@ XenNet_ConnectBackend(struct xennet_info *xi)
           }
           s = e + 1;
         }
-        memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
+        if (!(xi->curr_mac_addr[0] & 0x02))
+        {
+          /* only copy if curr_mac_addr is not a LUA */
+          memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
+        }
       }
       break;
     case XEN_INIT_TYPE_VECTORS:
@@ -303,6 +307,8 @@ XenNet_Init(
   PCHAR setting, value;
   ULONG length;
   CHAR buf[128];
+  PVOID network_address;
+  UINT network_address_length;
   
   UNREFERENCED_PARAMETER(OpenErrorStatus);
 
@@ -340,7 +346,7 @@ XenNet_Init(
   xi->rx_min_target = RX_DFL_MIN_TARGET;
   xi->rx_max_target = RX_MAX_TARGET;
   NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi,
-    0, NDIS_ATTRIBUTE_DESERIALIZE, // | NDIS_ATTRIBUTE_BUS_MASTER),
+    0, NDIS_ATTRIBUTE_DESERIALIZE|NDIS_ATTRIBUTE_SURPRISE_REMOVE_OK,
     NdisInterfaceInternal);
 
   nrl_length = 0;
@@ -526,6 +532,20 @@ XenNet_Init(
     xi->config_mtu = config_param->ParameterData.IntegerData;
   }
 
+  NdisReadNetworkAddress(&status, &network_address, &network_address_length, config_handle);
+  if (!NT_SUCCESS(status) || network_address_length != ETH_ALEN || !(((PUCHAR)network_address)[0] & 0x02))
+  {
+    KdPrint(("Could not read NetworkAddress value (%08x)\n", status));
+    memset(xi->curr_mac_addr, 0, ETH_ALEN);
+  }
+  else
+  {
+    memcpy(xi->curr_mac_addr, network_address, ETH_ALEN);
+    KdPrint(("     Set MAC address from registry to %02X:%02X:%02X:%02X:%02X:%02X\n",
+      xi->curr_mac_addr[0], xi->curr_mac_addr[1], xi->curr_mac_addr[2], 
+      xi->curr_mac_addr[3], xi->curr_mac_addr[4], xi->curr_mac_addr[5]));
+  }
+
   xi->config_max_pkt_size = max(xi->config_mtu + XN_HDR_SIZE, xi->config_gso + XN_HDR_SIZE);
   
   NdisCloseConfiguration(config_handle);
@@ -620,9 +640,7 @@ XenNet_Halt(
   )
 {
   struct xennet_info *xi = MiniportAdapterContext;
-//  CHAR TmpPath[MAX_XENBUS_STR_LEN];
-//  PVOID if_cxt = xi->XenInterface.InterfaceHeader.Context;
-//  LARGE_INTEGER timeout;
+  BOOLEAN timer_cancelled;
 
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
@@ -636,6 +654,8 @@ XenNet_Halt(
   KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
 
   // TODO: remove event channel xenbus entry (how?)
+
+  NdisMCancelTimer(&xi->resume_timer, &timer_cancelled);
 
   XenNet_TxShutdown(xi);
   XenNet_RxShutdown(xi);
