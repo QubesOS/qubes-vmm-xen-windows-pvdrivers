@@ -47,8 +47,20 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
 
   if (action->type == EVT_ACTION_TYPE_IRQ)
   {
+    LARGE_INTEGER tstart = {0}, tend = {0};
     //KdPrint((__DRIVER_NAME "     Calling interrupt vector %02x\n", action->vector));
+    if ((action->count & 0xFF) == 0)
+    {
+      tstart = KeQueryPerformanceCounter(NULL);
+    }
     sw_interrupt((UCHAR)action->vector);
+    if ((action->count & 0xFF) == 0)
+    {
+      LARGE_INTEGER tdiff;
+      tend = KeQueryPerformanceCounter(NULL);
+      tdiff.QuadPart = tend.QuadPart - tstart.QuadPart;
+      KdPrint((__DRIVER_NAME "     EvtChn %s tdiff = %d\n", action->description, tdiff.LowPart));
+    }
   }
   else
   {
@@ -58,6 +70,25 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
 }
 
 BOOLEAN no_more_interrupts;
+
+/* Called at DIRQL */
+BOOLEAN
+EvtChn_AckEvent(PVOID context, evtchn_port_t port)
+{
+  PXENPCI_DEVICE_DATA xpdd = context;
+  ULONG evt_word;
+  ULONG evt_bit;
+  xen_ulong_t val;
+
+  evt_bit = port & ((sizeof(xen_ulong_t) * 8) - 1);
+  evt_word = port >> (5 + (sizeof(xen_ulong_t) >> 3));
+
+  val = synch_clear_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
+  
+  //KdPrint((__DRIVER_NAME "     port %d = %d\n", port, !!val));
+
+  return (BOOLEAN)!!val;
+}
 
 static DDKAPI BOOLEAN
 EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
@@ -72,6 +103,7 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
   unsigned int port;
   ev_action_t *ev_action;
   BOOLEAN handled = FALSE;
+  BOOLEAN deferred = FALSE;
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
@@ -82,6 +114,8 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
   }
     
   //ASSERT(!no_more_interrupts);
+  
+  /* we should check the evtchn_pending_pvt here and report if != 0 */
   
   UNREFERENCED_PARAMETER(Interrupt);
 
@@ -107,11 +141,13 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
         ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
         break;
       case EVT_ACTION_TYPE_IRQ:
-/*
         synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
-        sw_interrupt((UCHAR)ev_action->vector);
+        synch_set_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
+        //KdPrint((__DRIVER_NAME "     deferred %d\n", port));
+        /* this is now handled by one of the next Isr's */
+        //sw_interrupt((UCHAR)ev_action->vector);
+        deferred = TRUE;
         break;
-*/
       case EVT_ACTION_TYPE_DPC:
         synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
@@ -126,7 +162,7 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
 
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-  return handled;
+  return handled && !deferred;
 }
 
 NTSTATUS
@@ -185,7 +221,7 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRouti
 }
 
 NTSTATUS
-EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector)
+EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 
@@ -203,6 +239,7 @@ EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector)
   xpdd->ev_actions[Port].xpdd = xpdd;
   KeMemoryBarrier();
   xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_IRQ;
+  strncpy(xpdd->ev_actions[Port].description, description, 128);
 
   EvtChn_Unmask(Context, Port);
 

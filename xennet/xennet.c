@@ -128,9 +128,17 @@ XenNet_InterruptIsr(
   struct xennet_info *xi = MiniportAdapterContext;
   
   //FUNCTION_ENTER();
-
-  *QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
-  *InterruptRecognized = TRUE;
+  if (!xi->vectors.EvtChn_AckEvent(xi->vectors.context, xi->event_channel))
+  {
+    /* interrupt was not for us */
+    *InterruptRecognized = FALSE;
+    *QueueMiniportHandleInterrupt = FALSE;
+  }
+  else
+  {
+    *QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
+    *InterruptRecognized = TRUE;
+  }
 
   //FUNCTION_EXIT();
 }
@@ -581,7 +589,7 @@ XenNet_Init(
   KeMemoryBarrier(); // packets could be received anytime after we set Frontent to Connected
 
   status = NdisMRegisterInterrupt(&xi->interrupt, MiniportAdapterHandle, irq_vector, irq_level,
-    TRUE, FALSE, NdisInterruptLatched);
+    TRUE, TRUE, NdisInterruptLevelSensitive);
   if (!NT_SUCCESS(status))
   {
     KdPrint(("NdisMRegisterInterrupt failed with 0x%x\n", status));

@@ -217,10 +217,6 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       xvdd->grant_entries = (USHORT)PtrToUlong(setting);
       memcpy(&xvdd->grant_free_list, value, sizeof(grant_ref_t) * xvdd->grant_entries);
       xvdd->grant_free = xvdd->grant_entries;
-      for (i = 0; i < xvdd->grant_entries; i++)
-      {
-        KdPrint((__DRIVER_NAME "     grant_entry = %d\n", xvdd->grant_free_list[i]));
-      }
       break;
     case XEN_INIT_TYPE_STATE_PTR:
       //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
@@ -685,12 +681,15 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   int more_to_do = TRUE;
   blkif_shadow_t *shadow;
   ULONG offset;
+  LARGE_INTEGER tstart = {0}, tend = {0};
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  if (counter & 0xFF == 0)
+  if (!xvdd->vectors.EvtChn_AckEvent(xvdd->vectors.context, xvdd->event_channel))
+    return FALSE; /* interrupt was not for us */
+  if ((counter & 0xFFF) == 0)
   {
-    KdPrint((__DRIVER_NAME "     SCSI ISR IRQL = %d\n", KeGetCurrentIrql()));
+    tstart = KeQueryPerformanceCounter(NULL);
   }
   if (xvdd->device_state->resume_state != RESUME_STATE_RUNNING)
   {
@@ -796,6 +795,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
           else
             ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
         }
+        break;
       }
     }
 
@@ -817,6 +817,15 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   //KdPrint((__DRIVER_NAME "     ring.req_prod_pvt = %d\n", xvdd->ring.req_prod_pvt));
 
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  if ((counter & 0xFFF) == 0)
+  {
+    LARGE_INTEGER tdiff;
+    tend = KeQueryPerformanceCounter(NULL);
+    tdiff.QuadPart = tend.QuadPart - tstart.QuadPart;
+    KdPrint((__DRIVER_NAME "     SCSI ISR IRQL = %d, tdiff = %d\n", KeGetCurrentIrql(), tdiff.LowPart));
+  }
+  counter++;
   
   return FALSE; /* we just don't know... */
 }

@@ -348,6 +348,15 @@ XenPci_EvtChn_Notify(PVOID Context, evtchn_port_t Port)
   return EvtChn_Notify(xpdd, Port);
 }
 
+static BOOLEAN
+XenPci_EvtChn_AckEvent(PVOID context, evtchn_port_t port)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  
+  return EvtChn_AckEvent(xpdd, port);
+}
+
 static grant_ref_t
 XenPci_GntTbl_GrantAccess(PVOID Context, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref)
 {
@@ -483,6 +492,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   vectors.EvtChn_Mask = XenPci_EvtChn_Mask;
   vectors.EvtChn_Unmask = XenPci_EvtChn_Unmask;
   vectors.EvtChn_Notify = XenPci_EvtChn_Notify;
+  vectors.EvtChn_AckEvent = XenPci_EvtChn_AckEvent;
   vectors.GntTbl_GetRef = XenPci_GntTbl_GetRef;
   vectors.GntTbl_PutRef = XenPci_GntTbl_PutRef;
   vectors.GntTbl_GrantAccess = XenPci_GntTbl_GrantAccess;
@@ -559,7 +569,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
         ADD_XEN_INIT_RSP(&out_ptr, type, setting, UlongToPtr(event_channel));
         ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, type, setting, UlongToPtr(event_channel));
         if (type == XEN_INIT_TYPE_EVENT_CHANNEL_IRQ)
-          EvtChn_BindIrq(xpdd, event_channel, xppdd->irq_vector);
+          EvtChn_BindIrq(xpdd, event_channel, xppdd->irq_vector, path);
       }
       else
       {
@@ -948,24 +958,12 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   PIO_RESOURCE_REQUIREMENTS_LIST irrl;
   PIO_RESOURCE_DESCRIPTOR ird;
   ULONG length;
-  //ULONG available_interrupts[] = {16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}; //{3, 4, 5, 10, 11, 14};
-  ULONG available_interrupts[] = {
-    //62, 61, 60, 59, 58, 57, 56,
-    //55, 54, 53, 52, 51, 50, 49, 48,
-    47, 46, 45, 44, 43, 42, 41, 40,
-    39, 38, 37, 36, 35, 34, 33, 32,
-    31, 30, 29, 28, 27, 26, 25, 24,
-    23, 22, 21, 20, 19, 18, 17, 16,
-    //15, 14, 13, 12, 11, 10, 8,
-    //7, 6, 5, 4, 3, 1
-  };
-  int i;
 
   UNREFERENCED_PARAMETER(device_object);
 
   length = FIELD_OFFSET(IO_RESOURCE_REQUIREMENTS_LIST, List) +
     FIELD_OFFSET(IO_RESOURCE_LIST, Descriptors) +
-    sizeof(IO_RESOURCE_DESCRIPTOR) * ARRAY_SIZE(available_interrupts);
+    sizeof(IO_RESOURCE_DESCRIPTOR) * 1;
   irrl = ExAllocatePoolWithTag(NonPagedPool,
     length,
     XENPCI_POOL_TAG);
@@ -979,24 +977,13 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   irrl->List[0].Revision = 1;
   irrl->List[0].Count = 0;
 
-  for (i = 0; i < ARRAY_SIZE(available_interrupts); i++)
-  {
-    if (i == (int)xpdd->irq_number)
-      continue;
-    ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
-    ird->Option = i?IO_RESOURCE_ALTERNATIVE:0;
-    ird->Type = CmResourceTypeInterrupt;
-    if (available_interrupts[i] >= 16)
-    {
-      ird->Option |= IO_RESOURCE_PREFERRED;
-      ird->ShareDisposition = CmResourceShareDeviceExclusive;
-    }
-    else
-      ird->ShareDisposition = CmResourceShareShared;
-    ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
-    ird->u.Interrupt.MinimumVector = available_interrupts[i];
-    ird->u.Interrupt.MaximumVector = available_interrupts[i];
-  }
+  ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
+  ird->Option = 0;
+  ird->Type = CmResourceTypeInterrupt;
+  ird->ShareDisposition = CmResourceShareShared;
+  ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+  ird->u.Interrupt.MinimumVector = xpdd->irq_number;
+  ird->u.Interrupt.MaximumVector = xpdd->irq_number;
   
   irp->IoStatus.Information = (ULONG_PTR)irrl;
   return STATUS_SUCCESS;

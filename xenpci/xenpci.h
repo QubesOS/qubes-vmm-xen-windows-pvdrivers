@@ -70,6 +70,7 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 typedef struct _ev_action_t {
   PKSERVICE_ROUTINE ServiceRoutine;
   PVOID ServiceContext;
+  CHAR description[128];
   ULONG type; /* EVT_ACTION_TYPE_* */
   KDPC Dpc;
   ULONG vector;
@@ -176,6 +177,7 @@ typedef struct {
 
   PHYSICAL_ADDRESS shared_info_area_unmapped;
   shared_info_t *shared_info_area;
+  xen_ulong_t evtchn_pending_pvt[sizeof(xen_ulong_t) * 8];
   BOOLEAN interrupts_masked;
 
   PHYSICAL_ADDRESS platform_mmio_addr;
@@ -436,7 +438,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
 NTSTATUS
 EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 NTSTATUS
-EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector);
+EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description);
 NTSTATUS
 EvtChn_Unbind(PVOID Context, evtchn_port_t Port);
 NTSTATUS
@@ -445,6 +447,8 @@ VOID
 EvtChn_Close(PVOID Context, evtchn_port_t Port);
 evtchn_port_t
 EvtChn_AllocUnbound(PVOID Context, domid_t Domain);
+BOOLEAN
+EvtChn_AckEvent(PVOID context, evtchn_port_t port);
 
 VOID
 GntTbl_Init(PXENPCI_DEVICE_DATA xpdd);
