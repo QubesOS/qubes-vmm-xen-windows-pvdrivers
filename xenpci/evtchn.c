@@ -107,9 +107,11 @@ EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
         ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
         break;
       case EVT_ACTION_TYPE_IRQ:
+/*
         synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         sw_interrupt((UCHAR)ev_action->vector);
         break;
+*/
       case EVT_ACTION_TYPE_DPC:
         synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);

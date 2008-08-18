@@ -186,7 +186,6 @@ XenPci_BackEndStateHandler(char *path, PVOID context)
         if (xppdd->common.current_pnp_state == Started)
         {
           KdPrint((__DRIVER_NAME "     Sending RequestDeviceEject\n"));
-          xppdd->eject_requested = TRUE;
           IoRequestDeviceEject(xppdd->common.pdo);
         }
         else
@@ -526,7 +525,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
         //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, address));
         SHARED_RING_INIT((struct dummy_sring *)address);
         if ((gref = GntTbl_GrantAccess(
-          xpdd, 0, (ULONG)*MmGetMdlPfnArray(ring), FALSE, 0)) != 0)
+          xpdd, 0, (ULONG)*MmGetMdlPfnArray(ring), FALSE, INVALID_GRANT_REF)) != INVALID_GRANT_REF)
         {
           RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
           XenBus_Printf(xpdd, XBT_NIL, path, "%d", gref);
@@ -620,8 +619,9 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
       __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, PtrToUlong(value));
       for (i = 0; i < PtrToUlong(value); i++)
       {
-        __ADD_XEN_INIT_ULONG(&out_ptr, GntTbl_GetRef(xpdd));
-        __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, GntTbl_GetRef(xpdd));
+        gref = GntTbl_GetRef(xpdd);
+        __ADD_XEN_INIT_ULONG(&out_ptr, gref);
+        __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, gref);
       }
       break;
     }
@@ -1094,15 +1094,8 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 
   case IRP_MN_QUERY_REMOVE_DEVICE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_REMOVE_DEVICE (status = %08x)\n", irp->IoStatus.Status));
-    if (xppdd->eject_requested)
-    {
-      SET_PNP_STATE(&xppdd->common, RemovePending);
-      status = STATUS_SUCCESS;
-    }
-    else
-    {
-      status = STATUS_UNSUCCESSFUL;
-    }
+    SET_PNP_STATE(&xppdd->common, RemovePending);
+    status = STATUS_SUCCESS;
     break;
 
   case IRP_MN_REMOVE_DEVICE:

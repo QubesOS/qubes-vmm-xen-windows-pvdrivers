@@ -30,8 +30,8 @@ GntTbl_PutRef(PVOID Context, grant_ref_t ref)
     ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
     KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
   }
-  xpdd->gnttab_list[ref] = xpdd->gnttab_list[0];
-  xpdd->gnttab_list[0]  = ref;
+  xpdd->gnttab_list[xpdd->gnttab_list_free] = ref;
+  xpdd->gnttab_list_free++;
   if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
   {
     KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
@@ -44,20 +44,26 @@ GntTbl_GetRef(PVOID Context)
   PXENPCI_DEVICE_DATA xpdd = Context;
   unsigned int ref;
   KIRQL OldIrql = PASSIVE_LEVEL;
+  int suspend_state = xpdd->suspend_state;
   
   UNREFERENCED_PARAMETER(OldIrql);
 
-  if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
+  if (suspend_state != SUSPEND_STATE_HIGH_IRQL)
   {
     ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
     KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
   }
-  ref = xpdd->gnttab_list[0];
-  xpdd->gnttab_list[0] = xpdd->gnttab_list[ref];
-  if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
+  if (!xpdd->gnttab_list_free)
   {
-    KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
+    if (suspend_state != SUSPEND_STATE_HIGH_IRQL)
+      KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
+    KdPrint((__DRIVER_NAME "     No free grant refs\n"));    
+    return INVALID_GRANT_REF;
   }
+  xpdd->gnttab_list_free--;
+  ref = xpdd->gnttab_list[xpdd->gnttab_list_free];
+  if (suspend_state != SUSPEND_STATE_HIGH_IRQL)
+    KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
 
   return ref;
 }
@@ -98,13 +104,17 @@ GntTbl_GrantAccess(
 
   //KdPrint((__DRIVER_NAME "     Granting access to frame %08x\n", frame));
 
-  if (ref == 0)
+  if (ref == INVALID_GRANT_REF)
     ref = GntTbl_GetRef(Context);
+  if (ref == INVALID_GRANT_REF)
+    return ref;
+  
   xpdd->gnttab_table[ref].frame = frame;
   xpdd->gnttab_table[ref].domid = domid;
 
   if (xpdd->gnttab_table[ref].flags)
     KdPrint((__DRIVER_NAME "     WARNING: Attempting to re-use grant entry that is already in use!\n"));
+  ASSERT(!xpdd->gnttab_table[ref].flags);
 
   KeMemoryBarrier();
   readonly *= GTF_readonly;
@@ -147,6 +157,8 @@ GntTbl_EndAccess(
 
   //KdPrint((__DRIVER_NAME " --> GntTbl_EndAccess\n"));
 
+  ASSERT(ref != INVALID_GRANT_REF);
+  
   nflags = xpdd->gnttab_table[ref].flags;
   do {
     if ((flags = nflags) & (GTF_reading|GTF_writing))
@@ -221,6 +233,7 @@ GntTbl_InitMap(PXENPCI_DEVICE_DATA xpdd)
     xpdd->max_grant_frames = grant_frames;
   }
   RtlZeroMemory(xpdd->gnttab_list, sizeof(grant_ref_t) * grant_entries);
+  xpdd->gnttab_list_free = 0;
   for (i = NR_RESERVED_ENTRIES; i < grant_entries; i++)
     GntTbl_PutRef(xpdd, i);
   

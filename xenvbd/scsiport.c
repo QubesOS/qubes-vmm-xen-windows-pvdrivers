@@ -213,10 +213,14 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
         memcpy(&xvdd->vectors, value, sizeof(XENPCI_VECTORS));
       break;
     case XEN_INIT_TYPE_GRANT_ENTRIES:
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(setting)));
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(setting)));
       xvdd->grant_entries = (USHORT)PtrToUlong(setting);
       memcpy(&xvdd->grant_free_list, value, sizeof(grant_ref_t) * xvdd->grant_entries);
       xvdd->grant_free = xvdd->grant_entries;
+      for (i = 0; i < xvdd->grant_entries; i++)
+      {
+        KdPrint((__DRIVER_NAME "     grant_entry = %d\n", xvdd->grant_free_list[i]));
+      }
       break;
     case XEN_INIT_TYPE_STATE_PTR:
       //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
@@ -345,7 +349,7 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
     physical_address = MmGetPhysicalAddress(ptr);
     pfn = (ULONG)(physical_address.QuadPart >> PAGE_SHIFT);
     shadow->req.seg[shadow->req.nr_segments].gref = get_grant_from_freelist(xvdd);
-    ASSERT(shadow->req.seg[shadow->req.nr_segments].gref);
+    ASSERT(shadow->req.seg[shadow->req.nr_segments].gref != INVALID_GRANT_REF);
     xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0, pfn, 0, shadow->req.seg[shadow->req.nr_segments].gref);
     offset = (ULONG)(physical_address.QuadPart & (PAGE_SIZE - 1));
     ASSERT((offset & 511) == 0);
@@ -667,6 +671,8 @@ XenVbd_MakeAutoSense(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
   srb->SrbStatus |= SRB_STATUS_AUTOSENSE_VALID;
 }
 
+static ULONG counter = 0;
+
 static BOOLEAN DDKAPI
 XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 {
@@ -682,6 +688,10 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+  if (counter & 0xFF == 0)
+  {
+    KdPrint((__DRIVER_NAME "     SCSI ISR IRQL = %d\n", KeGetCurrentIrql()));
+  }
   if (xvdd->device_state->resume_state != RESUME_STATE_RUNNING)
   {
     //KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " device_state event\n"));
@@ -752,7 +762,8 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         }
         for (j = 0; j < shadow->req.nr_segments; j++)
         {
-          xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context, shadow->req.seg[j].gref, TRUE);
+          BOOLEAN result = xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context, shadow->req.seg[j].gref, TRUE);
+          ASSERT(result);
           put_grant_on_freelist(xvdd, shadow->req.seg[j].gref);
         }
 
@@ -1122,12 +1133,12 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
   UNREFERENCED_PARAMETER(DeviceExtension);
   UNREFERENCED_PARAMETER(PathId);
 
-//  KdPrint((__DRIVER_NAME " --> HwScsiResetBus\n"));
+  KdPrint((__DRIVER_NAME " --> HwScsiResetBus\n"));
 
-//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
   ScsiPortNotification(NextRequest, DeviceExtension);
 
-//  KdPrint((__DRIVER_NAME " <-- HwScsiResetBus\n"));
+  KdPrint((__DRIVER_NAME " <-- HwScsiResetBus\n"));
 
 
   return TRUE;

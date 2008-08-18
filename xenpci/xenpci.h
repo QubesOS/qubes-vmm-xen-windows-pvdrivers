@@ -191,6 +191,7 @@ typedef struct {
   grant_entry_t *gnttab_table;
   PHYSICAL_ADDRESS gnttab_table_physical;
   grant_ref_t *gnttab_list;
+  int gnttab_list_free;
   /* this is the maximum number of grant frames we have memory allocated for */
   /* after a resume it may not be the actual number of grant frames we have though */
   ULONG max_grant_frames;
@@ -241,7 +242,6 @@ typedef struct {
   XENPCI_COMMON common;
   PDEVICE_OBJECT bus_pdo;
   PDEVICE_OBJECT bus_fdo;
-  BOOLEAN eject_requested;
   BOOLEAN reported_missing;
   char path[128];
   char device[128];
