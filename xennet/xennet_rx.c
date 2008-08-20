@@ -33,6 +33,8 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
 
 //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+  //ASSERT(!KeTestSpinLock(&xi->rx_lock));
+
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
 
   if (batch_target < (xi->rx_target >> 2))
@@ -46,7 +48,7 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
       break;
     }
     mdl = XenFreelist_GetPage(&xi->rx_freelist);
-    if (mdl == NULL)
+    if (!mdl)
     {
       KdPrint((__DRIVER_NAME "     Added %d out of %d buffers to rx ring (no free pages)\n", i, batch_target));
       break;
@@ -59,6 +61,7 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
     xi->rx_mdls[id] = mdl;
     req = RING_GET_REQUEST(&xi->rx, req_prod + i);
     req->gref = get_grant_ref(mdl);
+    ASSERT(req->gref != INVALID_GRANT_REF);
     req->id = id;
   }
 
@@ -80,6 +83,8 @@ get_packet_from_freelist(struct xennet_info *xi)
   NDIS_STATUS status;
   PNDIS_PACKET packet;
 
+  //ASSERT(!KeTestSpinLock(&xi->rx_lock));
+
   if (!xi->rx_packet_free)
   {
     NdisAllocatePacket(&status, &packet, xi->packet_pool);
@@ -98,7 +103,9 @@ get_packet_from_freelist(struct xennet_info *xi)
 static VOID
 put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
 {
-  if (xi->rx_packet_free == NET_RX_RING_SIZE * 2 - 1)
+  //ASSERT(!KeTestSpinLock(&xi->rx_lock));
+
+  if (xi->rx_packet_free == NET_RX_RING_SIZE * 2)
   {
     //KdPrint((__DRIVER_NAME "     packet free list full - releasing packet\n"));
     NdisFreePacket(packet);
@@ -140,8 +147,7 @@ XenNet_MakePacket(struct xennet_info *xi)
     packet = get_packet_from_freelist(xi);
     if (packet == NULL)
     {
-      for (i = 0; i < xi->rxpi.mdl_count; i++)
-        XenFreelist_PutPage(&xi->rx_freelist, xi->rxpi.mdls[i]);
+      /* buffers will be freed in MakePackets */
       return NULL;
     }
     xi->rx_outstanding++;
@@ -316,7 +322,8 @@ XenNet_MakePackets(
     if (packet == NULL)
     {
       xi->stat_rx_no_buffer++;
-      return 0;
+      packet_count = 0;
+      goto done;
     }
     if (xi->rxpi.csum_calc_required)
       XenNet_SumPacketData(&xi->rxpi, packet);
@@ -329,7 +336,8 @@ XenNet_MakePackets(
     if (packet == NULL)
     {
       xi->stat_rx_no_buffer++;
-      return 0;
+      packet_count = 0;
+      goto done;
     }
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
@@ -373,7 +381,8 @@ XenNet_MakePackets(
     packet_count++;
   }
 
-  ASSERT(xi->rxpi.curr_mdl == xi->rxpi.mdl_count);
+  // this won't be true if we had to abort due to a lack of resources... ASSERT(xi->rxpi.curr_mdl == xi->rxpi.mdl_count);
+done:
   for (i = 0; i < xi->rxpi.mdl_count; i++)
   {
     NdisAdjustBufferLength(xi->rxpi.mdls[i], PAGE_SIZE);

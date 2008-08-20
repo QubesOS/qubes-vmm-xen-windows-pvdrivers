@@ -667,8 +667,6 @@ XenVbd_MakeAutoSense(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
   srb->SrbStatus |= SRB_STATUS_AUTOSENSE_VALID;
 }
 
-static ULONG counter = 0;
-
 static BOOLEAN DDKAPI
 XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 {
@@ -681,16 +679,11 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   int more_to_do = TRUE;
   blkif_shadow_t *shadow;
   ULONG offset;
-  LARGE_INTEGER tstart = {0}, tend = {0};
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   if (!xvdd->vectors.EvtChn_AckEvent(xvdd->vectors.context, xvdd->event_channel))
     return FALSE; /* interrupt was not for us */
-  if ((counter & 0xFFF) == 0)
-  {
-    tstart = KeQueryPerformanceCounter(NULL);
-  }
   if (xvdd->device_state->resume_state != RESUME_STATE_RUNNING)
   {
     //KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " device_state event\n"));
@@ -818,15 +811,6 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-  if ((counter & 0xFFF) == 0)
-  {
-    LARGE_INTEGER tdiff;
-    tend = KeQueryPerformanceCounter(NULL);
-    tdiff.QuadPart = tend.QuadPart - tstart.QuadPart;
-    KdPrint((__DRIVER_NAME "     SCSI ISR IRQL = %d, tdiff = %d\n", KeGetCurrentIrql(), tdiff.LowPart));
-  }
-  counter++;
-  
   return FALSE; /* we just don't know... */
 }
 

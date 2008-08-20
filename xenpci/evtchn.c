@@ -47,20 +47,8 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
 
   if (action->type == EVT_ACTION_TYPE_IRQ)
   {
-    LARGE_INTEGER tstart = {0}, tend = {0};
     //KdPrint((__DRIVER_NAME "     Calling interrupt vector %02x\n", action->vector));
-    if ((action->count & 0xFF) == 0)
-    {
-      tstart = KeQueryPerformanceCounter(NULL);
-    }
     sw_interrupt((UCHAR)action->vector);
-    if ((action->count & 0xFF) == 0)
-    {
-      LARGE_INTEGER tdiff;
-      tend = KeQueryPerformanceCounter(NULL);
-      tdiff.QuadPart = tend.QuadPart - tstart.QuadPart;
-      KdPrint((__DRIVER_NAME "     EvtChn %s tdiff = %d\n", action->description, tdiff.LowPart));
-    }
   }
   else
   {

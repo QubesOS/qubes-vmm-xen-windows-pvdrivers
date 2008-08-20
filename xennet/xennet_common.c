@@ -204,6 +204,9 @@ XenFreelist_GetPage(freelist_t *fl)
 {
   PMDL mdl;
   PFN_NUMBER pfn;
+  grant_ref_t gref;
+
+  //ASSERT(!KeTestSpinLock(fl->lock));
 
   if (fl->page_free == 0)
   {
@@ -211,9 +214,12 @@ XenFreelist_GetPage(freelist_t *fl)
     if (!mdl)
       return NULL;
     pfn = *MmGetMdlPfnArray(mdl);
-    *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = fl->xi->vectors.GntTbl_GrantAccess(
+    gref = fl->xi->vectors.GntTbl_GrantAccess(
       fl->xi->vectors.context, 0,
       (uint32_t)pfn, FALSE, INVALID_GRANT_REF);
+    if (gref == INVALID_GRANT_REF)
+      KdPrint((__DRIVER_NAME "     No more grefs\n"));
+    *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)) = gref;
     /* we really should check if our grant was successful... */
   }
   else
@@ -230,11 +236,15 @@ XenFreelist_GetPage(freelist_t *fl)
 VOID
 XenFreelist_PutPage(freelist_t *fl, PMDL mdl)
 {
-  if (fl->page_free == PAGE_LIST_SIZE - 1)
+  //ASSERT(!KeTestSpinLock(fl->lock));
+
+  ASSERT(NdisBufferLength(mdl) == PAGE_SIZE);
+
+  if (fl->page_free == PAGE_LIST_SIZE)
   {
     /* our page list is full. free the buffer instead. This will be a bit sucky performancewise... */
     fl->xi->vectors.GntTbl_EndAccess(fl->xi->vectors.context,
-      *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
+      *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), FALSE);
     FreePages(mdl);
   }
   else
