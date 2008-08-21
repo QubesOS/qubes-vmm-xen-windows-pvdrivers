@@ -145,8 +145,5 @@ struct
   ULONGLONG no_free_grant_requests;
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 
-VOID
-XenVbd_FillInitCallbacks(PHW_INITIALIZATION_DATA HwInitializationData);
-
 #endif
 
