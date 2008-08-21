@@ -153,6 +153,7 @@ XenNet_MakePacket(struct xennet_info *xi)
     xi->rx_outstanding++;
     for (i = 0; i < xi->rxpi.mdl_count; i++)
       NdisChainBufferAtBack(packet, xi->rxpi.mdls[i]);
+
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
   else
@@ -307,6 +308,7 @@ XenNet_MakePackets(
   PNDIS_PACKET packet;
   PLIST_ENTRY entry;
   UCHAR psh;
+  PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "(packets = %p, packet_count = %d)\n", packets, *packet_count_p));
 
@@ -325,8 +327,14 @@ XenNet_MakePackets(
       packet_count = 0;
       goto done;
     }
-    if (xi->rxpi.csum_calc_required)
+    if (xi->rxpi.csum_blank)
       XenNet_SumPacketData(&xi->rxpi, packet);
+    if (xi->rxpi.csum_blank || xi->rxpi.data_validated)
+    {
+      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
+        packet, TcpIpChecksumPacketInfo);
+      csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+    }
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
     RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));
@@ -351,7 +359,7 @@ XenNet_MakePackets(
   else
     xi->rxpi.curr_mdl = 1;
 
-  // we can make this assumption as we are only ever doing this for tcp4
+  /* we can make certain assumptions here as the following code is only for tcp4 */
   psh = xi->rxpi.header[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 14] & 16;
   while (xi->rxpi.tcp_remaining)
   {
@@ -365,6 +373,9 @@ XenNet_MakePackets(
       xi->stat_rx_no_buffer++;
       break; /* we are out of memory - just drop the packets */
     }
+    csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
+      packet, TcpIpChecksumPacketInfo);
+    csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
     if (psh)
     {
       NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);
@@ -469,7 +480,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         if (!xi->rxpi.more_frags) // handling the packet's 1st buffer
         {
           if (rxrsp->flags & NETRXF_csum_blank)
-            xi->rxpi.csum_calc_required = TRUE;
+            xi->rxpi.csum_blank = TRUE;
+          if (rxrsp->flags & NETRXF_data_validated)
+            xi->rxpi.data_validated = TRUE;
         }
         NdisAdjustBufferLength(mdl, rxrsp->status);
         xi->rxpi.mdls[xi->rxpi.mdl_count++] = mdl;

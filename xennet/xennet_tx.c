@@ -145,7 +145,10 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       KdPrint((__DRIVER_NAME "     Out of buffers on send\n"));
       pages_required = page_num;
       for (page_num = 0; page_num < pages_required; page_num++)
+      {
+        NdisAdjustBufferLength(pi.mdls[page_num], PAGE_SIZE);
         XenFreelist_PutPage(&xi->tx_freelist, pi.mdls[page_num]);
+      }
       return FALSE;
     }
     out_buffer = MmGetMdlVirtualAddress(pi.mdls[page_num]);
@@ -406,6 +409,7 @@ XenNet_TxResumeStart(xennet_info_t *xi)
   {
     if (xi->tx_mdls[i])
     {
+      NdisAdjustBufferLength(xi->tx_mdls[i], PAGE_SIZE);
       XenFreelist_PutPage(&xi->tx_freelist, xi->tx_mdls[i]);
       xi->tx_mdls[i] = NULL;
     }
@@ -499,7 +503,10 @@ XenNet_TxShutdown(xennet_info_t *xi)
 */
     mdl = xi->tx_mdls[i];
     if (mdl)
+    {
+      NdisAdjustBufferLength(xi->tx_mdls[i], PAGE_SIZE);
       XenFreelist_PutPage(&xi->tx_freelist, xi->tx_mdls[i]);
+    }
   }
 
   XenFreelist_Dispose(&xi->tx_freelist);

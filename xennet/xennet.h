@@ -129,7 +129,8 @@ typedef struct {
   USHORT curr_mdl_offset;
   USHORT mss;
   NDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
-  BOOLEAN csum_calc_required;
+  BOOLEAN csum_blank;
+  BOOLEAN data_validated;
   BOOLEAN split_required;
   UCHAR ip_version;
   PUCHAR header;
