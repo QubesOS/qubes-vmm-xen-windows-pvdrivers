@@ -174,8 +174,8 @@ XenNet_MakePacket(struct xennet_info *xi)
     NdisAdjustBufferLength(out_mdl, out_offset + out_remaining);
     memcpy(out_buffer, xi->rxpi.header, out_offset);
     new_ip4_length = out_remaining + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
-    SET_NET_USHORT(out_buffer[XN_HDR_SIZE + 2], new_ip4_length);
-    SET_NET_ULONG(out_buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4], xi->rxpi.tcp_seq);
+    SET_NET_USHORT(&out_buffer[XN_HDR_SIZE + 2], new_ip4_length);
+    SET_NET_ULONG(&out_buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4], xi->rxpi.tcp_seq);
     xi->rxpi.tcp_seq += out_remaining;
     xi->rxpi.tcp_remaining = xi->rxpi.tcp_remaining - out_remaining;
     do 
@@ -223,7 +223,7 @@ XenNet_SumPacketData(
   NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);
   ASSERT(mdl);
 
-  ip4_length = GET_NET_USHORT(buffer[XN_HDR_SIZE + 2]);
+  ip4_length = GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 2]);
 
   if ((USHORT)(ip4_length + XN_HDR_SIZE) != total_length)
   {
@@ -246,8 +246,8 @@ XenNet_SumPacketData(
   *csum_ptr = 0;
 
   csum = 0;
-  csum += GET_NET_USHORT(buffer[XN_HDR_SIZE + 12]) + GET_NET_USHORT(buffer[XN_HDR_SIZE + 14]); // src
-  csum += GET_NET_USHORT(buffer[XN_HDR_SIZE + 16]) + GET_NET_USHORT(buffer[XN_HDR_SIZE + 18]); // dst
+  csum += GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 12]) + GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 14]); // src
+  csum += GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 16]) + GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 18]); // dst
   csum += ((USHORT)buffer[XN_HDR_SIZE + 9]);
 
   remaining = ip4_length - pi->ip4_header_length;
@@ -283,7 +283,7 @@ XenNet_SumPacketData(
         NdisQueryBufferSafe(mdl, (PVOID) &buffer, &buffer_length, NormalPagePriority);
         buffer_offset = 0;
       }
-      csum += GET_NET_USHORT(buffer[buffer_offset]);
+      csum += GET_NET_PUSHORT(&buffer[buffer_offset]);
     }
   }
   if (i != total_length) // last odd byte
@@ -292,7 +292,7 @@ XenNet_SumPacketData(
   }
   while (csum & 0xFFFF0000)
     csum = (csum & 0xFFFF) + (csum >> 16);
-  *csum_ptr = (USHORT)~GET_NET_USHORT(csum);
+  *csum_ptr = (USHORT)~GET_NET_USHORT((USHORT)csum);
 
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -404,7 +404,7 @@ done:
   return packet_count;
 }
 
-#define MAXIMUM_PACKETS_PER_INDICATE 32
+#define MAXIMUM_PACKETS_PER_INDICATE 256
 
 // Called at DISPATCH_LEVEL
 NDIS_STATUS
@@ -427,11 +427,10 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
 
   InitializeListHead(&rx_packet_list);
-  //KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " xi->rx.sring->rsp_prod = %d, xi->rx.rsp_cons = %d\n", xi->rx.sring->rsp_prod, xi->rx.rsp_cons));
 
   do {
     prod = xi->rx.sring->rsp_prod;
-    KeMemoryBarrier(); /* Ensure we see responses up to 'prop'. */
+    KeMemoryBarrier(); /* Ensure we see responses up to 'prod'. */
 
     for (cons = xi->rx.rsp_cons; cons != prod; cons++)
     {
@@ -500,7 +499,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     xi->rx.rsp_cons = cons;
     if (!RING_HAS_UNCONSUMED_RESPONSES(&xi->rx))
     {
-      xi->rx.sring->rsp_event = cons + 1; //new_ring_buffer_size + 1;
+      xi->rx.sring->rsp_event = cons + 1;
       KeMemoryBarrier();
     }
   } while (RING_HAS_UNCONSUMED_RESPONSES(&xi->rx));

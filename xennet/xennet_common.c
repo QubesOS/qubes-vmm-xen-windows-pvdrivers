@@ -43,7 +43,7 @@ XenNet_ParsePacketHeader(
     return PARSE_TOO_SMALL;
   }
   
-  switch (GET_NET_USHORT(pi->header[12])) // L2 protocol field
+  switch (GET_NET_PUSHORT(&pi->header[12])) // L2 protocol field
   {
   case 0x0800:
     pi->ip_version = (pi->header[XN_HDR_SIZE + 0] & 0xF0) >> 4;
@@ -73,7 +73,7 @@ XenNet_ParsePacketHeader(
   default:
     return PARSE_UNKNOWN_TYPE;
   }
-  pi->ip4_length = GET_NET_USHORT(pi->header[XN_HDR_SIZE + 2]);
+  pi->ip4_length = GET_NET_PUSHORT(&pi->header[XN_HDR_SIZE + 2]);
   pi->tcp_header_length = (pi->header[XN_HDR_SIZE + pi->ip4_header_length + 12] & 0xf0) >> 2;
 
   if (header_length < (ULONG)(pi->ip4_header_length + pi->tcp_header_length))
@@ -84,7 +84,7 @@ XenNet_ParsePacketHeader(
 
   pi->tcp_length = pi->ip4_length - pi->ip4_header_length - pi->tcp_header_length;
   pi->tcp_remaining = pi->tcp_length;
-  pi->tcp_seq = GET_NET_ULONG(pi->header[XN_HDR_SIZE + pi->ip4_header_length + 4]);
+  pi->tcp_seq = GET_NET_PULONG(&pi->header[XN_HDR_SIZE + pi->ip4_header_length + 4]);
   if (pi->mss > 0 && pi->tcp_length > pi->mss)
     pi->split_required = TRUE;
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
@@ -107,12 +107,12 @@ XenNet_SumIpHeader(
   header[XN_HDR_SIZE + 11] = 0;
   for (i = 0; i < ip4_header_length; i += 2)
   {
-    csum += GET_NET_USHORT(header[XN_HDR_SIZE + i]);
+    csum += GET_NET_PUSHORT(&header[XN_HDR_SIZE + i]);
   }
   while (csum & 0xFFFF0000)
     csum = (csum & 0xFFFF) + (csum >> 16);
   csum = ~csum;
-  SET_NET_USHORT(header[XN_HDR_SIZE + 10], csum);
+  SET_NET_USHORT(&header[XN_HDR_SIZE + 10], (USHORT)csum);
 }
 
 PUCHAR

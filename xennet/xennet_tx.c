@@ -402,7 +402,6 @@ XenNet_TxResumeStart(xennet_info_t *xi)
 {
   int i;
   KIRQL old_irql;
-//  PLIST_ENTRY entry;
 
   KeAcquireSpinLock(&xi->tx_lock, &old_irql);
   for (i = 0; i < NET_TX_RING_SIZE; i++)
@@ -413,16 +412,6 @@ XenNet_TxResumeStart(xennet_info_t *xi)
       XenFreelist_PutPage(&xi->tx_freelist, xi->tx_mdls[i]);
       xi->tx_mdls[i] = NULL;
     }
-#if 0
-    /* this may result in packets being sent out of order... I don't think it matters though */
-    if (xi->tx_pkts[i])
-    {
-      *(ULONG *)&xi->tx_pkts[i]->MiniportReservedEx = 0;
-      entry = (PLIST_ENTRY)&xi->tx_pkts[i]->MiniportReservedEx[sizeof(PVOID)];
-      InsertTailList(&xi->tx_waiting_pkt_list, entry);
-      xi->tx_pkts[i] = 0;
-    }
-#endif
   }
   XenFreelist_ResumeStart(&xi->tx_freelist);
   xi->tx_id_free = 0;
@@ -496,11 +485,6 @@ XenNet_TxShutdown(xennet_info_t *xi)
   /* free sent-but-not-completed packets */
   for (i = 0; i < NET_TX_RING_SIZE; i++)
   {
-/*  
-    packet = xi->tx_pkts[i];
-    if (packet)
-      NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
-*/
     mdl = xi->tx_mdls[i];
     if (mdl)
     {

@@ -45,12 +45,7 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  if (action->type == EVT_ACTION_TYPE_IRQ)
-  {
-    //KdPrint((__DRIVER_NAME "     Calling interrupt vector %02x\n", action->vector));
-    sw_interrupt((UCHAR)action->vector);
-  }
-  else
+  if (action->type == EVT_ACTION_TYPE_DPC)
   {
     action->ServiceRoutine(NULL, action->ServiceContext);
   }
@@ -97,6 +92,7 @@ to CPU != 0, but we should always use vcpu_info[0]
   ev_action_t *ev_action;
   BOOLEAN handled = FALSE;
   BOOLEAN deferred = FALSE;
+  int i;
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
 
@@ -136,14 +132,25 @@ to CPU != 0, but we should always use vcpu_info[0]
       case EVT_ACTION_TYPE_IRQ:
         synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         synch_set_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
-        //KdPrint((__DRIVER_NAME "     deferred %d\n", port));
-        /* this is now handled by one of the next Isr's */
-        //sw_interrupt((UCHAR)ev_action->vector);
         deferred = TRUE;
         break;
       case EVT_ACTION_TYPE_DPC:
         synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
+        break;
+      case EVT_ACTION_TYPE_SUSPEND:
+        synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
+        KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_SUSPEND\n"));
+        for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt); i++)
+        {
+          if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_IRQ)
+          {
+            int suspend_bit = i & ((sizeof(xen_ulong_t) * 8) - 1);
+            int suspend_word = i >> (5 + (sizeof(xen_ulong_t) >> 3));
+            synch_set_bit(suspend_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[suspend_word]);
+          }
+        }
+        deferred = TRUE;
         break;
       default:
         synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
@@ -289,6 +296,20 @@ EvtChn_Notify(PVOID Context, evtchn_port_t Port)
 }
 
 evtchn_port_t
+EvtChn_BindIpi(PVOID context, ULONG vcpu)
+{
+  PXENPCI_DEVICE_DATA xpdd = context;
+  evtchn_bind_ipi_t op;
+  
+  FUNCTION_ENTER();
+  op.vcpu = vcpu;
+  op.port = 0;
+  HYPERVISOR_event_channel_op(xpdd, EVTCHNOP_bind_ipi, &op);
+  FUNCTION_EXIT();
+  return op.port;
+}
+
+evtchn_port_t
 EvtChn_AllocUnbound(PVOID Context, domid_t Domain)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
@@ -344,7 +365,12 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
   xpdd->interrupts_masked = FALSE;
   KeMemoryBarrier();
 
+  xpdd->suspend_evtchn = EvtChn_BindIpi(xpdd, 0);
+  xpdd->ev_actions[xpdd->suspend_evtchn].type = EVT_ACTION_TYPE_SUSPEND;
+  EvtChn_Unmask(xpdd, xpdd->suspend_evtchn);
   
+  KdPrint((__DRIVER_NAME "     suspend_evtchn = %d\n", xpdd->suspend_evtchn));
+
   FUNCTION_EXIT();
   
   return STATUS_SUCCESS;

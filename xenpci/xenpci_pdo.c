@@ -697,13 +697,7 @@ XenPci_Pdo_Resume(PDEVICE_OBJECT device_object)
 {
   NTSTATUS status;
   PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
-  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
-  //PUCHAR in_ptr;
-  //UCHAR type;
-  //PVOID setting;
-  //PVOID value;
-  //CHAR path[256];
-  //PVOID address;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
   ULONG old_backend_state;
   PUCHAR src, dst;
 
@@ -711,7 +705,6 @@ XenPci_Pdo_Resume(PDEVICE_OBJECT device_object)
 
   old_backend_state = xppdd->backend_state;
 
-  //if (xppdd->common.current_pnp_state == Started && old_backend_state == XenbusStateClosed)
   if (xppdd->restart_on_resume)
   {  
     status = XenPci_GetBackendAndAddWatch(device_object);
@@ -752,6 +745,8 @@ XenPci_Pdo_Resume(PDEVICE_OBJECT device_object)
   }
   KeMemoryBarrier();
   xppdd->device_state.resume_state = RESUME_STATE_FRONTEND_RESUME;
+  KeMemoryBarrier();
+  EvtChn_Notify(xpdd, xpdd->suspend_evtchn);  
 
   FUNCTION_EXIT();
 
@@ -781,9 +776,7 @@ XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object)
     KeMemoryBarrier();
     xppdd->device_state.resume_state = RESUME_STATE_SUSPENDING;
     KeMemoryBarrier();
-    KdPrint((__DRIVER_NAME "     Calling interrupt\n"));
-    sw_interrupt((UCHAR)xppdd->irq_vector);
-    KdPrint((__DRIVER_NAME "     Back from interrupt call\n"));
+    EvtChn_Notify(xpdd, xpdd->suspend_evtchn);    
     while(xppdd->device_state.resume_state_ack != RESUME_STATE_SUSPENDING)
     {
       KdPrint((__DRIVER_NAME "     Starting delay - resume_state = %d, resume_state_ack = %d\n", xppdd->device_state.resume_state, xppdd->device_state.resume_state_ack));

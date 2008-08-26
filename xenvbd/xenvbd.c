@@ -384,10 +384,8 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
-#define RESUME_CHECK_TIMER_INTERVAL (100 * 1000)
-
 static VOID
-XenVbd_HwScsiTimer(PVOID DeviceExtension)
+XenVbd_Resume(PVOID DeviceExtension)
 {
   PXENVBD_DEVICE_DATA xvdd = (PXENVBD_DEVICE_DATA)DeviceExtension;
   ULONG i;
@@ -395,41 +393,38 @@ XenVbd_HwScsiTimer(PVOID DeviceExtension)
   ULONG shadow_entries;
   blkif_shadow_t *shadow;  
 
-  if (xvdd->device_state->resume_state == RESUME_STATE_FRONTEND_RESUME)
+  FUNCTION_ENTER();
+  KdPrint((__DRIVER_NAME "     found device in resume state\n"));
+  FRONT_RING_INIT(&xvdd->ring, xvdd->sring, PAGE_SIZE);
+  // re-submit srb's
+  
+  shadow_entries = 0;
+  for (i = 0; i < SHADOW_ENTRIES; i++)
   {
-    KdPrint((__DRIVER_NAME "     found device in resume state\n"));
-    FRONT_RING_INIT(&xvdd->ring, xvdd->sring, PAGE_SIZE);
-    // re-submit srb's
-    
-    shadow_entries = 0;
-    for (i = 0; i < SHADOW_ENTRIES; i++)
+    shadow = &xvdd->shadows[i];
+    if (shadow->srb)
     {
-      shadow = &xvdd->shadows[i];
-      if (shadow->srb)
-      {
-        shadows[shadow_entries++] = xvdd->shadows[i];
-        shadow->srb = NULL;
-      }
-    }
-
-    XenVbd_InitFromConfig(xvdd);
-    
-    for (i = 0; i < shadow_entries; i++)
-    {
-      shadow = &shadows[i];
-      XenVbd_PutSrbOnRing(xvdd, shadow->srb, shadow->offset);
-    }
-    
-    xvdd->device_state->resume_state = RESUME_STATE_RUNNING;
-    
-    if (i == 0)
-    {
-      /* no requests, so we might need to tell scsiport that we can accept a new one if we deferred one earlier */
-      ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
+      shadows[shadow_entries++] = xvdd->shadows[i];
+      shadow->srb = NULL;
     }
   }
+
+  XenVbd_InitFromConfig(xvdd);
   
-  ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_HwScsiTimer, RESUME_CHECK_TIMER_INTERVAL);
+  for (i = 0; i < shadow_entries; i++)
+  {
+    shadow = &shadows[i];
+    XenVbd_PutSrbOnRing(xvdd, shadow->srb, shadow->offset);
+  }
+  
+  xvdd->device_state->resume_state = RESUME_STATE_RUNNING;
+  
+  if (i == 0)
+  {
+    /* no requests, so we might need to tell scsiport that we can accept a new one if we deferred one earlier */
+    ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
+  }
+  FUNCTION_EXIT();
 }
 
 static ULONG DDKAPI
@@ -546,8 +541,6 @@ XenVbd_HwScsiInitialize(PVOID DeviceExtension)
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xvdd->ring, notify);
   if (notify)
     xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
-
-  ScsiPortNotification(RequestTimerCall, DeviceExtension, XenVbd_HwScsiTimer, RESUME_CHECK_TIMER_INTERVAL);
 
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -688,16 +681,35 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   blkif_shadow_t *shadow;
   ULONG offset;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ bac"\n"));
 
   /* in dump mode I think we get called on a timer, not by an actual IRQ */
   if (!dump_mode && !xvdd->vectors.EvtChn_AckEvent(xvdd->vectors.context, xvdd->event_channel))
     return FALSE; /* interrupt was not for us */
-  if (xvdd->device_state->resume_state != RESUME_STATE_RUNNING)
+
+  if (xvdd->device_state->resume_state != xvdd->device_state->resume_state_ack)
   {
-    //KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " device_state event\n"));
+    FUNCTION_ENTER();
+    switch (xvdd->device_state->resume_state)
+    {
+      case RESUME_STATE_SUSPENDING:
+        KdPrint((__DRIVER_NAME "     New state SUSPENDING\n"));
+        break;
+      case RESUME_STATE_FRONTEND_RESUME:
+        KdPrint((__DRIVER_NAME "     New state RESUME_STATE_FRONTEND_RESUME\n"));
+        XenVbd_Resume(xvdd);
+        break;
+      default:
+        KdPrint((__DRIVER_NAME "     New state %d\n", xvdd->device_state->resume_state));
+        break;
+    }
     xvdd->device_state->resume_state_ack = xvdd->device_state->resume_state;
     KeMemoryBarrier();
+    FUNCTION_EXIT();
+  }
+
+  if (xvdd->device_state->resume_state != RESUME_STATE_RUNNING)
+  {
     return FALSE;
   }
 

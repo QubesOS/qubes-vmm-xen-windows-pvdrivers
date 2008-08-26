@@ -69,14 +69,59 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define ETH_ALEN 6
 
+/*
 #define __NET_USHORT_BYTE_0(x) ((USHORT)(x & 0xFF))
 #define __NET_USHORT_BYTE_1(x) ((USHORT)((PUCHAR)&x)[1] & 0xFF)
 
 #define GET_NET_USHORT(x) ((__NET_USHORT_BYTE_0(x) << 8) | __NET_USHORT_BYTE_1(x))
 #define SET_NET_USHORT(y, x) *((USHORT *)&(y)) = ((__NET_USHORT_BYTE_0(x) << 8) | __NET_USHORT_BYTE_1(x))
+*/
 
+static FORCEINLINE USHORT
+GET_NET_USHORT(USHORT data)
+{
+  return (data << 8) | (data >> 8);
+}
+
+static FORCEINLINE USHORT
+GET_NET_PUSHORT(PVOID pdata)
+{
+  return (*((PUSHORT)pdata) << 8) | (*((PUSHORT)pdata) >> 8);
+}
+
+static FORCEINLINE VOID
+SET_NET_USHORT(PVOID ptr, USHORT data)
+{
+  *((PUSHORT)ptr) = GET_NET_USHORT(data);
+}
+
+static FORCEINLINE ULONG
+GET_NET_ULONG(ULONG data)
+{
+  ULONG tmp;
+  
+  tmp = ((data & 0x00ff00ff) << 8) | ((data & 0xff00ff00) >> 8);
+  return (tmp << 16) | (tmp >> 16);
+}
+
+static FORCEINLINE ULONG
+GET_NET_PULONG(PVOID pdata)
+{
+  ULONG tmp;
+  
+  tmp = ((*((PULONG)pdata) & 0x00ff00ff) << 8) | ((*((PULONG)pdata) & 0xff00ff00) >> 8);
+  return (tmp << 16) | (tmp >> 16);
+}
+
+static FORCEINLINE VOID
+SET_NET_ULONG(PVOID ptr, ULONG data)
+{
+  *((PULONG)ptr) = GET_NET_ULONG(data);
+}
+/*
 #define GET_NET_ULONG(x) ((GET_NET_USHORT(x) << 16) | GET_NET_USHORT(((PUCHAR)&x)[2]))
 #define SET_NET_ULONG(y, x) *((ULONG *)&(y)) = ((GET_NET_USHORT(x) << 16) | GET_NET_USHORT(((PUCHAR)&x)[2]))
+*/
 
 #define SUPPORTED_PACKET_FILTERS (\
   NDIS_PACKET_TYPE_DIRECTED | \
@@ -232,7 +277,7 @@ struct xennet_info
   /* config stuff calculated from the above */
   ULONG config_max_pkt_size;
 
-  NDIS_MINIPORT_TIMER resume_timer;
+  //NDIS_MINIPORT_TIMER resume_timer;
 
   /* stats */
   ULONG64 stat_tx_ok;

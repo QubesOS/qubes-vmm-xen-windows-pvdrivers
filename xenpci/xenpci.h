@@ -62,10 +62,11 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
-#define EVT_ACTION_TYPE_EMPTY  0
-#define EVT_ACTION_TYPE_NORMAL 1
-#define EVT_ACTION_TYPE_DPC    2
-#define EVT_ACTION_TYPE_IRQ    3
+#define EVT_ACTION_TYPE_EMPTY   0
+#define EVT_ACTION_TYPE_NORMAL  1
+#define EVT_ACTION_TYPE_DPC     2
+#define EVT_ACTION_TYPE_IRQ     3
+#define EVT_ACTION_TYPE_SUSPEND 4
 
 typedef struct _ev_action_t {
   PKSERVICE_ROUTINE ServiceRoutine;
@@ -178,6 +179,8 @@ typedef struct {
   PHYSICAL_ADDRESS shared_info_area_unmapped;
   shared_info_t *shared_info_area;
   xen_ulong_t evtchn_pending_pvt[sizeof(xen_ulong_t) * 8];
+  xen_ulong_t evtchn_pending_suspend[sizeof(xen_ulong_t) * 8];
+  evtchn_port_t suspend_evtchn;
   BOOLEAN interrupts_masked;
 
   PHYSICAL_ADDRESS platform_mmio_addr;
@@ -278,6 +281,7 @@ typedef struct
 #define SWINT(x) if (intno == x) { __asm { int x } return; }
 #endif
 
+#if 0
 #if defined(_X86_)
 static __inline VOID
 sw_interrupt(UCHAR intno)
@@ -327,7 +331,7 @@ sw_interrupt(UCHAR intno)
   _sw_interrupt(intno);
 }
 #endif
-
+#endif
   
 #include "hypercall.h"
 
@@ -439,6 +443,8 @@ NTSTATUS
 EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 NTSTATUS
 EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description);
+evtchn_port_t
+EvtChn_BindIpi(PVOID context, ULONG vcpu);
 NTSTATUS
 EvtChn_Unbind(PVOID Context, evtchn_port_t Port);
 NTSTATUS

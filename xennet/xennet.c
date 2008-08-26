@@ -143,32 +143,6 @@ XenNet_InterruptIsr(
   //FUNCTION_EXIT();
 }
 
-static DDKAPI VOID
-XenNet_InterruptDpc(NDIS_HANDLE MiniportAdapterContext)
-{
-  struct xennet_info *xi = MiniportAdapterContext;
-
-  if (xi->device_state->resume_state != RESUME_STATE_RUNNING)
-  {
-    KdPrint((__DRIVER_NAME " --- " __FUNCTION__ " device_state event\n"));
-    // there should be a better way to synchronise with rx and tx...
-    KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
-    KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
-    KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
-    KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
-    xi->device_state->resume_state_ack = xi->device_state->resume_state;
-    return;
-  }
-
-  //FUNCTION_ENTER();
-  if (xi->connected)
-  {
-    XenNet_TxBufferGC(xi);
-    XenNet_RxBufferCheck(xi);
-  }
-  //FUNCTION_EXIT();
-}
-
 static NDIS_STATUS
 XenNet_ConnectBackend(struct xennet_info *xi)
 {
@@ -260,31 +234,47 @@ XenNet_Resume(PDEVICE_OBJECT device_object, PVOID context)
   xi->device_state->resume_state = RESUME_STATE_RUNNING;
   XenNet_RxResumeEnd(xi);
   XenNet_TxResumeEnd(xi);
-  NdisMSetPeriodicTimer(&xi->resume_timer, 100);
 }
 
-static DDKAPI VOID 
-XenResumeCheck_Timer(
- PVOID SystemSpecific1,
- PVOID FunctionContext,
- PVOID SystemSpecific2,
- PVOID SystemSpecific3
-)
+static DDKAPI VOID
+XenNet_InterruptDpc(NDIS_HANDLE MiniportAdapterContext)
 {
-  struct xennet_info *xi = FunctionContext;
+  struct xennet_info *xi = MiniportAdapterContext;
   PIO_WORKITEM work_item;
-  BOOLEAN timer_cancelled;
- 
-  UNREFERENCED_PARAMETER(SystemSpecific1);
-  UNREFERENCED_PARAMETER(SystemSpecific2);
-  UNREFERENCED_PARAMETER(SystemSpecific3);
- 
-  if (xi->device_state->resume_state == RESUME_STATE_FRONTEND_RESUME)
+
+  //FUNCTION_ENTER();
+  if (xi->device_state->resume_state != xi->device_state->resume_state_ack)
   {
-    NdisMCancelTimer(&xi->resume_timer, &timer_cancelled);
-  	work_item = IoAllocateWorkItem(xi->fdo);
-  	IoQueueWorkItem(work_item, XenNet_Resume, DelayedWorkQueue, xi);
+    FUNCTION_ENTER();
+    switch (xi->device_state->resume_state)
+    {
+    case RESUME_STATE_SUSPENDING:
+      KdPrint((__DRIVER_NAME "     New state SUSPENDING\n"));
+      // there should be a better way to synchronise with rx and tx...
+      KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
+      KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
+      KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
+      KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
+      break;
+    case RESUME_STATE_FRONTEND_RESUME:
+      KdPrint((__DRIVER_NAME "     New state RESUME_STATE_FRONTEND_RESUME\n"));
+      work_item = IoAllocateWorkItem(xi->fdo);
+      IoQueueWorkItem(work_item, XenNet_Resume, DelayedWorkQueue, xi);
+      break;
+    default:
+      KdPrint((__DRIVER_NAME "     New state %d\n", xi->device_state->resume_state));
+      break;
+    }
+    xi->device_state->resume_state_ack = xi->device_state->resume_state;
+    KeMemoryBarrier();
+    FUNCTION_EXIT();
   }
+  if (xi->connected && xi->device_state->resume_state == RESUME_STATE_RUNNING)
+  {
+    XenNet_TxBufferGC(xi);
+    XenNet_RxBufferCheck(xi);
+  }
+  //FUNCTION_EXIT();
 }
 
 // Called at <= DISPATCH_LEVEL
@@ -599,9 +589,6 @@ XenNet_Init(
 
   /* send fake arp? */
 
-  NdisMInitializeTimer(&xi->resume_timer, xi->adapter_handle, XenResumeCheck_Timer, xi);
-  NdisMSetPeriodicTimer(&xi->resume_timer, 100);
-
   FUNCTION_EXIT();
 
   return NDIS_STATUS_SUCCESS;
@@ -648,7 +635,6 @@ XenNet_Halt(
   )
 {
   struct xennet_info *xi = MiniportAdapterContext;
-  BOOLEAN timer_cancelled;
 
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
@@ -662,8 +648,6 @@ XenNet_Halt(
   KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
 
   // TODO: remove event channel xenbus entry (how?)
-
-  NdisMCancelTimer(&xi->resume_timer, &timer_cancelled);
 
   XenNet_TxShutdown(xi);
   XenNet_RxShutdown(xi);
