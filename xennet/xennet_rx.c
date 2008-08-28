@@ -154,6 +154,8 @@ XenNet_MakePacket(struct xennet_info *xi)
     for (i = 0; i < xi->rxpi.mdl_count; i++)
       NdisChainBufferAtBack(packet, xi->rxpi.mdls[i]);
 
+    NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo) = UlongToPtr(xi->rxpi.mss);
+
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
   else
@@ -190,7 +192,6 @@ XenNet_MakePacket(struct xennet_info *xi)
     XenNet_SumIpHeader(out_buffer, xi->rxpi.ip4_header_length);
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
-
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (%p)\n", packet));
   return packet;
 }
@@ -265,7 +266,7 @@ XenNet_SumPacketData(
         KdPrint((__DRIVER_NAME "     Ran out of buffers\n"));
         return;
       }
-      NdisQueryBufferSafe(mdl, (PVOID) &buffer, &buffer_length, NormalPagePriority);
+      NdisQueryBufferSafe(mdl, &buffer, &buffer_length, NormalPagePriority);
       csum += ((USHORT)buffer[0]);
       buffer_offset = (USHORT)-1;
     }
@@ -323,6 +324,7 @@ XenNet_MakePackets(
     packet = XenNet_MakePacket(xi);
     if (packet == NULL)
     {
+      KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
       xi->stat_rx_no_buffer++;
       packet_count = 0;
       goto done;
@@ -343,6 +345,7 @@ XenNet_MakePackets(
     packet = XenNet_MakePacket(xi);
     if (packet == NULL)
     {
+      KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
       xi->stat_rx_no_buffer++;
       packet_count = 0;
       goto done;
@@ -370,6 +373,7 @@ XenNet_MakePackets(
     packet = XenNet_MakePacket(xi);
     if (!packet)
     {
+      KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
       xi->stat_rx_no_buffer++;
       break; /* we are out of memory - just drop the packets */
     }
@@ -392,7 +396,6 @@ XenNet_MakePackets(
     packet_count++;
   }
 
-  // this won't be true if we had to abort due to a lack of resources... ASSERT(xi->rxpi.curr_mdl == xi->rxpi.mdl_count);
 done:
   for (i = 0; i < xi->rxpi.mdl_count; i++)
   {

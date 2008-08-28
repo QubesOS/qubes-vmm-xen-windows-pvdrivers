@@ -124,9 +124,7 @@ XenNet_QueryInformation(
       temp_data = PAGE_SIZE; //XN_DATA_SIZE;
       break;
     case OID_GEN_MAXIMUM_FRAME_SIZE:
-      // According to the specs, OID_GEN_MAXIMUM_FRAME_SIZE does not include the header, so
-      // it is XN_DATA_SIZE not XN_MAX_PKT_SIZE
-      temp_data = XN_DATA_SIZE;
+      temp_data = xi->config_mtu;
       break;
     case OID_GEN_LINK_SPEED:
       temp_data = 10000000; /* 1Gb */
@@ -159,7 +157,7 @@ XenNet_QueryInformation(
       break;
     case OID_GEN_CURRENT_LOOKAHEAD:
       // TODO: we should store this...
-      temp_data = 54; //XN_MAX_PKT_SIZE;
+      temp_data = xi->config_max_pkt_size;
       break;
     case OID_GEN_DRIVER_VERSION:
       temp_data = (NDIS_MINIPORT_MAJOR_VERSION << 8) | NDIS_MINIPORT_MINOR_VERSION;

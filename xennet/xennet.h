@@ -127,6 +127,7 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
   NDIS_PACKET_TYPE_DIRECTED | \
   NDIS_PACKET_TYPE_MULTICAST | \
   NDIS_PACKET_TYPE_BROADCAST | \
+  NDIS_PACKET_TYPE_PROMISCUOUS | \
   NDIS_PACKET_TYPE_ALL_MULTICAST)
 
 /* couldn't get regular xen ring macros to work...*/
@@ -350,14 +351,6 @@ XenNet_SetInformation(
   OUT PULONG BytesNeeded
   );
 
-PUCHAR
-XenNet_GetData(
-  packet_info_t *pi,
-  USHORT req_length,
-  PUSHORT length
-);
-
-
 /* return values */
 #define PARSE_OK 0
 #define PARSE_TOO_SMALL 1 /* first buffer is too small */
@@ -374,11 +367,35 @@ XenNet_SumIpHeader(
   USHORT ip4_header_length
 );
 
-static __inline grant_ref_t
+static __forceinline grant_ref_t
 get_grant_ref(PMDL mdl)
 {
   return *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE));
 }
+
+static __forceinline PUCHAR
+XenNet_GetData(
+  packet_info_t *pi,
+  USHORT req_length,
+  PUSHORT length
+)
+{
+  PNDIS_BUFFER mdl = pi->mdls[pi->curr_mdl];
+  PUCHAR buffer = (PUCHAR)MmGetMdlVirtualAddress(mdl) + pi->curr_mdl_offset;
+
+  *length = (USHORT)min(req_length, MmGetMdlByteCount(mdl) - pi->curr_mdl_offset);
+
+  pi->curr_mdl_offset = pi->curr_mdl_offset + *length;
+  if (pi->curr_mdl_offset == MmGetMdlByteCount(mdl))
+  {
+    pi->curr_mdl++;
+    pi->curr_mdl_offset = 0;
+  }
+
+  return buffer;
+}
+
+
 
 VOID
 XenFreelist_Init(struct xennet_info *xi, freelist_t *fl, PKSPIN_LOCK lock);

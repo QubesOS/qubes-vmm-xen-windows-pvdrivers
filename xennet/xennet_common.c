@@ -115,34 +115,6 @@ XenNet_SumIpHeader(
   SET_NET_USHORT(&header[XN_HDR_SIZE + 10], (USHORT)csum);
 }
 
-PUCHAR
-XenNet_GetData(
-  packet_info_t *pi,
-  USHORT req_length,
-  PUSHORT length
-)
-{
-  PNDIS_BUFFER mdl = pi->mdls[pi->curr_mdl];
-  PUCHAR buffer = (PUCHAR)MmGetMdlVirtualAddress(mdl) + pi->curr_mdl_offset;
-
-  //FUNCTION_ENTER();
-
-  *length = (USHORT)min(req_length, MmGetMdlByteCount(mdl) - pi->curr_mdl_offset);
-
-  //FUNCTION_MSG(("req_length = %d, length = %d\n", req_length, *length));
-
-  pi->curr_mdl_offset = pi->curr_mdl_offset + *length;
-  if (pi->curr_mdl_offset == MmGetMdlByteCount(mdl))
-  {
-    pi->curr_mdl++;
-    pi->curr_mdl_offset = 0;
-  }
-
-  //FUNCTION_EXIT();
-
-  return buffer;
-}
-
 /* Called at DISPATCH LEVEL */
 static VOID DDKAPI
 XenFreelist_Timer(
