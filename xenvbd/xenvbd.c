@@ -42,6 +42,7 @@ DRIVER_INITIALIZE DriverEntry;
 #endif
 
 static BOOLEAN dump_mode = FALSE;
+static BOOLEAN global_inactive = FALSE;
 
 static blkif_shadow_t *
 get_shadow_from_freelist(PXENVBD_DEVICE_DATA xvdd)
@@ -272,6 +273,38 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
   return SP_RETURN_FOUND;
 }
 
+ULONG stat_interrupts = 0;
+ULONG stat_interrupts_for_me = 0;
+ULONG stat_reads = 0;
+ULONG stat_writes = 0;
+ULONG stat_unaligned_le_4096 = 0;
+ULONG stat_unaligned_le_8192 = 0;
+ULONG stat_unaligned_le_16384 = 0;
+ULONG stat_unaligned_le_32768 = 0;
+ULONG stat_unaligned_le_65536 = 0;
+ULONG stat_unaligned_gt_65536 = 0;
+ULONG stat_no_shadows = 0;
+ULONG stat_no_grants = 0;
+ULONG stat_outstanding_requests = 0;
+
+static VOID
+XenVbd_DumpStats()
+{
+  KdPrint((__DRIVER_NAME "     stat_interrupts = %d\n", stat_interrupts));
+  KdPrint((__DRIVER_NAME "     stat_interrupts_for_me = %d\n", stat_interrupts_for_me));
+  KdPrint((__DRIVER_NAME "     stat_reads = %d\n", stat_reads));
+  KdPrint((__DRIVER_NAME "     stat_writes = %d\n", stat_writes));
+  KdPrint((__DRIVER_NAME "     stat_unaligned_le_4096 = %d\n", stat_unaligned_le_4096));
+  KdPrint((__DRIVER_NAME "     stat_unaligned_le_8192 = %d\n", stat_unaligned_le_8192));
+  KdPrint((__DRIVER_NAME "     stat_unaligned_le_16384 = %d\n", stat_unaligned_le_16384));
+  KdPrint((__DRIVER_NAME "     stat_unaligned_le_32768 = %d\n", stat_unaligned_le_32768));
+  KdPrint((__DRIVER_NAME "     stat_unaligned_le_65536 = %d\n", stat_unaligned_le_65536));
+  KdPrint((__DRIVER_NAME "     stat_unaligned_gt_65536 = %d\n", stat_unaligned_gt_65536));
+  KdPrint((__DRIVER_NAME "     stat_no_shadows = %d\n", stat_no_shadows));
+  KdPrint((__DRIVER_NAME "     stat_no_grants = %d\n", stat_no_grants));
+  KdPrint((__DRIVER_NAME "     stat_outstanding_requests = %d\n", stat_outstanding_requests));
+}
+
 static VOID
 XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb_offset)
 {
@@ -292,18 +325,11 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   {
     ptr = GET_PAGE_ALIGNED(srb->SrbExtension);
     transfer_length = min(block_count * 512 - srb_offset, UNALIGNED_DOUBLE_BUFFER_SIZE);
-    if (!srb_offset)
-    {
-      xvdd->unaligned_requests++;
-      xvdd->unaligned_bytes += transfer_length;
-    }
   }
   else
   {
     ptr = srb->DataBuffer;
     transfer_length = block_count * 512;
-    xvdd->aligned_requests++;
-    xvdd->aligned_bytes += transfer_length;
   }
 
   if (xvdd->grant_free <= ADDRESS_AND_SIZE_TO_SPAN_PAGES(ptr, transfer_length))
@@ -311,8 +337,32 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
     ASSERT(!xvdd->pending_srb);
     //KdPrint((__DRIVER_NAME "     No enough grants - deferring\n"));
     xvdd->pending_srb = srb;
-    xvdd->no_free_grant_requests++;
+    stat_no_grants++;
     return;
+  }
+
+  if (!srb_offset)
+  {
+    if (PtrToUlong(srb->DataBuffer) & 511)
+    {
+      if (block_count * 512 <= 4096)
+        stat_unaligned_le_4096++;
+      else if (block_count * 512 <= 8192)
+        stat_unaligned_le_8192++;
+      else if (block_count * 512 <= 16384)
+        stat_unaligned_le_16384++;
+      else if (block_count * 512 <= 32768)
+        stat_unaligned_le_32768++;
+      else if (block_count * 512 <= 65536)
+        stat_unaligned_le_65536++;
+      else
+        stat_unaligned_gt_65536++;
+    }
+    if (srb->Cdb[0] == SCSIOP_WRITE)
+      stat_writes++;
+    else
+      stat_reads++;
+    stat_outstanding_requests++;
   }
   
   shadow = get_shadow_from_freelist(xvdd);
@@ -378,6 +428,8 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
     xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
   }
 
+  if (!xvdd->shadow_free)
+    stat_no_shadows++;
   if (xvdd->shadow_free && srb_offset == 0)
     ScsiPortNotification(NextLuRequest, xvdd, 0, 0, 0);
 
@@ -389,7 +441,7 @@ XenVbd_Resume(PVOID DeviceExtension)
 {
   PXENVBD_DEVICE_DATA xvdd = (PXENVBD_DEVICE_DATA)DeviceExtension;
   ULONG i;
-  blkif_shadow_t shadows[SHADOW_ENTRIES];
+  blkif_shadow_t shadows[MAX_SHADOW_ENTRIES];
   ULONG shadow_entries;
   blkif_shadow_t *shadow;  
 
@@ -435,6 +487,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   ULONG status;
 //  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
   PACCESS_RANGE access_range;
+  ULONG i;
 
   UNREFERENCED_PARAMETER(HwContext);
   UNREFERENCED_PARAMETER(BusInformation);
@@ -448,31 +501,49 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   KdPrint((__DRIVER_NAME "     BusInterruptLevel = %d\n", ConfigInfo->BusInterruptLevel));
   KdPrint((__DRIVER_NAME "     BusInterruptVector = %03x\n", ConfigInfo->BusInterruptVector));
 
-  if (ConfigInfo->NumberOfAccessRanges != 1)
+  if (ConfigInfo->NumberOfAccessRanges != 1 && ConfigInfo->NumberOfAccessRanges != 2)
   {
     KdPrint((__DRIVER_NAME "     NumberOfAccessRanges = %d\n", ConfigInfo->NumberOfAccessRanges));    
     return SP_RETURN_BAD_CONFIG;
   }
 
-  access_range = &((*(ConfigInfo->AccessRanges))[0]);
-
-  KdPrint((__DRIVER_NAME "     RangeStart = %08x, RangeLength = %08x\n",
-    access_range->RangeStart.LowPart, access_range->RangeLength));
-
-  xvdd->device_base = ScsiPortGetDeviceBase(
-    DeviceExtension,
-    ConfigInfo->AdapterInterfaceType,
-    ConfigInfo->SystemIoBusNumber,
-    access_range->RangeStart,
-    access_range->RangeLength,
-    !access_range->RangeInMemory);
-  if (xvdd->device_base == NULL)
+  xvdd->inactive = global_inactive;
+  
+  for (i = 0; i < ConfigInfo->NumberOfAccessRanges; i++)
   {
-    KdPrint((__DRIVER_NAME "     Unable to map range\n"));
+    access_range = &((*(ConfigInfo->AccessRanges))[i]);
+    if (access_range->RangeStart.QuadPart)
+    {
+      KdPrint((__DRIVER_NAME "     RangeStart = %08x, RangeLength = %08x\n",
+        access_range->RangeStart.LowPart, access_range->RangeLength));
+
+      xvdd->device_base = ScsiPortGetDeviceBase(
+        DeviceExtension,
+        ConfigInfo->AdapterInterfaceType,
+        ConfigInfo->SystemIoBusNumber,
+        access_range->RangeStart,
+        access_range->RangeLength,
+        !access_range->RangeInMemory);
+      if (xvdd->device_base == NULL)
+      {
+        KdPrint((__DRIVER_NAME "     Unable to map range\n"));
+        KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));  
+        return SP_RETURN_BAD_CONFIG;
+      }
+    }
+    else
+    {
+      xvdd->inactive = TRUE;
+    }
+  }
+
+  if (!xvdd->device_base)
+  {
+    KdPrint((__DRIVER_NAME "     Invalid config\n"));
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));  
     return SP_RETURN_BAD_CONFIG;
   }
-
+  
   status = XenVbd_InitFromConfig(xvdd);
   if (status != SP_RETURN_FOUND)
     return status;
@@ -681,12 +752,13 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   blkif_shadow_t *shadow;
   ULONG offset;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ bac"\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
+  stat_interrupts++;
   /* in dump mode I think we get called on a timer, not by an actual IRQ */
   if (!dump_mode && !xvdd->vectors.EvtChn_AckEvent(xvdd->vectors.context, xvdd->event_channel))
     return FALSE; /* interrupt was not for us */
-
+  stat_interrupts_for_me++;
   if (xvdd->device_state->resume_state != xvdd->device_state->resume_state_ack)
   {
     FUNCTION_ENTER();
@@ -713,7 +785,8 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     return FALSE;
   }
 
-  xvdd->interrupts++;
+  if (!(stat_interrupts_for_me & 0x3FF))
+    XenVbd_DumpStats();
   while (more_to_do)
   {
     rp = xvdd->ring.sring->rsp_prod;
@@ -789,6 +862,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
           if (offset == block_count * xvdd->bytes_per_sector)
           {
             ScsiPortNotification(RequestComplete, xvdd, srb);
+            stat_outstanding_requests--;
             ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
           }
           else
@@ -800,6 +874,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         {
           put_shadow_on_freelist(xvdd, shadow);
           ScsiPortNotification(RequestComplete, xvdd, srb);
+          stat_outstanding_requests--;
           if (xvdd->pending_srb)
           {
             srb = xvdd->pending_srb;
@@ -832,7 +907,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-  return FALSE; /* we just don't know... */
+  return FALSE; /* fall through to the next ISR... */
 }
 
 static BOOLEAN DDKAPI
@@ -844,6 +919,12 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
 
   //KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
 
+  if (xvdd->inactive)
+  {
+    Srb->SrbStatus = SRB_STATUS_NO_DEVICE;
+    return TRUE;
+  }
+  
   // If we haven't enumerated all the devices yet then just defer the request
   if (xvdd->ring_detect_state < 2)
   {
@@ -1234,9 +1315,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     dump_mode = TRUE;
   if (conf_info->DiskCount && RegistryPath)
   {
-    KdPrint((__DRIVER_NAME "     Not loaded at boot time so not loading\n"));
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-    return STATUS_UNSUCCESSFUL;
+    global_inactive = TRUE;
+    KdPrint((__DRIVER_NAME "     Not loaded at boot time so setting inactive\n"));
   }
   
   RtlZeroMemory(&HwInitializationData, sizeof(HW_INITIALIZATION_DATA));

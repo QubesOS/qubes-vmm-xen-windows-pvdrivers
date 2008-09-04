@@ -88,7 +88,8 @@ typedef struct {
   ULONG length;
 } blkif_shadow_t;
 
-#define SHADOW_ENTRIES 16
+#define MAX_SHADOW_ENTRIES 64
+#define SHADOW_ENTRIES min(MAX_SHADOW_ENTRIES, min(BLK_RING_SIZE, BLK_OTHER_RING_SIZE))
 #define MAX_GRANT_ENTRIES 512
 
 typedef enum {
@@ -106,8 +107,10 @@ typedef enum {
 
 struct
 {
-  blkif_shadow_t shadows[SHADOW_ENTRIES];
-  USHORT shadow_free_list[SHADOW_ENTRIES];
+  BOOLEAN inactive;
+  
+  blkif_shadow_t shadows[MAX_SHADOW_ENTRIES];
+  USHORT shadow_free_list[MAX_SHADOW_ENTRIES];
   USHORT shadow_free;
   USHORT shadow_min_free;
 
@@ -136,13 +139,14 @@ struct
   XENPCI_VECTORS vectors;
   PXENPCI_DEVICE_STATE device_state;
   PSCSI_REQUEST_BLOCK pending_srb;
-  
+/*  
   ULONGLONG interrupts;
   ULONGLONG aligned_requests;
   ULONGLONG aligned_bytes;
   ULONGLONG unaligned_requests;
   ULONGLONG unaligned_bytes;
   ULONGLONG no_free_grant_requests;
+*/
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 
 #endif

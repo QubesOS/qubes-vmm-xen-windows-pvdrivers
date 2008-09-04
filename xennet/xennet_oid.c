@@ -172,7 +172,7 @@ XenNet_QueryInformation(
         NDIS_MAC_OPTION_NO_LOOPBACK;
       break;
     case OID_GEN_MEDIA_CONNECT_STATUS:
-      if (xi->connected)
+      if (xi->connected && !xi->inactive)
         temp_data = NdisMediaStateConnected;
       else
         temp_data = NdisMediaStateDisconnected;

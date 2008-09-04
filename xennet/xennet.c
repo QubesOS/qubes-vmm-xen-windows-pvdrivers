@@ -269,7 +269,7 @@ XenNet_InterruptDpc(NDIS_HANDLE MiniportAdapterContext)
     KeMemoryBarrier();
     FUNCTION_EXIT();
   }
-  if (xi->connected && xi->device_state->resume_state == RESUME_STATE_RUNNING)
+  if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
   {
     XenNet_TxBufferGC(xi);
     XenNet_RxBufferCheck(xi);
@@ -383,12 +383,19 @@ XenNet_Init(
       break;
 
     case CmResourceTypeMemory:
-      status = NdisMMapIoSpace(&xi->config_page, MiniportAdapterHandle, prd->u.Memory.Start, prd->u.Memory.Length);
-      if (!NT_SUCCESS(status))
+      if (prd->u.Memory.Start.QuadPart)
       {
-        KdPrint(("NdisMMapIoSpace failed with 0x%x\n", status));
-        NdisFreeMemory(nrl, nrl_length, 0);
-        return NDIS_STATUS_RESOURCES;
+        status = NdisMMapIoSpace(&xi->config_page, MiniportAdapterHandle, prd->u.Memory.Start, prd->u.Memory.Length);
+        if (!NT_SUCCESS(status))
+        {
+          KdPrint(("NdisMMapIoSpace failed with 0x%x\n", status));
+          NdisFreeMemory(nrl, nrl_length, 0);
+          return NDIS_STATUS_RESOURCES;
+        }
+      }
+      else
+      {
+        xi->inactive = TRUE;
       }
       break;
     }

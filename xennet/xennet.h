@@ -207,6 +207,8 @@ typedef struct
 
 struct xennet_info
 {
+  BOOLEAN inactive;
+  
   /* Base device vars */
   PDEVICE_OBJECT pdo;
   PDEVICE_OBJECT fdo;

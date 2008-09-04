@@ -3,7 +3,7 @@
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.11-pre13"
+!define Version "0.9.11-pre14"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 InstallDir "$PROGRAMFILES\${AppName}"
@@ -276,6 +276,7 @@ Var NewArch
 Function .onSelChange
   Push $0
   
+  StrCpy $newarch $arch
   StrCmp $arch "win2k" check_xp
   SectionGetFlags ${win2k} $0
   IntOp $0 $0 & ${SF_SELECTED}
@@ -321,35 +322,65 @@ FunctionEnd
 Function SelectSection
   Push $0
 
-  StrCmp $arch "win2k" check_xp
+  StrCmp $arch "win2k" set_win2k
   SectionGetFlags ${win2k} $0
   IntOp $0 $0 & ${SECTION_OFF}
   SectionSetFlags ${win2k} $0
+  goto check_xp
+set_win2k:
+  SectionGetFlags ${win2k} $0
+  IntOp $0 $0 | ${SF_SELECTED}
+  SectionSetFlags ${win2k} $0  
 check_xp:
-  StrCmp $arch "winxp" check_2k3x32
+  StrCmp $arch "winxp" set_winxp
   SectionGetFlags ${winxp} $0
   IntOp $0 $0 & ${SECTION_OFF}
   SectionSetFlags ${winxp} $0
+  goto check_2k3x32
+set_winxp:
+  SectionGetFlags ${winxp} $0
+  IntOp $0 $0 | ${SF_SELECTED}
+  SectionSetFlags ${winxp} $0  
 check_2k3x32:
-  StrCmp $arch "win2k3x32" check_2k3x64
+  StrCmp $arch "win2k3x32" set_2k3x32
   SectionGetFlags ${win2k3x32} $0
   IntOp $0 $0 & ${SECTION_OFF}
   SectionSetFlags ${win2k3x32} $0
+  goto check_2k3x64
+set_2k3x32:
+  SectionGetFlags ${win2k3x32} $0
+  IntOp $0 $0 | ${SF_SELECTED}
+  SectionSetFlags ${win2k3x32} $0  
 check_2k3x64:
-  StrCmp $arch "win2k3x64" check_2k8x32
+  StrCmp $arch "win2k3x64" set_2k3x64
   SectionGetFlags ${win2k3x64} $0
   IntOp $0 $0 & ${SECTION_OFF}
   SectionSetFlags ${win2k3x64} $0
+  goto check_2k8x32
+set_2k3x64:
+  SectionGetFlags ${win2k3x64} $0
+  IntOp $0 $0 | ${SF_SELECTED}
+  SectionSetFlags ${win2k3x64} $0  
 check_2k8x32:
-  StrCmp $arch "win2k8x32" check_2k8x64
+  StrCmp $arch "win2k8x32" set_2k8x32
   SectionGetFlags ${win2k8x32} $0
   IntOp $0 $0 & ${SECTION_OFF}
   SectionSetFlags ${win2k8x32} $0
+  goto check_2k8x64
+set_2k8x32:
+  SectionGetFlags ${win2k8x32} $0
+  IntOp $0 $0 | ${SF_SELECTED}
+  SectionSetFlags ${win2k8x32} $0  
 check_2k8x64:
-  StrCmp $arch "win2k8x64" done
+  StrCmp $arch "win2k8x64" set_2k8x64
   SectionGetFlags ${win2k8x64} $0
   IntOp $0 $0 & ${SECTION_OFF}
   SectionSetFlags ${win2k8x64} $0
+  goto done
+set_2k8x64:
+  SectionGetFlags ${win2k8x64} $0
+  IntOp $0 $0 | ${SF_SELECTED}
+  SectionSetFlags ${win2k8x64} $0  
 done:
   Pop $0
 

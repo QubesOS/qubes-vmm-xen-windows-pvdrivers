@@ -886,20 +886,23 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
       xppdd->irq_level = (KIRQL)prd->u.Interrupt.Level;
       break;
     case CmResourceTypeMemory:
-      KdPrint((__DRIVER_NAME "     CmResourceTypeMemory\n"));
-      KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
-      xppdd->config_page_phys = prd->u.Memory.Start;
-      xppdd->config_page_length = prd->u.Memory.Length;
-      xppdd->requested_resources_start = xppdd->requested_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
-      xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
-      
-      status = XenPci_XenConfigDevice(xppdd);
-      if (!NT_SUCCESS(status))
+      if (prd->u.Memory.Start.QuadPart)
       {
-        RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-        XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
-        FUNCTION_ERROR_EXIT();
-        return status;
+        KdPrint((__DRIVER_NAME "     CmResourceTypeMemory\n"));
+        KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
+        xppdd->config_page_phys = prd->u.Memory.Start;
+        xppdd->config_page_length = prd->u.Memory.Length;
+        xppdd->requested_resources_start = xppdd->requested_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+        xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+        
+        status = XenPci_XenConfigDevice(xppdd);
+        if (!NT_SUCCESS(status))
+        {
+          RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+          XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+          FUNCTION_ERROR_EXIT();
+          return status;
+        }
       }
     }
   }

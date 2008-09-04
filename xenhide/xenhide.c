@@ -409,6 +409,96 @@ XenHide_SendAndWaitForIrp(PDEVICE_OBJECT device_object, PIRP irp)
 }
 
 static NTSTATUS
+XenHide_QueueWorkItem(PDEVICE_OBJECT device_object, PIO_WORKITEM_ROUTINE routine, PVOID context)
+{
+  PIO_WORKITEM work_item;
+  NTSTATUS status = STATUS_SUCCESS;
+
+  work_item = IoAllocateWorkItem(device_object);
+  IoQueueWorkItem(work_item, routine, DelayedWorkQueue, context);
+	
+  return status;
+}
+
+static VOID
+XenHide_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  PIRP irp = context;
+  
+  UNREFERENCED_PARAMETER(device_object);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  
+  irp->IoStatus.Status = status;
+  
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+}
+
+/*
+The FDO will take the existance of a 0 CmResourceTypeMemory resource to mean that it should not do anything.
+In the case of xenvbd this means it will not report any disks. In the case of xennet ???
+*/
+static NTSTATUS
+XenHide_Pnp_StartDevice_AddHideFlag(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  PCM_RESOURCE_LIST old_crl, new_crl;
+  PCM_PARTIAL_RESOURCE_LIST prl;
+  PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
+  ULONG old_length, new_length;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  stack = IoGetCurrentIrpStackLocation(irp);
+
+  old_crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
+  old_length = FIELD_OFFSET(CM_RESOURCE_LIST, List) + 
+    FIELD_OFFSET(CM_FULL_RESOURCE_DESCRIPTOR, PartialResourceList) +
+    FIELD_OFFSET(CM_PARTIAL_RESOURCE_LIST, PartialDescriptors) +
+    sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * old_crl->List[0].PartialResourceList.Count;
+  new_length = old_length + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * 1;
+  new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENHIDE_POOL_TAG);
+  memcpy(new_crl, old_crl, old_length);
+  prl = &new_crl->List[0].PartialResourceList;
+  prd = &prl->PartialDescriptors[prl->Count++];
+  prd->Type = CmResourceTypeMemory;
+  prd->ShareDisposition = CmResourceShareDeviceExclusive;
+  prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE;
+  prd->u.Memory.Start.QuadPart = 0;
+  prd->u.Memory.Length = 0;
+  stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl;
+
+  old_crl = stack->Parameters.StartDevice.AllocatedResources;
+  new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENHIDE_POOL_TAG);
+  memcpy(new_crl, old_crl, old_length);
+  prl = &new_crl->List[0].PartialResourceList;
+  prd = &prl->PartialDescriptors[prl->Count++];
+  prd->Type = CmResourceTypeMemory;
+  prd->ShareDisposition = CmResourceShareDeviceExclusive;
+  prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE;
+  prd->u.Memory.Start.QuadPart = (ULONGLONG)0;
+  prd->u.Memory.Length = 0;
+  stack->Parameters.StartDevice.AllocatedResources = new_crl;
+
+  // free the original resource lists???
+
+  IoMarkIrpPending(irp);
+  status = XenHide_SendAndWaitForIrp(device_object, irp);
+
+  XenHide_QueueWorkItem(device_object, XenHide_Pnp_StartDeviceCallback, irp);
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  
+  return STATUS_PENDING;
+}
+
+static NTSTATUS
 XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status = STATUS_SUCCESS;
@@ -429,8 +519,9 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     if (xhdd->hide_type == XENHIDE_TYPE_DEVICE)
     {
       //KdPrint((__DRIVER_NAME "     hide_type == XENHIDE_TYPE_DEVICE\n"));
-      status = irp->IoStatus.Status = STATUS_UNSUCCESSFUL;
-      IoCompleteRequest(irp, IO_NO_INCREMENT);
+      //status = irp->IoStatus.Status = STATUS_UNSUCCESSFUL;
+      //IoCompleteRequest(irp, IO_NO_INCREMENT);
+      status = XenHide_Pnp_StartDevice_AddHideFlag(device_object, irp);
     }
     else
     {
