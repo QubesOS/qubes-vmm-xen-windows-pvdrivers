@@ -73,6 +73,7 @@ SectionEnd
 Section "Windows XP" winxp
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
+  File .\target\i386\copyconfig.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winxp\xenpci.inf
   File .\target\winxp\xennet.inf
@@ -93,6 +94,7 @@ SectionEnd
 Section "Windows 2003 x32" win2k3x32
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
+  File .\target\i386\copyconfig.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -113,6 +115,7 @@ SectionEnd
 Section "Windows 2003 x64" win2k3x64
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
+  File .\target\i386\copyconfig.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -133,6 +136,7 @@ SectionEnd
 Section "Windows 2008 x32" win2k8x32
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
+  File .\target\i386\copyconfig.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -153,6 +157,7 @@ SectionEnd
 Section "Windows 2008 x64" win2k8x64
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
+  File .\target\i386\copyconfig.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -209,6 +214,12 @@ Section "Install Drivers" installdrivers
   Push "$INSTDIR\drivers\xenpci.inf"
   Push "PCI\VEN_5853&DEV_0001"
   Call InstallUpgradeDriver
+SectionEnd
+
+Section "Copy Network Config" copynetworkconfig
+  MessageBox MB_OKCANCEL "This will copy the network IP configuration from the qemu network adapter to the gplpv xennet network adapter. Ensure that all the drivers are loaded for all the network adapters before clicking OK" IDCANCEL done
+  ExecWait '"$INSTDIR\copyconfig.exe"'
+done:
 SectionEnd
 
 Var arch

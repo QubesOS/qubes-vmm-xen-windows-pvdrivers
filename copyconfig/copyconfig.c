@@ -7,32 +7,6 @@
 #include <winioctl.h>
 #include <ntddndis.h>
 
-/*
-1. Get an adapter id. You can get it from registry,
-\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Adapters
-- they are specified in this key.
-
-2. For each adapter id you have to open it using ZwCreateFile to obtain it's
-handle to make ioctl's on,
-
-status = ZwOpenFile(&adapter, GENERIC_READ|GENERIC_WRITE, &oa, &ioStatus,
-FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_NON_DIRECTORY_FILE);
-
-Don't forget to prepend \\??\\ at the begning of the adapter id string.
-
-3. Once you obtained valid apadter handle, you can query
-OID_802_3_PERMANENT_ADDRESS:
-
-args = OID_802_3_PERMANENT_ADDRESS;
-status = ZwDeviceIoControlFile(adapter, 0, 0, 0, &ioStatus,
-IOCTL_NDIS_QUERY_GLOBAL_STATS, &args, sizeof(ULONG), controlbuff,
-sizeofcontrolbuf);
-
-Make sure, that you can obtain adapter mac address while the device is up.
-If it is down - imagine wi-fi apadter on notebook when it is switched off -
-you're out of luck.
-*/
-
 #define ADAPTER_TYPE_XEN
 #define ADAPTER_TYPE_OTHER
 
