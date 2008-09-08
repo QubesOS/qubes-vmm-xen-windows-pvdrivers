@@ -40,22 +40,11 @@ Section "Common Files"
 
 SectionEnd
 
-Section "Shutdown Monitor Service" shutdownmon
-  SetOutPath $INSTDIR
-
-  ExecWait 'NET STOP XenShutdownMon'
-  File .\target\i386\ShutdownMon.exe
-#  CreateShortCut "${StartMenu}\Install Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-i"
-#  CreateShortCut "${StartMenu}\UnInstall Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-u"
-  ExecWait '"$INSTDIR\ShutdownMon.exe" -i'
-  ExecWait 'NET START XenShutdownMon'
-SectionEnd
-  
 Section "Windows 2000" win2k
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\i386\copyconfig.exe
-  File .\target\i386\shutdownmon.exe
+  File .\target\win2k\i386\copyconfig.exe
+  File .\target\win2k\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\win2k\xenpci.inf
   File .\target\win2k\xennet.inf
@@ -75,8 +64,8 @@ SectionEnd
 Section "Windows XP" winxp
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\i386\copyconfig.exe
-  File .\target\i386\shutdownmon.exe
+  File .\target\winxp\i386\copyconfig.exe
+  File .\target\winxp\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winxp\xenpci.inf
   File .\target\winxp\xennet.inf
@@ -97,8 +86,8 @@ SectionEnd
 Section "Windows 2003 x32" win2k3x32
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\i386\copyconfig.exe
-  File .\target\i386\shutdownmon.exe
+  File .\target\winnet\i386\copyconfig.exe
+  File .\target\winnet\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -119,8 +108,8 @@ SectionEnd
 Section "Windows 2003 x64" win2k3x64
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\i386\copyconfig.exe
-  File .\target\i386\shutdownmon.exe
+  File .\target\winnet\amd64\copyconfig.exe
+  File .\target\winnet\amd64\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -141,8 +130,8 @@ SectionEnd
 Section "Windows 2008 x32" win2k8x32
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\i386\copyconfig.exe
-  File .\target\i386\shutdownmon.exe
+  File .\target\winlh\i386\copyconfig.exe
+  File .\target\winlh\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -163,8 +152,8 @@ SectionEnd
 Section "Windows 2008 x64" win2k8x64
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\i386\copyconfig.exe
-  File .\target\i386\shutdownmon.exe
+  File .\target\winlh\amd64\copyconfig.exe
+  File .\target\winlh\amd64\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -223,6 +212,13 @@ Section "Install Drivers" installdrivers
   Call InstallUpgradeDriver
 SectionEnd
 
+Section "Shutdown Monitor Service" shutdownmon
+  ExecWait 'NET STOP ShutdownMon'
+  ExecWait '"$INSTDIR\ShutdownMon.exe" -u'
+  ExecWait '"$INSTDIR\ShutdownMon.exe" -i'
+  ExecWait 'NET START ShutdownMon'
+SectionEnd
+  
 Section "Copy Network Config" copynetworkconfig
   MessageBox MB_OKCANCEL "This will copy the network IP configuration from the qemu network adapter to the gplpv xennet network adapter. Ensure that all the drivers are loaded for all the network adapters before clicking OK" IDCANCEL done
   ExecWait '"$INSTDIR\copyconfig.exe"'
