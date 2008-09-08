@@ -94,7 +94,7 @@ to CPU != 0, but we should always use vcpu_info[0]
   BOOLEAN deferred = FALSE;
   int i;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", cpu));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", KeGetCurrentProcessorNumber()));
 
   if (xpdd->interrupts_masked)
   {

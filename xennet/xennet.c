@@ -137,7 +137,7 @@ XenNet_InterruptIsr(
   else
   {
     *QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
-    *InterruptRecognized = TRUE;
+    *InterruptRecognized = FALSE;
   }
 
   //FUNCTION_EXIT();
