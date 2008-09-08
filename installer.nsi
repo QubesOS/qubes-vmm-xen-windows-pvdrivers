@@ -44,7 +44,7 @@ Section "Shutdown Monitor Service" shutdownmon
   SetOutPath $INSTDIR
 
   ExecWait 'NET STOP XenShutdownMon'
-  File .\target\ShutdownMon.exe
+  File .\target\i386\ShutdownMon.exe
 #  CreateShortCut "${StartMenu}\Install Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-i"
 #  CreateShortCut "${StartMenu}\UnInstall Shutdown Service.lnk" "$INSTDIR\ShutdownMon.exe" "-u"
   ExecWait '"$INSTDIR\ShutdownMon.exe" -i'
@@ -54,6 +54,8 @@ SectionEnd
 Section "Windows 2000" win2k
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
+  File .\target\i386\copyconfig.exe
+  File .\target\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\win2k\xenpci.inf
   File .\target\win2k\xennet.inf
@@ -74,6 +76,7 @@ Section "Windows XP" winxp
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
   File .\target\i386\copyconfig.exe
+  File .\target\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winxp\xenpci.inf
   File .\target\winxp\xennet.inf
@@ -95,6 +98,7 @@ Section "Windows 2003 x32" win2k3x32
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
   File .\target\i386\copyconfig.exe
+  File .\target\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -116,6 +120,7 @@ Section "Windows 2003 x64" win2k3x64
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
   File .\target\i386\copyconfig.exe
+  File .\target\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -137,6 +142,7 @@ Section "Windows 2008 x32" win2k8x32
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
   File .\target\i386\copyconfig.exe
+  File .\target\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -158,6 +164,7 @@ Section "Windows 2008 x64" win2k8x64
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
   File .\target\i386\copyconfig.exe
+  File .\target\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
