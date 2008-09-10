@@ -1,12 +1,16 @@
 !include "MUI.nsh"
-!include "driver.nsh"
+!include "winver.nsh"
+
+Var MYPROGRAMFILES
+Var ARCH_SPEC
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.11-pre14"
+!define Version "0.9.11-pre15"
 #!define Version "$%VERSION%"
 Name "${AppName}"
-InstallDir "$PROGRAMFILES\${AppName}"
+
+#InstallDir "$MYPROGRAMFILES\${AppName}"
 OutFile "${AppName} ${Version}.exe"
 
 # make sure /GPLPV is not currently active
@@ -29,6 +33,17 @@ Section "Common Files"
   File .\doc\Installing.txt
   File .\doc\Readme.txt
   File .\doc\TODO.txt
+  ExecWait 'NET STOP ShutdownMon'
+  StrCmp $ARCH_SPEC "amd64" amd64
+  File .\target\winnet\i386\copyconfig.exe
+  File .\target\winnet\i386\shutdownmon.exe
+  File $%DDK_PATH%\redist\DIFx\DPInst\EngMui\x86\DPInst.exe
+  Goto amd64_done
+amd64:
+  File .\target\winnet\amd64\copyconfig.exe
+  File .\target\winnet\amd64\shutdownmon.exe
+  File $%DDK_PATH%\redist\DIFx\DPInst\EngMui\amd64\DPInst.exe
+amd64_done:
   CreateDirectory "${StartMenu}\"
   CreateShortCut "${StartMenu}\Building.lnk" "$INSTDIR\Building.txt"
   CreateShortCut "${StartMenu}\Installing.lnk" "$INSTDIR\Installing.txt"
@@ -37,20 +52,18 @@ Section "Common Files"
   CreateShortCut "${StartMenu}\Wiki Page.lnk" "http://wiki.xensource.com/xenwiki/XenWindowsGplPv" 
   WriteUninstaller $INSTDIR\Uninstall.exe
   CreateShortCut "${StartMenu}\Uninstall.lnk" "$INSTDIR\uninstall.exe"
-
 SectionEnd
 
 Section "Windows 2000" win2k
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\win2k\i386\copyconfig.exe
-  File .\target\win2k\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\win2k\xenpci.inf
   File .\target\win2k\xennet.inf
   File .\target\win2k\xenvbd.inf
   File .\target\win2k\xenscsi.inf
   File .\target\win2k\xenstub.inf
+  File /nonfatal .\target\win2k\xengplpv.cat
   SetOutPath $INSTDIR\drivers\i386
   File .\target\win2k\i386\xenpci.sys
   File .\target\win2k\i386\xenhide.sys
@@ -64,8 +77,6 @@ SectionEnd
 Section "Windows XP" winxp
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\winxp\i386\copyconfig.exe
-  File .\target\winxp\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winxp\xenpci.inf
   File .\target\winxp\xennet.inf
@@ -86,8 +97,6 @@ SectionEnd
 Section "Windows 2003 x32" win2k3x32
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\winnet\i386\copyconfig.exe
-  File .\target\winnet\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -108,8 +117,6 @@ SectionEnd
 Section "Windows 2003 x64" win2k3x64
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\winnet\amd64\copyconfig.exe
-  File .\target\winnet\amd64\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winnet\xenpci.inf
   File .\target\winnet\xennet.inf
@@ -130,8 +137,6 @@ SectionEnd
 Section "Windows 2008 x32" win2k8x32
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\winlh\i386\copyconfig.exe
-  File .\target\winlh\i386\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -152,8 +157,6 @@ SectionEnd
 Section "Windows 2008 x64" win2k8x64
   SetOutPath $INSTDIR
   File /nonfatal .\ca.cer
-  File .\target\winlh\amd64\copyconfig.exe
-  File .\target\winlh\amd64\shutdownmon.exe
   SetOutPath $INSTDIR\drivers
   File .\target\winlh\xenpci.inf
   File .\target\winlh\xennet.inf
@@ -172,10 +175,12 @@ Section "Windows 2008 x64" win2k8x64
 SectionEnd
 
 Section /o "Install Cert" installcert
-  ExecWait 'rundll32.exe cryptext.dll,CryptExtAddCER $INSTDIR\ca.cer'
+  ExecWait 'rundll32.exe cryptext.dll,CryptExtAddCER "$INSTDIR\ca.cer"'
 SectionEnd
 
 Section "Install Drivers" installdrivers
+  ExecWait '"$INSTDIR\DPInst.exe" /PATH "$INSTDIR\drivers" /LM /SA /SE /SW'
+!if false
   Push "$INSTDIR\drivers"
   Push "$INSTDIR\drivers\xennet.inf"
   Push "XEN\VIF"
@@ -210,16 +215,16 @@ Section "Install Drivers" installdrivers
   Push "$INSTDIR\drivers\xenpci.inf"
   Push "PCI\VEN_5853&DEV_0001"
   Call InstallUpgradeDriver
+!endif
 SectionEnd
 
 Section "Shutdown Monitor Service" shutdownmon
-  ExecWait 'NET STOP ShutdownMon'
   ExecWait '"$INSTDIR\ShutdownMon.exe" -u'
   ExecWait '"$INSTDIR\ShutdownMon.exe" -i'
   ExecWait 'NET START ShutdownMon'
 SectionEnd
   
-Section "Copy Network Config" copynetworkconfig
+Section /o "Copy Network Config" copynetworkconfig
   MessageBox MB_OKCANCEL "This will copy the network IP configuration from the qemu network adapter to the gplpv xennet network adapter. Ensure that all the drivers are loaded for all the network adapters before clicking OK" IDCANCEL done
   ExecWait '"$INSTDIR\copyconfig.exe"'
 done:
@@ -245,6 +250,17 @@ no_GPLPV:
   
   Call GetWindowsVersion
   Pop $R0
+
+  ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" PROCESSOR_ARCHITECTURE
+  StrCmp $0 "AMD64" is_amd64
+  StrCpy $MYPROGRAMFILES $PROGRAMFILES
+  StrCpy $ARCH_SPEC "i386"
+  Goto amd64_done
+is_amd64:
+  StrCpy $MYPROGRAMFILES $PROGRAMFILES64
+  StrCpy $ARCH_SPEC "amd64"
+amd64_done:
+  StrCpy $INSTDIR "$MYPROGRAMFILES\${AppName}"
   
   StrCmp $R0 "2000" 0 check_XP
   StrCpy $arch "win2k"
