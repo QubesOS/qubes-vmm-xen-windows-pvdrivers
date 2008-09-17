@@ -33,8 +33,6 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
 
 //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  //ASSERT(!KeTestSpinLock(&xi->rx_lock));
-
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
 
   if (batch_target < (xi->rx_target >> 2))
@@ -363,7 +361,7 @@ XenNet_MakePackets(
     xi->rxpi.curr_mdl = 1;
 
   /* we can make certain assumptions here as the following code is only for tcp4 */
-  psh = xi->rxpi.header[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 14] & 16;
+  psh = xi->rxpi.header[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 13] & 8;
   while (xi->rxpi.tcp_remaining)
   {
     PUCHAR buffer;
@@ -385,10 +383,14 @@ XenNet_MakePackets(
       NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);
       if (xi->rxpi.tcp_remaining)
       {
-        buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 14] &= ~16;
+        buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 13] &= ~8;
+        KdPrint((__DRIVER_NAME "     Seq %d cleared PSH\n", GET_NET_PULONG(&buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4])));
       }
       else
-        buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 14] |= 16;
+      {
+        buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 13] |= 8;
+        KdPrint((__DRIVER_NAME "     Seq %d set PSH\n", GET_NET_PULONG(&buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4])));
+      }
     }
     XenNet_SumPacketData(&xi->rxpi, packet);
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
@@ -422,6 +424,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   struct netif_rx_response *rxrsp = NULL;
   struct netif_extra_info *ei;
   USHORT id;
+  int more_to_do;
   
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -500,12 +503,8 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       }
     }
     xi->rx.rsp_cons = cons;
-    if (!RING_HAS_UNCONSUMED_RESPONSES(&xi->rx))
-    {
-      xi->rx.sring->rsp_event = cons + 1;
-      KeMemoryBarrier();
-    }
-  } while (RING_HAS_UNCONSUMED_RESPONSES(&xi->rx));
+    RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, more_to_do);
+  } while (more_to_do);
 
   if (xi->rxpi.more_frags || xi->rxpi.extra_info)
     KdPrint((__DRIVER_NAME "     Partial receive (more_frags = %d, extra_info = %d, total_length = %d, mdl_count = %d)\n", xi->rxpi.more_frags, xi->rxpi.extra_info, xi->rxpi.total_length, xi->rxpi.mdl_count));

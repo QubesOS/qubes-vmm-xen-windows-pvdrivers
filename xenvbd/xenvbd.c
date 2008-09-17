@@ -907,7 +907,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
-  return FALSE; /* fall through to the next ISR... */
+  return FALSE; /* always fall through to the next ISR... */
 }
 
 static BOOLEAN DDKAPI

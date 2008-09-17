@@ -18,7 +18,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
 #include "xenpci.h"
-//#include <wdmsec.h>
 #include <stdlib.h>
 
 #define SYSRQ_PATH "control/sysrq"
@@ -576,50 +575,6 @@ XenPci_ShutdownHandler(char *path, PVOID context)
   FUNCTION_EXIT();
 }
 
-static DDKAPI void
-XenBus_DummyXenbusThreadProc(PVOID StartContext)
-{
-  PXENPCI_DEVICE_DATA xpdd = StartContext;
-  char *value;
-  char *err;
-  int thread_id;
-  
-  thread_id = (int)PsGetCurrentThreadId();
-  for(;;)
-  {
-    KdPrint((__DRIVER_NAME "     %08X: writing 666\n", thread_id));
-    XenBus_Write(xpdd, XBT_NIL, "james", "666");
-    err = XenBus_Read(xpdd, XBT_NIL, "james", &value);
-    if (err)
-    {
-      KdPrint((__DRIVER_NAME "     %08X: error on read - %s\n", thread_id, err));
-      XenPci_FreeMem(err);
-    }
-    else
-    {
-      KdPrint((__DRIVER_NAME "     %08X: read %s\n", thread_id, value));
-      XenPci_FreeMem(value);
-    }
-    KdPrint((__DRIVER_NAME "     %08X: writing 362436\n", thread_id));
-    XenBus_Write(xpdd, XBT_NIL, "james", "362436");
-    err = XenBus_Read(xpdd, XBT_NIL, "james", &value);
-    if (err)
-    {
-      KdPrint((__DRIVER_NAME "     %08X: error on read - %s\n", thread_id, err));
-      XenPci_FreeMem(err);
-    }
-    else
-    {
-      KdPrint((__DRIVER_NAME "     %08X: read %s\n", thread_id, value));
-      XenPci_FreeMem(value);
-    }
-/*
-    wait_time.QuadPart = 1000 * (-1 * 10 * 1000);
-    KeDelayExecutionThread(KernelMode, FALSE, &wait_time);
-*/
-  }
-}
-
 static VOID 
 XenPci_DumpPdoConfigs(PXENPCI_DEVICE_DATA xpdd)
 {
@@ -635,9 +590,6 @@ static VOID
 XenPci_SysrqHandler(char *path, PVOID context)
 {
   PXENPCI_DEVICE_DATA xpdd = context;
-  NTSTATUS status;
-  HANDLE thread_handle;
-  PIO_WORKITEM work_item;
   char *value;
   char letter;
   char *res;
@@ -678,16 +630,12 @@ XenPci_SysrqHandler(char *path, PVOID context)
   case 'B':
     KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000001, 0x00000000, 0x00000000, 0x00000000);
     break;
+#if 0
   case 'X':
-    status = PsCreateSystemThread(&thread_handle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_DummyXenbusThreadProc, xpdd);
     break;
-  case 'S':
-    /* call shutdown from here for testing */
-  	work_item = IoAllocateWorkItem(xpdd->common.fdo);
-    IoQueueWorkItem(work_item, XenPci_BeginSuspend, DelayedWorkQueue, NULL);
-    break;
+#endif
   case 'C':
-    /* call shutdown from here for testing */
+    /* show some debugging info */
   	XenPci_DumpPdoConfigs(xpdd);
     break;
   default:
@@ -837,6 +785,8 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 	    xpdd->irq_level = (KIRQL)res_descriptor->u.Interrupt.Level;
   	  xpdd->irq_vector = res_descriptor->u.Interrupt.Vector;
 	    xpdd->irq_affinity = res_descriptor->u.Interrupt.Affinity;
+      
+      xpdd->irq_mode = (res_descriptor->Flags & CM_RESOURCE_INTERRUPT_LATCHED)?Latched:LevelSensitive;
       //memcpy(&InterruptTranslated, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
       break;
     case CmResourceTypeDevicePrivate:
@@ -1088,58 +1038,28 @@ static DDKAPI VOID
 XenPci_Pnp_FilterResourceRequirementsCallback(PDEVICE_OBJECT device_object, PVOID context)
 {
   NTSTATUS status = STATUS_SUCCESS;
-  //PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   PIRP irp = context;
-#if 0
-  PIO_RESOURCE_REQUIREMENTS_LIST old_irrl;
-  PIO_RESOURCE_REQUIREMENTS_LIST new_irrl;
-  //ULONG irl;
-  //ULONG ird;
+  PIO_RESOURCE_REQUIREMENTS_LIST irrl;
   PIO_RESOURCE_LIST irl;
   PIO_RESOURCE_DESCRIPTOR ird;
-#endif
+  ULONG i;
 
   UNREFERENCED_PARAMETER(device_object);
 
   FUNCTION_ENTER();
-  FUNCTION_MSG(("IoStatus.status = %08X\n", irp->IoStatus.Status));
 
-#if 0  
   /* this assumes that AlternativeLists == 1 */
-  old_irrl = (PIO_RESOURCE_REQUIREMENTS_LIST)irp->IoStatus.Information;
-  new_irrl = ExAllocatePoolWithTag(NonPagedPool, old_irrl->ListSize + sizeof(IO_RESOURCE_DESCRIPTOR) * 1, XENPCI_POOL_TAG);
-  memcpy(new_irrl, old_irrl, old_irrl->ListSize);
-  
-  irl = &new_irrl->List[0];
-  ird = &irl->Descriptors[irl->Count++];
-  RtlZeroMemory(ird, sizeof(IO_RESOURCE_DESCRIPTOR));
-  ird->Option = 0;
-  ird->Type = CmResourceTypeInterrupt;
-  ird->ShareDisposition = CmResourceShareDeviceExclusive;
-  ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
-  ird->u.Interrupt.MinimumVector = 16;
-  ird->u.Interrupt.MaximumVector = 63;
-/*
-  ird->u.AffinityPolicy = IrqPolicyMachineDefault;
-  ird->u.PriorityPolicy = IrqPriorityNormal;
-  ird->u.TargetedProcessors = 0;
-*/
-
-  irp->IoStatus.Information = (ULONG_PTR)new_irrl;
-  // free old_irrl
-#endif
-/*
-  for (irl = 0; irl < irrl->AlternativeLists; irl++)
+  irrl = (PIO_RESOURCE_REQUIREMENTS_LIST)irp->IoStatus.Information;
+  irl = &irrl->List[0];
+  for (i = 0; i < irl->Count; i++)
   {
-    for (ird = 0; ird < irrl->List[irl].Count; ird++)
+    ird = &irl->Descriptors[i];
+    if (ird->Type == CmResourceTypeInterrupt && ird->ShareDisposition != CmResourceShareShared)
     {
-      if (irrl->List[irl].Descriptors[ird].Type == CmResourceTypeMemory)
-      {
-        irrl->List[irl].Descriptors[ird].ShareDisposition = CmResourceShareShared;
-      }
+      //ird->ShareDisposition = CmResourceShareShared;
+      //KdPrint((__DRIVER_NAME "     Set interrupt to shared\n"));
     }
   }
-*/
   irp->IoStatus.Status = status;
   IoCompleteRequest (irp, IO_NO_INCREMENT);
   

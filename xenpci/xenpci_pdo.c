@@ -977,7 +977,7 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   ird->Option = 0;
   ird->Type = CmResourceTypeInterrupt;
   ird->ShareDisposition = CmResourceShareShared;
-  ird->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+  ird->Flags = (xpdd->irq_mode == Latched)?CM_RESOURCE_INTERRUPT_LATCHED:CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
   ird->u.Interrupt.MinimumVector = xpdd->irq_number;
   ird->u.Interrupt.MaximumVector = xpdd->irq_number;
   

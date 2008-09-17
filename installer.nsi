@@ -6,7 +6,7 @@ Var ARCH_SPEC
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.11-pre15"
+!define Version "0.9.11-pre18"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 
@@ -175,7 +175,9 @@ Section "Windows 2008 x64" win2k8x64
 SectionEnd
 
 Section /o "Install Cert" installcert
-  ExecWait 'rundll32.exe cryptext.dll,CryptExtAddCER "$INSTDIR\ca.cer"'
+  # For some reason this next line doesn't need any double quotes around
+  # the filename, and in fact it breaks when they are included...
+  ExecWait 'rundll32.exe cryptext.dll,CryptExtAddCER $INSTDIR\ca.cer'
 SectionEnd
 
 Section "Install Drivers" installdrivers
@@ -219,6 +221,7 @@ Section "Install Drivers" installdrivers
 SectionEnd
 
 Section "Shutdown Monitor Service" shutdownmon
+  ExecWait '"$INSTDIR\ShutdownMon.exe" -o'
   ExecWait '"$INSTDIR\ShutdownMon.exe" -u'
   ExecWait '"$INSTDIR\ShutdownMon.exe" -i'
   ExecWait 'NET START ShutdownMon'

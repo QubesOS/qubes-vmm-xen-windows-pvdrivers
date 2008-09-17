@@ -174,6 +174,7 @@ typedef struct {
   ULONG irq_number;
   ULONG irq_vector;
   KIRQL irq_level;
+  KINTERRUPT_MODE irq_mode;
   KAFFINITY irq_affinity;
 
   PHYSICAL_ADDRESS shared_info_area_unmapped;

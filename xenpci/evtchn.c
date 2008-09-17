@@ -23,16 +23,21 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
   #define xchg(p1, p2) InterlockedExchange((xen_long_t * volatile)p1, p2)
   /* rest implemented in mingw_extras.c */
 #elif defined(_X86_)
-  #define xchg(p1, p2) _InterlockedExchange(p1, p2)
-  #define synch_clear_bit(p1, p2) _interlockedbittestandreset(p2, p1)
-  #define synch_set_bit(p1, p2) _interlockedbittestandset(p2, p1)
+  #define xchg(p1, p2) InterlockedExchange(p1, p2)
+//  #define synch_clear_bit(p1, p2) _interlockedbittestandreset(p2, p1)
+//  #define synch_set_bit(p1, p2) _interlockedbittestandset(p2, p1)
+  #define synch_clear_bit(p1, p2) InterlockedBitTestAndReset(p2, p1)
+  #define synch_set_bit(p1, p2) InterlockedBitTestAndSet(p2, p1)
   #define bit_scan_forward(p1, p2) _BitScanForward(p1, p2)
 #else
-  #define xchg(p1, p2) _InterlockedExchange64(p1, p2)
+  #define xchg(p1, p2) InterlockedExchange64(p1, p2)
   #define synch_clear_bit(p1, p2) _interlockedbittestandreset64(p2, p1)
   #define synch_set_bit(p1, p2) _interlockedbittestandset64(p2, p1)
   #define bit_scan_forward(p1, p2) _BitScanForward64(p1, p2)
 #endif
+
+#define BITS_PER_LONG (sizeof(xen_ulong_t) * 8)
+#define BITS_PER_LONG_SHIFT (5 + (sizeof(xen_ulong_t) >> 3))
 
 static DDKAPI VOID
 EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemArgument2)
@@ -52,8 +57,6 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
-BOOLEAN no_more_interrupts;
-
 /* Called at DIRQL */
 BOOLEAN
 EvtChn_AckEvent(PVOID context, evtchn_port_t port)
@@ -62,13 +65,24 @@ EvtChn_AckEvent(PVOID context, evtchn_port_t port)
   ULONG evt_word;
   ULONG evt_bit;
   xen_ulong_t val;
+  
+  shared_info_t *shared_info_area = xpdd->shared_info_area;
+  int i;
 
-  evt_bit = port & ((sizeof(xen_ulong_t) * 8) - 1);
-  evt_word = port >> (5 + (sizeof(xen_ulong_t) >> 3));
+  evt_bit = port & (BITS_PER_LONG - 1);
+  evt_word = port >> BITS_PER_LONG_SHIFT;
 
   val = synch_clear_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
   
   //KdPrint((__DRIVER_NAME "     port %d = %d\n", port, !!val));
+
+  for (i = 0; i < ARRAY_SIZE(shared_info_area->evtchn_pending); i++)
+  {
+    if (shared_info_area->evtchn_pending[i])
+    {
+      KdPrint((__DRIVER_NAME "     New event during IRQ processing - word = %d, val = %p\n", i, shared_info_area->evtchn_pending[i]));
+    }
+  }
 
   return (BOOLEAN)!!val;
 }
@@ -102,58 +116,59 @@ to CPU != 0, but we should always use vcpu_info[0]
     return TRUE;
   }
     
-  //ASSERT(!no_more_interrupts);
-  
-  /* we should check the evtchn_pending_pvt here and report if != 0 */
-  
   UNREFERENCED_PARAMETER(Interrupt);
 
+  for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt); i++)
+  {
+    if (xpdd->evtchn_pending_pvt[i])
+    {
+      KdPrint((__DRIVER_NAME "     Unacknowledged event word = %d, val = %p\n", i, xpdd->evtchn_pending_pvt[i]));
+      xpdd->evtchn_pending_pvt[i] = 0;
+    }
+  }
+  
   vcpu_info = &shared_info_area->vcpu_info[cpu];
 
   vcpu_info->evtchn_upcall_pending = 0;
 
   evt_words = (xen_ulong_t)xchg((volatile xen_long_t *)&vcpu_info->evtchn_pending_sel, 0);
-  
+
   while (bit_scan_forward(&evt_word, evt_words))
   {
     evt_words &= ~(1 << evt_word);
     while (bit_scan_forward(&evt_bit, shared_info_area->evtchn_pending[evt_word] & ~shared_info_area->evtchn_mask[evt_word]))
     {
+      synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
       handled = TRUE;
-      port = (evt_word << 5) + evt_bit;
+      port = (evt_word << BITS_PER_LONG_SHIFT) + evt_bit;
       ev_action = &xpdd->ev_actions[port];
       ev_action->count++;
       switch (ev_action->type)
       {
       case EVT_ACTION_TYPE_NORMAL:
-        synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
         break;
       case EVT_ACTION_TYPE_IRQ:
-        synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         synch_set_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
         deferred = TRUE;
         break;
       case EVT_ACTION_TYPE_DPC:
-        synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
         break;
       case EVT_ACTION_TYPE_SUSPEND:
-        synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_SUSPEND\n"));
         for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt); i++)
         {
           if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_IRQ)
           {
-            int suspend_bit = i & ((sizeof(xen_ulong_t) * 8) - 1);
-            int suspend_word = i >> (5 + (sizeof(xen_ulong_t) >> 3));
+            int suspend_bit = i & (BITS_PER_LONG - 1);
+            int suspend_word = i >> BITS_PER_LONG_SHIFT;
             synch_set_bit(suspend_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[suspend_word]);
           }
         }
         deferred = TRUE;
         break;
       default:
-        synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
         KdPrint((__DRIVER_NAME "     Unhandled Event!!!\n"));
         break;
       }
@@ -234,7 +249,6 @@ EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR descriptio
     KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
   }
 
-  KeInitializeDpc(&xpdd->ev_actions[Port].Dpc, EvtChn_DpcBounce, &xpdd->ev_actions[Port]);
   xpdd->ev_actions[Port].vector = vector;
   xpdd->ev_actions[Port].xpdd = xpdd;
   KeMemoryBarrier();
@@ -252,13 +266,16 @@ NTSTATUS
 EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
+  int old_type;
   
   EvtChn_Mask(Context, Port);
+  old_type = xpdd->ev_actions[Port].type;
+  xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_EMPTY;
+  KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
   xpdd->ev_actions[Port].ServiceRoutine = NULL;
-  KeMemoryBarrier();
   xpdd->ev_actions[Port].ServiceContext = NULL;
 
-  if (xpdd->ev_actions[Port].type == EVT_ACTION_TYPE_DPC)
+  if (old_type == EVT_ACTION_TYPE_DPC)
     KeRemoveQueueDpc(&xpdd->ev_actions[Port].Dpc);
   
   return STATUS_SUCCESS;
@@ -269,8 +286,8 @@ EvtChn_Mask(PVOID Context, evtchn_port_t port)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 
-  synch_set_bit(port & 31,
-    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[port >> 5]);
+  synch_set_bit(port & (BITS_PER_LONG - 1),
+    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[port >> BITS_PER_LONG_SHIFT]);
   return STATUS_SUCCESS;
 }
 
@@ -279,8 +296,8 @@ EvtChn_Unmask(PVOID context, evtchn_port_t port)
 {
   PXENPCI_DEVICE_DATA xpdd = context;
 
-  synch_clear_bit(port & 31,
-    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[port >> 5]);
+  synch_clear_bit(port & (BITS_PER_LONG - 1),
+    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[port >> BITS_PER_LONG_SHIFT]);
   return STATUS_SUCCESS;
 }
 
@@ -391,7 +408,7 @@ EvtChn_ConnectInterrupt(PXENPCI_DEVICE_DATA xpdd)
   	xpdd->irq_vector,
   	xpdd->irq_level,
   	xpdd->irq_level,
-  	LevelSensitive,
+  	xpdd->irq_mode, //LevelSensitive,
   	TRUE,
   	xpdd->irq_affinity,
   	FALSE);
@@ -416,29 +433,17 @@ EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd)
     xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 1;
   KeMemoryBarrier();
   hvm_set_parameter(xpdd, HVM_PARAM_CALLBACK_IRQ, 0);
-  //KeMemoryBarrier();
-  //no_more_interrupts = TRUE;
-  //KeMemoryBarrier();
 
-#if (NTDDI_VERSION >= NTDDI_WINXP)
-  KeFlushQueuedDpcs();
-#else
   for (i = 0; i < NR_EVENTS; i++)
   {
-    if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_DPC || xpdd->ev_actions[i].type == EVT_ACTION_TYPE_IRQ)
+    if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_DPC)
     {
       KeRemoveQueueDpc(&xpdd->ev_actions[i].Dpc);
     }
   }
+#if (NTDDI_VERSION >= NTDDI_WINXP)
+  KeFlushQueuedDpcs();
 #endif
-
-/*
-KdPrint((__DRIVER_NAME "     Starting fake delay (IRQL = %d)\n", KeGetCurrentIrql()));
-wait_time.QuadPart = 1000 * (-1 * 10 * 1000);
-KeDelayExecutionThread(KernelMode, FALSE, &wait_time);
-KdPrint((__DRIVER_NAME "     Done with fake delay\n"));
-*/
-  //IoDisconnectInterrupt(xpdd->interrupt);
 
   return STATUS_SUCCESS;
 }

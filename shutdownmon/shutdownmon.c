@@ -12,6 +12,8 @@
 #define SERVICE_ID "ShutdownMon"
 #define SERVICE_NAME "Xen Shutdown Monitor"
 
+#define OLD_SERVICE_ID "XenShutdownMon"
+
 DEFINE_GUID(GUID_XEN_IFACE, 0x5C568AC5, 0x9DDF, 0x4FA5, 0xA9, 0x4A, 0x39, 0xD6, 0x70, 0x77, 0x81, 0x9C);
 
 
@@ -67,6 +69,43 @@ install_service()
   }
 
   printf("Service installed\n"); 
+
+  CloseServiceHandle(service_handle); 
+  CloseServiceHandle(manager_handle);
+}
+
+static void
+remove_old_service()
+{
+  SC_HANDLE manager_handle;
+  SC_HANDLE service_handle;
+
+  manager_handle = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+ 
+  if (!manager_handle)
+  {
+    printf("OpenSCManager failed (%d)\n", GetLastError());
+    return;
+  }
+
+  service_handle = OpenService(manager_handle, OLD_SERVICE_ID, DELETE);
+ 
+  if (!service_handle) 
+  {
+    printf("OpenService failed (%d)\n", GetLastError()); 
+    CloseServiceHandle(manager_handle);
+    return;
+  }
+
+  if (!DeleteService(service_handle))
+  {
+    printf("DeleteService failed (%d)\n", GetLastError()); 
+    CloseServiceHandle(service_handle); 
+    CloseServiceHandle(manager_handle);
+    return;
+  }
+
+  printf("Old Service removed\n"); 
 
   CloseServiceHandle(service_handle); 
   CloseServiceHandle(manager_handle);
@@ -302,6 +341,7 @@ print_usage(char *name)
   printf(" -s run as service\n");
   printf(" -i install service\n");
   printf(" -u uninstall service\n");
+  printf(" -o remove the old .NET service\n");
 }
 
 int __cdecl
@@ -343,6 +383,9 @@ main(
     break;
   case 'u':
     remove_service();
+    break;
+  case 'o':
+    remove_old_service();
     break;
   default:
     print_usage(argv[0]);
