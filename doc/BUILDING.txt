@@ -13,8 +13,7 @@ http://nsis.sourceforge.net/
 3. Use Mercurial (get it from 
 http://www.selenic.com/mercurial/wiki/index.cgi/BinaryPackages) to get 
 the latest sources from 
-http://xenbits.xensource.com/ext/win-pvdrivers.hg. The current branch
-is wdm so you'll need to specify that branch.
+http://xenbits.xensource.com/ext/win-pvdrivers.hg.
 
 4. Build the shutdown monitor using Visual Studio. If you don't build it,
 then you'll need to edit it out of installer.nsi before the next step.

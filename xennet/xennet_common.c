@@ -76,7 +76,7 @@ XenNet_ParsePacketHeader(
   pi->ip4_length = GET_NET_PUSHORT(&pi->header[XN_HDR_SIZE + 2]);
   pi->tcp_header_length = (pi->header[XN_HDR_SIZE + pi->ip4_header_length + 12] & 0xf0) >> 2;
 
-  if (header_length < (ULONG)(pi->ip4_header_length + pi->tcp_header_length))
+  if (header_length < (ULONG)(pi->ip4_header_length + 20)) // pi->tcp_header_length))
   {
     KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (2)\n", XN_HDR_SIZE + header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)));
     return PARSE_TOO_SMALL;
@@ -214,6 +214,7 @@ XenFreelist_PutPage(freelist_t *fl, PMDL mdl)
 
   if (fl->page_free == PAGE_LIST_SIZE)
   {
+    KdPrint((__DRIVER_NAME "     page free list full - releasing page\n"));
     /* our page list is full. free the buffer instead. This will be a bit sucky performancewise... */
     fl->xi->vectors.GntTbl_EndAccess(fl->xi->vectors.context,
       *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), FALSE);

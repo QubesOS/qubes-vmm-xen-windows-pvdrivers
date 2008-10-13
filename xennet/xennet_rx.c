@@ -105,7 +105,7 @@ put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
 
   if (xi->rx_packet_free == NET_RX_RING_SIZE * 2)
   {
-    //KdPrint((__DRIVER_NAME "     packet free list full - releasing packet\n"));
+    KdPrint((__DRIVER_NAME "     packet free list full - releasing packet\n"));
     NdisFreePacket(packet);
     return;
   }
@@ -185,7 +185,7 @@ XenNet_MakePacket(struct xennet_info *xi)
       memcpy(&out_buffer[out_offset], in_buffer, length);
       out_remaining = out_remaining - length;
       out_offset = out_offset + length;
-    } while (out_remaining != 0); // && in_buffer != NULL);
+    } while (out_remaining != 0);
     NdisChainBufferAtBack(packet, out_mdl);
     XenNet_SumIpHeader(out_buffer, xi->rxpi.ip4_header_length);
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
@@ -384,12 +384,10 @@ XenNet_MakePackets(
       if (xi->rxpi.tcp_remaining)
       {
         buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 13] &= ~8;
-        KdPrint((__DRIVER_NAME "     Seq %d cleared PSH\n", GET_NET_PULONG(&buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4])));
       }
       else
       {
         buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 13] |= 8;
-        KdPrint((__DRIVER_NAME "     Seq %d set PSH\n", GET_NET_PULONG(&buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 4])));
       }
     }
     XenNet_SumPacketData(&xi->rxpi, packet);

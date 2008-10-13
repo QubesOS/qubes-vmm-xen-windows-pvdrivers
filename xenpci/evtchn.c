@@ -24,8 +24,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
   /* rest implemented in mingw_extras.c */
 #elif defined(_X86_)
   #define xchg(p1, p2) InterlockedExchange(p1, p2)
-//  #define synch_clear_bit(p1, p2) _interlockedbittestandreset(p2, p1)
-//  #define synch_set_bit(p1, p2) _interlockedbittestandset(p2, p1)
   #define synch_clear_bit(p1, p2) InterlockedBitTestAndReset(p2, p1)
   #define synch_set_bit(p1, p2) InterlockedBitTestAndSet(p2, p1)
   #define bit_scan_forward(p1, p2) _BitScanForward(p1, p2)
@@ -66,24 +64,11 @@ EvtChn_AckEvent(PVOID context, evtchn_port_t port)
   ULONG evt_bit;
   xen_ulong_t val;
   
-  shared_info_t *shared_info_area = xpdd->shared_info_area;
-  int i;
-
   evt_bit = port & (BITS_PER_LONG - 1);
   evt_word = port >> BITS_PER_LONG_SHIFT;
 
   val = synch_clear_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
   
-  //KdPrint((__DRIVER_NAME "     port %d = %d\n", port, !!val));
-
-  for (i = 0; i < ARRAY_SIZE(shared_info_area->evtchn_pending); i++)
-  {
-    if (shared_info_area->evtchn_pending[i])
-    {
-      KdPrint((__DRIVER_NAME "     New event during IRQ processing - word = %d, val = %p\n", i, shared_info_area->evtchn_pending[i]));
-    }
-  }
-
   return (BOOLEAN)!!val;
 }
 
