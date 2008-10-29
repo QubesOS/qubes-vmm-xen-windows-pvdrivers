@@ -122,6 +122,18 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   RtlZeroMemory(&pi, sizeof(pi));
   NdisGetFirstBufferFromPacketSafe(packet, &in_mdl, &pi.header, &first_buffer_length, &total_length, NormalPagePriority);
   
+  if (!pi.header)
+  {
+    KdPrint((__DRIVER_NAME "     NdisGetFirstBufferFromPacketSafe failed\n"));
+    return FALSE;
+  }
+  
+  if (!total_length)
+  {
+    KdPrint((__DRIVER_NAME "     Zero length packet\n"));
+    return TRUE; // we don't want to see this packet again...
+  }  
+    
   csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
     packet, TcpIpChecksumPacketInfo);
   mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
