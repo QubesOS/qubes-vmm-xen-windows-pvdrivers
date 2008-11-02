@@ -122,12 +122,14 @@ struct
 
   blkif_sring_t *sring;
   evtchn_port_t event_channel;
+  ULONG *event_channel_ptr;
   union {
     blkif_front_ring_t ring;
     blkif_other_front_ring_t other_ring;
   };
   int ring_detect_state;
   BOOLEAN use_other;
+  BOOLEAN cached_use_other;
   UCHAR last_sense_key;
   UCHAR last_additional_sense_code;
   blkif_response_t tmp_rep;

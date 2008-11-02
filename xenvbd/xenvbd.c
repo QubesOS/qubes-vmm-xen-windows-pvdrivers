@@ -153,7 +153,7 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
         FRONT_RING_INIT(&xvdd->ring, xvdd->sring, PAGE_SIZE);
         /* this bit is for when we have to take over an existing ring on a bug check */
         xvdd->ring.req_prod_pvt = xvdd->sring->req_prod;
-        xvdd->ring.rsp_cons = xvdd->sring->rsp_prod;
+        xvdd->ring.rsp_cons = xvdd->ring.req_prod_pvt;
       }
       break;
     case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
@@ -161,7 +161,14 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
       if (strcmp(setting, "event-channel") == 0)
       {
-        xvdd->event_channel = PtrToUlong(value);
+        /* cheat here - save the state of the ring in the topmost bits of the event-channel */
+        xvdd->event_channel_ptr = (ULONG *)(((PCHAR)ptr) - sizeof(ULONG));
+        xvdd->event_channel = PtrToUlong(value) & 0x3FFFFFFF;
+        if (PtrToUlong(value) & 0x80000000)
+        {
+          xvdd->cached_use_other = (BOOLEAN)!!(PtrToUlong(value) & 0x40000000);
+          KdPrint((__DRIVER_NAME "     cached_use_other = %d\n", xvdd->cached_use_other));
+        }
       }
       break;
     case XEN_INIT_TYPE_READ_STRING_BACK:
@@ -569,8 +576,6 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
     KdPrint((__DRIVER_NAME "     Dma64BitAddresses not supported\n"));
   }
 
-  xvdd->ring_detect_state = 0;
-
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));  
 
   return SP_RETURN_FOUND;
@@ -587,32 +592,45 @@ XenVbd_HwScsiInitialize(PVOID DeviceExtension)
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
-  req = RING_GET_REQUEST(&xvdd->ring, xvdd->ring.req_prod_pvt);
-  req->operation = 0xff;
-  req->nr_segments = 0;
-  for (i = 0; i < BLKIF_MAX_SEGMENTS_PER_REQUEST; i++)
+  if (!dump_mode)
   {
-    req->seg[i].gref = 0; //0xffffffff;
-    req->seg[i].first_sect = 0; //0xff;
-    req->seg[i].last_sect = 0; //0xff;
-  }
-  xvdd->ring.req_prod_pvt++;
+    req = RING_GET_REQUEST(&xvdd->ring, xvdd->ring.req_prod_pvt);
+    req->operation = 0xff;
+    req->nr_segments = 0;
+    for (i = 0; i < BLKIF_MAX_SEGMENTS_PER_REQUEST; i++)
+    {
+      req->seg[i].gref = 0; //0xffffffff;
+      req->seg[i].first_sect = 0; //0xff;
+      req->seg[i].last_sect = 0; //0xff;
+    }
+    xvdd->ring.req_prod_pvt++;
 
-  req = RING_GET_REQUEST(&xvdd->ring, xvdd->ring.req_prod_pvt);
-  req->operation = 0xff;
-  req->nr_segments = 0;
-  for (i = 0; i < BLKIF_MAX_SEGMENTS_PER_REQUEST; i++)
+    req = RING_GET_REQUEST(&xvdd->ring, xvdd->ring.req_prod_pvt);
+    req->operation = 0xff;
+    req->nr_segments = 0;
+    for (i = 0; i < BLKIF_MAX_SEGMENTS_PER_REQUEST; i++)
+    {
+      req->seg[i].gref = 0; //0xffffffff;
+      req->seg[i].first_sect = 0; //0xff;
+      req->seg[i].last_sect = 0; //0xff;
+    }
+    xvdd->ring.req_prod_pvt++;
+
+    RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xvdd->ring, notify);
+    if (notify)
+      xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
+    xvdd->ring_detect_state = 0;
+  }
+  else
   {
-    req->seg[i].gref = 0; //0xffffffff;
-    req->seg[i].first_sect = 0; //0xff;
-    req->seg[i].last_sect = 0; //0xff;
+    if (xvdd->cached_use_other)
+    {
+      xvdd->ring.nr_ents = BLK_OTHER_RING_SIZE;
+      xvdd->use_other = TRUE;
+    }
+    xvdd->ring_detect_state = 2;
   }
-  xvdd->ring.req_prod_pvt++;
-
-  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xvdd->ring, notify);
-  if (notify)
-    xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
-
+  
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return TRUE;
@@ -785,13 +803,13 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     return FALSE;
   }
 
-  if (!(stat_interrupts_for_me & 0x3FF))
+  if (!(stat_interrupts_for_me & 0xFFFF))
     XenVbd_DumpStats();
   while (more_to_do)
   {
     rp = xvdd->ring.sring->rsp_prod;
     KeMemoryBarrier();
-    for (i = xvdd->ring.rsp_cons; i != rp; i++)
+    for (i = xvdd->ring.rsp_cons; i < rp; i++)
     {
       rep = XenVbd_GetResponse(xvdd, i);
 /*
@@ -815,10 +833,12 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         break;
       case 1:
         KdPrint((__DRIVER_NAME "     ring_detect_state = %d, operation = %x, id = %lx, status = %d\n", xvdd->ring_detect_state, rep->operation, rep->id, rep->status));
+        *xvdd->event_channel_ptr |= 0x80000000;
         if (rep->operation != 0xff)
         {
           xvdd->ring.nr_ents = BLK_OTHER_RING_SIZE;
           xvdd->use_other = TRUE;
+          *xvdd->event_channel_ptr |= 0x40000000;
         }
         xvdd->ring_detect_state = 2;
         ScsiPortNotification(NextRequest, DeviceExtension);
@@ -1309,11 +1329,18 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   conf_info = IoGetConfigurationInformation();
-  KdPrint((__DRIVER_NAME "     conf_info->DiskCount = %d\n", conf_info->DiskCount));
+  if (conf_info == NULL)
+  {
+    KdPrint((__DRIVER_NAME "     conf_info == NULL\n"));
+  }
+  else
+  {
+    KdPrint((__DRIVER_NAME "     conf_info->DiskCount = %d\n", conf_info->DiskCount));
+  }
   /* RegistryPath == NULL when we are invoked as a crash dump driver */
   if (!RegistryPath)
     dump_mode = TRUE;
-  if (conf_info->DiskCount && RegistryPath)
+  if (conf_info != NULL && conf_info->DiskCount && RegistryPath)
   {
     global_inactive = TRUE;
     KdPrint((__DRIVER_NAME "     Not loaded at boot time so setting inactive\n"));
