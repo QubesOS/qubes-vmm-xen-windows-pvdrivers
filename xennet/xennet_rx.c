@@ -657,6 +657,9 @@ XenNet_ReturnPacket(
 
   put_packet_on_freelist(xi, Packet);
   xi->rx_outstanding--;
+  
+  if (!xi->rx_outstanding && xi->rx_shutting_down)
+    KeSetEvent(&xi->packet_returned_event, IO_NO_INCREMENT, FALSE);
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
   
@@ -728,6 +731,10 @@ XenNet_RxInit(xennet_info_t *xi)
 
   FUNCTION_ENTER();
 
+  KeInitializeEvent(&xi->packet_returned_event, SynchronizationEvent, FALSE);
+
+  xi->rx_shutting_down = FALSE;
+  
   xi->rx_id_free = NET_RX_RING_SIZE;
 
   for (i = 0; i < NET_RX_RING_SIZE; i++)
@@ -753,16 +760,22 @@ XenNet_RxShutdown(xennet_info_t *xi)
   FUNCTION_ENTER();
 
   KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
+  xi->rx_shutting_down = TRUE;
+  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
+  
+  while (xi->rx_outstanding)
+  {
+    KdPrint((__DRIVER_NAME "     Waiting for all packets to be returned\n"));
+    KeWaitForSingleObject(&xi->packet_returned_event, Executive, KernelMode, FALSE, NULL);
+  }
+
+  KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
 
   XenNet_RxBufferFree(xi);
 
   XenFreelist_Dispose(&xi->rx_freelist);
 
   packet_freelist_dispose(xi);
-
-  /* free RX resources */
-
-  ASSERT(xi->rx_outstanding == 0);
 
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 

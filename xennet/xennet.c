@@ -577,8 +577,6 @@ XenNet_Init(
 
   status = XenNet_ConnectBackend(xi);
   
-  KeInitializeEvent(&xi->shutdown_event, SynchronizationEvent, FALSE);  
-
   XenNet_TxInit(xi);
   XenNet_RxInit(xi);
 

@@ -237,13 +237,9 @@ struct xennet_info
   PXENPCI_DEVICE_STATE device_state;
   evtchn_port_t event_channel;
   ULONG state;
-  KEVENT shutdown_event;
   char backend_path[MAX_XENBUS_STR_LEN];
   ULONG backend_state;
   PVOID config_page;
-
-  /* Xen ring-related vars */
-  KSPIN_LOCK rx_lock;
 
   /* tx related - protected by tx_lock */
   KSPIN_LOCK tx_lock;
@@ -258,6 +254,7 @@ struct xennet_info
   freelist_t tx_freelist;
 
   /* rx_related - protected by rx_lock */
+  KSPIN_LOCK rx_lock;
   struct netif_rx_front_ring rx;
   ULONG rx_id_free;
   PNDIS_BUFFER rx_mdls[NET_RX_RING_SIZE];
@@ -265,6 +262,8 @@ struct xennet_info
   packet_info_t rxpi;
   PNDIS_PACKET rx_packet_list[NET_RX_RING_SIZE * 2];
   ULONG rx_packet_free;
+  BOOLEAN rx_shutting_down;
+  KEVENT packet_returned_event;
 
   /* Receive-ring batched refills. */
   ULONG rx_target;
