@@ -420,7 +420,7 @@ XenNet_Init(
     status = NDIS_STATUS_RESOURCES;
     goto err;
   }
-  NdisSetPacketPoolProtocolId(xi->packet_pool, NDIS_PROTOCOL_ID_TCP_IP);
+  //IS THIS NECESSARY??? NdisSetPacketPoolProtocolId(xi->packet_pool, NDIS_PROTOCOL_ID_TCP_IP);
 
   NdisAllocateBufferPool(&status, &xi->buffer_pool, XN_RX_QUEUE_LEN);
   if (status != NDIS_STATUS_SUCCESS)
@@ -477,6 +477,7 @@ XenNet_Init(
   if (!NT_SUCCESS(status))
   {
     KdPrint(("Could not open config in registry (%08x)\n", status));
+    status = NDIS_STATUS_RESOURCES;
     goto err;
   }
 
@@ -590,7 +591,10 @@ XenNet_Init(
   if (!NT_SUCCESS(status))
   {
     KdPrint(("NdisMRegisterInterrupt failed with 0x%x\n", status));
-    status = NDIS_STATUS_FAILURE;
+    status = NDIS_STATUS_RESOURCES;
+    xi->connected = FALSE;
+    XenNet_TxShutdown(xi);
+    XenNet_RxShutdown(xi);
     goto err;
   }
 
@@ -602,6 +606,7 @@ XenNet_Init(
 
 err:
   NdisFreeMemory(xi, 0, 0);
+  *OpenErrorStatus = status;
   FUNCTION_ERROR_EXIT();
   return status;
 }
@@ -628,11 +633,12 @@ XenNet_Shutdown(
   IN NDIS_HANDLE MiniportAdapterContext
   )
 {
-  struct xennet_info *xi = MiniportAdapterContext;
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
 
   FUNCTION_CALLED();
 
-  NdisMDeregisterInterrupt(&xi->interrupt);
+  /* can't do this as shutdown might be called at DIRQL or higher */
+  /* NdisMDeregisterInterrupt(&xi->interrupt); */
 }
 
 /* Opposite of XenNet_Init */
@@ -646,8 +652,7 @@ XenNet_Halt(
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
-  // Disables the interrupt
-  XenNet_Shutdown(xi);
+  NdisMDeregisterInterrupt(&xi->interrupt);
 
   xi->vectors.XenPci_XenShutdownDevice(xi->vectors.context);
 

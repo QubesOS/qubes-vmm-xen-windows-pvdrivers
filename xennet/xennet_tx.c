@@ -103,7 +103,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   struct netif_extra_info *ei = NULL;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
   //UINT total_packet_length;
-  ULONG mss;
+  ULONG mss = 0;
   PMDL in_mdl;
   PUCHAR in_buffer = NULL;
   PUCHAR out_buffer;
@@ -133,14 +133,69 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     KdPrint((__DRIVER_NAME "     Zero length packet\n"));
     return TRUE; // we don't want to see this packet again...
   }  
+
+  if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) == NDIS_PROTOCOL_ID_TCP_IP)
+  {
+    csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
+      packet, TcpIpChecksumPacketInfo);
+    if (csum_info->Transmit.NdisPacketChecksumV6)
+    {
+      KdPrint((__DRIVER_NAME "     NdisPacketChecksumV6 not supported\n"));
+      NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+      return TRUE;
+    }
+
+    if (csum_info->Transmit.NdisPacketChecksumV4)
+    {
+      if (csum_info->Transmit.NdisPacketIpChecksum && !xi->setting_csum.V4Transmit.IpChecksum)
+      {
+        KdPrint((__DRIVER_NAME "     IpChecksum not enabled\n"));
+        NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+        return TRUE;
+      }
+      if (csum_info->Transmit.NdisPacketTcpChecksum && !xi->setting_csum.V4Transmit.TcpChecksum)
+      {
+        KdPrint((__DRIVER_NAME "     TcpChecksum not enabled\n"));
+        NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+        return TRUE;
+      }
+      if (csum_info->Transmit.NdisPacketUdpChecksum && !xi->setting_csum.V4Transmit.UdpChecksum)
+      {
+        KdPrint((__DRIVER_NAME "     UdpChecksum not enabled\n"));
+        NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+        return TRUE;
+      }
+      if (csum_info->Transmit.NdisPacketTcpChecksum
+        || csum_info->Transmit.NdisPacketUdpChecksum)
+      {
+        flags |= NETTXF_csum_blank | NETTXF_data_validated;
+      }
+    }
+  }
     
-  csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
-    packet, TcpIpChecksumPacketInfo);
   mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
 
   if (mss)
+  {
+    if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) != NDIS_PROTOCOL_ID_TCP_IP)
+    {
+      KdPrint((__DRIVER_NAME "     mss specified when packet is not NDIS_PROTOCOL_ID_TCP_IP\n"));
+    }
     ndis_lso = TRUE;
+    if (mss > xi->setting_max_offload)
+    {
+      KdPrint((__DRIVER_NAME "     Requested MSS (%d) larger than allowed MSS (%d)\n", mss, xi->setting_max_offload));
+      NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+      return TRUE;
+    }
+  }
 
+  if (!mss && total_length > xi->config_mtu + XN_HDR_SIZE)
+  {
+    KdPrint((__DRIVER_NAME "     Packet size (%d) larger than MTU (%d) + header (%d). mss = %d\n", total_length, xi->config_mtu, XN_HDR_SIZE, mss));
+    NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+    return TRUE;
+  }
   pages_required = (total_length + PAGE_SIZE - 1) / PAGE_SIZE;
 
   if (pages_required + !!ndis_lso > (int)free_requests(xi))
@@ -185,23 +240,45 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
         in_mdl = in_mdl->Next;
     }
   }
-  ASSERT(!in_mdl);
-
-  if (csum_info->Transmit.NdisPacketTcpChecksum
-    || csum_info->Transmit.NdisPacketUdpChecksum)
+  /* consume any zero length buffers tacked on the end */
+  while (in_mdl && MmGetMdlByteCount(in_mdl) == 0)
+    in_mdl = in_mdl->Next;
+    
+  if (in_mdl)
   {
-    flags |= NETTXF_csum_blank | NETTXF_data_validated;
+    KdPrint((__DRIVER_NAME "     Something went wrong... analyzing\n"));
+    NdisGetFirstBufferFromPacketSafe(packet, &in_mdl, &pi.header, &first_buffer_length, &total_length, NormalPagePriority);
+    KdPrint((__DRIVER_NAME "     total_length = %d\n", total_length));
+    while (in_mdl)
+    {
+      KdPrint((__DRIVER_NAME "     in_mdl = %p\n", in_mdl));
+      KdPrint((__DRIVER_NAME "     MmGetSystemAddressForMdlSafe(in_mdl) = %p\n", MmGetSystemAddressForMdlSafe(in_mdl, LowPagePriority)));
+      KdPrint((__DRIVER_NAME "     MmGetMdlByteCount(in_mdl) = %d\n", MmGetMdlByteCount(in_mdl)));
+      in_mdl = in_mdl->Next;
+    }
+    ASSERT(FALSE);
   }
 
   if (ndis_lso)
   {
-    XenNet_ParsePacketHeader(&pi);
-    XenNet_SumIpHeader(MmGetSystemAddressForMdlSafe(pi.mdls[0], NormalPagePriority), pi.ip4_header_length);
-    flags |= NETTXF_csum_blank | NETTXF_data_validated; /* these may be implied but not specified when lso is used*/
-    if (pi.tcp_length >= mss)
+    ULONG parse_result = XenNet_ParsePacketHeader(&pi);
+    if (parse_result == PARSE_OK)
     {
-      flags |= NETTXF_extra_info;
-      xen_gso = TRUE;
+      XenNet_SumIpHeader(MmGetSystemAddressForMdlSafe(pi.mdls[0], NormalPagePriority), pi.ip4_header_length);
+      flags |= NETTXF_csum_blank | NETTXF_data_validated; /* these may be implied but not specified when lso is used*/
+      if (pi.tcp_length >= mss)
+      {
+        flags |= NETTXF_extra_info;
+        xen_gso = TRUE;
+      }
+      else
+      {
+        KdPrint((__DRIVER_NAME "     large send specified when tcp_length < mss\n"));
+      }
+    }
+    else
+    {
+        KdPrint((__DRIVER_NAME "     could not parse packet - no large send offload done\n"));
     }
   }
 
@@ -248,6 +325,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 
   xi->stat_tx_ok++;
 
+  NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   return TRUE;
 }
 
@@ -308,7 +386,7 @@ XenNet_ReturnSentPackets(struct xennet_info *xi)
     {
       KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
       for (i = 0; i < packet_index; i++)
-        NdisMSendComplete(xi->adapter_handle, packets[i], NDIS_STATUS_SUCCESS);
+        NdisMSendComplete(xi->adapter_handle, packets[i], NDIS_GET_PACKET_STATUS(packets[i]));
       if (entry != &xi->tx_sent_pkt_list) /* don't acquire the lock if we have no more packets to SendComplete */
         KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
       packet_index = 0;

@@ -40,6 +40,7 @@ NDIS_OID supported_oids[] =
   OID_GEN_CURRENT_PACKET_FILTER, // QS
   OID_GEN_CURRENT_LOOKAHEAD,     // QS
   OID_GEN_DRIVER_VERSION,        // Q
+  OID_GEN_VENDOR_DRIVER_VERSION, // Q
   OID_GEN_MAXIMUM_TOTAL_SIZE,    // Q
   OID_GEN_PROTOCOL_OPTIONS,      // S
   OID_GEN_MAC_OPTIONS,           // Q
@@ -56,11 +57,12 @@ NDIS_OID supported_oids[] =
   OID_802_3_CURRENT_ADDRESS,
   OID_802_3_MULTICAST_LIST,
   OID_802_3_MAXIMUM_LIST_SIZE,
+  OID_802_3_RCV_ERROR_ALIGNMENT,
+  OID_802_3_XMIT_ONE_COLLISION,
+  OID_802_3_XMIT_MORE_COLLISIONS,
   /* tcp offload */
   OID_TCP_TASK_OFFLOAD,
 };
-
-
 
 /* return 4 or 8 depending on size of buffer */
 #define HANDLE_STAT_RETURN \
@@ -121,7 +123,7 @@ XenNet_QueryInformation(
       temp_data = NdisMedium802_3;
       break;
     case OID_GEN_MAXIMUM_LOOKAHEAD:
-      temp_data = PAGE_SIZE; //XN_DATA_SIZE;
+      temp_data = PAGE_SIZE;
       break;
     case OID_GEN_MAXIMUM_FRAME_SIZE:
       temp_data = xi->config_mtu;
@@ -130,13 +132,10 @@ XenNet_QueryInformation(
       temp_data = 10000000; /* 1Gb */
       break;
     case OID_GEN_TRANSMIT_BUFFER_SPACE:
-      /* pkts times sizeof ring, maybe? */
       /* multiply this by some small number as we can queue additional packets */
       temp_data = PAGE_SIZE * NET_TX_RING_SIZE * 4;
       break;
     case OID_GEN_RECEIVE_BUFFER_SPACE:
-      /* pkts times sizeof ring, maybe? */
-//      temp_data = XN_MAX_PKT_SIZE * NET_RX_RING_SIZE;
       temp_data = PAGE_SIZE * NET_RX_RING_SIZE;
       break;
     case OID_GEN_TRANSMIT_BLOCK_SIZE:
@@ -156,15 +155,18 @@ XenNet_QueryInformation(
       temp_data = xi->packet_filter;
       break;
     case OID_GEN_CURRENT_LOOKAHEAD:
-      // TODO: we should store this...
-      temp_data = xi->config_max_pkt_size;
+      temp_data = xi->config_mtu + XN_HDR_SIZE;
       break;
     case OID_GEN_DRIVER_VERSION:
       temp_data = (NDIS_MINIPORT_MAJOR_VERSION << 8) | NDIS_MINIPORT_MINOR_VERSION;
       len = 2;
       break;
+    case OID_GEN_VENDOR_DRIVER_VERSION:
+      temp_data = VENDOR_DRIVER_VERSION;
+      len = 4;
+      break;
     case OID_GEN_MAXIMUM_TOTAL_SIZE:
-      temp_data = xi->config_max_pkt_size;
+      temp_data = xi->config_mtu + XN_HDR_SIZE;
       break;
     case OID_GEN_MAC_OPTIONS:
       temp_data = NDIS_MAC_OPTION_COPY_LOOKAHEAD_DATA | 
@@ -208,6 +210,12 @@ XenNet_QueryInformation(
     case OID_802_3_CURRENT_ADDRESS:
       data = xi->curr_mac_addr;
       len = ETH_ALEN;
+      break;
+    case OID_802_3_RCV_ERROR_ALIGNMENT:
+    case OID_802_3_XMIT_ONE_COLLISION:
+    case OID_802_3_XMIT_MORE_COLLISIONS:
+      temp_data = 0;
+      HANDLE_STAT_RETURN;
       break;
     case OID_802_3_MULTICAST_LIST:
       data = NULL;
@@ -289,8 +297,8 @@ XenNet_QueryInformation(
         nttic->V4Transmit.TcpChecksum = 1;
         nttic->V4Transmit.TcpOptionsSupported = 1;
         nttic->V4Transmit.UdpChecksum = 1;
-        nttic->V4Receive.IpChecksum = 1;
-        nttic->V4Receive.IpOptionsSupported = 1;
+        nttic->V4Receive.IpChecksum = 0;
+        nttic->V4Receive.IpOptionsSupported = 0;
         nttic->V4Receive.TcpChecksum = 1;
         nttic->V4Receive.TcpOptionsSupported = 1;
         nttic->V4Receive.UdpChecksum = 1;
@@ -337,8 +345,7 @@ XenNet_QueryInformation(
         nttls->MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
         nttls->TcpOptions = TRUE;
         nttls->IpOptions = TRUE;
-        KdPrint(("&(nttls->IpOptions) = %p\n", &(nttls->IpOptions)));
-        
+        KdPrint(("&(nttls->IpOptions) = %p\n", &(nttls->IpOptions)));        
       }
 
       if (nto)
@@ -391,8 +398,8 @@ XenNet_SetInformation(
   PULONG64 data = InformationBuffer;
   PNDIS_TASK_OFFLOAD_HEADER ntoh;
   PNDIS_TASK_OFFLOAD nto;
-  PNDIS_TASK_TCP_IP_CHECKSUM nttic;
-  PNDIS_TASK_TCP_LARGE_SEND nttls;
+  PNDIS_TASK_TCP_IP_CHECKSUM nttic = NULL;
+  PNDIS_TASK_TCP_LARGE_SEND nttls = NULL;
   int offset;
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
@@ -558,6 +565,18 @@ XenNet_SetInformation(
       KdPrint(("Set OID_TCP_TASK_OFFLOAD\n"));
       // we should disable everything here, then enable what has been set
       ntoh = (PNDIS_TASK_OFFLOAD_HEADER)InformationBuffer;
+      if (ntoh->Version != NDIS_TASK_OFFLOAD_VERSION)
+      {
+        KdPrint(("Invalid version (%d passed but must be %d)\n", ntoh->Version, NDIS_TASK_OFFLOAD_VERSION));
+        status = NDIS_STATUS_INVALID_DATA;
+        break;
+      }
+      if (ntoh->Version != NDIS_TASK_OFFLOAD_VERSION || ntoh->Size != sizeof(NDIS_TASK_OFFLOAD_HEADER))
+      {
+        KdPrint(("Invalid size (%d passed but must be %d)\n", ntoh->Size, sizeof(NDIS_TASK_OFFLOAD_HEADER)));
+        status = NDIS_STATUS_INVALID_DATA;
+        break;
+      }
       *BytesRead = sizeof(NDIS_TASK_OFFLOAD_HEADER);
       offset = ntoh->OffsetFirstTask;
       nto = (PNDIS_TASK_OFFLOAD)ntoh; // not really, just to get the first offset right
@@ -569,9 +588,8 @@ XenNet_SetInformation(
         {
         case TcpIpChecksumNdisTask:
           *BytesRead += sizeof(NDIS_TASK_TCP_IP_CHECKSUM);
-          KdPrint(("TcpIpChecksumNdisTask\n"));
           nttic = (PNDIS_TASK_TCP_IP_CHECKSUM)nto->TaskBuffer;
-          xi->setting_csum = *nttic;
+          KdPrint(("TcpIpChecksumNdisTask\n"));
           KdPrint(("  V4Transmit.IpOptionsSupported  = %d\n", nttic->V4Transmit.IpOptionsSupported));
           KdPrint(("  V4Transmit.TcpOptionsSupported = %d\n", nttic->V4Transmit.TcpOptionsSupported));
           KdPrint(("  V4Transmit.TcpChecksum         = %d\n", nttic->V4Transmit.TcpChecksum));
@@ -590,21 +608,88 @@ XenNet_SetInformation(
           KdPrint(("  V6Receive.TcpOptionsSupported  = %d\n", nttic->V6Receive.TcpOptionsSupported));
           KdPrint(("  V6Receive.TcpChecksum          = %d\n", nttic->V6Receive.TcpChecksum));
           KdPrint(("  V6Receive.UdpChecksum          = %d\n", nttic->V6Receive.UdpChecksum));
+          /* check for stuff we outright don't support */
+          if (nttic->V6Transmit.IpOptionsSupported ||
+            nttic->V6Transmit.TcpOptionsSupported ||
+            nttic->V6Transmit.TcpChecksum ||
+            nttic->V6Transmit.UdpChecksum ||
+            nttic->V6Receive.IpOptionsSupported ||
+            nttic->V6Receive.TcpOptionsSupported ||
+            nttic->V6Receive.TcpChecksum ||
+            nttic->V6Receive.UdpChecksum)
+          {
+            KdPrint(("IPv6 offload not supported\n"));
+            status = NDIS_STATUS_INVALID_DATA;
+            nttic = NULL;
+            break;
+          }
+          if (nttic->V4Transmit.IpOptionsSupported ||
+            nttic->V4Transmit.IpChecksum)
+          {
+            KdPrint(("IPv4 IP Transmit offload not supported\n"));
+            status = NDIS_STATUS_INVALID_DATA;
+            nttic = NULL;
+            break;
+          }
+          if (nttic->V4Receive.IpOptionsSupported &&
+            !nttic->V4Receive.IpChecksum)
+          {
+            KdPrint(("Invalid combination\n"));
+            status = NDIS_STATUS_INVALID_DATA;
+            nttic = NULL;
+            break;
+          }
+          if (nttic->V4Transmit.TcpOptionsSupported &&
+            !nttic->V4Transmit.TcpChecksum)
+          {
+            KdPrint(("Invalid combination\n"));
+            status = NDIS_STATUS_INVALID_DATA;
+            nttic = NULL;
+            break;
+          }
+          if (nttic->V4Receive.TcpOptionsSupported &&
+            !nttic->V4Receive.TcpChecksum)
+          {
+            KdPrint(("Invalid combination\n"));
+            status = NDIS_STATUS_INVALID_DATA;
+            nttic = NULL;
+            break;
+          }
           break;
         case TcpLargeSendNdisTask:
           *BytesRead += sizeof(NDIS_TASK_TCP_LARGE_SEND);
           KdPrint(("TcpLargeSendNdisTask\n"));
           nttls = (PNDIS_TASK_TCP_LARGE_SEND)nto->TaskBuffer;
-          xi->setting_max_offload = nttls->MaxOffLoadSize;
-          KdPrint(("  MaxOffLoadSize                 = %d\n", nttls->MaxOffLoadSize));
-          KdPrint(("  MinSegmentCount                = %d\n", nttls->MinSegmentCount));
-          KdPrint(("  TcpOptions                     = %d\n", nttls->TcpOptions));
-          KdPrint(("  IpOptions                      = %d\n", nttls->IpOptions));
+          KdPrint(("     MaxOffLoadSize                 = %d\n", nttls->MaxOffLoadSize));
+          KdPrint(("     MinSegmentCount                = %d\n", nttls->MinSegmentCount));
+          KdPrint(("     TcpOptions                     = %d\n", nttls->TcpOptions));
+          KdPrint(("     IpOptions                      = %d\n", nttls->IpOptions));
+          if (nttls->MinSegmentCount != MIN_LARGE_SEND_SEGMENTS)
+          {
+            KdPrint(("     MinSegmentCount should be %d\n", MIN_LARGE_SEND_SEGMENTS));
+            status = NDIS_STATUS_INVALID_DATA;
+            nttls = NULL;
+            break;
+          }
           break;
         default:
-          KdPrint(("  Unknown Task %d\n", nto->Task));
+          KdPrint(("     Unknown Task %d\n", nto->Task));
         }
         offset = nto->OffsetNextTask;
+      }
+      if (nttic != NULL)
+        xi->setting_csum = *nttic;
+      else
+      {
+        RtlZeroMemory(&xi->setting_csum, sizeof(NDIS_TASK_TCP_IP_CHECKSUM));
+        KdPrint(("     csum offload disabled\n", nto->Task));
+      }        
+      if (nttls != NULL)
+        xi->setting_max_offload = nttls->MaxOffLoadSize;
+      else
+      {
+        xi->setting_max_offload = 0;
+        KdPrint(("     LSO disabled\n", nto->Task));
       }
       break;
     default:

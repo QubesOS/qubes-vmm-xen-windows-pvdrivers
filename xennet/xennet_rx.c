@@ -101,6 +101,7 @@ get_packet_from_freelist(struct xennet_info *xi)
 static VOID
 put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
 {
+  PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
   //ASSERT(!KeTestSpinLock(&xi->rx_lock));
 
   if (xi->rx_packet_free == NET_RX_RING_SIZE * 2)
@@ -109,7 +110,13 @@ put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
     NdisFreePacket(packet);
     return;
   }
+/*
   NdisReinitializePacket(packet);
+  RtlZeroMemory(NDIS_PACKET_EXTENSION_FROM_PACKET(packet), sizeof(NDIS_PACKET_EXTENSION));
+*/
+  csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
+    packet, TcpIpChecksumPacketInfo);
+  csum_info->Value = 0;
   xi->rx_packet_list[xi->rx_packet_free] = packet;
   xi->rx_packet_free++;
 }
@@ -152,7 +159,7 @@ XenNet_MakePacket(struct xennet_info *xi)
     for (i = 0; i < xi->rxpi.mdl_count; i++)
       NdisChainBufferAtBack(packet, xi->rxpi.mdls[i]);
 
-    NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo) = UlongToPtr(xi->rxpi.mss);
+    //NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo) = UlongToPtr(xi->rxpi.mss);
 
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
@@ -191,6 +198,30 @@ XenNet_MakePacket(struct xennet_info *xi)
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (%p)\n", packet));
+
+  if (1)
+  {
+    PMDL mdl;
+    PVOID *addr;
+    UINT buffer_length;
+    UINT total_length;
+    UINT calc_length = 0;
+    NdisGetFirstBufferFromPacketSafe(packet, &mdl, &addr, &buffer_length, &total_length, NormalPagePriority);
+    //KdPrint((__DRIVER_NAME "     total_length = %d\n", total_length));
+    while (mdl)
+    {
+      NdisQueryBufferSafe(mdl, &addr, &buffer_length, NormalPagePriority);
+      ASSERT(mdl != NULL);
+      ASSERT(addr != NULL);
+      ASSERT(buffer_length != 0);
+      calc_length += buffer_length;
+      NdisGetNextBuffer(mdl, &mdl);
+    }
+    ASSERT(calc_length == total_length);
+  }
+  // verify buffers
+  // verify that total length == sum of buffer lengths
+  
   return packet;
 }
 
@@ -200,10 +231,12 @@ XenNet_MakePacket(struct xennet_info *xi)
  same bridge in Dom0. Doh!
  This is only for TCP and UDP packets. IP checksums appear to be correct anyways.
 */
-static VOID
+
+static BOOLEAN
 XenNet_SumPacketData(
-  packet_info_t *pi,  
-  PNDIS_PACKET packet
+  packet_info_t *pi,
+  PNDIS_PACKET packet,
+  BOOLEAN set_csum
 )
 {
   USHORT i;
@@ -239,10 +272,11 @@ XenNet_SumPacketData(
     break;
   default:
     KdPrint((__DRIVER_NAME "     Don't know how to calc sum for IP Proto %d\n", pi->ip_proto));
-    return;
+    return FALSE; // should never happen
   }
-    
-  *csum_ptr = 0;
+
+  if (set_csum)  
+    *csum_ptr = 0;
 
   csum = 0;
   csum += GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 12]) + GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 14]); // src
@@ -255,6 +289,9 @@ XenNet_SumPacketData(
 
   for (buffer_offset = i = XN_HDR_SIZE + pi->ip4_header_length; i < total_length - 1; i += 2, buffer_offset += 2)
   {
+    /* don't include the checksum field itself in the calculation */
+    if ((pi->ip_proto == 6 && i == XN_HDR_SIZE + pi->ip4_header_length + 16) || (pi->ip_proto == 17 && i == XN_HDR_SIZE + pi->ip4_header_length + 6))
+      continue;
     if (buffer_offset == buffer_length - 1) // deal with a buffer ending on an odd byte boundary
     {
       csum += (USHORT)buffer[buffer_offset] << 8;
@@ -262,7 +299,7 @@ XenNet_SumPacketData(
       if (mdl == NULL)
       {
         KdPrint((__DRIVER_NAME "     Ran out of buffers\n"));
-        return;
+        return FALSE; // should never happen
       }
       NdisQueryBufferSafe(mdl, &buffer, &buffer_length, NormalPagePriority);
       csum += ((USHORT)buffer[0]);
@@ -277,7 +314,7 @@ XenNet_SumPacketData(
         if (mdl == NULL)
         {
           KdPrint((__DRIVER_NAME "     Ran out of buffers\n"));
-          return;
+          return FALSE; // should never happen
         }
         NdisQueryBufferSafe(mdl, (PVOID) &buffer, &buffer_length, NormalPagePriority);
         buffer_offset = 0;
@@ -291,8 +328,13 @@ XenNet_SumPacketData(
   }
   while (csum & 0xFFFF0000)
     csum = (csum & 0xFFFF) + (csum >> 16);
-  *csum_ptr = (USHORT)~GET_NET_USHORT((USHORT)csum);
+  
+  if (set_csum)
+    *csum_ptr = (USHORT)~GET_NET_USHORT((USHORT)csum);
+  else
+    return (BOOLEAN)(*csum_ptr == (USHORT)~GET_NET_USHORT((USHORT)csum));
 
+  return TRUE;
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
@@ -308,10 +350,11 @@ XenNet_MakePackets(
   PLIST_ENTRY entry;
   UCHAR psh;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
+  ULONG parse_result;  
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "(packets = %p, packet_count = %d)\n", packets, *packet_count_p));
 
-  XenNet_ParsePacketHeader(&xi->rxpi);
+  parse_result = XenNet_ParsePacketHeader(&xi->rxpi);
   switch (xi->rxpi.ip_proto)
   {
   case 6:  // TCP
@@ -327,13 +370,63 @@ XenNet_MakePackets(
       packet_count = 0;
       goto done;
     }
-    if (xi->rxpi.csum_blank)
-      XenNet_SumPacketData(&xi->rxpi, packet);
-    if (xi->rxpi.csum_blank || xi->rxpi.data_validated)
+    if (parse_result == PARSE_OK)
     {
+      if (xi->rxpi.csum_blank)
+        XenNet_SumPacketData(&xi->rxpi, packet, TRUE);
       csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
         packet, TcpIpChecksumPacketInfo);
-      csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+      if (xi->rxpi.csum_blank || xi->rxpi.data_validated)
+      {
+        if (xi->setting_csum.V4Receive.TcpChecksum && xi->rxpi.ip_proto == 6)
+          csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+        if (xi->setting_csum.V4Receive.UdpChecksum && xi->rxpi.ip_proto == 17)
+          csum_info->Receive.NdisPacketUdpChecksumSucceeded = TRUE;
+      }
+      else
+      {
+        if (xi->setting_csum.V4Receive.TcpChecksum && xi->rxpi.ip_proto == 6)
+        {
+          if (XenNet_SumPacketData(&xi->rxpi, packet, FALSE))
+            csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+          else
+            csum_info->Receive.NdisPacketTcpChecksumFailed = TRUE;
+        }
+        if (xi->setting_csum.V4Receive.UdpChecksum && xi->rxpi.ip_proto == 17)
+        {
+          if (XenNet_SumPacketData(&xi->rxpi, packet, FALSE))
+            csum_info->Receive.NdisPacketUdpChecksumSucceeded = TRUE;
+          else
+            csum_info->Receive.NdisPacketUdpChecksumFailed = TRUE;
+        }
+      }
+#if 0      
+      if (xi->rxpi.ip_proto == 17)
+      {
+        PMDL mdl;
+        PVOID *addr;
+        UINT buffer_length;
+        UINT total_length;
+        UINT calc_length = 0;
+        NdisGetFirstBufferFromPacketSafe(packet, &mdl, &addr, &buffer_length, &total_length, NormalPagePriority);
+        KdPrint((__DRIVER_NAME "     packet = %p\n", packet));
+        KdPrint((__DRIVER_NAME "     total_length = %d\n", total_length));
+        while (mdl)
+        {
+          NdisQueryBufferSafe(mdl, &addr, &buffer_length, NormalPagePriority);
+          ASSERT(mdl != NULL);
+          ASSERT(addr != NULL);
+          ASSERT(buffer_length != 0);
+          calc_length += buffer_length;
+          KdPrint((__DRIVER_NAME "     mdl = %p\n", mdl));
+          KdPrint((__DRIVER_NAME "     addr = %p\n", addr));
+          KdPrint((__DRIVER_NAME "     buffer_length = %d\n", buffer_length));
+          KdPrint((__DRIVER_NAME "     calc_length = %d\n", calc_length));
+          NdisGetNextBuffer(mdl, &mdl);
+        }
+        ASSERT(calc_length == total_length);
+      }      
+#endif
     }
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
@@ -375,9 +468,12 @@ XenNet_MakePackets(
       xi->stat_rx_no_buffer++;
       break; /* we are out of memory - just drop the packets */
     }
-    csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
-      packet, TcpIpChecksumPacketInfo);
-    csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+    if (xi->setting_csum.V4Receive.TcpChecksum)
+    {
+      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
+        packet, TcpIpChecksumPacketInfo);
+      csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+    }
     if (psh)
     {
       NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);
@@ -390,7 +486,7 @@ XenNet_MakePackets(
         buffer[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 13] |= 8;
       }
     }
-    XenNet_SumPacketData(&xi->rxpi, packet);
+    XenNet_SumPacketData(&xi->rxpi, packet, TRUE);
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
     packet_count++;
@@ -487,8 +583,41 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
           if (rxrsp->flags & NETRXF_data_validated)
             xi->rxpi.data_validated = TRUE;
         }
-        NdisAdjustBufferLength(mdl, rxrsp->status);
-        xi->rxpi.mdls[xi->rxpi.mdl_count++] = mdl;
+        
+        if (!xi->rxpi.mdl_count || MmGetMdlByteCount(xi->rxpi.mdls[xi->rxpi.mdl_count - 1]) == PAGE_SIZE)
+        {
+          /* first buffer or no room in current buffer */
+          NdisAdjustBufferLength(mdl, rxrsp->status);
+          xi->rxpi.mdls[xi->rxpi.mdl_count++] = mdl;
+        }
+        else if (MmGetMdlByteCount(xi->rxpi.mdls[xi->rxpi.mdl_count - 1]) + rxrsp->status <= PAGE_SIZE)
+        {
+          /* this buffer fits entirely in current buffer */
+          PMDL dst_mdl = xi->rxpi.mdls[xi->rxpi.mdl_count - 1];
+          PUCHAR dst_addr = MmGetMdlVirtualAddress(dst_mdl);
+          PUCHAR src_addr = MmGetMdlVirtualAddress(mdl);
+          dst_addr += MmGetMdlByteCount(dst_mdl);
+          memcpy(dst_addr, src_addr, rxrsp->status);
+          NdisAdjustBufferLength(dst_mdl, MmGetMdlByteCount(dst_mdl) + rxrsp->status);
+          XenFreelist_PutPage(&xi->rx_freelist, mdl);
+        }
+        else
+        {
+          /* this buffer doesn't fit entirely in current buffer */
+          PMDL dst_mdl = xi->rxpi.mdls[xi->rxpi.mdl_count - 1];
+          PUCHAR dst_addr = MmGetMdlVirtualAddress(dst_mdl);
+          PUCHAR src_addr = MmGetMdlVirtualAddress(mdl);
+          ULONG copy_size = PAGE_SIZE - MmGetMdlByteCount(dst_mdl);
+          dst_addr += MmGetMdlByteCount(dst_mdl);
+          memcpy(dst_addr, src_addr, copy_size);
+          NdisAdjustBufferLength(dst_mdl, PAGE_SIZE);
+          dst_addr = src_addr;
+          src_addr += copy_size;
+          copy_size = rxrsp->status - copy_size;
+          memmove(dst_addr, src_addr, copy_size); /* use memmove because the regions overlap */
+          NdisAdjustBufferLength(mdl, copy_size);
+          xi->rxpi.mdls[xi->rxpi.mdl_count++] = mdl;
+        }
         xi->rxpi.extra_info = (BOOLEAN)!!(rxrsp->flags & NETRXF_extra_info);
         xi->rxpi.more_frags = (BOOLEAN)!!(rxrsp->flags & NETRXF_more_data);
         xi->rxpi.total_length = xi->rxpi.total_length + rxrsp->status;
@@ -516,7 +645,13 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   packet_count = 0;
   while (entry != &rx_packet_list)
   {
-    packets[packet_count++] = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
+    PNDIS_PACKET packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
+    PVOID *addr;
+    UINT buffer_length;
+    UINT total_length;
+    NdisGetFirstBufferFromPacketSafe(packet, &mdl, &addr, &buffer_length, &total_length, NormalPagePriority);
+    ASSERT(total_length <= xi->config_mtu + XN_HDR_SIZE);
+    packets[packet_count++] = packet;
     entry = RemoveHeadList(&rx_packet_list);
     if (packet_count == MAXIMUM_PACKETS_PER_INDICATE || entry == &rx_packet_list)
     {

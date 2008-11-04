@@ -53,9 +53,15 @@ XenNet_ParsePacketHeader(
       return PARSE_UNKNOWN_TYPE;
     }
     pi->ip4_header_length = (pi->header[XN_HDR_SIZE + 0] & 0x0F) << 2;
-    if (header_length < (ULONG)(pi->ip4_header_length + 20))
+    if (header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20))
     {
-      KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (1)\n", XN_HDR_SIZE + header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)));
+      int i;
+      KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (1)\n", header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)));
+      KdPrint((__DRIVER_NAME "     total_length = %d\n", pi->total_length));
+      for (i = 0; i < pi->mdl_count; i++)
+      {
+        KdPrint((__DRIVER_NAME "     mdl %d length = %d\n", i, MmGetMdlByteCount(pi->mdls[i])));
+      }
       // we need to do something conclusive here...
       return PARSE_TOO_SMALL;
     }
@@ -76,9 +82,9 @@ XenNet_ParsePacketHeader(
   pi->ip4_length = GET_NET_PUSHORT(&pi->header[XN_HDR_SIZE + 2]);
   pi->tcp_header_length = (pi->header[XN_HDR_SIZE + pi->ip4_header_length + 12] & 0xf0) >> 2;
 
-  if (header_length < (ULONG)(pi->ip4_header_length + 20)) // pi->tcp_header_length))
+  if (header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)) // pi->tcp_header_length))
   {
-    KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (2)\n", XN_HDR_SIZE + header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)));
+    KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (2)\n", header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)));
     return PARSE_TOO_SMALL;
   }
 

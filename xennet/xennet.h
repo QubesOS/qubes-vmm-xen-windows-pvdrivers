@@ -43,6 +43,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #endif
 
 
+#define VENDOR_DRIVER_VERSION_MAJOR 0
+#define VENDOR_DRIVER_VERSION_MINOR 9
+
+#define VENDOR_DRIVER_VERSION (((VENDOR_DRIVER_VERSION_MAJOR) << 16) | (VENDOR_DRIVER_VERSION_MINOR))
+
 #define __DRIVER_NAME "XenNet"
 
 #include <xen_windows.h>
@@ -144,9 +149,10 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 #define MIN_LARGE_SEND_SEGMENTS 4
 
 /* TODO: crank this up if we support higher mtus? */
-#define XN_DATA_SIZE 1500
 #define XN_HDR_SIZE 14
-#define XN_MIN_PKT_SIZE 60
+#define XN_MAX_DATA_SIZE 1500
+#define XN_MIN_FRAME_SIZE 60
+#define XN_MAX_FRAME_SIZE (XN_HDR_SIZE + XN_DATA_SIZE)
 /*
 #if !defined(OFFLOAD_LARGE_SEND)
   #define XN_MAX_PKT_SIZE (XN_HDR_SIZE + XN_DATA_SIZE)
