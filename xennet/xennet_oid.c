@@ -343,8 +343,8 @@ XenNet_QueryInformation(
         nttls->Version = 0;
         nttls->MaxOffLoadSize = xi->config_gso;
         nttls->MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
-        nttls->TcpOptions = TRUE;
-        nttls->IpOptions = TRUE;
+        nttls->TcpOptions = FALSE; /* linux can't handle this */
+        nttls->IpOptions = FALSE; /* linux can't handle this */
         KdPrint(("&(nttls->IpOptions) = %p\n", &(nttls->IpOptions)));        
       }
 
@@ -667,6 +667,20 @@ XenNet_SetInformation(
           if (nttls->MinSegmentCount != MIN_LARGE_SEND_SEGMENTS)
           {
             KdPrint(("     MinSegmentCount should be %d\n", MIN_LARGE_SEND_SEGMENTS));
+            status = NDIS_STATUS_INVALID_DATA;
+            nttls = NULL;
+            break;
+          }
+          if (nttls->IpOptions)
+          {
+            KdPrint(("     IpOptions not supported\n"));
+            status = NDIS_STATUS_INVALID_DATA;
+            nttls = NULL;
+            break;
+          }
+          if (nttls->TcpOptions)
+          {
+            KdPrint(("     TcpOptions not supported\n"));
             status = NDIS_STATUS_INVALID_DATA;
             nttls = NULL;
             break;

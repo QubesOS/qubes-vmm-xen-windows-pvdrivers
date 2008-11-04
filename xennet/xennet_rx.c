@@ -400,33 +400,6 @@ XenNet_MakePackets(
             csum_info->Receive.NdisPacketUdpChecksumFailed = TRUE;
         }
       }
-#if 0      
-      if (xi->rxpi.ip_proto == 17)
-      {
-        PMDL mdl;
-        PVOID *addr;
-        UINT buffer_length;
-        UINT total_length;
-        UINT calc_length = 0;
-        NdisGetFirstBufferFromPacketSafe(packet, &mdl, &addr, &buffer_length, &total_length, NormalPagePriority);
-        KdPrint((__DRIVER_NAME "     packet = %p\n", packet));
-        KdPrint((__DRIVER_NAME "     total_length = %d\n", total_length));
-        while (mdl)
-        {
-          NdisQueryBufferSafe(mdl, &addr, &buffer_length, NormalPagePriority);
-          ASSERT(mdl != NULL);
-          ASSERT(addr != NULL);
-          ASSERT(buffer_length != 0);
-          calc_length += buffer_length;
-          KdPrint((__DRIVER_NAME "     mdl = %p\n", mdl));
-          KdPrint((__DRIVER_NAME "     addr = %p\n", addr));
-          KdPrint((__DRIVER_NAME "     buffer_length = %d\n", buffer_length));
-          KdPrint((__DRIVER_NAME "     calc_length = %d\n", calc_length));
-          NdisGetNextBuffer(mdl, &mdl);
-        }
-        ASSERT(calc_length == total_length);
-      }      
-#endif
     }
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
