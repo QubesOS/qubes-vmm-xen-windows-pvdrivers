@@ -151,7 +151,7 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       {
         xvdd->sring = (blkif_sring_t *)value;
         FRONT_RING_INIT(&xvdd->ring, xvdd->sring, PAGE_SIZE);
-        /* this bit is for when we have to take over an existing ring on a bug check */
+        /* this bit is for when we have to take over an existing ring on a crash dump */
         xvdd->ring.req_prod_pvt = xvdd->sring->req_prod;
         xvdd->ring.rsp_cons = xvdd->ring.req_prod_pvt;
       }
@@ -803,8 +803,16 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     return FALSE;
   }
 
-  if (!(stat_interrupts_for_me & 0xFFFF))
+  if (dump_mode)
+  {
+    KdPrint((__DRIVER_NAME "     dump_mode interrupt\n"));
+    KdPrint((__DRIVER_NAME "     req_prod_pvt = %d\n", xvdd->ring.req_prod_pvt));
+    KdPrint((__DRIVER_NAME "     rsp_prod = %d\n", xvdd->ring.sring->rsp_prod));
+    KdPrint((__DRIVER_NAME "     rsp_cons = %d\n", xvdd->ring.rsp_cons));
+  }
+  else if (!(stat_interrupts_for_me & 0xFFFF))
     XenVbd_DumpStats();
+    
   while (more_to_do)
   {
     rp = xvdd->ring.sring->rsp_prod;
@@ -1328,24 +1336,28 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   KdPrint((__DRIVER_NAME " --> "__FUNCTION__ "\n"));
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
-  conf_info = IoGetConfigurationInformation();
-  if (conf_info == NULL)
+  /* RegistryPath == NULL when we are invoked as a crash dump driver */
+  if (!RegistryPath)
   {
-    KdPrint((__DRIVER_NAME "     conf_info == NULL\n"));
+    dump_mode = TRUE;
   }
   else
   {
-    KdPrint((__DRIVER_NAME "     conf_info->DiskCount = %d\n", conf_info->DiskCount));
+    conf_info = IoGetConfigurationInformation();
+    if (conf_info == NULL)
+    {
+      KdPrint((__DRIVER_NAME "     conf_info == NULL\n"));
+    }
+    else
+    {
+      KdPrint((__DRIVER_NAME "     conf_info->DiskCount = %d\n", conf_info->DiskCount));
+    }
+    if (conf_info != NULL && conf_info->DiskCount && RegistryPath)
+    {
+      global_inactive = TRUE;
+      KdPrint((__DRIVER_NAME "     Not loaded at boot time so setting inactive\n"));
+    }
   }
-  /* RegistryPath == NULL when we are invoked as a crash dump driver */
-  if (!RegistryPath)
-    dump_mode = TRUE;
-  if (conf_info != NULL && conf_info->DiskCount && RegistryPath)
-  {
-    global_inactive = TRUE;
-    KdPrint((__DRIVER_NAME "     Not loaded at boot time so setting inactive\n"));
-  }
-  
   RtlZeroMemory(&HwInitializationData, sizeof(HW_INITIALIZATION_DATA));
 
   HwInitializationData.HwInitializationDataSize = sizeof(HW_INITIALIZATION_DATA);
