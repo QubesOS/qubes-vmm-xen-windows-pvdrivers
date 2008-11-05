@@ -141,8 +141,8 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     if (csum_info->Transmit.NdisPacketChecksumV6)
     {
       KdPrint((__DRIVER_NAME "     NdisPacketChecksumV6 not supported\n"));
-      NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
-      return TRUE;
+      //NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+      //return TRUE;
     }
 
     if (csum_info->Transmit.NdisPacketChecksumV4)
@@ -150,25 +150,34 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       if (csum_info->Transmit.NdisPacketIpChecksum && !xi->setting_csum.V4Transmit.IpChecksum)
       {
         KdPrint((__DRIVER_NAME "     IpChecksum not enabled\n"));
-        NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
-        return TRUE;
+        //NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+        //return TRUE;
       }
-      if (csum_info->Transmit.NdisPacketTcpChecksum && !xi->setting_csum.V4Transmit.TcpChecksum)
+      if (csum_info->Transmit.NdisPacketTcpChecksum)
       {
-        KdPrint((__DRIVER_NAME "     TcpChecksum not enabled\n"));
-        NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
-        return TRUE;
+        if (xi->setting_csum.V4Transmit.TcpChecksum)
+        {
+          flags |= NETTXF_csum_blank | NETTXF_data_validated;
+        }
+        else
+        {
+          KdPrint((__DRIVER_NAME "     TcpChecksum not enabled\n"));
+          //NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+          //return TRUE;
+        }
       }
-      if (csum_info->Transmit.NdisPacketUdpChecksum && !xi->setting_csum.V4Transmit.UdpChecksum)
+      if (csum_info->Transmit.NdisPacketUdpChecksum)
       {
-        KdPrint((__DRIVER_NAME "     UdpChecksum not enabled\n"));
-        NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
-        return TRUE;
-      }
-      if (csum_info->Transmit.NdisPacketTcpChecksum
-        || csum_info->Transmit.NdisPacketUdpChecksum)
-      {
-        flags |= NETTXF_csum_blank | NETTXF_data_validated;
+        if (xi->setting_csum.V4Transmit.UdpChecksum)
+        {
+          flags |= NETTXF_csum_blank | NETTXF_data_validated;
+        }
+        else
+        {
+          KdPrint((__DRIVER_NAME "     UdpChecksum not enabled\n"));
+          //NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+          //return TRUE;
+        }
       }
     }
   }

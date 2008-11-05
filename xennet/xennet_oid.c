@@ -218,10 +218,11 @@ XenNet_QueryInformation(
       HANDLE_STAT_RETURN;
       break;
     case OID_802_3_MULTICAST_LIST:
-      data = NULL;
-      len = 0;
+      data = xi->multicast_list;
+      len = xi->multicast_list_size * 6;
+      break;
     case OID_802_3_MAXIMUM_LIST_SIZE:
-      temp_data = 0; /* no mcast support */
+      temp_data = MULTICAST_LIST_MAX_SIZE; /* no mcast support, but to return 0 is an error */
       break;
     case OID_TCP_TASK_OFFLOAD:
       KdPrint(("Get OID_TCP_TASK_OFFLOAD\n"));
@@ -254,7 +255,10 @@ XenNet_QueryInformation(
       ntoh = (PNDIS_TASK_OFFLOAD_HEADER)InformationBuffer;
       if (ntoh->Version != NDIS_TASK_OFFLOAD_VERSION
         || ntoh->Size != sizeof(*ntoh)
-        || ntoh->EncapsulationFormat.Encapsulation != IEEE_802_3_Encapsulation)
+        || !(
+          ntoh->EncapsulationFormat.Encapsulation == IEEE_802_3_Encapsulation
+          || (ntoh->EncapsulationFormat.Encapsulation == UNSPECIFIED_Encapsulation
+              && ntoh->EncapsulationFormat.EncapsulationHeaderSize == XN_HDR_SIZE)))
       {
         status = NDIS_STATUS_NOT_SUPPORTED;
         break;
@@ -394,12 +398,14 @@ XenNet_SetInformation(
   )
 {
   NTSTATUS status;
+  ULONG i;
   struct xennet_info *xi = MiniportAdapterContext;
   PULONG64 data = InformationBuffer;
   PNDIS_TASK_OFFLOAD_HEADER ntoh;
   PNDIS_TASK_OFFLOAD nto;
   PNDIS_TASK_TCP_IP_CHECKSUM nttic = NULL;
   PNDIS_TASK_TCP_LARGE_SEND nttls = NULL;
+  UCHAR *multicast_list;
   int offset;
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
@@ -554,6 +560,29 @@ XenNet_SetInformation(
       KdPrint(("     Set OID_802_3_MULTICAST_LIST\n"));
       KdPrint(("       Length = %d\n", InformationBufferLength));
       KdPrint(("       Entries = %d\n", InformationBufferLength / 6));
+      if (InformationBufferLength > MULTICAST_LIST_MAX_SIZE * 6)
+      {
+        status = NDIS_STATUS_MULTICAST_FULL;
+        break;
+      }
+      
+      if (InformationBufferLength % 6 != 0)
+      {
+        status = NDIS_STATUS_MULTICAST_FULL;
+        break;
+      }
+      multicast_list = InformationBuffer;
+      for (i = 0; i < InformationBufferLength / 6; i++)
+      {
+        if (!(multicast_list[i * 6 + 0] & 0x01))
+        {
+          KdPrint(("       Address %d is not a multicast address\n", i));
+          status = NDIS_STATUS_MULTICAST_FULL;
+          break;
+        }
+      }
+      memcpy(xi->multicast_list, InformationBuffer, InformationBufferLength);
+      xi->multicast_list_size = InformationBufferLength / 6;
       status = NDIS_STATUS_SUCCESS;
       break;
     case OID_802_3_MAXIMUM_LIST_SIZE:

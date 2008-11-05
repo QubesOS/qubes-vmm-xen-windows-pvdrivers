@@ -346,7 +346,8 @@ XenNet_Init(
   NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi,
     0, NDIS_ATTRIBUTE_DESERIALIZE|NDIS_ATTRIBUTE_SURPRISE_REMOVE_OK,
     NdisInterfaceInternal);
-
+  xi->multicast_list_size = 0;
+  
   nrl_length = 0;
   NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
     NULL, (PUINT)&nrl_length);
@@ -670,6 +671,18 @@ XenNet_Halt(
   FUNCTION_EXIT();
 }
 
+NDIS_STATUS 
+XenNet_Reset(
+  PBOOLEAN  AddressingReset,
+  NDIS_HANDLE  MiniportAdapterContext
+)
+{
+  UNREFERENCED_PARAMETER(MiniportAdapterContext);
+
+  *AddressingReset = FALSE;
+  return NDIS_STATUS_SUCCESS;
+}
+
 NTSTATUS DDKAPI
 DriverEntry(
   PDRIVER_OBJECT DriverObject,
@@ -700,7 +713,7 @@ DriverEntry(
   mini_chars.ISRHandler = XenNet_InterruptIsr;
   mini_chars.HandleInterruptHandler = XenNet_InterruptDpc;
   mini_chars.QueryInformationHandler = XenNet_QueryInformation;
-  mini_chars.ResetHandler = NULL; //TODO: fill in
+  mini_chars.ResetHandler = XenNet_Reset;
   mini_chars.SetInformationHandler = XenNet_SetInformation;
   /* added in v.4 -- use multiple pkts interface */
   mini_chars.ReturnPacketHandler = XenNet_ReturnPacket;

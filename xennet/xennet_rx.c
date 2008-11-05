@@ -355,6 +355,21 @@ XenNet_MakePackets(
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "(packets = %p, packet_count = %d)\n", packets, *packet_count_p));
 
   parse_result = XenNet_ParsePacketHeader(&xi->rxpi);
+  
+  if ((xi->packet_filter & NDIS_PACKET_TYPE_MULTICAST)
+    && !(xi->packet_filter & NDIS_PACKET_TYPE_ALL_MULTICAST)
+    && (xi->rxpi.header[0] & 0x01)
+    && !(xi->rxpi.header[0] == 0xFF && xi->rxpi.header[1] == 0xFF && xi->rxpi.header[2] == 0xFF
+        && xi->rxpi.header[3] == 0xFF && xi->rxpi.header[4] == 0xFF && xi->rxpi.header[5] == 0xFF))
+  {
+    for (i = 0; i < xi->multicast_list_size; i++)
+    {
+      if (memcmp(xi->multicast_list[i], xi->rxpi.header, 6) == 0)
+        break;
+    }
+    if (i == xi->multicast_list_size)
+      goto done;
+  }
   switch (xi->rxpi.ip_proto)
   {
   case 6:  // TCP

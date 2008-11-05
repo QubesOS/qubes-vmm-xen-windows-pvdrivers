@@ -199,6 +199,8 @@ typedef struct {
 } packet_info_t;
 
 #define PAGE_LIST_SIZE (max(NET_RX_RING_SIZE, NET_TX_RING_SIZE) * 4)
+#define MULTICAST_LIST_MAX_SIZE 32
+
 typedef struct
 {
   struct xennet_info *xi;
@@ -240,6 +242,8 @@ struct xennet_info
   char backend_path[MAX_XENBUS_STR_LEN];
   ULONG backend_state;
   PVOID config_page;
+  UCHAR multicast_list[MULTICAST_LIST_MAX_SIZE][6];
+  ULONG multicast_list_size;
 
   /* tx related - protected by tx_lock */
   KSPIN_LOCK tx_lock;
