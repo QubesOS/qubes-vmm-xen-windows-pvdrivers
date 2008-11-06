@@ -418,7 +418,7 @@ XenNet_MakePackets(
     }
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
-    RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));
+    XenNet_ClearPacketInfo(&xi->rxpi);
     return 1;
   default:
     packet = XenNet_MakePacket(xi);
@@ -431,7 +431,7 @@ XenNet_MakePackets(
     }
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
-    RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));
+    XenNet_ClearPacketInfo(&xi->rxpi);
     return 1;
   }
 
@@ -486,7 +486,7 @@ done:
     NdisAdjustBufferLength(xi->rxpi.mdls[i], PAGE_SIZE);
     XenFreelist_PutPage(&xi->rx_freelist, xi->rxpi.mdls[i]);
   }
-  RtlZeroMemory(&xi->rxpi, sizeof(xi->rxpi));  
+  XenNet_ClearPacketInfo(&xi->rxpi);
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (split)\n"));
   return packet_count;
 }

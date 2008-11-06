@@ -119,7 +119,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   UINT first_buffer_length; /* not used */
   UINT total_length;
   
-  RtlZeroMemory(&pi, sizeof(pi));
+  XenNet_ClearPacketInfo(&pi);
   NdisGetFirstBufferFromPacketSafe(packet, &in_mdl, &pi.header, &first_buffer_length, &total_length, NormalPagePriority);
   
   if (!pi.header)

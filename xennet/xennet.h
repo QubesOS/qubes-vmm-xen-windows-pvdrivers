@@ -406,7 +406,22 @@ XenNet_GetData(
   return buffer;
 }
 
-
+static __forceinline VOID
+XenNet_ClearPacketInfo(packet_info_t *pi)
+{
+#if 1
+  #if 1
+  RtlZeroMemory(&pi->mdl_count, sizeof(packet_info_t) - FIELD_OFFSET(packet_info_t, mdl_count));
+  #else
+  RtlZeroMemory(pi, sizeof(packet_info_t));
+  #endif
+#else
+  pi->mdl_count = 0;
+  pi->curr_mdl = pi->curr_mdl_offset = 0;
+  pi->extra_info = pi->more_frags = pi->csum_blank =
+    pi->data_validated = pi->split_required = 0;
+#endif
+}
 
 VOID
 XenFreelist_Init(struct xennet_info *xi, freelist_t *fl, PKSPIN_LOCK lock);

@@ -55,14 +55,14 @@ XenNet_ParsePacketHeader(
     pi->ip4_header_length = (pi->header[XN_HDR_SIZE + 0] & 0x0F) << 2;
     if (header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20))
     {
-      int i;
       KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (1)\n", header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)));
+#if 0      
       KdPrint((__DRIVER_NAME "     total_length = %d\n", pi->total_length));
       for (i = 0; i < pi->mdl_count; i++)
       {
         KdPrint((__DRIVER_NAME "     mdl %d length = %d\n", i, MmGetMdlByteCount(pi->mdls[i])));
       }
-      // we need to do something conclusive here...
+#endif
       return PARSE_TOO_SMALL;
     }
     break;
