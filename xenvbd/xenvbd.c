@@ -253,6 +253,11 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
     return SP_RETURN_BAD_CONFIG;
   }
+  if (xvdd->device_type == XENVBD_DEVICETYPE_CDROM)
+  {
+    /* CD/DVD drives must have bytes_per_sector = 2048. */
+    xvdd->bytes_per_sector = 2048;
+  }
 
   /* for some reason total_sectors is measured in 512 byte sectors always, so correct this to be in bytes_per_sectors */
 #ifdef __MINGW32__
