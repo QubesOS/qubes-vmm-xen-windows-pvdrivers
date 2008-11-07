@@ -889,7 +889,9 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
   int i, j;
   CHAR path[128];
   PDEVICE_OBJECT pdo;
-  
+  PDEVICE_RELATIONS oldRelations;
+  int prevcount, length;
+
   FUNCTION_ENTER();
 
   msg = XenBus_List(xpdd, XBT_NIL, "device", &devices);
@@ -898,7 +900,9 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
     for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
     {
       if (child->state == CHILD_STATE_DELETED)
+      {
         KdPrint((__DRIVER_NAME "     Found deleted child - this shouldn't happen\n" ));
+      }
       child->state = CHILD_STATE_DELETED;
     }
 
@@ -911,7 +915,7 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
         for (j = 0; instances[j]; j++)
         {
           RtlStringCbPrintfA(path, ARRAY_SIZE(path), "device/%s/%s", devices[i], instances[j]);
-        
+
           for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
           {
             if (strcmp(child->context->path, path) == 0)
@@ -938,7 +942,9 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
               FALSE,
               &pdo);
             if (!NT_SUCCESS(status))
+            {
               KdPrint((__DRIVER_NAME "     IoCreateDevice status = %08X\n", status));
+            }
             RtlZeroMemory(pdo->DeviceExtension, sizeof(XENPCI_PDO_DEVICE_DATA));
             child->context = xppdd = pdo->DeviceExtension;
             xppdd->common.fdo = NULL;
@@ -967,16 +973,57 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
       XenPci_FreeMem(devices[i]);
     }
     XenPci_FreeMem(devices);
-    dev_relations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DEVICE_RELATIONS) + sizeof(PDEVICE_OBJECT) * (device_count - 1), XENPCI_POOL_TAG);
+
+    //
+    // Keep track of old relations structure
+    //
+    oldRelations = (PDEVICE_RELATIONS) irp->IoStatus.Information;
+    if (oldRelations)
+    {
+      prevcount = oldRelations->Count;
+    }
+    else
+    {
+      prevcount = 0;
+    }
+
+    //
+    // Need to allocate a new relations structure and add our
+    // PDOs to it.
+    //
+
+    length = sizeof(DEVICE_RELATIONS) + ((device_count + prevcount) * sizeof (PDEVICE_OBJECT)) -1;
+
+    dev_relations = (PDEVICE_RELATIONS) ExAllocatePoolWithTag (PagedPool, length, XENPCI_POOL_TAG);
+    if (!dev_relations)
+    {
+      KdPrint((__DRIVER_NAME "**** Failed to allocate a new buffer for query device relations\n"));
+      //
+      // Fail the IRP
+      //
+      irp->IoStatus.Status = status = STATUS_INSUFFICIENT_RESOURCES;
+      IoCompleteRequest (irp, IO_NO_INCREMENT);
+      return;
+    }
+
+    //
+    // Copy in the device objects so far
+    //
+    if (prevcount)
+    {
+      RtlCopyMemory (dev_relations->Objects, oldRelations->Objects, prevcount * sizeof (PDEVICE_OBJECT));
+    }
+
     for (child = (PXEN_CHILD)xpdd->child_list.Flink, device_count = 0; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
     {
       if (child->state == CHILD_STATE_ADDED)
       {
         ObReferenceObject(child->context->common.pdo);
-        dev_relations->Objects[device_count++] = child->context->common.pdo;
+        dev_relations->Objects[prevcount++] = child->context->common.pdo;
       }
     }
-    dev_relations->Count = device_count;
+
+    dev_relations->Count = prevcount + device_count;
 
     child = (PXEN_CHILD)xpdd->child_list.Flink;
     while (child != (PXEN_CHILD)&xpdd->child_list)
@@ -993,20 +1040,32 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
         ExFreePoolWithTag(old_child, XENPCI_POOL_TAG);
       }
       else
+      {
         child = (PXEN_CHILD)child->entry.Flink;
+      }
     }
     
     status = STATUS_SUCCESS;
   }
   else
   {
-    /* this should probably fail in an even worse way - a failure here means we failed to do an ls in xenbus so something is really really wrong */
-    device_count = 0;
-    dev_relations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DEVICE_RELATIONS) + sizeof(PDEVICE_OBJECT) * (device_count - 1), XENPCI_POOL_TAG);
-    dev_relations->Count = device_count;
+    //
+    // Fail the IRP
+    //
+    irp->IoStatus.Status = status = STATUS_INSUFFICIENT_RESOURCES;
+    IoCompleteRequest (irp, IO_NO_INCREMENT);
+    return;
   }
 
   irp->IoStatus.Status = status;
+  //
+  // Replace the relations structure in the IRP with the new
+  // one.
+  //
+  if (oldRelations)
+  {
+      ExFreePool (oldRelations);
+  }
   irp->IoStatus.Information = (ULONG_PTR)dev_relations;
 
   IoCompleteRequest (irp, IO_NO_INCREMENT);
