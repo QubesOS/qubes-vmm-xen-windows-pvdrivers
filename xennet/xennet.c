@@ -367,6 +367,7 @@ XenNet_Init(
   }
   xi->event_channel = 0;
   xi->config_csum = 1;
+  xi->config_csum_rx_check = 1;
   xi->config_sg = 1;
   xi->config_gso = 61440;
   xi->config_page = NULL;
@@ -524,6 +525,19 @@ XenNet_Init(
   {
     KdPrint(("ChecksumOffload = %d\n", config_param->ParameterData.IntegerData));
     xi->config_csum = !!config_param->ParameterData.IntegerData;
+  }
+
+  NdisInitUnicodeString(&config_param_name, L"ChecksumOffloadRxCheck");
+  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Could not read ChecksumOffloadRxCheck value (%08x)\n", status));
+    xi->config_csum_rx_check = 1;
+  }
+  else
+  {
+    KdPrint(("ChecksumOffload = %d\n", config_param->ParameterData.IntegerData));
+    xi->config_csum_rx_check = !!config_param->ParameterData.IntegerData;
   }
 
   NdisInitUnicodeString(&config_param_name, L"MTU");

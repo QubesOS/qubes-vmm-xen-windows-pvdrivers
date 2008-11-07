@@ -198,29 +198,6 @@ XenNet_MakePacket(struct xennet_info *xi)
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (%p)\n", packet));
-
-  if (1)
-  {
-    PMDL mdl;
-    PVOID *addr;
-    UINT buffer_length;
-    UINT total_length;
-    UINT calc_length = 0;
-    NdisGetFirstBufferFromPacketSafe(packet, &mdl, &addr, &buffer_length, &total_length, NormalPagePriority);
-    //KdPrint((__DRIVER_NAME "     total_length = %d\n", total_length));
-    while (mdl)
-    {
-      NdisQueryBufferSafe(mdl, &addr, &buffer_length, NormalPagePriority);
-      ASSERT(mdl != NULL);
-      ASSERT(addr != NULL);
-      ASSERT(buffer_length != 0);
-      calc_length += buffer_length;
-      NdisGetNextBuffer(mdl, &mdl);
-    }
-    ASSERT(calc_length == total_length);
-  }
-  // verify buffers
-  // verify that total length == sum of buffer lengths
   
   return packet;
 }
@@ -398,7 +375,7 @@ XenNet_MakePackets(
         if (xi->setting_csum.V4Receive.UdpChecksum && xi->rxpi.ip_proto == 17)
           csum_info->Receive.NdisPacketUdpChecksumSucceeded = TRUE;
       }
-      else
+      else if (!xi->config_csum_rx_check)
       {
         if (xi->setting_csum.V4Receive.TcpChecksum && xi->rxpi.ip_proto == 6)
         {

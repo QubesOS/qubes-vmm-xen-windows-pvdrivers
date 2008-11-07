@@ -280,6 +280,7 @@ struct xennet_info
   /* config vars from registry */
   ULONG config_sg;
   ULONG config_csum;
+  ULONG config_csum_rx_check;
   ULONG config_gso;
   ULONG config_mtu;
 
