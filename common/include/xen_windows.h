@@ -60,19 +60,16 @@ typedef unsigned long xenbus_transaction_t;
 
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
-#define FUNCTION_ENTER()       KdPrint((__DRIVER_NAME " --> %s\n", __FUNCTION__))
-#define FUNCTION_EXIT()        KdPrint((__DRIVER_NAME " <-- %s\n", __FUNCTION__))
-#define FUNCTION_EXIT_STATUS(_status) KdPrint((__DRIVER_NAME " <-- %s, status = %08x\n", __FUNCTION__, _status))
-#define FUNCTION_ERROR_EXIT()  KdPrint((__DRIVER_NAME " <-- %s (error path)\n", __FUNCTION__))
-#define FUNCTION_CALLED()      KdPrint((__DRIVER_NAME " %s called (line %d)\n", __FUNCTION__, __LINE__))
+#define FUNCTION_ENTER()       XenDbgPrint(__DRIVER_NAME " --> %s\n", __FUNCTION__)
+#define FUNCTION_EXIT()        XenDbgPrint(__DRIVER_NAME " <-- %s\n", __FUNCTION__)
+#define FUNCTION_EXIT_STATUS(_status) XenDbgPrint(__DRIVER_NAME " <-- %s, status = %08x\n", __FUNCTION__, _status)
+#define FUNCTION_ERROR_EXIT()  XenDbgPrint(__DRIVER_NAME " <-- %s (error path)\n", __FUNCTION__)
+#define FUNCTION_CALLED()      XenDbgPrint(__DRIVER_NAME " %s called (line %d)\n", __FUNCTION__, __LINE__)
 #ifdef __MINGW32__
 #define FUNCTION_MSG(_x) _FUNCTION_MSG _x
-#define _FUNCTION_MSG(format, args...) KdPrint((__DRIVER_NAME " %s called: " format, __FUNCTION__, ##args))
+#define _FUNCTION_MSG(format, args...) XenDbgPrint(__DRIVER_NAME " %s called: " format, __FUNCTION__, ##args)
 #else
-#define FUNCTION_MSG(_x)     {  \
-    KdPrint((__DRIVER_NAME " %s called: ", __FUNCTION__));          \
-    KdPrint(_x);                \
-  }
+#define FUNCTION_MSG(format, ...)     XenDbgPrint(__DRIVER_NAME "     " format, __VA_ARGS__);
 #endif
 
 static __inline char **
@@ -193,5 +190,43 @@ FreePages(PMDL Mdl)
   ExFreePoolWithTag(Mdl, ALLOCATE_PAGES_POOL_TAG);
   ExFreePoolWithTag(Buf, ALLOCATE_PAGES_POOL_TAG);
 }
+
+//#define XEN_IOPORT_DEBUG_PORT_BASE 0x10
+
+static XenDbgPrint(PCHAR format, ...)
+{
+  CHAR buf[512];
+  va_list ap;
+  ULONG i;
+  BOOLEAN flag;
+  int cpu;
+  KIRQL old_irql = 0;
+  
+  va_start(ap, format);
+  RtlStringCbVPrintfA(buf, ARRAY_SIZE(buf), format, ap);
+  va_end(ap);
+  DbgPrint(buf);
+#ifdef XEN_IOPORT_DEBUG_PORT_BASE
+  flag = (KeGetCurrentIrql() < HIGH_LEVEL);
+  if (flag)
+  {
+    KeRaiseIrql(HIGH_LEVEL, &old_irql);
+  }
+  cpu = KeGetCurrentProcessorNumber() & 0x0F;
+  for (i = 0; i < strlen(buf); i++)
+  {
+    WRITE_PORT_UCHAR((PUCHAR)XEN_IOPORT_DEBUG_PORT_BASE + cpu, buf[i]);
+  }
+  if (flag)
+  {
+    KeLowerIrql(old_irql);
+  }
+#endif
+}
+
+#ifdef KdPrint
+  #undef KdPrint
+#endif
+#define KdPrint(_x_) XenDbgPrint _x_
 
 #endif
