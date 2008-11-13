@@ -197,10 +197,12 @@ static XenDbgPrint(PCHAR format, ...)
 {
   CHAR buf[512];
   va_list ap;
+#ifdef XEN_IOPORT_DEBUG_PORT_BASE
   ULONG i;
   BOOLEAN flag;
   int cpu;
   KIRQL old_irql = 0;
+#endif
   
   va_start(ap, format);
   RtlStringCbVPrintfA(buf, ARRAY_SIZE(buf), format, ap);
