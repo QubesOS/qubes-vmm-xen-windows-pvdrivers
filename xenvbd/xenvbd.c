@@ -146,7 +146,7 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     switch(type)
     {
     case XEN_INIT_TYPE_RING: /* frontend ring */
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
       if (strcmp(setting, "ring-ref") == 0)
       {
         xvdd->sring = (blkif_sring_t *)value;
@@ -158,7 +158,7 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       break;
     case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
     case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel */
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
       if (strcmp(setting, "event-channel") == 0)
       {
         /* cheat here - save the state of the ring in the topmost bits of the event-channel */
@@ -173,7 +173,7 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       break;
     case XEN_INIT_TYPE_READ_STRING_BACK:
     case XEN_INIT_TYPE_READ_STRING_FRONT:
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
       if (strcmp(setting, "sectors") == 0)
         xvdd->total_sectors = atoi(value);
       else if (strcmp(setting, "sector-size") == 0)
@@ -216,7 +216,7 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       }
       break;
     case XEN_INIT_TYPE_VECTORS:
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
       if (((PXENPCI_VECTORS)value)->length != sizeof(XENPCI_VECTORS) ||
         ((PXENPCI_VECTORS)value)->magic != XEN_DATA_MAGIC)
       {
@@ -235,11 +235,11 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       xvdd->grant_free = xvdd->grant_entries;
       break;
     case XEN_INIT_TYPE_STATE_PTR:
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
       xvdd->device_state = (PXENPCI_DEVICE_STATE)value;
       break;
     default:
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
       break;
     }
   }
@@ -448,44 +448,54 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
+typedef struct {
+  PSCSI_REQUEST_BLOCK srb;
+  ULONG offset;
+} mini_shadow_t;
+
 static VOID
 XenVbd_Resume(PVOID DeviceExtension)
 {
   PXENVBD_DEVICE_DATA xvdd = (PXENVBD_DEVICE_DATA)DeviceExtension;
   ULONG i;
-  blkif_shadow_t shadows[MAX_SHADOW_ENTRIES];
-  ULONG shadow_entries;
-  blkif_shadow_t *shadow;  
+  mini_shadow_t shadows[MAX_SHADOW_ENTRIES];
+  ULONG shadow_count;
 
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     found device in resume state\n"));
-  FRONT_RING_INIT(&xvdd->ring, xvdd->sring, PAGE_SIZE);
+  //FRONT_RING_INIT(&xvdd->ring, xvdd->sring, PAGE_SIZE); what was this for???
   // re-submit srb's
   
-  shadow_entries = 0;
+  shadow_count = 0;
   for (i = 0; i < SHADOW_ENTRIES; i++)
   {
-    shadow = &xvdd->shadows[i];
-    if (shadow->srb)
+    if (xvdd->shadows[i].srb)
     {
-      shadows[shadow_entries++] = xvdd->shadows[i];
-      shadow->srb = NULL;
-    }
+      shadows[shadow_count].srb = xvdd->shadows[i].srb;
+      shadows[shadow_count].offset = xvdd->shadows[i].offset;
+      shadow_count++;
+      xvdd->shadows[i].srb = NULL;
+    }      
   }
-
+KdPrint((__DRIVER_NAME "     About to call InitFromConfig\n"));
   XenVbd_InitFromConfig(xvdd);
+KdPrint((__DRIVER_NAME "     Back from InitFromConfig\n"));
   
-  for (i = 0; i < shadow_entries; i++)
+  for (i = 0; i < shadow_count; i++)
   {
-    shadow = &shadows[i];
-    XenVbd_PutSrbOnRing(xvdd, shadow->srb, shadow->offset);
+KdPrint((__DRIVER_NAME "     Putting on Shadow entry\n"));
+    XenVbd_PutSrbOnRing(xvdd, shadows[i].srb, shadows[i].offset);
   }
+KdPrint((__DRIVER_NAME "     Shadows are back on the ring\n"));
   
   xvdd->device_state->resume_state = RESUME_STATE_RUNNING;
+
+KdPrint((__DRIVER_NAME "     resume_state set to RESUME_STATE_RUNNING\n"));
   
   if (i == 0)
   {
     /* no requests, so we might need to tell scsiport that we can accept a new one if we deferred one earlier */
+KdPrint((__DRIVER_NAME "     No shadows - notifying to get things started again\n"));
     ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
   }
   FUNCTION_EXIT();
@@ -969,9 +979,10 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
 
   if (xvdd->device_state->resume_state != RESUME_STATE_RUNNING)
   {
+    KdPrint((__DRIVER_NAME " --> HwScsiStartIo (Resuming)\n"));
     Srb->SrbStatus = SRB_STATUS_BUSY;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
-    //KdPrint((__DRIVER_NAME " --- HwScsiStartIo (Resuming)\n"));
+    KdPrint((__DRIVER_NAME " <-- HwScsiStartIo (Resuming)\n"));
     return TRUE;
   }
 
@@ -1258,13 +1269,18 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
 static BOOLEAN DDKAPI
 XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
 {
+  PXENVBD_DEVICE_DATA xvdd = DeviceExtension;
+
   UNREFERENCED_PARAMETER(DeviceExtension);
   UNREFERENCED_PARAMETER(PathId);
 
   KdPrint((__DRIVER_NAME " --> HwScsiResetBus\n"));
 
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-  ScsiPortNotification(NextRequest, DeviceExtension);
+  if (xvdd->ring_detect_state == 2 && xvdd->device_state->resume_state == RESUME_STATE_RUNNING)
+  {
+    ScsiPortNotification(NextRequest, DeviceExtension);
+  }
 
   KdPrint((__DRIVER_NAME " <-- HwScsiResetBus\n"));
 
