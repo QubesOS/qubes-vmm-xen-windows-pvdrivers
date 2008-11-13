@@ -334,8 +334,6 @@ XenPci_CompleteResume(PDEVICE_OBJECT device_object, PVOID context)
   for (child = (PXEN_CHILD)xpdd->child_list.Flink; child != (PXEN_CHILD)&xpdd->child_list; child = (PXEN_CHILD)child->entry.Flink)
   {
     XenPci_Pdo_Resume(child->context->common.pdo);
-    // how can we signal children that they are ready to restart again?
-    // maybe we can fake an interrupt?
   }
 
   xpdd->suspend_state = SUSPEND_STATE_NONE;
@@ -357,8 +355,6 @@ XenPci_Suspend(
   KIRQL old_irql;
   int cancelled = 0;
   PXEN_CHILD child;
-  LARGE_INTEGER spin_abort_time;
-  LARGE_INTEGER current_time;
   
   //PUCHAR gnttbl_backup[PAGE_SIZE * NR_GRANT_FRAMES];
 
@@ -366,30 +362,17 @@ XenPci_Suspend(
   UNREFERENCED_PARAMETER(SystemArgument2);
 
   FUNCTION_ENTER();
-  FUNCTION_MSG(("(CPU = %d)\n", KeGetCurrentProcessorNumber()));
+  FUNCTION_MSG("(CPU = %d)\n", KeGetCurrentProcessorNumber());
 
   if (KeGetCurrentProcessorNumber() != 0)
   {
     KdPrint((__DRIVER_NAME "     CPU %d spinning...\n", KeGetCurrentProcessorNumber()));
-    KeQuerySystemTime(&spin_abort_time);
-    spin_abort_time.QuadPart += 10 * 1000 * 10000;
     KeRaiseIrql(HIGH_LEVEL, &old_irql);
     InterlockedIncrement(&suspend_info->nr_spinning);
     while(suspend_info->do_spin && !suspend_info->abort_spin)
     {
       KeStallExecutionProcessor(1);
       KeMemoryBarrier();
-      KeQuerySystemTime(&current_time);
-      if (current_time.QuadPart > spin_abort_time.QuadPart)
-      {
-        suspend_info->abort_spin = TRUE;
-        KeMemoryBarrier();
-        InterlockedDecrement(&suspend_info->nr_spinning);
-        KdPrint((__DRIVER_NAME "     CPU %d waited long enough - aborting\n", KeGetCurrentProcessorNumber()));
-KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000000, 0x00000000, 0x00000000);
-        return;
-      }
-      /* can't call HYPERVISOR_yield() here as the stubs will be reset and we will crash */
     }
     if (suspend_info->abort_spin)
     {
@@ -399,16 +382,12 @@ KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000001, 0x00000000, 0
     }
     KeLowerIrql(old_irql);
     InterlockedDecrement(&suspend_info->nr_spinning);
-    KdPrint((__DRIVER_NAME "     CPU %d done spinning\n", KeGetCurrentProcessorNumber()));
     KeSetEvent(&suspend_info->spin_event, IO_NO_INCREMENT, FALSE);
     FUNCTION_EXIT();
     return;
   }
   ActiveProcessorCount = (ULONG)KeNumberProcessors;
 
-  KdPrint((__DRIVER_NAME "     waiting for all other processors to spin\n"));
-  KeQuerySystemTime(&spin_abort_time);
-  spin_abort_time.QuadPart += 10 * 1000 * 10000;
   KeRaiseIrql(HIGH_LEVEL, &old_irql);
   xpdd->suspend_state = SUSPEND_STATE_HIGH_IRQL;
   while (suspend_info->nr_spinning < (LONG)ActiveProcessorCount - 1 && !suspend_info->abort_spin)
@@ -416,16 +395,6 @@ KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000001, 0x00000000, 0
     KeStallExecutionProcessor(1);
     //HYPERVISOR_yield(xpdd);
     KeMemoryBarrier();
-
-    KeQuerySystemTime(&current_time);
-    if (current_time.QuadPart > spin_abort_time.QuadPart)
-    {
-      suspend_info->abort_spin = TRUE;
-      KeMemoryBarrier();
-      KdPrint((__DRIVER_NAME "     CPU %d waited long enough - aborting\n", KeGetCurrentProcessorNumber()));
-KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000002, 0x00000000, 0x00000000);
-      return;
-    }
   }
   if (suspend_info->abort_spin)
   {
@@ -433,8 +402,6 @@ KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000002, 0x00000000, 0
 KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000003, 0x00000000, 0x00000000);
     return;
   }
-  KdPrint((__DRIVER_NAME "     all other processors are spinning\n"));
-  KdPrint((__DRIVER_NAME "     calling suspend\n"));
   cancelled = hvm_shutdown(Context, SHUTDOWN_suspend);
   KdPrint((__DRIVER_NAME "     back from suspend, cancelled = %d\n", cancelled));
   
@@ -454,12 +421,6 @@ KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000003, 0x00000000, 0
   suspend_info->do_spin = FALSE;
   KeMemoryBarrier();  
   KeSetEvent(&suspend_info->resume_event, IO_NO_INCREMENT, FALSE);
-
-/*
-	work_item = IoAllocateWorkItem(xpdd->common.fdo);
-  KdPrint((__DRIVER_NAME "     work_item = %x\n", work_item));
-	IoQueueWorkItem(work_item, XenPci_CompleteResume, DelayedWorkQueue, suspend_info);
-*/  
   FUNCTION_EXIT();
 }
 
@@ -515,7 +476,10 @@ XenPci_BeginSuspend(PDEVICE_OBJECT device_object, PVOID context)
     KdPrint((__DRIVER_NAME "     All Dpc's queued\n"));
     KeMemoryBarrier();
     KeLowerIrql(OldIrql);
+    KdPrint((__DRIVER_NAME "     Waiting for resume_event\n"));
     KeWaitForSingleObject(&suspend_info->resume_event, Executive, KernelMode, FALSE, NULL);
+    KdPrint((__DRIVER_NAME "     Got resume_event\n"));
+    //xpdd->log_interrupts = TRUE;
     XenPci_CompleteResume(device_object, suspend_info);
   }
   FUNCTION_EXIT();
@@ -627,16 +591,31 @@ XenPci_SysrqHandler(char *path, PVOID context)
   {
   case 0:
     break;
-  case 'B':
+  case 'B': /* cause a bug check */
     KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000001, 0x00000000, 0x00000000, 0x00000000);
     break;
-#if 0
-  case 'X':
-    break;
-#endif
+  case 'X': /* stop delivering events */
+  	xpdd->interrupts_masked = TRUE;
+    break;    
   case 'C':
     /* show some debugging info */
   	XenPci_DumpPdoConfigs(xpdd);
+    break;
+  case 'M':
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'H');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'e');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'l');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'l');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'o');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, ' ');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'w');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'o');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'r');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'l');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'd');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, ' ');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'X');
+    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, '\n');
     break;
   default:
     KdPrint(("     Unhandled sysrq letter %c\n", letter));
@@ -655,7 +634,7 @@ XenPci_DeviceWatchHandler(char *path, PVOID context)
   char *value;
   PXENPCI_DEVICE_DATA xpdd = context;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
 //  KdPrint((__DRIVER_NAME "     path = %s\n", path));
   bits = SplitString(path, '/', 4, &count);
@@ -679,7 +658,7 @@ XenPci_DeviceWatchHandler(char *path, PVOID context)
   }
   FreeSplitString(bits, count);
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static DDKAPI VOID
@@ -690,7 +669,7 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
   PIRP irp = context;
   char *response;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   
   XenPci_Init(xpdd);
 
@@ -702,17 +681,17 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
   XenBus_Init(xpdd);
 
   response = XenBus_AddWatch(xpdd, XBT_NIL, SYSRQ_PATH, XenPci_SysrqHandler, xpdd);
-  KdPrint((__DRIVER_NAME "     sysrqwatch response = '%s'\n", response)); 
+  KdPrint((__DRIVER_NAME "     sysrqwatch response = '%s'\n", response));
   
   response = XenBus_AddWatch(xpdd, XBT_NIL, SHUTDOWN_PATH, XenPci_ShutdownHandler, xpdd);
-  KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response)); 
+  KdPrint((__DRIVER_NAME "     shutdown watch response = '%s'\n", response));
 
   response = XenBus_AddWatch(xpdd, XBT_NIL, "device", XenPci_DeviceWatchHandler, xpdd);
-  KdPrint((__DRIVER_NAME "     device watch response = '%s'\n", response)); 
+  KdPrint((__DRIVER_NAME "     device watch response = '%s'\n", response));
 
 #if 0
   response = XenBus_AddWatch(xpdd, XBT_NIL, BALLOON_PATH, XenPci_BalloonHandler, Device);
-  KdPrint((__DRIVER_NAME "     balloon watch response = '%s'\n", response)); 
+  KdPrint((__DRIVER_NAME "     balloon watch response = '%s'\n", response));
 #endif
 
   status = IoSetDeviceInterfaceState(&xpdd->interface_name, TRUE);
@@ -725,7 +704,7 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
   
   IoCompleteRequest(irp, IO_NO_INCREMENT);
 
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 static NTSTATUS
@@ -758,7 +737,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     case CmResourceTypeInterrupt:
       KdPrint((__DRIVER_NAME "     irq_number = %03x\n", res_descriptor->u.Interrupt.Vector));
       xpdd->irq_number = res_descriptor->u.Interrupt.Vector;
-      //memcpy(&InterruptRaw, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+      //memcpy(&InterruptRaw, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR);
       break;
     }
   }
@@ -770,6 +749,9 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     res_descriptor = &res_list->PartialDescriptors[i];
     switch (res_descriptor->Type) {
     case CmResourceTypePort:
+      KdPrint((__DRIVER_NAME "     IoPort Address(%x) Length: %d\n", res_descriptor->u.Port.Start.LowPart, res_descriptor->u.Port.Length));
+      xpdd->platform_ioport_addr = res_descriptor->u.Port.Start.LowPart;
+      xpdd->platform_ioport_len = res_descriptor->u.Port.Length;
       break;
     case CmResourceTypeMemory:
       KdPrint((__DRIVER_NAME "     Memory mapped CSR:(%x:%x) Length:(%d)\n", res_descriptor->u.Memory.Start.LowPart, res_descriptor->u.Memory.Start.HighPart, res_descriptor->u.Memory.Length));
@@ -790,7 +772,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
       //memcpy(&InterruptTranslated, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
       break;
     case CmResourceTypeDevicePrivate:
-      KdPrint((__DRIVER_NAME "     Private Data: 0x%02x 0x%02x 0x%02x\n", res_descriptor->u.DevicePrivate.Data[0], res_descriptor->u.DevicePrivate.Data[1], res_descriptor->u.DevicePrivate.Data[2] ));
+      KdPrint((__DRIVER_NAME "     Private Data: 0x%02x 0x%02x 0x%02x\n", res_descriptor->u.DevicePrivate.Data[0], res_descriptor->u.DevicePrivate.Data[1], res_descriptor->u.DevicePrivate.Data[2]));
       break;
     default:
       KdPrint((__DRIVER_NAME "     Unhandled resource type (0x%x)\n", res_descriptor->Type));
@@ -1030,7 +1012,7 @@ XenPci_Pnp_QueryBusRelationsCallback(PDEVICE_OBJECT device_object, PVOID context
     {
       if (child->state == CHILD_STATE_DELETED)
       {
-        KdPrint((__DRIVER_NAME "     Removing deleted child from device list\n" ));
+        KdPrint((__DRIVER_NAME "     Removing deleted child from device list\n"));
         old_child = child;
         child = (PXEN_CHILD)child->entry.Flink;
         RemoveEntryList((PLIST_ENTRY)old_child);
@@ -1097,6 +1079,7 @@ static DDKAPI VOID
 XenPci_Pnp_FilterResourceRequirementsCallback(PDEVICE_OBJECT device_object, PVOID context)
 {
   NTSTATUS status = STATUS_SUCCESS;
+  //PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   PIRP irp = context;
   PIO_RESOURCE_REQUIREMENTS_LIST irrl;
   PIO_RESOURCE_LIST irl;
@@ -1109,14 +1092,16 @@ XenPci_Pnp_FilterResourceRequirementsCallback(PDEVICE_OBJECT device_object, PVOI
 
   /* this assumes that AlternativeLists == 1 */
   irrl = (PIO_RESOURCE_REQUIREMENTS_LIST)irp->IoStatus.Information;
+  KdPrint(("AlternativeLists = %d\n", irrl->AlternativeLists));
   irl = &irrl->List[0];
   for (i = 0; i < irl->Count; i++)
   {
     ird = &irl->Descriptors[i];
-    if (ird->Type == CmResourceTypeInterrupt && ird->ShareDisposition != CmResourceShareShared)
+    if (ird->Type == CmResourceTypeInterrupt)
     {
-      //ird->ShareDisposition = CmResourceShareShared;
-      //KdPrint((__DRIVER_NAME "     Set interrupt to shared\n"));
+      /* IRQ's < 16 (eg ISA interrupts) don't work reliably, so don't allow them. */
+      KdPrint(("MinimumVector = %d, MaximumVector = %d\n", ird->u.Interrupt.MinimumVector, ird->u.Interrupt.MaximumVector));
+      ird->u.Interrupt.MinimumVector = 16;
     }
   }
   irp->IoStatus.Status = status;
@@ -1209,11 +1194,9 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
   PIO_STACK_LOCATION stack;
-  PXENPCI_DEVICE_DATA xpdd;
+  PXENPCI_DEVICE_DATA xpdd = device_object->DeviceExtension;;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
 
   stack = IoGetCurrentIrpStackLocation(irp);
 
@@ -1297,7 +1280,7 @@ XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
       irp->IoStatus.Status = STATUS_SUCCESS;
       break;
     default:
-      KdPrint((__DRIVER_NAME "     type = unsupported (%d)\n", stack->Parameters.UsageNotification.Type));      
+      KdPrint((__DRIVER_NAME "     type = unsupported (%d)\n", stack->Parameters.UsageNotification.Type));
       irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
       IoCompleteRequest(irp, IO_NO_INCREMENT);
       return STATUS_NOT_SUPPORTED;
@@ -1460,7 +1443,7 @@ XenPci_SystemControl_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   UNREFERENCED_PARAMETER(device_object);
 
   stack = IoGetCurrentIrpStackLocation(irp);
-  KdPrint((__DRIVER_NAME "     Minor = %d\n", stack->MinorFunction));
+  DbgPrint(__DRIVER_NAME "     Minor = %d\n", stack->MinorFunction);
   IoSkipCurrentIrpStackLocation(irp);
   status = IoCallDriver(common->lower_do, irp);
 

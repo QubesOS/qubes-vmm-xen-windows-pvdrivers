@@ -189,6 +189,9 @@ typedef struct {
   ULONG platform_mmio_len;
   ULONG platform_mmio_alloc;
   USHORT platform_mmio_flags;
+  
+  ULONG platform_ioport_addr;
+  ULONG platform_ioport_len;
 
   char *hypercall_stubs;
 
@@ -242,6 +245,8 @@ typedef struct {
   ULONG shutdown_cons;
   ULONG shutdown_start; /* the start of the most recent message on the ring */
   PIRP shutdown_irp;
+  
+  BOOLEAN log_interrupts;
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
 typedef struct {  

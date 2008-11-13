@@ -222,6 +222,7 @@ struct dummy_sring {
 Called at PASSIVE_LEVEL
 Called during restore
 */
+
 static NTSTATUS
 XenPci_ChangeFrontendState(PXENPCI_PDO_DEVICE_DATA xppdd, ULONG frontend_state_set, ULONG backend_state_response, ULONG maximum_wait_ms)
 {
@@ -233,8 +234,6 @@ XenPci_ChangeFrontendState(PXENPCI_PDO_DEVICE_DATA xppdd, ULONG frontend_state_s
   
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  /* Tell backend we're going down */
-  //strcpy(path, xppdd->path);
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
   XenBus_Printf(xpdd, XBT_NIL, path, "%d", frontend_state_set);
 
@@ -472,7 +471,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   PUCHAR out_ptr; //, out_start;
   XENPCI_VECTORS vectors;
   ULONG event_channel;
-  BOOLEAN run = FALSE;
+  ULONG run_type = 0;
   PMDL ring;
   grant_ref_t gref;
   BOOLEAN done_xenbus_init = FALSE;
@@ -521,7 +520,8 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
     switch (type)
     {
     case XEN_INIT_TYPE_RUN:
-      run = TRUE;
+      run_type++;
+      break;
     case XEN_INIT_TYPE_WRITE_STRING: /* frontend setting = value */
       //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_WRITE_STRING - %s = %s\n", setting, value));
       RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
@@ -583,9 +583,10 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   {
     goto error;
   }
-  if (run)
+  // If XEN_INIT_TYPE_RUN was specified more than once then we skip XenbusStateInitialised here and go straight to XenbusStateConnected at the end
+  if (run_type == 1)
   {
-    if (XenPci_ChangeFrontendState(xppdd, XenbusStateConnected, XenbusStateConnected, 30000) != STATUS_SUCCESS)
+    if (XenPci_ChangeFrontendState(xppdd, XenbusStateInitialised, XenbusStateConnected, 30000) != STATUS_SUCCESS)
     {
       status = STATUS_UNSUCCESSFUL;
       goto error;
@@ -637,8 +638,20 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
     }
   }
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_END, NULL, NULL);
+
+  if (run_type)
+  {
+    if (XenPci_ChangeFrontendState(xppdd, XenbusStateConnected, XenbusStateConnected, 30000) != STATUS_SUCCESS)
+    {
+      status = STATUS_UNSUCCESSFUL;
+      goto error;
+    }
+  }
+  FUNCTION_EXIT();
+  return status;
   
 error:
+  XenPci_ChangeFrontendState(xppdd, XenbusStateInitialising, XenbusStateInitWait, 30000);
   FUNCTION_EXIT_STATUS(status);
 
   return status;

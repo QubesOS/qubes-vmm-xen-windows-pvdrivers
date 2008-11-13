@@ -93,14 +93,11 @@ to CPU != 0, but we should always use vcpu_info[0]
   BOOLEAN deferred = FALSE;
   int i;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", KeGetCurrentProcessorNumber()));
-
-  if (xpdd->interrupts_masked)
+  if (xpdd->log_interrupts)
   {
-    KdPrint((__DRIVER_NAME "     unhandled interrupt\n"));
-    return TRUE;
+    KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", KeGetCurrentProcessorNumber()));
   }
-    
+
   UNREFERENCED_PARAMETER(Interrupt);
 
   for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt); i++)
@@ -116,6 +113,12 @@ to CPU != 0, but we should always use vcpu_info[0]
 
   vcpu_info->evtchn_upcall_pending = 0;
 
+  if (xpdd->interrupts_masked)
+  {
+    KdPrint((__DRIVER_NAME "     unhandled interrupt\n"));
+    return TRUE;
+  }
+  
   evt_words = (xen_ulong_t)xchg((volatile xen_long_t *)&vcpu_info->evtchn_pending_sel, 0);
 
   while (bit_scan_forward(&evt_word, evt_words))
@@ -160,8 +163,10 @@ to CPU != 0, but we should always use vcpu_info[0]
     }
   }
 
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
+  if (xpdd->log_interrupts)
+  {
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  }
   return handled && !deferred;
 }
 
