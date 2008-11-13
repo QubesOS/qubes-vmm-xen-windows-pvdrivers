@@ -371,6 +371,7 @@ XenNet_Init(
   xi->config_sg = 1;
   xi->config_gso = 61440;
   xi->config_page = NULL;
+  xi->config_rx_interrupt_moderation = 0;
   
   for (i = 0; i < nrl->Count; i++)
   {
@@ -553,6 +554,20 @@ XenNet_Init(
     xi->config_mtu = config_param->ParameterData.IntegerData;
   }
 
+  NdisInitUnicodeString(&config_param_name, L"RxInterruptModeration");
+  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);  
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Could not read RxInterruptModeration value (%08x)\n", status));
+    xi->config_rx_interrupt_moderation = 1500;
+  }
+  else
+  {
+    KdPrint(("RxInterruptModeration = %d\n", config_param->ParameterData.IntegerData));
+    xi->config_rx_interrupt_moderation = config_param->ParameterData.IntegerData;
+  }
+  
+
   NdisReadNetworkAddress(&status, &network_address, &network_address_length, config_handle);
   if (!NT_SUCCESS(status) || network_address_length != ETH_ALEN || !(((PUCHAR)network_address)[0] & 0x02))
   {
@@ -572,6 +587,8 @@ XenNet_Init(
   NdisCloseConfiguration(config_handle);
 
   ptr = xi->config_page;
+  // two XEN_INIT_TYPE_RUNs means go straight to XenbusStateConnected - skip XenbusStateInitialised
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "tx-ring-ref", NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL);
@@ -588,10 +605,20 @@ XenNet_Init(
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
   
   status = xi->vectors.XenPci_XenConfigDevice(xi->vectors.context);
-  // check return value
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Failed to complete device configuration\n", status));
+    goto err;
+  }
 
   status = XenNet_ConnectBackend(xi);
   
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Failed to complete device configuration\n", status));
+    goto err;
+  }
+
   XenNet_TxInit(xi);
   XenNet_RxInit(xi);
 

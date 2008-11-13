@@ -483,7 +483,8 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   struct netif_rx_response *rxrsp = NULL;
   struct netif_extra_info *ei;
   USHORT id;
-  int more_to_do;
+  int more_to_do = FALSE;
+  int page_count = 0;
   
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
@@ -593,9 +594,23 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       {
         packet_count += XenNet_MakePackets(xi, &rx_packet_list);
       }
+      if (!more_to_do) {
+        page_count++; /* only interested in the number of pages available after the first time around */
+      }
     }
     xi->rx.rsp_cons = cons;
-    RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, more_to_do);
+    
+    more_to_do = RING_HAS_UNCONSUMED_RESPONSES(&xi->rx);
+    if (!more_to_do)
+    {
+      if (xi->config_rx_interrupt_moderation)
+        xi->rx.sring->rsp_event = xi->rx.rsp_cons + min(max(1, page_count >> 1), 64);
+      else
+        xi->rx.sring->rsp_event = xi->rx.rsp_cons + 1;
+      mb();
+      more_to_do = RING_HAS_UNCONSUMED_RESPONSES(&xi->rx);
+    }
+    //RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, more_to_do);
   } while (more_to_do);
 
   if (xi->rxpi.more_frags || xi->rxpi.extra_info)
@@ -606,6 +621,18 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 
+  if (xi->config_rx_interrupt_moderation)
+  {
+    if (page_count >> 1)
+    {
+      NdisMSetTimer(&xi->rx_timer, 1);
+    }
+    else
+    {
+      BOOLEAN cancelled;
+      NdisMCancelTimer(&xi->rx_timer, &cancelled);
+    }
+  }
   entry = RemoveHeadList(&rx_packet_list);
   packet_count = 0;
   while (entry != &rx_packet_list)
@@ -716,6 +743,27 @@ XenNet_RxResumeEnd(xennet_info_t *xi)
   KeReleaseSpinLock(&xi->rx_lock, old_irql);
 }
 
+/* Called at DISPATCH LEVEL */
+static VOID DDKAPI
+XenNet_RxTimer(
+  PVOID SystemSpecific1,
+  PVOID FunctionContext,
+  PVOID SystemSpecific2,
+  PVOID SystemSpecific3
+)
+{
+  struct xennet_info *xi = FunctionContext;
+
+  UNREFERENCED_PARAMETER(SystemSpecific1);
+  UNREFERENCED_PARAMETER(SystemSpecific2);
+  UNREFERENCED_PARAMETER(SystemSpecific3);
+
+  if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
+  {
+    XenNet_RxBufferCheck(xi);
+  }  
+}
+
 BOOLEAN
 XenNet_RxInit(xennet_info_t *xi)
 {
@@ -724,6 +772,7 @@ XenNet_RxInit(xennet_info_t *xi)
   FUNCTION_ENTER();
 
   KeInitializeEvent(&xi->packet_returned_event, SynchronizationEvent, FALSE);
+  NdisMInitializeTimer(&xi->rx_timer, xi->adapter_handle, XenNet_RxTimer, xi);
 
   xi->rx_shutting_down = FALSE;
   
@@ -754,7 +803,13 @@ XenNet_RxShutdown(xennet_info_t *xi)
   KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
   xi->rx_shutting_down = TRUE;
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
-  
+
+  if (xi->config_rx_interrupt_moderation)
+  {
+    BOOLEAN cancelled;
+    NdisMCancelTimer(&xi->rx_timer, &cancelled);
+  }
+
   while (xi->rx_outstanding)
   {
     KdPrint((__DRIVER_NAME "     Waiting for all packets to be returned\n"));

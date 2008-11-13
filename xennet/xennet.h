@@ -268,6 +268,7 @@ struct xennet_info
   ULONG rx_packet_free;
   BOOLEAN rx_shutting_down;
   KEVENT packet_returned_event;
+  NDIS_MINIPORT_TIMER rx_timer;
 
   /* Receive-ring batched refills. */
   ULONG rx_target;
@@ -283,14 +284,13 @@ struct xennet_info
   ULONG config_csum_rx_check;
   ULONG config_gso;
   ULONG config_mtu;
+  ULONG config_rx_interrupt_moderation;
 
   NDIS_TASK_TCP_IP_CHECKSUM setting_csum;
   ULONG setting_max_offload;
 
   /* config stuff calculated from the above */
   ULONG config_max_pkt_size;
-
-  //NDIS_MINIPORT_TIMER resume_timer;
 
   /* stats */
   ULONG64 stat_tx_ok;

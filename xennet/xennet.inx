@@ -67,6 +67,12 @@ HKR, Ndi\Params\ScatterGather, type, , "enum"
 HKR, Ndi\Params\ScatterGather\enum, 0, , "Disabled"
 HKR, Ndi\Params\ScatterGather\enum, 1, , "Enabled"
 
+HKR, Ndi\Params\RxInterruptModeration, ParamDesc, , "Rx Interrupt Moderation (beta)"
+HKR, Ndi\Params\RxInterruptModeration, default, , "0"
+HKR, Ndi\Params\RxInterruptModeration, type, , "enum"
+HKR, Ndi\Params\RxInterruptModeration\enum, 0, , "Disabled"
+HKR, Ndi\Params\RxInterruptModeration\enum, 1, , "Enabled"
+
 HKR, Ndi\Params\NetworkAddress, ParamDesc, , "Locally Administered Address"
 HKR, Ndi\Params\NetworkAddress, Type, , "edit"
 HKR, Ndi\Params\NetworkAddress, LimitText, , "12"
