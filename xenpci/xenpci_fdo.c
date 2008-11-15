@@ -601,22 +601,6 @@ XenPci_SysrqHandler(char *path, PVOID context)
     /* show some debugging info */
   	XenPci_DumpPdoConfigs(xpdd);
     break;
-  case 'M':
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'H');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'e');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'l');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'l');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'o');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, ' ');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'w');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'o');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'r');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'l');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'd');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, ' ');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, 'X');
-    WRITE_PORT_UCHAR((PUCHAR)xpdd->platform_ioport_addr, '\n');
-    break;
   default:
     KdPrint(("     Unhandled sysrq letter %c\n", letter));
     break;
