@@ -35,8 +35,8 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
 
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
 
-  if (batch_target < (xi->rx_target >> 2))
-    return NDIS_STATUS_SUCCESS; /* only refill if we are less than 3/4 full already */
+  //if (batch_target < (xi->rx_target >> 2))
+  //  return NDIS_STATUS_SUCCESS; /* only refill if we are less than 3/4 full already */
 
   for (i = 0; i < batch_target; i++)
   {
@@ -62,7 +62,7 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
     ASSERT(req->gref != INVALID_GRANT_REF);
     req->id = id;
   }
-
+  KeMemoryBarrier();
   xi->rx.req_prod_pvt = req_prod + i;
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->rx, notify);
   if (notify)
@@ -87,7 +87,10 @@ get_packet_from_freelist(struct xennet_info *xi)
   {
     NdisAllocatePacket(&status, &packet, xi->packet_pool);
     if (status != NDIS_STATUS_SUCCESS)
+    {
+      KdPrint((__DRIVER_NAME "     cannot allocate packet\n"));
       return NULL;
+    }
     NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
   }
   else
@@ -110,10 +113,6 @@ put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
     NdisFreePacket(packet);
     return;
   }
-/*
-  NdisReinitializePacket(packet);
-  RtlZeroMemory(NDIS_PACKET_EXTENSION_FROM_PACKET(packet), sizeof(NDIS_PACKET_EXTENSION));
-*/
   csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
     packet, TcpIpChecksumPacketInfo);
   csum_info->Value = 0;
@@ -142,7 +141,6 @@ XenNet_MakePacket(struct xennet_info *xi)
   USHORT out_remaining;
   USHORT length;
   USHORT new_ip4_length;
-  //NDIS_STATUS status;
   USHORT i;
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
@@ -158,8 +156,6 @@ XenNet_MakePacket(struct xennet_info *xi)
     xi->rx_outstanding++;
     for (i = 0; i < xi->rxpi.mdl_count; i++)
       NdisChainBufferAtBack(packet, xi->rxpi.mdls[i]);
-
-    //NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo) = UlongToPtr(xi->rxpi.mss);
 
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
@@ -469,11 +465,56 @@ done:
 }
 
 #define MAXIMUM_PACKETS_PER_INDICATE 256
+#define MAX_PACKETS_PER_INTERRUPT 64
+
+int log_flag = 0;
+
+typedef struct {
+  struct xennet_info *xi;
+  BOOLEAN is_timer;
+} sync_context_t;
+
+static BOOLEAN
+XenNet_RxQueueDpcSynchronized(PVOID context)
+{
+  sync_context_t *sc = context;
+  BOOLEAN result;
+  
+  if (!sc->is_timer && sc->xi->config_rx_interrupt_moderation)
+  {
+    /* if an is_timer dpc is queued it will muck things up for us, so make sure we requeue a !is_timer dpc */
+    KeRemoveQueueDpc(&sc->xi->rx_dpc);
+  }
+  sc->xi->last_dpc_isr = FALSE;
+  KeQuerySystemTime(&sc->xi->last_dpc_scheduled);
+  result = KeInsertQueueDpc(&sc->xi->rx_dpc, UlongToPtr(sc->is_timer), NULL);
+  
+  return TRUE;
+}
+
+static VOID
+XenNet_RxTimerDpc(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
+{
+  struct xennet_info *xi = context;
+  sync_context_t sc;
+
+  UNREFERENCED_PARAMETER(dpc);
+  UNREFERENCED_PARAMETER(arg1);
+  UNREFERENCED_PARAMETER(arg2);
+  
+  sc.xi = xi;
+  sc.is_timer = TRUE;
+#pragma warning(suppress:4054) /* no way around this... */
+  NdisMSynchronizeWithInterrupt(&xi->interrupt, (PVOID)XenNet_RxQueueDpcSynchronized, &sc);
+}
 
 // Called at DISPATCH_LEVEL
-NDIS_STATUS
-XenNet_RxBufferCheck(struct xennet_info *xi)
+//NDIS_STATUS
+//XenNet_RxBufferCheck(struct xennet_info *xi, BOOLEAN is_timer)
+static VOID
+XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 {
+  struct xennet_info *xi = context;
   RING_IDX cons, prod;
   LIST_ENTRY rx_packet_list;
   PLIST_ENTRY entry;
@@ -485,8 +526,24 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   USHORT id;
   int more_to_do = FALSE;
   int page_count = 0;
+  ULONG event = 1;
+  BOOLEAN is_timer = (BOOLEAN)PtrToUlong(arg1);
+  BOOLEAN set_timer = FALSE;
+  LARGE_INTEGER current_time;
+  ULONG delta;
+
+  UNREFERENCED_PARAMETER(dpc);
+  UNREFERENCED_PARAMETER(arg1);
+  UNREFERENCED_PARAMETER(arg2);
+
+  KeQuerySystemTime(&current_time);
   
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  delta = (ULONG)((current_time.QuadPart - xi->last_dpc_scheduled.QuadPart) / 10);
+  if (delta > 1000000) /* 1 second */
+    KdPrint((__DRIVER_NAME "     Excessive Dpc Latency %d from %s\n", delta, xi->last_dpc_isr?"Isr":"Dpc"));
+  if (is_timer) 
+    KdPrint((__DRIVER_NAME "     RX Timer\n"));
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   ASSERT(xi->connected);
 
@@ -494,11 +551,14 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   InitializeListHead(&rx_packet_list);
 
+  if (xi->config_rx_interrupt_moderation)
+    KeCancelTimer(&xi->rx_timer);
+
   do {
     prod = xi->rx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'prod'. */
 
-    for (cons = xi->rx.rsp_cons; cons != prod; cons++)
+    for (cons = xi->rx.rsp_cons; cons != prod && packet_count < MAX_PACKETS_PER_INTERRUPT; cons++)
     {
       id = (USHORT)(cons & (NET_RX_RING_SIZE - 1));
       ASSERT(xi->rx_mdls[id]);
@@ -599,18 +659,28 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       }
     }
     xi->rx.rsp_cons = cons;
-    
+
+    if (!more_to_do)
+    {
+      /* if we were called on the timer then turn off moderation */
+      if (is_timer)
+        xi->avg_page_count = 0;
+      else if (page_count != 0) /* if page_count == 0 then the interrupt wasn't really for us so it's not fair for it to affect the averages... */
+        xi->avg_page_count = (xi->avg_page_count * 7 + page_count * 128) / 8;
+    }
+    if (packet_count >= MAX_PACKETS_PER_INTERRUPT)
+      break;
     more_to_do = RING_HAS_UNCONSUMED_RESPONSES(&xi->rx);
     if (!more_to_do)
     {
       if (xi->config_rx_interrupt_moderation)
-        xi->rx.sring->rsp_event = xi->rx.rsp_cons + min(max(1, page_count >> 1), 64);
+        event = min(max(1, xi->avg_page_count * 3 / 4 / 128), 128);
       else
-        xi->rx.sring->rsp_event = xi->rx.rsp_cons + 1;
+        event = 1;
+      xi->rx.sring->rsp_event = xi->rx.rsp_cons + event;
       mb();
       more_to_do = RING_HAS_UNCONSUMED_RESPONSES(&xi->rx);
     }
-    //RING_FINAL_CHECK_FOR_RESPONSES(&xi->rx, more_to_do);
   } while (more_to_do);
 
   if (xi->rxpi.more_frags || xi->rxpi.extra_info)
@@ -619,20 +689,26 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   /* Give netback more buffers */
   XenNet_RxBufferAlloc(xi);
 
-  KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
+  //KdPrint((__DRIVER_NAME "     packet_count = %d, page_count = %d, avg_page_count = %d, event = %d\n", packet_count, page_count, xi->avg_page_count / 128, event));
 
-  if (xi->config_rx_interrupt_moderation)
+  if (packet_count >= MAX_PACKETS_PER_INTERRUPT)
   {
-    if (page_count >> 1)
+    /* fire again immediately */
+    sync_context_t sc;
+    sc.xi = xi;
+    sc.is_timer = FALSE;
+#pragma warning(suppress:4054) /* no way around this... */
+    NdisMSynchronizeWithInterrupt(&xi->interrupt, (PVOID)XenNet_RxQueueDpcSynchronized, &sc);
+  }
+  else if (xi->config_rx_interrupt_moderation)
+  {
+    if (event > 1)
     {
-      NdisMSetTimer(&xi->rx_timer, 1);
-    }
-    else
-    {
-      BOOLEAN cancelled;
-      NdisMCancelTimer(&xi->rx_timer, &cancelled);
+      set_timer = TRUE;
     }
   }
+  KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
+
   entry = RemoveHeadList(&rx_packet_list);
   packet_count = 0;
   while (entry != &rx_packet_list)
@@ -651,7 +727,14 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
       packet_count = 0;
     }
   }
-  return NDIS_STATUS_SUCCESS;
+  /* set the timer after we have indicated the packets, as indicating can take a significant amount of time */
+  if (set_timer)
+  {
+    LARGE_INTEGER due_time;
+    due_time.QuadPart = -30 * 1000 * 10; /* 30ms */
+    KeSetTimer(&xi->rx_timer, due_time, &xi->rx_timer_dpc);
+  }
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 /* called at DISPATCH_LEVEL */
@@ -681,7 +764,7 @@ XenNet_ReturnPacket(
     KeSetEvent(&xi->packet_returned_event, IO_NO_INCREMENT, FALSE);
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
-  
+
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
@@ -743,6 +826,7 @@ XenNet_RxResumeEnd(xennet_info_t *xi)
   KeReleaseSpinLock(&xi->rx_lock, old_irql);
 }
 
+#if 0
 /* Called at DISPATCH LEVEL */
 static VOID DDKAPI
 XenNet_RxTimer(
@@ -760,9 +844,11 @@ XenNet_RxTimer(
 
   if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
   {
-    XenNet_RxBufferCheck(xi);
-  }  
+    KdPrint((__DRIVER_NAME "     RX Timer\n"));
+    XenNet_RxBufferCheck(xi, TRUE);
+  }
 }
+#endif
 
 BOOLEAN
 XenNet_RxInit(xennet_info_t *xi)
@@ -772,7 +858,13 @@ XenNet_RxInit(xennet_info_t *xi)
   FUNCTION_ENTER();
 
   KeInitializeEvent(&xi->packet_returned_event, SynchronizationEvent, FALSE);
-  NdisMInitializeTimer(&xi->rx_timer, xi->adapter_handle, XenNet_RxTimer, xi);
+  KeInitializeTimer(&xi->rx_timer);
+  KeInitializeDpc(&xi->rx_dpc, XenNet_RxBufferCheck, xi);
+  KeSetTargetProcessorDpc(&xi->rx_dpc, 0);
+  //KeSetImportanceDpc(&xi->rx_dpc, HighImportance);
+  KeInitializeDpc(&xi->rx_timer_dpc, XenNet_RxTimerDpc, xi);
+  //NdisMInitializeTimer(&xi->rx_timer, xi->adapter_handle, XenNet_RxTimer, xi);
+  xi->avg_page_count = 0;
 
   xi->rx_shutting_down = FALSE;
   
@@ -806,8 +898,7 @@ XenNet_RxShutdown(xennet_info_t *xi)
 
   if (xi->config_rx_interrupt_moderation)
   {
-    BOOLEAN cancelled;
-    NdisMCancelTimer(&xi->rx_timer, &cancelled);
+    KeCancelTimer(&xi->rx_timer);
   }
 
   while (xi->rx_outstanding)

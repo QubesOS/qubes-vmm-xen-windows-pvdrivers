@@ -208,6 +208,8 @@ typedef struct
   ULONG page_free;
   ULONG page_free_lowest;
   ULONG page_free_target;
+  ULONG page_limit;
+  ULONG page_outstanding;
   NDIS_MINIPORT_TIMER timer;
   PKSPIN_LOCK lock;
   BOOLEAN grants_resumed;
@@ -256,6 +258,7 @@ struct xennet_info
   //PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
   PNDIS_BUFFER tx_mdls[NET_TX_RING_SIZE];
   freelist_t tx_freelist;
+  KDPC tx_dpc;
 
   /* rx_related - protected by rx_lock */
   KSPIN_LOCK rx_lock;
@@ -268,7 +271,11 @@ struct xennet_info
   ULONG rx_packet_free;
   BOOLEAN rx_shutting_down;
   KEVENT packet_returned_event;
-  NDIS_MINIPORT_TIMER rx_timer;
+  //NDIS_MINIPORT_TIMER rx_timer;
+  ULONG avg_page_count;
+  KDPC rx_dpc;
+  KTIMER rx_timer;
+  KDPC rx_timer_dpc;
 
   /* Receive-ring batched refills. */
   ULONG rx_target;
@@ -298,11 +305,16 @@ struct xennet_info
   ULONG64 stat_tx_error;
   ULONG64 stat_rx_error;
   ULONG64 stat_rx_no_buffer;
+  
+  BOOLEAN last_dpc_isr;
+  LARGE_INTEGER last_dpc_scheduled;
 } typedef xennet_info_t;
 
 
-NDIS_STATUS
-XenNet_RxBufferCheck(struct xennet_info *xi);
+//NDIS_STATUS
+//XenNet_RxBufferCheck(struct xennet_info *xi, BOOLEAN is_timer);
+//VOID
+//XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2);
 
 VOID DDKAPI
 XenNet_ReturnPacket(
@@ -322,8 +334,10 @@ XenNet_RxResumeStart(xennet_info_t *xi);
 VOID
 XenNet_RxResumeEnd(xennet_info_t *xi);
 
-NDIS_STATUS
-XenNet_TxBufferGC(struct xennet_info *xi);
+//NDIS_STATUS
+//XenNet_TxBufferGC(struct xennet_info *xi);
+VOID
+XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2);
 
 VOID
 XenNet_TxResumeStart(xennet_info_t *xi);

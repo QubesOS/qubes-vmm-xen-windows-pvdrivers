@@ -128,16 +128,24 @@ XenNet_InterruptIsr(
   struct xennet_info *xi = MiniportAdapterContext;
   
   //FUNCTION_ENTER();
+  *InterruptRecognized = FALSE;
+  *QueueMiniportHandleInterrupt = FALSE;
   if (!xi->vectors.EvtChn_AckEvent(xi->vectors.context, xi->event_channel))
   {
     /* interrupt was not for us */
-    *InterruptRecognized = FALSE;
-    *QueueMiniportHandleInterrupt = FALSE;
   }
   else
   {
-    *QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
-    *InterruptRecognized = FALSE;
+    //*QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
+    if (xi->connected)
+    {
+      KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
+      //KdPrint((__DRIVER_NAME "     Queueding Dpc (Isr)\n"));
+      xi->last_dpc_isr = TRUE;
+      KeQuerySystemTime(&xi->last_dpc_scheduled);
+      KeInsertQueueDpc(&xi->rx_dpc, UlongToPtr(FALSE), NULL);
+      //KdPrint((__DRIVER_NAME "     Dpc Queued (Isr)\n"));
+    }
   }
 
   //FUNCTION_EXIT();
@@ -236,6 +244,7 @@ XenNet_Resume(PDEVICE_OBJECT device_object, PVOID context)
   XenNet_TxResumeEnd(xi);
 }
 
+#if 0
 static DDKAPI VOID
 XenNet_InterruptDpc(NDIS_HANDLE MiniportAdapterContext)
 {
@@ -272,10 +281,11 @@ XenNet_InterruptDpc(NDIS_HANDLE MiniportAdapterContext)
   if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
   {
     XenNet_TxBufferGC(xi);
-    XenNet_RxBufferCheck(xi);
+    XenNet_RxBufferCheck(xi, FALSE);
   }
   //FUNCTION_EXIT();
 }
+#endif
 
 // Called at <= DISPATCH_LEVEL
 static DDKAPI NDIS_STATUS
@@ -752,7 +762,7 @@ DriverEntry(
   mini_chars.HaltHandler = XenNet_Halt;
   mini_chars.InitializeHandler = XenNet_Init;
   mini_chars.ISRHandler = XenNet_InterruptIsr;
-  mini_chars.HandleInterruptHandler = XenNet_InterruptDpc;
+  //mini_chars.HandleInterruptHandler = XenNet_InterruptDpc;
   mini_chars.QueryInformationHandler = XenNet_QueryInformation;
   mini_chars.ResetHandler = XenNet_Reset;
   mini_chars.SetInformationHandler = XenNet_SetInformation;

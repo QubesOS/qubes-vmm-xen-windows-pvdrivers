@@ -172,6 +172,8 @@ XenFreelist_Init(struct xennet_info *xi, freelist_t *fl, PKSPIN_LOCK lock)
   fl->page_free = 0;
   fl->page_free_lowest = 0;
   fl->page_free_target = 16; /* tune this */
+  fl->page_limit = 512; /* 2MB */ /* tune this */
+  fl->page_outstanding = 0;
   fl->grants_resumed = FALSE;
   NdisMInitializeTimer(&fl->timer, fl->xi->adapter_handle, XenFreelist_Timer, fl);
   NdisMSetPeriodicTimer(&fl->timer, 1000);
@@ -188,6 +190,8 @@ XenFreelist_GetPage(freelist_t *fl)
 
   if (fl->page_free == 0)
   {
+    if (fl->page_outstanding >= fl->page_limit)
+      return NULL;
     mdl = AllocatePagesExtra(1, sizeof(grant_ref_t));
     if (!mdl)
       return NULL;
@@ -207,7 +211,7 @@ XenFreelist_GetPage(freelist_t *fl)
       fl->page_free_lowest = fl->page_free;
     mdl = fl->page_list[fl->page_free];
   }
-
+  fl->page_outstanding++;
   return mdl;
 }
 
@@ -231,6 +235,7 @@ XenFreelist_PutPage(freelist_t *fl, PMDL mdl)
     fl->page_list[fl->page_free] = mdl;
     fl->page_free++;
   }
+  fl->page_outstanding--;
 }
 
 VOID

@@ -407,11 +407,18 @@ XenNet_ReturnSentPackets(struct xennet_info *xi)
 }
 
 // Called at DISPATCH_LEVEL
-NDIS_STATUS
-XenNet_TxBufferGC(struct xennet_info *xi)
+//NDIS_STATUS
+//XenNet_TxBufferGC(struct xennet_info *xi)
+VOID
+XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 {
+  struct xennet_info *xi = context;
   RING_IDX cons, prod;
   unsigned short id;
+
+  UNREFERENCED_PARAMETER(dpc);
+  UNREFERENCED_PARAMETER(arg1);
+  UNREFERENCED_PARAMETER(arg2);
 
   ASSERT(xi->connected);
   ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
@@ -457,8 +464,6 @@ XenNet_TxBufferGC(struct xennet_info *xi)
   KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
   XenNet_ReturnSentPackets(xi);
-
-  return NDIS_STATUS_SUCCESS;
 }
 
 // called at <= DISPATCH_LEVEL
@@ -538,6 +543,9 @@ XenNet_TxInit(xennet_info_t *xi)
   USHORT i;
 
   KeInitializeSpinLock(&xi->tx_lock);
+  KeInitializeDpc(&xi->tx_dpc, XenNet_TxBufferGC, xi);
+  /* dpcs are only serialised to a single processor */
+  KeSetTargetProcessorDpc(&xi->tx_dpc, 0);
 
   xi->tx_id_free = 0;
   xi->tx_no_id_used = 0;
