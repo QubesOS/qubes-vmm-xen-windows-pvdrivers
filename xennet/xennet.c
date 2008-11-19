@@ -354,7 +354,11 @@ XenNet_Init(
   xi->rx_min_target = RX_DFL_MIN_TARGET;
   xi->rx_max_target = RX_MAX_TARGET;
   NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi,
-    0, NDIS_ATTRIBUTE_DESERIALIZE|NDIS_ATTRIBUTE_SURPRISE_REMOVE_OK,
+    0, NDIS_ATTRIBUTE_DESERIALIZE|NDIS_ATTRIBUTE_SURPRISE_REMOVE_OK
+#ifdef NDIS51_MINIPORT
+    |NDIS_ATTRIBUTE_USES_SAFE_BUFFER_APIS
+#endif
+    ,
     NdisInterfaceInternal);
   xi->multicast_list_size = 0;
   
@@ -770,7 +774,7 @@ DriverEntry(
   mini_chars.ReturnPacketHandler = XenNet_ReturnPacket;
   mini_chars.SendPacketsHandler = XenNet_SendPackets;
 
-#if defined (NDIS51_MINIPORT)
+#ifdef NDIS51_MINIPORT
   /* added in v.5.1 */
   mini_chars.PnPEventNotifyHandler = XenNet_PnPEventNotify;
   mini_chars.AdapterShutdownHandler = XenNet_Shutdown;

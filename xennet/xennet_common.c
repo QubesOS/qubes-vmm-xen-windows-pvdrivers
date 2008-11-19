@@ -155,6 +155,7 @@ XenFreelist_Timer(
       fl->xi->vectors.GntTbl_EndAccess(fl->xi->vectors.context,
         *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE)), 0);
       FreePages(mdl);
+      fl->page_outstanding--;
     }
     //FUNCTION_MSG((__DRIVER_NAME " --- timer - freed %d pages\n", i));
   }

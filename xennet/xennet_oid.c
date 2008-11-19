@@ -123,7 +123,7 @@ XenNet_QueryInformation(
       temp_data = NdisMedium802_3;
       break;
     case OID_GEN_MAXIMUM_LOOKAHEAD:
-      temp_data = PAGE_SIZE;
+      temp_data = xi->config_mtu;
       break;
     case OID_GEN_MAXIMUM_FRAME_SIZE:
       temp_data = xi->config_mtu;
@@ -136,7 +136,7 @@ XenNet_QueryInformation(
       temp_data = PAGE_SIZE * NET_TX_RING_SIZE * 4;
       break;
     case OID_GEN_RECEIVE_BUFFER_SPACE:
-      temp_data = PAGE_SIZE * NET_RX_RING_SIZE;
+      temp_data = PAGE_SIZE * NET_RX_RING_SIZE * 2;
       break;
     case OID_GEN_TRANSMIT_BLOCK_SIZE:
       temp_data = PAGE_SIZE; //XN_MAX_PKT_SIZE;
@@ -155,7 +155,7 @@ XenNet_QueryInformation(
       temp_data = xi->packet_filter;
       break;
     case OID_GEN_CURRENT_LOOKAHEAD:
-      temp_data = xi->config_mtu + XN_HDR_SIZE;
+      temp_data = xi->config_mtu;
       break;
     case OID_GEN_DRIVER_VERSION:
       temp_data = (NDIS_MINIPORT_MAJOR_VERSION << 8) | NDIS_MINIPORT_MINOR_VERSION;

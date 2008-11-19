@@ -464,11 +464,6 @@ done:
   return packet_count;
 }
 
-#define MAXIMUM_PACKETS_PER_INDICATE 256
-#define MAX_PACKETS_PER_INTERRUPT 64
-
-int log_flag = 0;
-
 typedef struct {
   struct xennet_info *xi;
   BOOLEAN is_timer;
@@ -491,6 +486,9 @@ XenNet_RxQueueDpcSynchronized(PVOID context)
   
   return TRUE;
 }
+
+#define MAXIMUM_PACKETS_PER_INDICATE 32
+#define MAX_PACKETS_PER_INTERRUPT 32
 
 static VOID
 XenNet_RxTimerDpc(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
@@ -529,18 +527,11 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   ULONG event = 1;
   BOOLEAN is_timer = (BOOLEAN)PtrToUlong(arg1);
   BOOLEAN set_timer = FALSE;
-  LARGE_INTEGER current_time;
-  ULONG delta;
 
   UNREFERENCED_PARAMETER(dpc);
   UNREFERENCED_PARAMETER(arg1);
   UNREFERENCED_PARAMETER(arg2);
 
-  KeQuerySystemTime(&current_time);
-  
-  delta = (ULONG)((current_time.QuadPart - xi->last_dpc_scheduled.QuadPart) / 10);
-  if (delta > 1000000) /* 1 second */
-    KdPrint((__DRIVER_NAME "     Excessive Dpc Latency %d from %s\n", delta, xi->last_dpc_isr?"Isr":"Dpc"));
   if (is_timer) 
     KdPrint((__DRIVER_NAME "     RX Timer\n"));
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
@@ -556,6 +547,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 
   do {
     prod = xi->rx.sring->rsp_prod;
+//KdPrint((__DRIVER_NAME "     prod - cons = %d\n", prod - xi->rx.rsp_cons));    
     KeMemoryBarrier(); /* Ensure we see responses up to 'prod'. */
 
     for (cons = xi->rx.rsp_cons; cons != prod && packet_count < MAX_PACKETS_PER_INTERRUPT; cons++)
@@ -731,7 +723,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   if (set_timer)
   {
     LARGE_INTEGER due_time;
-    due_time.QuadPart = -30 * 1000 * 10; /* 30ms */
+    due_time.QuadPart = -50 * 1000 * 10; /* 30ms */
     KeSetTimer(&xi->rx_timer, due_time, &xi->rx_timer_dpc);
   }
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
@@ -747,6 +739,7 @@ XenNet_ReturnPacket(
 {
   struct xennet_info *xi = MiniportAdapterContext;
   PMDL mdl;
+
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
 
   NdisUnchainBufferAtBack(Packet, &mdl);
@@ -765,7 +758,7 @@ XenNet_ReturnPacket(
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
 
 /*

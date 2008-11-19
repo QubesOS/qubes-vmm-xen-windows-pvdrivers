@@ -218,7 +218,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     pi.mdls[page_num] = XenFreelist_GetPage(&xi->tx_freelist);
     if (!pi.mdls[page_num])
     {
-      KdPrint((__DRIVER_NAME "     Out of buffers on send\n"));
+      KdPrint((__DRIVER_NAME "     Out of buffers on send (fl->page_outstanding = %d)\n", xi->tx_freelist.page_outstanding));
       pages_required = page_num;
       for (page_num = 0; page_num < pages_required; page_num++)
       {
@@ -546,6 +546,7 @@ XenNet_TxInit(xennet_info_t *xi)
   KeInitializeDpc(&xi->tx_dpc, XenNet_TxBufferGC, xi);
   /* dpcs are only serialised to a single processor */
   KeSetTargetProcessorDpc(&xi->tx_dpc, 0);
+  //KeSetImportanceDpc(&xi->tx_dpc, HighImportance);
 
   xi->tx_id_free = 0;
   xi->tx_no_id_used = 0;
