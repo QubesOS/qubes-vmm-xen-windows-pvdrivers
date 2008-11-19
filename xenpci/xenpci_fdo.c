@@ -1065,15 +1065,17 @@ XenPci_Pnp_FilterResourceRequirementsCallback(PDEVICE_OBJECT device_object, PVOI
   NTSTATUS status = STATUS_SUCCESS;
   //PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   PIRP irp = context;
+#if 0
   PIO_RESOURCE_REQUIREMENTS_LIST irrl;
   PIO_RESOURCE_LIST irl;
   PIO_RESOURCE_DESCRIPTOR ird;
   ULONG i;
+#endif
 
   UNREFERENCED_PARAMETER(device_object);
 
   FUNCTION_ENTER();
-
+#if 0
   /* this assumes that AlternativeLists == 1 */
   irrl = (PIO_RESOURCE_REQUIREMENTS_LIST)irp->IoStatus.Information;
   KdPrint(("AlternativeLists = %d\n", irrl->AlternativeLists));
@@ -1088,6 +1090,7 @@ XenPci_Pnp_FilterResourceRequirementsCallback(PDEVICE_OBJECT device_object, PVOI
       ird->u.Interrupt.MinimumVector = 16;
     }
   }
+#endif
   irp->IoStatus.Status = status;
   IoCompleteRequest (irp, IO_NO_INCREMENT);
   
