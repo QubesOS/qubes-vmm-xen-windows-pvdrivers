@@ -231,8 +231,25 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     case XEN_INIT_TYPE_GRANT_ENTRIES:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(setting)));
       xvdd->grant_entries = (USHORT)PtrToUlong(setting);
-      memcpy(&xvdd->grant_free_list, value, sizeof(grant_ref_t) * xvdd->grant_entries);
-      xvdd->grant_free = xvdd->grant_entries;
+      if (dump_mode)
+      {
+        /* check each grant entry first to make sure it isn't in use already */
+        grant_ref_t *gref = (grant_ref_t *)value;
+        xvdd->grant_free = 0;
+        for (i = 0; i < xvdd->grant_entries; i++)
+        {
+          if (xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context, *gref, TRUE))
+          {
+            put_grant_on_freelist(xvdd, *gref);
+          }
+          gref++;
+        }
+      }
+      else
+      {
+        memcpy(&xvdd->grant_free_list, value, sizeof(grant_ref_t) * xvdd->grant_entries);
+        xvdd->grant_free = xvdd->grant_entries;
+      }
       break;
     case XEN_INIT_TYPE_STATE_PTR:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
@@ -818,14 +835,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     return FALSE;
   }
 
-  if (dump_mode)
-  {
-    KdPrint((__DRIVER_NAME "     dump_mode interrupt\n"));
-    KdPrint((__DRIVER_NAME "     req_prod_pvt = %d\n", xvdd->ring.req_prod_pvt));
-    KdPrint((__DRIVER_NAME "     rsp_prod = %d\n", xvdd->ring.sring->rsp_prod));
-    KdPrint((__DRIVER_NAME "     rsp_cons = %d\n", xvdd->ring.rsp_cons));
-  }
-  else if (!(stat_interrupts_for_me & 0xFFFF))
+  if (!dump_mode && !(stat_interrupts_for_me & 0xFFFF))
     XenVbd_DumpStats();
     
   while (more_to_do)
