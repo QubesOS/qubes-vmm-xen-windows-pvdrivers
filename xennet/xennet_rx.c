@@ -723,7 +723,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   if (set_timer)
   {
     LARGE_INTEGER due_time;
-    due_time.QuadPart = -50 * 1000 * 10; /* 30ms */
+    due_time.QuadPart = -10 * 1000 * 10; /* 10ms */
     KeSetTimer(&xi->rx_timer, due_time, &xi->rx_timer_dpc);
   }
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));

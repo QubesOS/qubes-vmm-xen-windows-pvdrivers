@@ -117,40 +117,6 @@ unsigned long simple_strtoul(const char *cp,char **endp,unsigned int base)
 /* end vsprintf.c code */
 /* ----- END Other people's code --------- */
 
-// Called at DISPATCH_LEVEL
-
-static DDKAPI VOID
-XenNet_InterruptIsr(
-  PBOOLEAN InterruptRecognized,
-  PBOOLEAN QueueMiniportHandleInterrupt,
-  NDIS_HANDLE MiniportAdapterContext)
-{
-  struct xennet_info *xi = MiniportAdapterContext;
-  
-  //FUNCTION_ENTER();
-  *InterruptRecognized = FALSE;
-  *QueueMiniportHandleInterrupt = FALSE;
-  if (!xi->vectors.EvtChn_AckEvent(xi->vectors.context, xi->event_channel))
-  {
-    /* interrupt was not for us */
-  }
-  else
-  {
-    //*QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
-    if (xi->connected)
-    {
-      KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
-      //KdPrint((__DRIVER_NAME "     Queueding Dpc (Isr)\n"));
-      xi->last_dpc_isr = TRUE;
-      KeQuerySystemTime(&xi->last_dpc_scheduled);
-      KeInsertQueueDpc(&xi->rx_dpc, UlongToPtr(FALSE), NULL);
-      //KdPrint((__DRIVER_NAME "     Dpc Queued (Isr)\n"));
-    }
-  }
-
-  //FUNCTION_EXIT();
-}
-
 static NDIS_STATUS
 XenNet_ConnectBackend(struct xennet_info *xi)
 {
@@ -242,6 +208,79 @@ XenNet_Resume(PDEVICE_OBJECT device_object, PVOID context)
   xi->device_state->resume_state = RESUME_STATE_RUNNING;
   XenNet_RxResumeEnd(xi);
   XenNet_TxResumeEnd(xi);
+}
+
+static VOID
+XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
+{
+  struct xennet_info *xi = context;
+  PIO_WORKITEM work_item;
+
+  UNREFERENCED_PARAMETER(dpc);
+  UNREFERENCED_PARAMETER(arg1);
+  UNREFERENCED_PARAMETER(arg2);
+
+  FUNCTION_ENTER();
+  
+  switch (xi->device_state->resume_state)
+  {
+  case RESUME_STATE_SUSPENDING:
+    KdPrint((__DRIVER_NAME "     New state SUSPENDING\n"));
+    // there should be a better way to synchronise with rx and tx...
+    KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
+    KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
+    KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
+    KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
+    break;
+  case RESUME_STATE_FRONTEND_RESUME:
+    KdPrint((__DRIVER_NAME "     New state RESUME_STATE_FRONTEND_RESUME\n"));
+    work_item = IoAllocateWorkItem(xi->fdo);
+    IoQueueWorkItem(work_item, XenNet_Resume, DelayedWorkQueue, xi);
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     New state %d\n", xi->device_state->resume_state));
+    break;
+  }
+  xi->device_state->resume_state_ack = xi->device_state->resume_state;
+  KeMemoryBarrier();
+  
+  FUNCTION_EXIT();
+}
+
+static DDKAPI VOID
+XenNet_InterruptIsr(
+  PBOOLEAN InterruptRecognized,
+  PBOOLEAN QueueMiniportHandleInterrupt,
+  NDIS_HANDLE MiniportAdapterContext)
+{
+  struct xennet_info *xi = MiniportAdapterContext;
+  
+  //FUNCTION_ENTER();
+  *InterruptRecognized = FALSE;
+  *QueueMiniportHandleInterrupt = FALSE;
+  if (!xi->vectors.EvtChn_AckEvent(xi->vectors.context, xi->event_channel))
+  {
+    /* interrupt was not for us */
+  }
+  else
+  {
+    //*QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
+    if (xi->device_state->resume_state != xi->device_state->resume_state_ack)
+    {
+      KeInsertQueueDpc(&xi->suspend_dpc, NULL, NULL);
+    }
+    else if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
+    {
+      KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
+      //KdPrint((__DRIVER_NAME "     Queueding Dpc (Isr)\n"));
+      xi->last_dpc_isr = TRUE;
+      KeQuerySystemTime(&xi->last_dpc_scheduled);
+      KeInsertQueueDpc(&xi->rx_dpc, UlongToPtr(FALSE), NULL);
+      //KdPrint((__DRIVER_NAME "     Dpc Queued (Isr)\n"));
+    }
+  }
+
+  //FUNCTION_EXIT();
 }
 
 #if 0
@@ -425,6 +464,7 @@ XenNet_Init(
   }
 
   KeInitializeSpinLock(&xi->rx_lock);
+  KeInitializeDpc(&xi->suspend_dpc, XenNet_SuspendResume, xi);
 
   InitializeListHead(&xi->tx_waiting_pkt_list);
   InitializeListHead(&xi->tx_sent_pkt_list);

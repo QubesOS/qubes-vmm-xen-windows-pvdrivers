@@ -246,6 +246,7 @@ struct xennet_info
   PVOID config_page;
   UCHAR multicast_list[MULTICAST_LIST_MAX_SIZE][6];
   ULONG multicast_list_size;
+  KDPC suspend_dpc;
 
   /* tx related - protected by tx_lock */
   KSPIN_LOCK tx_lock;
