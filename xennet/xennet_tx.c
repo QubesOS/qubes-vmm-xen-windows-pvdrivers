@@ -348,6 +348,8 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   int notify;
   BOOLEAN success;
 
+  //FUNCTION_ENTER();
+
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   /* if empty, the above returns head*, not NULL */
   while (entry != &xi->tx_waiting_pkt_list)
@@ -370,6 +372,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   {
     xi->vectors.EvtChn_Notify(xi->vectors.context, xi->event_channel);
   }
+  //FUNCTION_EXIT();
 }
 
 // Called at <= DISPATCH_LEVEL with tx spinlock _NOT_ held
@@ -382,6 +385,8 @@ XenNet_ReturnSentPackets(struct xennet_info *xi)
   int i = 0;
   KIRQL old_irql;
   
+  //FUNCTION_ENTER();
+
   old_irql = KeRaiseIrqlToDpcLevel();
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
   entry = RemoveHeadList(&xi->tx_sent_pkt_list);
@@ -404,6 +409,7 @@ XenNet_ReturnSentPackets(struct xennet_info *xi)
   if (!i) /* i will be == 0 if we didn't SendComplete any packets, and thus we will still have the lock */
     KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
   KeLowerIrql(old_irql);
+  //FUNCTION_EXIT();
 }
 
 // Called at DISPATCH_LEVEL
@@ -420,10 +426,10 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   UNREFERENCED_PARAMETER(arg1);
   UNREFERENCED_PARAMETER(arg2);
 
+  //FUNCTION_ENTER();
+
   ASSERT(xi->connected);
   ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
-
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
@@ -464,6 +470,8 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
   XenNet_ReturnSentPackets(xi);
+
+  //FUNCTION_EXIT();
 }
 
 // called at <= DISPATCH_LEVEL
@@ -479,6 +487,8 @@ XenNet_SendPackets(
   UINT i;
   PLIST_ENTRY entry;
   KIRQL OldIrql;
+
+  //FUNCTION_ENTER();
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
@@ -498,7 +508,8 @@ XenNet_SendPackets(
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
   
   XenNet_ReturnSentPackets(xi);
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  //FUNCTION_EXIT();
 }
 
 VOID

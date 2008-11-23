@@ -91,6 +91,7 @@ XenNet_ParsePacketHeader(
   pi->tcp_length = pi->ip4_length - pi->ip4_header_length - pi->tcp_header_length;
   pi->tcp_remaining = pi->tcp_length;
   pi->tcp_seq = GET_NET_PULONG(&pi->header[XN_HDR_SIZE + pi->ip4_header_length + 4]);
+  pi->tcp_has_options = (BOOLEAN)(pi->tcp_header_length > 20);
   if (pi->mss > 0 && pi->tcp_length > pi->mss)
     pi->split_required = TRUE;
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));

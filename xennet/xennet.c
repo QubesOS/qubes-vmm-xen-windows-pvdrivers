@@ -273,8 +273,6 @@ XenNet_InterruptIsr(
     {
       KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
       //KdPrint((__DRIVER_NAME "     Queueding Dpc (Isr)\n"));
-      xi->last_dpc_isr = TRUE;
-      KeQuerySystemTime(&xi->last_dpc_scheduled);
       KeInsertQueueDpc(&xi->rx_dpc, UlongToPtr(FALSE), NULL);
       //KdPrint((__DRIVER_NAME "     Dpc Queued (Isr)\n"));
     }
@@ -282,49 +280,6 @@ XenNet_InterruptIsr(
 
   //FUNCTION_EXIT();
 }
-
-#if 0
-static DDKAPI VOID
-XenNet_InterruptDpc(NDIS_HANDLE MiniportAdapterContext)
-{
-  struct xennet_info *xi = MiniportAdapterContext;
-  PIO_WORKITEM work_item;
-
-  //FUNCTION_ENTER();
-  if (xi->device_state->resume_state != xi->device_state->resume_state_ack)
-  {
-    FUNCTION_ENTER();
-    switch (xi->device_state->resume_state)
-    {
-    case RESUME_STATE_SUSPENDING:
-      KdPrint((__DRIVER_NAME "     New state SUSPENDING\n"));
-      // there should be a better way to synchronise with rx and tx...
-      KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
-      KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
-      KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
-      KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
-      break;
-    case RESUME_STATE_FRONTEND_RESUME:
-      KdPrint((__DRIVER_NAME "     New state RESUME_STATE_FRONTEND_RESUME\n"));
-      work_item = IoAllocateWorkItem(xi->fdo);
-      IoQueueWorkItem(work_item, XenNet_Resume, DelayedWorkQueue, xi);
-      break;
-    default:
-      KdPrint((__DRIVER_NAME "     New state %d\n", xi->device_state->resume_state));
-      break;
-    }
-    xi->device_state->resume_state_ack = xi->device_state->resume_state;
-    KeMemoryBarrier();
-    FUNCTION_EXIT();
-  }
-  if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
-  {
-    XenNet_TxBufferGC(xi);
-    XenNet_RxBufferCheck(xi, FALSE);
-  }
-  //FUNCTION_EXIT();
-}
-#endif
 
 // Called at <= DISPATCH_LEVEL
 static DDKAPI NDIS_STATUS
@@ -463,7 +418,6 @@ XenNet_Init(
     return NDIS_STATUS_RESOURCES;
   }
 
-  KeInitializeSpinLock(&xi->rx_lock);
   KeInitializeDpc(&xi->suspend_dpc, XenNet_SuspendResume, xi);
 
   InitializeListHead(&xi->tx_waiting_pkt_list);
@@ -591,7 +545,7 @@ XenNet_Init(
   }
   else
   {
-    KdPrint(("ChecksumOffload = %d\n", config_param->ParameterData.IntegerData));
+    KdPrint(("ChecksumOffloadRxCheck = %d\n", config_param->ParameterData.IntegerData));
     xi->config_csum_rx_check = !!config_param->ParameterData.IntegerData;
   }
 

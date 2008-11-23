@@ -191,6 +191,7 @@ typedef struct {
   USHORT ip4_header_length;
   USHORT ip4_length;
   USHORT tcp_header_length;
+  BOOLEAN tcp_has_options;
   USHORT tcp_length;
   USHORT tcp_remaining;
   ULONG tcp_seq;
@@ -307,8 +308,6 @@ struct xennet_info
   ULONG64 stat_rx_error;
   ULONG64 stat_rx_no_buffer;
   
-  BOOLEAN last_dpc_isr;
-  LARGE_INTEGER last_dpc_scheduled;
 } typedef xennet_info_t;
 
 

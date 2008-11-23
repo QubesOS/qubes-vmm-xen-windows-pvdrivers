@@ -6,7 +6,7 @@ Var ARCH_SPEC
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.11"
+!define Version "0.9.12-pre4"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 
@@ -33,6 +33,7 @@ Section "Common Files"
   File .\doc\Installing.txt
   File .\doc\Readme.txt
   File .\doc\TODO.txt
+  File .\doc\xennet.txt
   ExecWait 'NET STOP ShutdownMon'
   StrCmp $ARCH_SPEC "amd64" amd64
   File .\target\winnet\i386\copyconfig.exe

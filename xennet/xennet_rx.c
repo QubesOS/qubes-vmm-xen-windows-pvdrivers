@@ -143,7 +143,7 @@ XenNet_MakePacket(struct xennet_info *xi)
   USHORT new_ip4_length;
   USHORT i;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //FUNCTION_ENTER();
 
   if (!xi->rxpi.split_required)
   {
@@ -151,6 +151,7 @@ XenNet_MakePacket(struct xennet_info *xi)
     if (packet == NULL)
     {
       /* buffers will be freed in MakePackets */
+      //FUNCTION_EXIT();
       return NULL;
     }
     xi->rx_outstanding++;
@@ -163,11 +164,15 @@ XenNet_MakePacket(struct xennet_info *xi)
   {
     out_mdl = XenFreelist_GetPage(&xi->rx_freelist);
     if (!out_mdl)
+    {
+      //FUNCTION_EXIT();
       return NULL;
+    }
     packet = get_packet_from_freelist(xi);
     if (packet == NULL)
     {
       XenFreelist_PutPage(&xi->rx_freelist, out_mdl);
+      //FUNCTION_EXIT();
       return NULL;
     }
     xi->rx_outstanding++;
@@ -193,7 +198,8 @@ XenNet_MakePacket(struct xennet_info *xi)
     XenNet_SumIpHeader(out_buffer, xi->rxpi.ip4_header_length);
     NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   }
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (%p)\n", packet));
+
+  //FUNCTION_EXIT();
   
   return packet;
 }
@@ -223,7 +229,7 @@ XenNet_SumPacketData(
   USHORT remaining;
   USHORT ip4_length;
   
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //FUNCTION_ENTER();
 
   NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);
   ASSERT(mdl);
@@ -245,6 +251,7 @@ XenNet_SumPacketData(
     break;
   default:
     KdPrint((__DRIVER_NAME "     Don't know how to calc sum for IP Proto %d\n", pi->ip_proto));
+    //FUNCTION_EXIT();
     return FALSE; // should never happen
   }
 
@@ -305,8 +312,11 @@ XenNet_SumPacketData(
   if (set_csum)
     *csum_ptr = (USHORT)~GET_NET_USHORT((USHORT)csum);
   else
+  {
+    //FUNCTION_EXIT();
     return (BOOLEAN)(*csum_ptr == (USHORT)~GET_NET_USHORT((USHORT)csum));
-
+  }
+  //FUNCTION_EXIT();
   return TRUE;
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -325,7 +335,7 @@ XenNet_MakePackets(
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
   ULONG parse_result;  
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "(packets = %p, packet_count = %d)\n", packets, *packet_count_p));
+  //FUNCTION_ENTER();
 
   parse_result = XenNet_ParsePacketHeader(&xi->rxpi);
   
@@ -358,40 +368,60 @@ XenNet_MakePackets(
       packet_count = 0;
       goto done;
     }
+
     if (parse_result == PARSE_OK)
     {
-      if (xi->rxpi.csum_blank)
-        XenNet_SumPacketData(&xi->rxpi, packet, TRUE);
       csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
         packet, TcpIpChecksumPacketInfo);
       if (xi->rxpi.csum_blank || xi->rxpi.data_validated)
       {
         if (xi->setting_csum.V4Receive.TcpChecksum && xi->rxpi.ip_proto == 6)
-          csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+        {
+          if (!xi->rxpi.tcp_has_options || xi->setting_csum.V4Receive.TcpOptionsSupported)
+          {
+            csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+          }
+        }
         if (xi->setting_csum.V4Receive.UdpChecksum && xi->rxpi.ip_proto == 17)
+        {
           csum_info->Receive.NdisPacketUdpChecksumSucceeded = TRUE;
+        }
+        if (xi->rxpi.csum_blank) // && !csum_info->Value)
+        {
+          XenNet_SumPacketData(&xi->rxpi, packet, TRUE);
+        }
       }
       else if (!xi->config_csum_rx_check)
       {
         if (xi->setting_csum.V4Receive.TcpChecksum && xi->rxpi.ip_proto == 6)
         {
           if (XenNet_SumPacketData(&xi->rxpi, packet, FALSE))
+          {
             csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+          }
           else
+          {
             csum_info->Receive.NdisPacketTcpChecksumFailed = TRUE;
+          }
         }
         if (xi->setting_csum.V4Receive.UdpChecksum && xi->rxpi.ip_proto == 17)
         {
           if (XenNet_SumPacketData(&xi->rxpi, packet, FALSE))
+          {
             csum_info->Receive.NdisPacketUdpChecksumSucceeded = TRUE;
+          }
           else
+          {
             csum_info->Receive.NdisPacketUdpChecksumFailed = TRUE;
+          }
         }
       }
     }
+
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
     XenNet_ClearPacketInfo(&xi->rxpi);
+    //FUNCTION_EXIT();
     return 1;
   default:
     packet = XenNet_MakePacket(xi);
@@ -405,6 +435,7 @@ XenNet_MakePackets(
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
     XenNet_ClearPacketInfo(&xi->rxpi);
+    //FUNCTION_EXIT();
     return 1;
   }
 
@@ -460,7 +491,7 @@ done:
     XenFreelist_PutPage(&xi->rx_freelist, xi->rxpi.mdls[i]);
   }
   XenNet_ClearPacketInfo(&xi->rxpi);
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (split)\n"));
+  //FUNCTION_EXIT();
   return packet_count;
 }
 
@@ -480,8 +511,6 @@ XenNet_RxQueueDpcSynchronized(PVOID context)
     /* if an is_timer dpc is queued it will muck things up for us, so make sure we requeue a !is_timer dpc */
     KeRemoveQueueDpc(&sc->xi->rx_dpc);
   }
-  sc->xi->last_dpc_isr = FALSE;
-  KeQuerySystemTime(&sc->xi->last_dpc_scheduled);
   result = KeInsertQueueDpc(&sc->xi->rx_dpc, UlongToPtr(sc->is_timer), NULL);
   
   return TRUE;
@@ -532,9 +561,9 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   UNREFERENCED_PARAMETER(arg1);
   UNREFERENCED_PARAMETER(arg2);
 
+  //FUNCTION_ENTER();
   if (is_timer) 
     KdPrint((__DRIVER_NAME "     RX Timer\n"));
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   ASSERT(xi->connected);
 
@@ -584,10 +613,11 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
       else
       {
         rxrsp = RING_GET_RESPONSE(&xi->rx, cons);
+//KdPrint((__DRIVER_NAME "     status = %d, offset = %d\n", rxrsp->status, rxrsp->offset));
         if (rxrsp->status <= 0
           || rxrsp->offset + rxrsp->status > PAGE_SIZE)
         {
-          KdPrint((__DRIVER_NAME ": Error: rxrsp offset %d, size %d\n",
+          KdPrint((__DRIVER_NAME "     Error: rxrsp offset %d, size %d\n",
             rxrsp->offset, rxrsp->status));
           ASSERT(!xi->rxpi.extra_info);
           XenFreelist_PutPage(&xi->rx_freelist, mdl);
@@ -706,10 +736,11 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   while (entry != &rx_packet_list)
   {
     PNDIS_PACKET packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
-    PVOID *addr;
+    PVOID addr;
     UINT buffer_length;
     UINT total_length;
     NdisGetFirstBufferFromPacketSafe(packet, &mdl, &addr, &buffer_length, &total_length, NormalPagePriority);
+    
     ASSERT(total_length <= xi->config_mtu + XN_HDR_SIZE);
     packets[packet_count++] = packet;
     entry = RemoveHeadList(&rx_packet_list);
@@ -726,7 +757,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     due_time.QuadPart = -10 * 1000 * 10; /* 10ms */
     KeSetTimer(&xi->rx_timer, due_time, &xi->rx_timer_dpc);
   }
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //FUNCTION_EXIT();
 }
 
 /* called at DISPATCH_LEVEL */
@@ -740,11 +771,14 @@ XenNet_ReturnPacket(
   struct xennet_info *xi = MiniportAdapterContext;
   PMDL mdl;
 
+  //FUNCTION_ENTER();
+
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
 
   NdisUnchainBufferAtBack(Packet, &mdl);
   while (mdl)
   {
+    //KdPrint((__DRIVER_NAME "     packet = %p, mdl = %p\n", Packet, mdl));
     NdisAdjustBufferLength(mdl, PAGE_SIZE);
     XenFreelist_PutPage(&xi->rx_freelist, mdl);
     NdisUnchainBufferAtBack(Packet, &mdl);
@@ -758,7 +792,7 @@ XenNet_ReturnPacket(
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 
-  //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //FUNCTION_EXIT();
 }
 
 /*
@@ -819,30 +853,6 @@ XenNet_RxResumeEnd(xennet_info_t *xi)
   KeReleaseSpinLock(&xi->rx_lock, old_irql);
 }
 
-#if 0
-/* Called at DISPATCH LEVEL */
-static VOID DDKAPI
-XenNet_RxTimer(
-  PVOID SystemSpecific1,
-  PVOID FunctionContext,
-  PVOID SystemSpecific2,
-  PVOID SystemSpecific3
-)
-{
-  struct xennet_info *xi = FunctionContext;
-
-  UNREFERENCED_PARAMETER(SystemSpecific1);
-  UNREFERENCED_PARAMETER(SystemSpecific2);
-  UNREFERENCED_PARAMETER(SystemSpecific3);
-
-  if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
-  {
-    KdPrint((__DRIVER_NAME "     RX Timer\n"));
-    XenNet_RxBufferCheck(xi, TRUE);
-  }
-}
-#endif
-
 BOOLEAN
 XenNet_RxInit(xennet_info_t *xi)
 {
@@ -850,13 +860,13 @@ XenNet_RxInit(xennet_info_t *xi)
 
   FUNCTION_ENTER();
 
+  KeInitializeSpinLock(&xi->rx_lock);
   KeInitializeEvent(&xi->packet_returned_event, SynchronizationEvent, FALSE);
   KeInitializeTimer(&xi->rx_timer);
   KeInitializeDpc(&xi->rx_dpc, XenNet_RxBufferCheck, xi);
   KeSetTargetProcessorDpc(&xi->rx_dpc, 0);
   //KeSetImportanceDpc(&xi->rx_dpc, HighImportance);
   KeInitializeDpc(&xi->rx_timer_dpc, XenNet_RxTimerDpc, xi);
-  //NdisMInitializeTimer(&xi->rx_timer, xi->adapter_handle, XenNet_RxTimer, xi);
   xi->avg_page_count = 0;
 
   xi->rx_shutting_down = FALSE;

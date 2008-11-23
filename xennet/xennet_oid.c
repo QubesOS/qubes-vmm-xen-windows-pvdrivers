@@ -689,10 +689,10 @@ XenNet_SetInformation(
           *BytesRead += sizeof(NDIS_TASK_TCP_LARGE_SEND);
           KdPrint(("TcpLargeSendNdisTask\n"));
           nttls = (PNDIS_TASK_TCP_LARGE_SEND)nto->TaskBuffer;
-          KdPrint(("     MaxOffLoadSize                 = %d\n", nttls->MaxOffLoadSize));
-          KdPrint(("     MinSegmentCount                = %d\n", nttls->MinSegmentCount));
-          KdPrint(("     TcpOptions                     = %d\n", nttls->TcpOptions));
-          KdPrint(("     IpOptions                      = %d\n", nttls->IpOptions));
+          KdPrint(("  MaxOffLoadSize                 = %d\n", nttls->MaxOffLoadSize));
+          KdPrint(("  MinSegmentCount                = %d\n", nttls->MinSegmentCount));
+          KdPrint(("  TcpOptions                     = %d\n", nttls->TcpOptions));
+          KdPrint(("  IpOptions                      = %d\n", nttls->IpOptions));
           if (nttls->MinSegmentCount != MIN_LARGE_SEND_SEGMENTS)
           {
             KdPrint(("     MinSegmentCount should be %d\n", MIN_LARGE_SEND_SEGMENTS));
