@@ -1,3 +1,4 @@
+#pragma warning(disable: 4201)
 #include <basetyps.h>
 #include <stdlib.h>
 #include <wtypes.h>
@@ -105,7 +106,7 @@ main(
       continue;
     }
     printf(" Description = %s\n", buf);
-    if (strstr(buf, "Xen"))
+    if (strstr((char *)buf, "Xen"))
     {
       printf(" Type = Xen\n");
       keyptr = adapter->xen_IpConfig_key_name;
@@ -128,7 +129,7 @@ main(
       printf(" Failed to read registry (%08x). Ignoring.\n", status);
       continue;
     }
-    status = RegQueryValueEx(adapter_key_handle, "IpConfig", NULL, NULL, keyptr, &buf_len);
+    status = RegQueryValueEx(adapter_key_handle, "IpConfig", NULL, NULL, (LPBYTE)keyptr, &buf_len);
     if (status != ERROR_SUCCESS)
     {
       printf(" Failed to read registry (%08x). Ignoring.\n", status);
@@ -154,15 +155,15 @@ main(
     if (adapter->xen_IpConfig_key_name[0] && adapter->other_IpConfig_key_name[0])
     {
       // open HKLM\SYSTEM\Services\%s
-      sprintf(buf, "SYSTEM\\CurrentControlSet\\Services\\%s", adapter->xen_IpConfig_key_name);
-      status = RegOpenKey(HKEY_LOCAL_MACHINE, buf, &dst_key_handle);
+      sprintf((char *)buf, "SYSTEM\\CurrentControlSet\\Services\\%s", adapter->xen_IpConfig_key_name);
+      status = RegOpenKey(HKEY_LOCAL_MACHINE, (LPCSTR)buf, &dst_key_handle);
       if (status != ERROR_SUCCESS)
       {
         printf(" Cannot open Xen adapter config key. Skipping.\n");
         continue;
       }
-      sprintf(buf, "SYSTEM\\CurrentControlSet\\Services\\%s", adapter->other_IpConfig_key_name);
-      status = RegOpenKey(HKEY_LOCAL_MACHINE, buf, &src_key_handle);
+      sprintf((char *)buf, "SYSTEM\\CurrentControlSet\\Services\\%s", adapter->other_IpConfig_key_name);
+      status = RegOpenKey(HKEY_LOCAL_MACHINE, (LPCSTR)buf, &src_key_handle);
       if (status != ERROR_SUCCESS)
       {
         printf(" Cannot open Other adapter config key. Skipping.\n");
@@ -170,7 +171,7 @@ main(
       }
       value_name_len = 256;
       value_data_len = 1024;
-      while ((status = RegEnumValue(dst_key_handle, 0, value_name, &value_name_len, NULL, &value_type, value_data, &value_data_len)) != ERROR_NO_MORE_ITEMS)
+      while ((status = RegEnumValue(dst_key_handle, 0, value_name, &value_name_len, NULL, &value_type, (LPBYTE)value_data, &value_data_len)) != ERROR_NO_MORE_ITEMS)
       {
         RegDeleteValue(dst_key_handle, value_name);
         value_name_len = 256;
@@ -179,9 +180,9 @@ main(
       i = 0;
       value_name_len = 256;
       value_data_len = 1024;
-      while ((status = RegEnumValue(src_key_handle, i, value_name, &value_name_len, NULL, &value_type, value_data, &value_data_len)) != ERROR_NO_MORE_ITEMS)
+      while ((status = RegEnumValue(src_key_handle, i, value_name, &value_name_len, NULL, &value_type, (LPBYTE)value_data, &value_data_len)) != ERROR_NO_MORE_ITEMS)
       {
-        RegSetValueEx(dst_key_handle, value_name, 0, value_type, value_data, value_data_len);
+        RegSetValueEx(dst_key_handle, value_name, 0, value_type, (BYTE *)value_data, value_data_len);
         value_name_len = 256;
         value_data_len = 1024;
         i++;

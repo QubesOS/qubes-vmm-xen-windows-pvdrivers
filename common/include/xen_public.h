@@ -252,15 +252,15 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   case XEN_INIT_TYPE_STATE_PTR:
     break;
   case XEN_INIT_TYPE_WRITE_STRING:
-    __ADD_XEN_INIT_STRING(ptr, p1);
-    __ADD_XEN_INIT_STRING(ptr, p2);
+    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
+    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p2);
     break;
   case XEN_INIT_TYPE_RING:
   case XEN_INIT_TYPE_EVENT_CHANNEL:
   case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ:
   case XEN_INIT_TYPE_READ_STRING_FRONT:
   case XEN_INIT_TYPE_READ_STRING_BACK:
-    __ADD_XEN_INIT_STRING(ptr, p1);
+    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
     break;
   case XEN_INIT_TYPE_GRANT_ENTRIES:
     __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p2));
@@ -319,18 +319,18 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   case XEN_INIT_TYPE_RUN:
     break;
   case XEN_INIT_TYPE_RING:
-    __ADD_XEN_INIT_STRING(ptr, p1);
+    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
     __ADD_XEN_INIT_PTR(ptr, p2);
     break;
   case XEN_INIT_TYPE_EVENT_CHANNEL:
   case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ:
-    __ADD_XEN_INIT_STRING(ptr, p1);
+    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
     __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p2));
     break;
   case XEN_INIT_TYPE_READ_STRING_FRONT:
   case XEN_INIT_TYPE_READ_STRING_BACK:
-    __ADD_XEN_INIT_STRING(ptr, p1);
-    __ADD_XEN_INIT_STRING(ptr, p2);
+    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
+    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p2);
     break;
   case XEN_INIT_TYPE_VECTORS:
     //__ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p1));

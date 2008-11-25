@@ -83,7 +83,7 @@ SplitString(char *String, char Split, int MaxParts, int *Count)
 
   *Count = 0;
 
-  RetVal = ExAllocatePoolWithTag(NonPagedPool, (MaxParts + 1) * sizeof(char *), SPLITSTRING_POOL_TAG);
+  RetVal = (char **)ExAllocatePoolWithTag(NonPagedPool, (MaxParts + 1) * sizeof(char *), SPLITSTRING_POOL_TAG);
   last = String;
   do
   {
@@ -92,7 +92,7 @@ SplitString(char *String, char Split, int MaxParts, int *Count)
     //KdPrint((__DRIVER_NAME "     b - count = %d\n", *Count));
     first = last;
     for (last = first; *last != '\0' && *last != Split; last++);
-    RetVal[*Count] = ExAllocatePoolWithTag(NonPagedPool, last - first + 1, SPLITSTRING_POOL_TAG);
+    RetVal[*Count] = (char *)ExAllocatePoolWithTag(NonPagedPool, last - first + 1, SPLITSTRING_POOL_TAG);
     //KdPrint((__DRIVER_NAME "     c - count = %d\n", *Count));
     strncpy(RetVal[*Count], first, last - first);
     RetVal[*Count][last - first] = 0;
@@ -132,7 +132,7 @@ AllocatePagesExtra(int Pages, int ExtraSize)
     return NULL;
   }
 //  KdPrint((__DRIVER_NAME " --- AllocatePages IRQL = %d, Buf = %p\n", KeGetCurrentIrql(), Buf));
-  Mdl = ExAllocatePoolWithTag(NonPagedPool, MmSizeOfMdl(Buf, Pages * PAGE_SIZE) + ExtraSize, ALLOCATE_PAGES_POOL_TAG);
+  Mdl = (PMDL)ExAllocatePoolWithTag(NonPagedPool, MmSizeOfMdl(Buf, Pages * PAGE_SIZE) + ExtraSize, ALLOCATE_PAGES_POOL_TAG);
   //Mdl = IoAllocateMdl(Buf, Pages * PAGE_SIZE, FALSE, FALSE, NULL);
   if (Mdl == NULL)
   {

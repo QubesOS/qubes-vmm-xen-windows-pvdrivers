@@ -1,3 +1,4 @@
+#pragma warning(disable: 4201)
 #include <windows.h>
 #include <basetyps.h>
 #include <stdlib.h>
@@ -300,9 +301,10 @@ void control_handler(DWORD request)
 
 void service_main(int argc, char *argv[]) 
 { 
-  int error; 
+  UNREFERENCED_PARAMETER (argc);
+  UNREFERENCED_PARAMETER (argv);
 
-write_log("Entering service_main\n"); 
+  write_log("Entering service_main\n"); 
 
   service_status.dwServiceType = SERVICE_WIN32; 
   service_status.dwCurrentState =  SERVICE_START_PENDING; 
