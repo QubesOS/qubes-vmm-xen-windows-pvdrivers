@@ -272,6 +272,9 @@ typedef struct {
   PUCHAR assigned_resources_ptr;
   XENPCI_DEVICE_STATE device_state;
   BOOLEAN restart_on_resume;
+  PXEN_COMM_IFACE comm_iface;
+  KSPIN_LOCK comm_iface_spinlock;
+  USHORT req_cons;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 typedef struct
@@ -450,7 +453,7 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRouti
 NTSTATUS
 EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description);
 evtchn_port_t
-EvtChn_BindIpi(PVOID context, ULONG vcpu);
+EvtChn_AllocIpi(PVOID context, ULONG vcpu);
 NTSTATUS
 EvtChn_Unbind(PVOID Context, evtchn_port_t Port);
 NTSTATUS

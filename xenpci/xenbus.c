@@ -34,7 +34,7 @@ XenBus_ReadThreadProc(PVOID StartContext);
 static DDKAPI void
 XenBus_WatchThreadProc(PVOID StartContext);
 static DDKAPI BOOLEAN
-XenBus_Interrupt(PKINTERRUPT Interrupt, PVOID ServiceContext);
+XenBus_Dpc(PKINTERRUPT Interrupt, PVOID ServiceContext);
 
 /* called with xenbus_mutex held */
 static int allocate_xenbus_id(PXENPCI_DEVICE_DATA xpdd)
@@ -311,7 +311,7 @@ XenBus_Connect(PXENPCI_DEVICE_DATA xpdd)
   pa_xen_store_interface.QuadPart = (ULONGLONG)xen_store_mfn << PAGE_SHIFT;
   xpdd->xen_store_interface = MmMapIoSpace(pa_xen_store_interface, PAGE_SIZE, MmNonCached);
 
-  EvtChn_BindDpc(xpdd, xpdd->xen_store_evtchn, XenBus_Interrupt, xpdd);
+  EvtChn_BindDpc(xpdd, xpdd->xen_store_evtchn, XenBus_Dpc, xpdd);
 
   xpdd->XenBus_ShuttingDown = FALSE;
   KeMemoryBarrier();
@@ -915,7 +915,7 @@ XenBus_EndTransaction(
 }
 
 static DDKAPI BOOLEAN
-XenBus_Interrupt(PKINTERRUPT Interrupt, PVOID ServiceContext)
+XenBus_Dpc(PKINTERRUPT Interrupt, PVOID ServiceContext)
 {
   PXENPCI_DEVICE_DATA xpdd = ServiceContext;
 

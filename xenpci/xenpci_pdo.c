@@ -452,6 +452,93 @@ XenPci_XenShutdownDevice(PVOID Context)
   return STATUS_SUCCESS;
 }
 
+static VOID
+XenPci_Pdo_Comm_Iface_Worker(PDEVICE_OBJECT device_object, PVOID context)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  //char path[128];
+  char *read_value;
+  char **list_value;
+  char *err;
+  char *ptr;
+  int i;
+  
+  UNREFERENCED_PARAMETER(context);
+  
+  FUNCTION_ENTER();
+  
+  switch(xppdd->comm_iface->packet_type)
+  {
+  case COMM_IFACE_CMD_XENBUS_READ:
+    KdPrint((__DRIVER_NAME "     COMM_IFACE_CMD_XENBUS_READ\n"));
+    err = XenBus_Read(xpdd, XBT_NIL, xppdd->comm_iface->packet.read_req.path, &read_value);
+    if (err)
+    {
+        XenPci_FreeMem(err);
+      xppdd->comm_iface->packet_status = COMM_IFACE_STATUS_ERROR;
+    }
+    else
+    {
+      xppdd->comm_iface->packet_status = COMM_IFACE_STATUS_SUCCESS;
+      strcpy(xppdd->comm_iface->packet.read_rsp.value, read_value);
+      XenPci_FreeMem(read_value);
+    }
+    break;
+  case COMM_IFACE_CMD_XENBUS_LIST:
+    KdPrint((__DRIVER_NAME "     COMM_IFACE_CMD_XENBUS_LIST\n"));
+    err = XenBus_List(xpdd, XBT_NIL, xppdd->comm_iface->packet.read_req.path, &list_value);
+    if (err)
+    {
+        XenPci_FreeMem(err);
+      xppdd->comm_iface->packet_status = COMM_IFACE_STATUS_ERROR;
+    }
+    else
+    {
+      xppdd->comm_iface->packet_status = COMM_IFACE_STATUS_SUCCESS;
+      for (ptr = xppdd->comm_iface->packet.list_rsp.values, i = 0; list_value[i]; i++)
+      {
+        strcpy(ptr, list_value[i]);
+        ptr += strlen(list_value[i]) + 1;
+        XenPci_FreeMem(list_value[i]);
+      }
+      strcpy(ptr, "");
+      XenPci_FreeMem(list_value);
+    }
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown packet type = %d\n", xppdd->comm_iface->packet_type));
+    break;
+  }
+  KeMemoryBarrier();
+  xppdd->comm_iface->rsp_prod++;
+  EvtChn_Notify(xpdd, xppdd->comm_iface->fdo_event_channel);
+  FUNCTION_EXIT();
+}
+
+static DDKAPI BOOLEAN
+XenPci_Pdo_Dpc(PKINTERRUPT interrupt, PVOID context)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  PIO_WORKITEM work_item;
+  NTSTATUS status = STATUS_SUCCESS;
+
+  if (!xppdd->comm_iface)
+    return FALSE;
+  KeAcquireSpinLockAtDpcLevel(&xppdd->comm_iface_spinlock);
+  if (xppdd->comm_iface->req_prod == xppdd->req_cons)
+  {
+    KeReleaseSpinLockFromDpcLevel(&xppdd->comm_iface_spinlock);
+    return FALSE;
+  }
+  xppdd->req_cons = xppdd->comm_iface->req_prod;
+  KeReleaseSpinLockFromDpcLevel(&xppdd->comm_iface_spinlock);
+	work_item = IoAllocateWorkItem(xppdd->common.pdo);
+	IoQueueWorkItem(work_item, XenPci_Pdo_Comm_Iface_Worker, DelayedWorkQueue, NULL);
+  return TRUE;
+}
+
 static NTSTATUS
 XenPci_XenConfigDevice(PVOID context);
 
@@ -635,6 +722,19 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
         __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, gref);
       }
       break;
+    case XEN_INIT_TYPE_COMM_IFACE:
+      xppdd->comm_iface = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+      xppdd->comm_iface->magic = XEN_DATA_MAGIC;
+      xppdd->comm_iface->length = sizeof(XEN_COMM_IFACE);
+      xppdd->comm_iface->pdo_event_channel = EvtChn_AllocIpi(xpdd, 0);
+      EvtChn_BindDpc(xpdd, xppdd->comm_iface->pdo_event_channel, XenPci_Pdo_Dpc, xppdd);
+      xppdd->comm_iface->fdo_event_channel = EvtChn_AllocIpi(xpdd, 0);
+      EvtChn_BindIrq(xpdd, xppdd->comm_iface->fdo_event_channel, xppdd->irq_vector, path);
+      strcpy(xppdd->comm_iface->path, xppdd->path);
+      strcpy(xppdd->comm_iface->backend_path, xppdd->backend_path);
+      xppdd->comm_iface->req_prod = 0;
+      xppdd->comm_iface->rsp_prod = 0;
+      ADD_XEN_INIT_RSP(&out_ptr, type, NULL, xppdd->comm_iface);
     }
   }
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_END, NULL, NULL);
@@ -734,7 +834,7 @@ XenPci_Pdo_Resume(PDEVICE_OBJECT device_object)
       // reset things - feed the 'requested resources' back in
       ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL);
       src = xppdd->requested_resources_start;
-      xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
+      xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
       xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;
       
       dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
