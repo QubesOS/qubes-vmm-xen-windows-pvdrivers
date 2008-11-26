@@ -39,6 +39,25 @@ typedef struct {
 #define SHADOW_ENTRIES 32
 #define MAX_GRANT_ENTRIES 512
 
+#define SCSI_DEV_STATE_MISSING 0
+#define SCSI_DEV_STATE_PRESENT 1
+#define SCSI_DEV_STATE_ACTIVE  2
+
+typedef struct {
+  USHORT channel
+  USHORT id;
+  USHORT lun;
+  UCHAR state; /* SCSI_DEV_STATE_XXX */
+  ULONG dev_no;
+} scsi_dev_t;
+
+typedef struct {
+  USHORT state;
+  UCHAR devs[1024];
+  UCHAR path[128];
+  PUCHAR ptr;
+} enum_vars_t;
+
 struct
 {
   vscsiif_shadow_t shadows[SHADOW_ENTRIES];
@@ -59,6 +78,9 @@ struct
   int lun;
 
   XENPCI_VECTORS vectors;
+  PXEN_COMM_IFACE comm_iface;
+  USHORT rsp_cons;
+  enum_vars_t enum_vars;
 } typedef XENSCSI_DEVICE_DATA, *PXENSCSI_DEVICE_DATA;
 
 enum dma_data_direction {
