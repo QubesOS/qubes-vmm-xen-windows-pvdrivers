@@ -20,6 +20,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xenhide.h"
 #include <stdlib.h>
 
+extern PULONG InitSafeBootMode;
+
 DRIVER_INITIALIZE DriverEntry;
 static NTSTATUS
 XenHide_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObject);
@@ -154,6 +156,15 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
       State = 0;
       break;
     }
+  }
+
+  //
+  // Check for Safe mode boot...
+  //
+  if (*InitSafeBootMode > 0)
+  {
+    KdPrint((__DRIVER_NAME "     Running in SAFE MODE...disabling PV drivers\n"));
+    gplpv = FALSE;
   }
 
   KdPrint((__DRIVER_NAME "     gplpv = %d\n", gplpv));

@@ -43,10 +43,10 @@ xenhide.sys
 xenhide.sys=1
 
 [SourceDisksNames.x86]
-1 = %DISK_NAME%,,,\i386
+1 = %DISK_NAME%,,,.\i386
 
 [SourceDisksNames.amd64]
-1 = %DISK_NAME%,,,\amd64
+1 = %DISK_NAME%,,,.\amd64
 
 [XenHide_Inst.NT.Services]
 AddService=XenHide,,XenHide_Service_Inst
