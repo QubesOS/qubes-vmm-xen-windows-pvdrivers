@@ -303,7 +303,7 @@ EvtChn_Notify(PVOID Context, evtchn_port_t Port)
 }
 
 evtchn_port_t
-EvtChn_BindIpi(PVOID context, ULONG vcpu)
+EvtChn_AllocIpi(PVOID context, ULONG vcpu)
 {
   PXENPCI_DEVICE_DATA xpdd = context;
   evtchn_bind_ipi_t op;
@@ -372,7 +372,7 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
   xpdd->interrupts_masked = FALSE;
   KeMemoryBarrier();
 
-  xpdd->suspend_evtchn = EvtChn_BindIpi(xpdd, 0);
+  xpdd->suspend_evtchn = EvtChn_AllocIpi(xpdd, 0);
   xpdd->ev_actions[xpdd->suspend_evtchn].type = EVT_ACTION_TYPE_SUSPEND;
   EvtChn_Unmask(xpdd, xpdd->suspend_evtchn);
   
