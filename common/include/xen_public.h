@@ -103,147 +103,6 @@ typedef NTSTATUS
 
 #define XEN_DATA_MAGIC 0x12345678
 
-#define COMM_IFACE_CMD_XENBUS_READ      0x01
-#define COMM_IFACE_CMD_XENBUS_LIST      0x02
-
-#define COMM_IFACE_STATUS_SUCCESS	0x00
-#define COMM_IFACE_STATUS_ERROR		0xFF
-
-#define COMM_IFACE_MAX_PACKET_SIZE	1024
-
-//#define __COMM_IFACE_RING_SIZE_BITS	9
-//#define COMM_IFACE_RING_SIZE (1 << __COMM_IFACE_RING_SIZE_BITS)
-
-/*
-This structure + fdo data must fit into one page
-*/
-typedef struct {
-  ULONG magic;
-  USHORT length;
-  ULONG pdo_event_channel;
-  ULONG fdo_event_channel;
-  CHAR path[128];
-  CHAR backend_path[128];
-  USHORT req_prod;
-  USHORT rsp_prod;
-  USHORT packet_type;
-  USHORT packet_status;
-  union
-  {
-    struct {
-      CHAR path[256];
-    } read_req;
-    struct {
-      CHAR value[256];
-    } read_rsp;
-    struct {
-      CHAR path[256];
-    } list_req;
-    struct {
-      CHAR values[1024];
-    } list_rsp;
-  } packet;
-#pragma warning(suppress : 4200)
-  UCHAR fdo_data[0];
-} XEN_COMM_IFACE, *PXEN_COMM_IFACE;
-
-typedef struct {
-  USHORT length;
-  UCHAR status;
-  UCHAR type;
-#pragma warning(suppress : 4200)
-  UCHAR data[0];
-} COMM_PACKET, *PCOMM_PACKET;
-
-#if 0
-static VOID
-XenPci_PutDataOnRing(PUCHAR start, ULONG prod, PUCHAR data, ULONG length)
-{
-  ULONG pos;
-
-  FUNCTION_ENTER();
-  ASSERT(length <= COMM_IFACE_RING_SIZE);
-  pos = prod & (COMM_IFACE_RING_SIZE - 1);
-  KdPrint((__DRIVER_NAME "     pos = %d\n", pos));
-  if (pos + length > COMM_IFACE_RING_SIZE)
-  {
-    memcpy(start + pos, data, COMM_IFACE_RING_SIZE - pos);
-    memcpy(start, data, length + pos - COMM_IFACE_RING_SIZE);
-  }
-  else
-  {
-    KdPrint((__DRIVER_NAME "     memcpy(%p, %p, %d)\n", start + pos, data, length));
-    memcpy(start + pos, data, length);
-  }
-  FUNCTION_EXIT();
-}
-
-static VOID
-XenPci_GetDataFromRing(PUCHAR start, ULONG cons, PUCHAR data, ULONG length)
-{
-  ULONG pos;
-
-  FUNCTION_ENTER();
-
-  ASSERT(length <= COMM_IFACE_RING_SIZE);
-  pos = cons & (COMM_IFACE_RING_SIZE - 1);
-  KdPrint((__DRIVER_NAME "     pos = %d\n", pos));
-  if (pos + length > COMM_IFACE_RING_SIZE)
-  {
-    memcpy(data, start + pos, COMM_IFACE_RING_SIZE - pos);
-    memcpy(data, start, length + pos - COMM_IFACE_RING_SIZE);
-  }
-  else
-  {
-    KdPrint((__DRIVER_NAME "     memcpy(%p, %p, %d)\n", data, start + pos, length));
-    memcpy(data, start + pos, length);
-  }
-  FUNCTION_EXIT();
-}
-
-static VOID
-XenPci_PutReqOnCommRing(PXENPCI_COMM_IFACE comm_iface, PCOMM_PACKET packet)
-{
-  FUNCTION_ENTER();
-  XenPci_PutDataOnRing(comm_iface->req_ring, comm_iface->req_prod, (PUCHAR)packet, packet->length);
-  KeMemoryBarrier();
-  comm_iface->req_prod += packet->length;
-  FUNCTION_EXIT();
-}
-
-static VOID
-XenPci_GetReqFromCommRing(PXENPCI_COMM_IFACE comm_iface, PCOMM_PACKET packet)
-{
-  FUNCTION_ENTER();
-  XenPci_GetDataFromRing(comm_iface->req_ring, comm_iface->req_cons, (PUCHAR)packet, FIELD_OFFSET(COMM_PACKET, data));
-  XenPci_GetDataFromRing(comm_iface->req_ring, comm_iface->req_cons, (PUCHAR)packet, packet->length);
-  KeMemoryBarrier();
-  comm_iface->req_cons += packet->length;
-  FUNCTION_EXIT();
-}
-
-static VOID
-XenPci_PutRspOnCommRing(PXENPCI_COMM_IFACE comm_iface, PCOMM_PACKET packet)
-{
-  FUNCTION_ENTER();
-  XenPci_PutDataOnRing(comm_iface->rsp_ring, comm_iface->rsp_prod, (PUCHAR)packet, packet->length);
-  KeMemoryBarrier();
-  comm_iface->rsp_prod += packet->length;
-  FUNCTION_EXIT();
-}
-
-static VOID
-XenPci_GetRspFromCommRing(PXENPCI_COMM_IFACE comm_iface, PCOMM_PACKET packet)
-{
-  FUNCTION_ENTER();
-  XenPci_GetDataFromRing(comm_iface->rsp_ring, comm_iface->rsp_cons, (PUCHAR)packet, FIELD_OFFSET(COMM_PACKET, data));
-  XenPci_GetDataFromRing(comm_iface->rsp_ring, comm_iface->rsp_cons, (PUCHAR)packet, packet->length);
-  KeMemoryBarrier();
-  comm_iface->rsp_cons += packet->length;
-  FUNCTION_EXIT();
-}
-#endif
-
 typedef struct {
   ULONG magic;
   USHORT length;
@@ -292,7 +151,6 @@ typedef struct {
 //#define XEN_INIT_TYPE_COPY_PTR          9
 #define XEN_INIT_TYPE_RUN               10
 #define XEN_INIT_TYPE_STATE_PTR         11
-#define XEN_INIT_TYPE_COMM_IFACE        12
 
 static __inline VOID
 __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
@@ -394,7 +252,6 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   case XEN_INIT_TYPE_VECTORS:
   case XEN_INIT_TYPE_RUN:
   case XEN_INIT_TYPE_STATE_PTR:
-  case XEN_INIT_TYPE_COMM_IFACE:
     break;
   case XEN_INIT_TYPE_WRITE_STRING:
     __ADD_XEN_INIT_STRING(ptr, p1);
@@ -429,7 +286,6 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2)
   case XEN_INIT_TYPE_VECTORS:
   case XEN_INIT_TYPE_RUN:
   case XEN_INIT_TYPE_STATE_PTR:
-  case XEN_INIT_TYPE_COMM_IFACE:
     *p1 = NULL;
     *p2 = NULL;
     break;
@@ -491,7 +347,6 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
     *ptr += PtrToUlong(p1) * sizeof(grant_entry_t);
     break;
   case XEN_INIT_TYPE_STATE_PTR:
-  case XEN_INIT_TYPE_COMM_IFACE:
     __ADD_XEN_INIT_PTR(ptr, p2);
     break;
 //  case XEN_INIT_TYPE_COPY_PTR:
@@ -545,7 +400,6 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2)
     *ptr += PtrToUlong(*p1) * sizeof(grant_ref_t);
     break;
   case XEN_INIT_TYPE_STATE_PTR:
-  case XEN_INIT_TYPE_COMM_IFACE:
     *p2 = __GET_XEN_INIT_PTR(ptr);
     break;
 //  case XEN_INIT_TYPE_COPY_PTR:
