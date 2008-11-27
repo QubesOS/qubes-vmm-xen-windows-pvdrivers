@@ -57,7 +57,6 @@ AddReg = XenScsi_XenConfig_AddReg, XenScsi_UpperFilter_AddReg
 [XenScsi_XenConfig_AddReg]
 HKR,"XenConfig\ring-ref", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_RING%
 HKR,"XenConfig\event-channel", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_EVENT_CHANNEL_IRQ%
-;HKR,"XenConfig\b-dev", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_READ_STRING_FRONT%
 HKR,"XenConfig\grants", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_GRANT_ENTRIES%
 HKR,"XenConfig\grants", "value", %FLG_ADDREG_TYPE_DWORD%, 144
 

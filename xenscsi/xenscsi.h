@@ -6,7 +6,7 @@
 #include <wdm.h>
 #include <initguid.h>
 #include <ntdddisk.h>
-#include <srb.h>
+//#include <srb.h>
 
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
@@ -22,6 +22,15 @@
 #include <xen_public.h>
 #include <io/ring.h>
 #include <io/vscsiif.h>
+
+//#include <io/blkif.h>
+#include <storport.h>
+//#include <ntddscsi.h>
+//#include <ntdddisk.h>
+#include <stdlib.h>
+#include <io/xenbus.h>
+#include <io/protocols.h>
+
 
 typedef struct vscsiif_request vscsiif_request_t;
 typedef struct vscsiif_response vscsiif_response_t;
@@ -43,12 +52,14 @@ typedef struct {
 #define SCSI_DEV_STATE_PRESENT 1
 #define SCSI_DEV_STATE_ACTIVE  2
 
+#define SCSI_DEV_NODEV ((ULONG)-1)
+
 typedef struct {
-  USHORT channel
+  ULONG dev_no; // SCSI_DEV_NODEV == end
+  USHORT channel;
   USHORT id;
   USHORT lun;
-  UCHAR state; /* SCSI_DEV_STATE_XXX */
-  ULONG dev_no;
+//  UCHAR state; /* SCSI_DEV_STATE_XXX */
 } scsi_dev_t;
 
 typedef struct {
@@ -78,9 +89,6 @@ struct
   int lun;
 
   XENPCI_VECTORS vectors;
-  PXEN_COMM_IFACE comm_iface;
-  USHORT rsp_cons;
-  enum_vars_t enum_vars;
 } typedef XENSCSI_DEVICE_DATA, *PXENSCSI_DEVICE_DATA;
 
 enum dma_data_direction {
