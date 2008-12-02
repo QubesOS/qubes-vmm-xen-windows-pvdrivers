@@ -70,7 +70,19 @@ put_grant_on_freelist(PXENSCSI_DEVICE_DATA xsdd, grant_ref_t grant)
 }
 
 static BOOLEAN
-XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
+XenScsi_HwStorInterrupt(PVOID DeviceExtension)
+{
+  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
+  if (!dump_mode && !xsdd->vectors.EvtChn_AckEvent(xsdd->vectors.context, xsdd->event_channel))
+    return FALSE;
+  
+  StorPortIssueDpc(DeviceExtension, &xsdd->dpc, NULL, NULL);
+  
+  return FALSE;
+}
+
+static VOID
+XenScsi_HwStorDpc(PSTOR_DPC Dpc, PVOID DeviceExtension, PVOID SystemArgument1, PVOID SystemArgument2)
 {
   PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
   PSCSI_REQUEST_BLOCK Srb;
@@ -80,11 +92,14 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
   int more_to_do = TRUE;
   vscsiif_shadow_t *shadow;
   ULONG remaining;
+  STOR_LOCK_HANDLE lock_handle;
 
-  FUNCTION_ENTER();
+  UNREFERENCED_PARAMETER(Dpc);
+  UNREFERENCED_PARAMETER(SystemArgument1);
+  UNREFERENCED_PARAMETER(SystemArgument2);
+  //FUNCTION_ENTER();
 
-  if (!dump_mode && !xsdd->vectors.EvtChn_AckEvent(xsdd->vectors.context, xsdd->event_channel))
-    return FALSE;
+  StorPortAcquireSpinLock(DeviceExtension, StartIoLock, NULL, &lock_handle);
 
   while (more_to_do)
   {
@@ -94,25 +109,36 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
     {
       rep = RING_GET_RESPONSE(&xsdd->ring, i);
       shadow = &xsdd->shadows[rep->rqid];
-      KdPrint((__DRIVER_NAME "     Operation complete - result = 0x%08x\n", rep->rslt));
       Srb = shadow->Srb;
       Srb->ScsiStatus = (UCHAR)rep->rslt;
       if (rep->sense_len > 0 && Srb->SenseInfoBuffer != NULL)
       {
         memcpy(Srb->SenseInfoBuffer, rep->sense_buffer, min(Srb->SenseInfoBufferLength, rep->sense_len));
       }
-      if (!rep->rslt)
+      switch(rep->rslt)
       {
+      case 0:
+        KdPrint((__DRIVER_NAME "     Xen Operation complete - result = 0x%08x, residual = %d\n", rep->rslt, rep->residual_len));
         Srb->SrbStatus = SRB_STATUS_SUCCESS;
-      }
-      else
-      {
+        break;
+      case 0x00010000: /* Device does not exist */
+        KdPrint((__DRIVER_NAME "     Xen Operation returned error (result = 0x%08x)\n", rep->rslt));
+        Srb->SrbStatus = SRB_STATUS_NO_DEVICE;
+        break;
+      default:
         KdPrint((__DRIVER_NAME "     Xen Operation returned error (result = 0x%08x)\n", rep->rslt));
         Srb->SrbStatus = SRB_STATUS_ERROR;
         if (rep->sense_len > 0 && !(Srb->SrbFlags & SRB_FLAGS_DISABLE_AUTOSENSE) && Srb->SenseInfoBuffer != NULL)
         {
           Srb->SrbStatus |= SRB_STATUS_AUTOSENSE_VALID;
         }
+      }
+      /* work around a bug in scsiback that gives an incorrect result to REPORT_LUNS - fail it if the output is only 8 bytes */
+      if (Srb->Cdb[0] == 0xa0 && Srb->SrbStatus == SRB_STATUS_SUCCESS &&
+        Srb->DataTransferLength - rep->residual_len == 8)
+      {
+        /* SRB_STATUS_ERROR appears to be sufficient here - no need to worry about sense data or anything */
+        Srb->SrbStatus = SRB_STATUS_ERROR;
       }
       remaining = Srb->DataTransferLength;
       for (j = 0; remaining != 0; j++)
@@ -122,9 +148,18 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
         shadow->req.seg[j].gref = 0;
         remaining -= shadow->req.seg[j].length;
       }
+
+      if (Srb->SrbStatus == SRB_STATUS_SUCCESS && rep->residual_len)
+      {
+        KdPrint((__DRIVER_NAME "     SRB_STATUS_DATA_OVERRUN DataTransferLength = %d, adjusted = %d\n",
+          Srb->DataTransferLength, Srb->DataTransferLength - rep->residual_len));
+        Srb->DataTransferLength -= rep->residual_len;
+        Srb->SrbStatus = SRB_STATUS_DATA_OVERRUN;
+      }
+
       put_shadow_on_freelist(xsdd, shadow);
       StorPortNotification(RequestComplete, xsdd, Srb);
-      StorPortNotification(NextRequest, xsdd);
+      //StorPortNotification(NextRequest, xsdd);
     }
 
     xsdd->ring.rsp_cons = i;
@@ -139,13 +174,14 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
     }
   }
 
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  StorPortReleaseSpinLock(DeviceExtension, &lock_handle);
+  //FUNCTION_EXIT();
   
-  return FALSE;
+  return;
 }
 
 static VOID
-XenScsi_ParseBackendDevice(PXENSCSI_DEVICE_DATA xsdd, PCHAR value)
+XenScsi_ParseBackendDevice(scsi_dev_t *dev, PCHAR value)
 {
   int i = 0;
   int j = 0;
@@ -158,40 +194,183 @@ XenScsi_ParseBackendDevice(PXENSCSI_DEVICE_DATA xsdd, PCHAR value)
     if (value[i] == ':' || value[i] == 0)
     {
        value[i] = 0;
-       xsdd->host = xsdd->channel;
-       xsdd->channel = xsdd->id;
-       xsdd->id = xsdd->lun;
-       xsdd->lun = atoi(&value[j]);
+       dev->host = dev->channel;
+       dev->channel = dev->id;
+       dev->id = dev->lun;
+       dev->lun = (UCHAR)atoi(&value[j]);
        j = i + 1;
     }
     i++;
   }
   KdPrint((__DRIVER_NAME "     host = %d, channel = %d, id = %d, lun = %d\n",
-    xsdd->host, xsdd->channel, xsdd->id, xsdd->lun));  
+    dev->host, dev->channel, dev->id, dev->lun));  
+}
+
+/* CALLED AT PASSIVE LEVEL */
+static VOID
+XenScsi_DevWatch(PCHAR path, PVOID DeviceExtension)
+{
+  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
+  CHAR tmp_path[128];
+  PCHAR msg;
+  PCHAR *devices;
+  PCHAR value;
+  scsi_dev_t *dev;
+  ULONG i;
+  ULONG dev_no;
+  ULONG state;
+  BOOLEAN changes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+  STOR_LOCK_HANDLE lock_handle;
+
+  UNREFERENCED_PARAMETER(path);
+  
+  FUNCTION_ENTER();
+  
+  StorPortAcquireSpinLock(DeviceExtension, StartIoLock, NULL, &lock_handle);
+  if (!xsdd->paused)
+  {
+    xsdd->state = SCSI_STATE_ENUM_PENDING;
+    xsdd->paused = TRUE;
+    StorPortReleaseSpinLock(DeviceExtension, &lock_handle);
+    StorPortPause(DeviceExtension, XENSCSI_MAX_ENUM_TIME);
+  }
+  else
+  {
+    StorPortReleaseSpinLock(DeviceExtension, &lock_handle);
+  }
+
+  KdPrint((__DRIVER_NAME "     Watch triggered on %s\n", path));
+  strncpy(tmp_path, xsdd->vectors.backend_path, 128);
+  strncat(tmp_path, "/vscsi-devs", 128);
+  msg = xsdd->vectors.XenBus_List(xsdd->vectors.context, XBT_NIL, tmp_path, &devices);
+  if (msg)
+  {
+    /* this is pretty fatal ... */
+    KdPrint((__DRIVER_NAME "     cannot read - %s\n", msg));
+    return;
+  }
+  for (dev = (scsi_dev_t *)xsdd->dev_list_head.Flink;
+    dev != (scsi_dev_t *)&xsdd->dev_list_head;
+    dev = (scsi_dev_t *)dev->entry.Flink)
+  {
+    dev->validated = FALSE;
+  }
+  
+  for (i = 0; devices[i]; i++)
+  {
+    if (strncmp(devices[i], "dev-", 4) != 0)
+    {
+      XenPci_FreeMem(devices[i]);
+      break; /* not a dev so we are not interested */
+    }
+    dev_no = atoi(devices[i] + 4);
+    strncpy(tmp_path, xsdd->vectors.backend_path, 128);
+    strncat(tmp_path, "/vscsi-devs/", 128);
+    strncat(tmp_path, devices[i], 128);
+    strncat(tmp_path, "/state", 128);
+    msg = xsdd->vectors.XenBus_Read(xsdd->vectors.context, XBT_NIL, tmp_path, &value);
+    if (msg)
+    {
+      KdPrint((__DRIVER_NAME "     failed to read state for device %d\n", dev_no));
+      state = 0;
+    }
+    else
+      state = atoi(value);
+    for (dev = (scsi_dev_t *)xsdd->dev_list_head.Flink;
+      dev != (scsi_dev_t *)&xsdd->dev_list_head;
+      dev = (scsi_dev_t * )dev->entry.Flink)
+    {
+      if (dev->dev_no == dev_no)
+        break;
+    }
+    if (dev == (scsi_dev_t *)&xsdd->dev_list_head)
+    {
+      KdPrint((__DRIVER_NAME "     new dev %d\n", dev_no));
+      dev = ExAllocatePoolWithTag(NonPagedPool, sizeof(scsi_dev_t), XENSCSI_POOL_TAG);
+      dev->dev_no = dev_no;
+      dev->state = state;
+      dev->validated = TRUE;
+      strncpy(tmp_path, xsdd->vectors.backend_path, 128);
+      strncat(tmp_path, "/vscsi-devs/", 128);
+      strncat(tmp_path, devices[i], 128);
+      strncat(tmp_path, "/v-dev", 128);
+      msg = xsdd->vectors.XenBus_Read(xsdd->vectors.context, XBT_NIL, tmp_path, &value);
+      if (msg)
+      {
+        KdPrint((__DRIVER_NAME "     failed to read v-dev for device %d\n", dev_no));
+        continue;
+      }
+      else
+      {
+        XenScsi_ParseBackendDevice(dev, value);
+        // should verify that the controller = this
+      }
+      strncpy(tmp_path, xsdd->vectors.path, 128);
+      strncat(tmp_path, "/vscsi-devs/", 128);
+      strncat(tmp_path, devices[i], 128);
+      strncat(tmp_path, "/state", 128);      
+      msg = xsdd->vectors.XenBus_Write(xsdd->vectors.context, XBT_NIL, tmp_path, "4");
+      if (msg)
+      {
+        KdPrint((__DRIVER_NAME "     failed to write state %d to %s\n", 4, tmp_path));
+        continue;
+      }
+      KdPrint((__DRIVER_NAME "     setting changes[%d]\n", dev->channel));
+      changes[dev->channel] = TRUE;
+      InsertTailList(&xsdd->dev_list_head, (PLIST_ENTRY)dev);
+    }
+    else
+    {
+      // need to manage state change
+      // and write frontend state
+      dev->state = state;
+      dev->validated = TRUE;
+      KdPrint((__DRIVER_NAME "     existing dev %d state = %d\n", dev_no, dev->state));
+    }
+    XenPci_FreeMem(devices[i]);
+  }
+  XenPci_FreeMem(devices);
+
+  StorPortAcquireSpinLock(DeviceExtension, StartIoLock, NULL, &lock_handle);
+  xsdd->state = SCSI_STATE_ENUM_COMPLETE;
+  xsdd->paused = FALSE;
+
+  for (i = 0; i < 8; i++)
+  {  
+    if (changes[i])
+    {
+      KdPrint((__DRIVER_NAME "     Sending BusChangeDetected for channel %d... NOT!\n", i));
+//      StorPortNotification(BusChangeDetected, DeviceExtension, i);
+    }
+  }
+
+  KdPrint((__DRIVER_NAME "     Unpaused\n"));
+  StorPortResume(DeviceExtension);
+
+  StorPortReleaseSpinLock(DeviceExtension, &lock_handle);
+
+  FUNCTION_EXIT();
 }
 
 static ULONG
-XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
+XenScsi_HwStorFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved2, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PUCHAR Reserved3)
 {
   ULONG i;
-//  PACCESS_RANGE AccessRange;
   PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
-//  ULONG status;
-//  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
   PACCESS_RANGE access_range;
   PUCHAR ptr;
   USHORT type;
   PCHAR setting, value;
   vscsiif_sring_t *sring;
+  CHAR path[128];
 
-  UNREFERENCED_PARAMETER(HwContext);
-  UNREFERENCED_PARAMETER(BusInformation);
+  UNREFERENCED_PARAMETER(Reserved1);
+  UNREFERENCED_PARAMETER(Reserved2);
   UNREFERENCED_PARAMETER(ArgumentString);
+  UNREFERENCED_PARAMETER(Reserved3);
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));  
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-
-  *Again = FALSE;
 
   KdPrint((__DRIVER_NAME "     BusInterruptLevel = %d\n", ConfigInfo->BusInterruptLevel));
   KdPrint((__DRIVER_NAME "     BusInterruptVector = %03x\n", ConfigInfo->BusInterruptVector));
@@ -214,7 +393,6 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInfor
     access_range->RangeStart,
     access_range->RangeLength,
     !access_range->RangeInMemory);
-  //ptr = MmMapIoSpace(access_range->RangeStart, access_range->RangeLength, MmCached);
   if (ptr == NULL)
   {
     KdPrint((__DRIVER_NAME "     Unable to map range\n"));
@@ -247,10 +425,6 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInfor
     case XEN_INIT_TYPE_READ_STRING_BACK:
     case XEN_INIT_TYPE_READ_STRING_FRONT:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
-      if (strcmp(setting, "b-dev") == 0)
-      {
-        XenScsi_ParseBackendDevice(xsdd, value);
-      }
       break;
     case XEN_INIT_TYPE_VECTORS:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
@@ -290,30 +464,33 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInfor
   ConfigInfo->NumberOfPhysicalBreaks = VSCSIIF_SG_TABLESIZE - 1;
   ConfigInfo->ScatterGather = TRUE;
   ConfigInfo->AlignmentMask = 0;
-  ConfigInfo->NumberOfBuses = 8;
-  ConfigInfo->InitiatorBusId[0] = 7;
-  ConfigInfo->InitiatorBusId[1] = 7;
-  ConfigInfo->InitiatorBusId[2] = 7;
-  ConfigInfo->InitiatorBusId[3] = 7;
-  ConfigInfo->InitiatorBusId[4] = 7;
-  ConfigInfo->InitiatorBusId[5] = 7;
-  ConfigInfo->InitiatorBusId[6] = 7;
-  ConfigInfo->InitiatorBusId[7] = 7;
+  ConfigInfo->CachesData = FALSE;
+  ConfigInfo->NumberOfBuses = SCSI_MAXIMUM_BUSES; //8
   ConfigInfo->MaximumNumberOfTargets = 16;
-  ConfigInfo->MaximumNumberOfLogicalUnits = 255;
-  ConfigInfo->BufferAccessScsiPortControlled = TRUE;
+  ConfigInfo->MaximumNumberOfLogicalUnits = SCSI_MAXIMUM_LOGICAL_UNITS; // 8
   if (ConfigInfo->Dma64BitAddresses == SCSI_DMA64_SYSTEM_SUPPORTED)
   {
-    ConfigInfo->Master = TRUE;
     ConfigInfo->Dma64BitAddresses = SCSI_DMA64_MINIPORT_SUPPORTED;
     KdPrint((__DRIVER_NAME "     Dma64BitAddresses supported\n"));
   }
   else
   {
-    ConfigInfo->Master = FALSE;
     KdPrint((__DRIVER_NAME "     Dma64BitAddresses not supported\n"));
   }
-
+  /* from i2o example */
+/*
+  ConfigInfo->InitiatorBusId[0] = 7;
+  ConfigInfo->AlignmentMask = 3;
+  ConfigInfo->Dma32BitAddresses = TRUE;
+  ConfigInfo->NeedPhysicalAddresses = TRUE;
+  ConfigInfo->TaggedQueuing = TRUE;
+  ConfigInfo->MapBuffers = STOR_MAP_NO_BUFFERS;
+  ConfigInfo->CachesData = TRUE;
+*/
+  /* end */
+  ConfigInfo->ResetTargetSupported = FALSE; // maybe?
+  ConfigInfo->SynchronizationModel = StorSynchronizeFullDuplex;
+  //ConfigInfo->WmiDataProvider = FALSE; /* i'm not supposed to do this... */
   xsdd->shadow_free = 0;
   memset(xsdd->shadows, 0, sizeof(vscsiif_shadow_t) * SHADOW_ENTRIES);
   for (i = 0; i < SHADOW_ENTRIES; i++)
@@ -322,183 +499,221 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInfor
     put_shadow_on_freelist(xsdd, &xsdd->shadows[i]);
   }
 
+  if (!dump_mode)
+  {
+    InitializeListHead(&xsdd->dev_list_head);
+    /* should do something if we haven't enumerated in a certain time */
+    xsdd->state = SCSI_STATE_ENUM_PENDING;
+    strncpy(path, xsdd->vectors.backend_path, 128);
+    strncat(path, "/vscsi-devs", 128);
+    xsdd->vectors.XenBus_AddWatch(xsdd->vectors.context, XBT_NIL, path,
+      XenScsi_DevWatch, xsdd);
+  }
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));  
 
   return SP_RETURN_FOUND;
 }
 
 static BOOLEAN
-XenScsi_HwScsiInitialize(PVOID DeviceExtension)
+XenScsi_HwPassiveInitialization(PVOID DeviceExtension)
 {
-//  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
-
-  UNREFERENCED_PARAMETER(DeviceExtension);
+  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
   
   FUNCTION_ENTER();
+  StorPortInitializeDpc(DeviceExtension, &xsdd->dpc, XenScsi_HwStorDpc);
+  FUNCTION_EXIT();
+  return TRUE;
+}
+
+
+static BOOLEAN
+XenScsi_HwStorInitialize(PVOID DeviceExtension)
+{
+//  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
+  BOOLEAN retval;
+
+  FUNCTION_ENTER();
+  
+  if ((retval = StorPortEnablePassiveInitialization(DeviceExtension, XenScsi_HwPassiveInitialization)) == TRUE)
+    KdPrint((__DRIVER_NAME "     StorPortEnablePassiveInitialization allowed\n"));
+  else
+  {
+    // this is fatal...
+    KdPrint((__DRIVER_NAME "     StorPortEnablePassiveInitialization not allowed\n"));
+  }
 
   FUNCTION_EXIT();
 
-  return TRUE;
+  return retval;
 }
 
 static VOID
 XenScsi_PutSrbOnRing(PXENSCSI_DEVICE_DATA xsdd, PSCSI_REQUEST_BLOCK Srb)
 {
-  PUCHAR ptr;
   PHYSICAL_ADDRESS physical_address;
+  ULONG remaining;
+  ULONG i;
   PFN_NUMBER pfn;
-  //int i;
   vscsiif_shadow_t *shadow;
-  int remaining;
+  PSTOR_SCATTER_GATHER_LIST sg_list;
+  int notify;
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
   shadow = get_shadow_from_freelist(xsdd);
   ASSERT(shadow);
   shadow->Srb = Srb;
   shadow->req.act = VSCSIIF_ACT_SCSI_CDB;
   memset(shadow->req.cmnd, 0, VSCSIIF_MAX_COMMAND_SIZE);
-  memcpy(shadow->req.cmnd, Srb->Cdb, Srb->CdbLength);
-  shadow->req.cmd_len = Srb->CdbLength;
-  shadow->req.id = (USHORT)xsdd->id;
-  shadow->req.lun = (USHORT)xsdd->lun;
-  shadow->req.channel = (USHORT)xsdd->channel;
+  memcpy(shadow->req.cmnd, Srb->Cdb, min(Srb->CdbLength, VSCSIIF_MAX_COMMAND_SIZE));
+  shadow->req.cmd_len = min(Srb->CdbLength, VSCSIIF_MAX_COMMAND_SIZE);
+  shadow->req.timeout_per_command = (USHORT)Srb->TimeOutValue;
+  shadow->req.channel = (USHORT)Srb->PathId;
+  shadow->req.id = (USHORT)Srb->TargetId;
+  shadow->req.lun = (USHORT)Srb->Lun;
   if (Srb->DataTransferLength && (Srb->SrbFlags & SRB_FLAGS_DATA_IN) && (Srb->SrbFlags & SRB_FLAGS_DATA_OUT))
   {
-    KdPrint((__DRIVER_NAME "     Cmd = %02x, Length = %d, DMA_BIDIRECTIONAL\n", Srb->Cdb[0], Srb->DataTransferLength));
+    //KdPrint((__DRIVER_NAME "     Cmd = %02x, Length = %d, DMA_BIDIRECTIONAL\n", Srb->Cdb[0], Srb->DataTransferLength));
     shadow->req.sc_data_direction = DMA_BIDIRECTIONAL;
   }
   else if (Srb->DataTransferLength && (Srb->SrbFlags & SRB_FLAGS_DATA_IN))
   {
-    KdPrint((__DRIVER_NAME "     Cmd = %02x, Length = %d, DMA_FROM_DEVICE\n", Srb->Cdb[0], Srb->DataTransferLength));
+    //KdPrint((__DRIVER_NAME "     Cmd = %02x, Length = %d, DMA_FROM_DEVICE\n", Srb->Cdb[0], Srb->DataTransferLength));
     shadow->req.sc_data_direction = DMA_FROM_DEVICE;
   }
   else if (Srb->DataTransferLength && (Srb->SrbFlags & SRB_FLAGS_DATA_OUT))
   {
-    KdPrint((__DRIVER_NAME "     Cmd = %02x, Length = %d, DMA_TO_DEVICE\n", Srb->Cdb[0], Srb->DataTransferLength));
+    //KdPrint((__DRIVER_NAME "     Cmd = %02x, Length = %d, DMA_TO_DEVICE\n", Srb->Cdb[0], Srb->DataTransferLength));
     shadow->req.sc_data_direction = DMA_TO_DEVICE;
   }
   else
   {
-    KdPrint((__DRIVER_NAME "     Cmd = %02x, Length = %d, DMA_NONE\n", Srb->Cdb[0], Srb->DataTransferLength));
+    //KdPrint((__DRIVER_NAME "     Cmd = %02x, Length = %d, DMA_NONE\n", Srb->Cdb[0], Srb->DataTransferLength));
     shadow->req.sc_data_direction = DMA_NONE;
   }
-  //shadow->req.nr_segments = (UINT8)((Srb->DataTransferLength + PAGE_SIZE - 1) >> PAGE_SHIFT);
-  //shadow->req.request_bufflen = Srb->DataTransferLength;
 
   remaining = Srb->DataTransferLength;
   shadow->req.seg[0].offset = 0;
   shadow->req.seg[0].length = 0;
+  shadow->req.nr_segments = 0;
 
-  ptr = Srb->DataBuffer;
-
-  for (shadow->req.nr_segments = 0; remaining != 0; shadow->req.nr_segments++)
+  sg_list = StorPortGetScatterGatherList(xsdd, Srb);
+  for (i = 0; i < sg_list->NumberOfElements; i++)
   {
-    physical_address = MmGetPhysicalAddress(ptr);
-    pfn = (ULONG)(physical_address.QuadPart >> PAGE_SHIFT);
-    shadow->req.seg[shadow->req.nr_segments].gref = get_grant_from_freelist(xsdd);
-    ASSERT(shadow->req.seg[shadow->req.nr_segments].gref);
-    xsdd->vectors.GntTbl_GrantAccess(xsdd->vectors.context, 0, (ULONG)pfn, 0, shadow->req.seg[shadow->req.nr_segments].gref);
-    shadow->req.seg[shadow->req.nr_segments].offset = (USHORT)(physical_address.LowPart & (PAGE_SIZE - 1));
-    shadow->req.seg[shadow->req.nr_segments].length = (USHORT)min(PAGE_SIZE - shadow->req.seg[shadow->req.nr_segments].offset, remaining);
-    remaining -= shadow->req.seg[shadow->req.nr_segments].length;
-    ptr += shadow->req.seg[shadow->req.nr_segments].length;
-    //KdPrint((__DRIVER_NAME "     Page = %d, Offset = %d, Length = %d, Remaining = %d\n", shadow->req.nr_segments, shadow->req.seg[shadow->req.nr_segments].offset, shadow->req.seg[shadow->req.nr_segments].length, remaining));
+    physical_address = sg_list->List[i].PhysicalAddress;
+    //KdPrint((__DRIVER_NAME "     Physical address = 0x%08x%08x\n", physical_address.HighPart, physical_address.LowPart));
+    remaining = sg_list->List[i].Length;
+    while(remaining > 0)
+    {
+      pfn = (ULONG)(physical_address.QuadPart >> PAGE_SHIFT);
+      shadow->req.seg[shadow->req.nr_segments].gref = get_grant_from_freelist(xsdd);
+      ASSERT(shadow->req.seg[shadow->req.nr_segments].gref);
+      xsdd->vectors.GntTbl_GrantAccess(xsdd->vectors.context, 0, (ULONG)pfn, 0, shadow->req.seg[shadow->req.nr_segments].gref);
+      shadow->req.seg[shadow->req.nr_segments].offset = (USHORT)(physical_address.LowPart & (PAGE_SIZE - 1));
+      shadow->req.seg[shadow->req.nr_segments].length = (USHORT)min((ULONG)(PAGE_SIZE - shadow->req.seg[shadow->req.nr_segments].offset), remaining);
+      remaining -= shadow->req.seg[shadow->req.nr_segments].length;
+      physical_address.QuadPart += shadow->req.seg[shadow->req.nr_segments].length;
+      //KdPrint((__DRIVER_NAME "     Page = %d, Pfn = 0x%08x, Offset = 0x%03x, Length = %d, Remaining = %d\n", shadow->req.nr_segments, pfn, shadow->req.seg[shadow->req.nr_segments].offset, shadow->req.seg[shadow->req.nr_segments].length, remaining));
+      shadow->req.nr_segments++;
+    }
   }
   *RING_GET_REQUEST(&xsdd->ring, xsdd->ring.req_prod_pvt) = shadow->req;
   xsdd->ring.req_prod_pvt++;
+  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xsdd->ring, notify);
+  if (notify)
+    xsdd->vectors.EvtChn_Notify(xsdd->vectors.context, xsdd->event_channel);
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 }
 
 static BOOLEAN
-XenScsi_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
+XenScsi_HwStorBuildIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
 {
 //  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
-//  int notify;
+  UNREFERENCED_PARAMETER(DeviceExtension);
+  UNREFERENCED_PARAMETER(Srb);
 
-  FUNCTION_ENTER();
-  //KdPrint((__DRIVER_NAME " --> HwScsiStartIo PathId = %d, TargetId = %d, Lun = %d\n", Srb->PathId, Srb->TargetId, Srb->Lun));
+  return TRUE;
+}
 
-//  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-//  if (Srb->PathId != 0 || Srb->TargetId != 0)
-//  {
+/* Called with StartIoLock held */
+static BOOLEAN
+XenScsi_HwStorStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
+{
+  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
+  scsi_dev_t *dev;
+
+  // FUNCTION_ENTER();
+  if (xsdd->state != SCSI_STATE_ENUM_COMPLETE)
+  {
+    if (!xsdd->paused)
+    {
+      xsdd->paused = TRUE;
+      StorPortPause(DeviceExtension, XENSCSI_MAX_ENUM_TIME);
+    }
+    Srb->SrbStatus = SRB_STATUS_PENDING;
+    StorPortNotification(RequestComplete, DeviceExtension, Srb);
+    return TRUE;
+  }
+
+  for (dev = (scsi_dev_t *)xsdd->dev_list_head.Flink;
+    dev != (scsi_dev_t *)&xsdd->dev_list_head;
+    dev = (scsi_dev_t * )dev->entry.Flink)
+  {
+    if (dev->channel == Srb->PathId && dev->id == Srb->TargetId && dev->lun == Srb->Lun)
+      break;
+  }
+  if (dev == (scsi_dev_t *)&xsdd->dev_list_head)
+  {
     Srb->SrbStatus = SRB_STATUS_NO_DEVICE;
     StorPortNotification(RequestComplete, DeviceExtension, Srb);
-    StorPortNotification(NextRequest, DeviceExtension, NULL);
-    KdPrint((__DRIVER_NAME "     Out of bounds\n"));
-    FUNCTION_EXIT();
+    //KdPrint((__DRIVER_NAME "     Out of bounds\n"));
     return TRUE;
-//  }
+  }
 
-#if 0
   switch (Srb->Function)
   {
   case SRB_FUNCTION_EXECUTE_SCSI:
     XenScsi_PutSrbOnRing(xsdd, Srb);
-    RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xsdd->ring, notify);
-    if (notify)
-      xsdd->vectors.EvtChn_Notify(xsdd->vectors.context, xsdd->event_channel);
-    if (!xsdd->shadow_free)
-      StorPortNotification(NextRequest, DeviceExtension);
+    Srb->SrbStatus = SRB_STATUS_PENDING;
     break;
   case SRB_FUNCTION_IO_CONTROL:
     KdPrint((__DRIVER_NAME "     SRB_FUNCTION_IO_CONTROL\n"));
     Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
     StorPortNotification(RequestComplete, DeviceExtension, Srb);
-    StorPortNotification(NextRequest, DeviceExtension, NULL);
     break;
   case SRB_FUNCTION_FLUSH:
     KdPrint((__DRIVER_NAME "     SRB_FUNCTION_FLUSH\n"));
     Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
     StorPortNotification(RequestComplete, DeviceExtension, Srb);
-    StorPortNotification(NextRequest, DeviceExtension, NULL);
     break;
   default:
     KdPrint((__DRIVER_NAME "     Unhandled Srb->Function = %08X\n", Srb->Function));
     Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
     StorPortNotification(RequestComplete, DeviceExtension, Srb);
-    StorPortNotification(NextRequest, DeviceExtension, NULL);
     break;
   }
 
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //FUNCTION_EXIT();
   return TRUE;
-#endif
 }
 
 static BOOLEAN
-XenScsi_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
+XenScsi_HwStorResetBus(PVOID DeviceExtension, ULONG PathId)
 {
   UNREFERENCED_PARAMETER(DeviceExtension);
   UNREFERENCED_PARAMETER(PathId);
 
 
-  KdPrint((__DRIVER_NAME " --> HwScsiResetBus\n"));
+  FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-
-  KdPrint((__DRIVER_NAME " <-- HwScsiResetBus\n"));
-
-  return TRUE;
-}
-
-static BOOLEAN
-XenScsi_HwScsiAdapterState(PVOID DeviceExtension, PVOID Context, BOOLEAN SaveState)
-{
-  UNREFERENCED_PARAMETER(DeviceExtension);
-  UNREFERENCED_PARAMETER(Context);
-  UNREFERENCED_PARAMETER(SaveState);
-
-  KdPrint((__DRIVER_NAME " --> HwScsiAdapterState\n"));
-  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-
-  KdPrint((__DRIVER_NAME " <-- HwScsiAdapterState\n"));
+  FUNCTION_EXIT();
 
   return TRUE;
 }
 
 static SCSI_ADAPTER_CONTROL_STATUS
-XenScsi_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE ControlType, PVOID Parameters)
+XenScsi_HwStorAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE ControlType, PVOID Parameters)
 {
   SCSI_ADAPTER_CONTROL_STATUS Status = ScsiAdapterControlSuccess;
   PSCSI_SUPPORTED_CONTROL_TYPE_LIST SupportedControlTypeList;
@@ -506,7 +721,7 @@ XenScsi_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Co
 
   UNREFERENCED_PARAMETER(DeviceExtension);
 
-  KdPrint((__DRIVER_NAME " --> HwScsiAdapterControl\n"));
+  FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   switch (ControlType)
@@ -516,6 +731,7 @@ XenScsi_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Co
     KdPrint((__DRIVER_NAME "     ScsiQuerySupportedControlTypes (Max = %d)\n", SupportedControlTypeList->MaxControlType));
     SupportedControlTypeList->SupportedTypeList[ScsiQuerySupportedControlTypes] = TRUE;
     SupportedControlTypeList->SupportedTypeList[ScsiStopAdapter] = TRUE;
+    SupportedControlTypeList->SupportedTypeList[ScsiRestartAdapter] = TRUE;
     break;
   case ScsiStopAdapter:
     KdPrint((__DRIVER_NAME "     ScsiStopAdapter\n"));
@@ -534,7 +750,7 @@ XenScsi_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Co
     break;
   }
 
-  KdPrint((__DRIVER_NAME " <-- HwScsiAdapterControl\n"));
+  FUNCTION_EXIT();
 
   return Status;
 }
@@ -545,36 +761,37 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   ULONG Status;
   HW_INITIALIZATION_DATA HwInitializationData;
 
-  KdPrint((__DRIVER_NAME " --> "__FUNCTION__ "\n"));
+  FUNCTION_ENTER();
+
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
+  /* RegistryPath == NULL when we are invoked as a crash dump driver */
+  if (!RegistryPath)
+  {
+    dump_mode = TRUE;
+  }
 
   RtlZeroMemory(&HwInitializationData, sizeof(HW_INITIALIZATION_DATA));
 
   HwInitializationData.HwInitializationDataSize = sizeof(HW_INITIALIZATION_DATA);
   HwInitializationData.AdapterInterfaceType = Internal;
-  HwInitializationData.HwDmaStarted = NULL;
   HwInitializationData.DeviceExtensionSize = sizeof(XENSCSI_DEVICE_DATA);
   HwInitializationData.SpecificLuExtensionSize = 0;
   HwInitializationData.SrbExtensionSize = 0;
   HwInitializationData.NumberOfAccessRanges = 1;
-  HwInitializationData.MapBuffers = TRUE;
-  HwInitializationData.NeedPhysicalAddresses = FALSE;
+  HwInitializationData.MapBuffers = STOR_MAP_NO_BUFFERS;
+  HwInitializationData.NeedPhysicalAddresses = TRUE; // must be TRUE
   HwInitializationData.TaggedQueuing = TRUE;
   HwInitializationData.AutoRequestSense = TRUE;
   HwInitializationData.MultipleRequestPerLu = TRUE;
-  HwInitializationData.ReceiveEvent = FALSE;
-  HwInitializationData.VendorIdLength = 0;
-  HwInitializationData.VendorId = NULL;
-  HwInitializationData.DeviceIdLength = 0;
-  HwInitializationData.DeviceId = NULL;
 
-  HwInitializationData.HwInitialize = XenScsi_HwScsiInitialize;
-  HwInitializationData.HwStartIo = XenScsi_HwScsiStartIo;
-  HwInitializationData.HwInterrupt = XenScsi_HwScsiInterrupt;
-  HwInitializationData.HwFindAdapter = XenScsi_HwScsiFindAdapter;
-  HwInitializationData.HwResetBus = XenScsi_HwScsiResetBus;
-  HwInitializationData.HwAdapterState = XenScsi_HwScsiAdapterState;
-  HwInitializationData.HwAdapterControl = XenScsi_HwScsiAdapterControl;
+  HwInitializationData.HwInitialize = XenScsi_HwStorInitialize;
+  HwInitializationData.HwBuildIo = XenScsi_HwStorBuildIo;
+  HwInitializationData.HwStartIo = XenScsi_HwStorStartIo;
+  HwInitializationData.HwInterrupt = XenScsi_HwStorInterrupt;
+  HwInitializationData.HwFindAdapter = XenScsi_HwStorFindAdapter;
+  HwInitializationData.HwResetBus = XenScsi_HwStorResetBus;
+  HwInitializationData.HwAdapterControl = XenScsi_HwStorAdapterControl;
 
   Status = StorPortInitialize(DriverObject, RegistryPath, &HwInitializationData, NULL);
   
@@ -583,7 +800,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     KdPrint((__DRIVER_NAME " StorPortInitialize failed with status 0x%08x\n", Status));
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 
   return Status;
 }
