@@ -48,26 +48,24 @@ typedef struct {
 #define SHADOW_ENTRIES 32
 #define MAX_GRANT_ENTRIES 512
 
-#define SCSI_DEV_STATE_MISSING 0
-#define SCSI_DEV_STATE_PRESENT 1
-#define SCSI_DEV_STATE_ACTIVE  2
-
 #define SCSI_DEV_NODEV ((ULONG)-1)
 
 typedef struct {
+  LIST_ENTRY entry;
   ULONG dev_no; // SCSI_DEV_NODEV == end
-  USHORT channel;
-  USHORT id;
-  USHORT lun;
-//  UCHAR state; /* SCSI_DEV_STATE_XXX */
+  ULONG state;
+  BOOLEAN validated;
+  UCHAR host;
+  UCHAR channel;
+  UCHAR id;
+  UCHAR lun;
 } scsi_dev_t;
 
-typedef struct {
-  USHORT state;
-  UCHAR devs[1024];
-  UCHAR path[128];
-  PUCHAR ptr;
-} enum_vars_t;
+#define SCSI_STATE_ENUM_PENDING     0
+#define SCSI_STATE_ENUM_IN_PROGRESS 1
+#define SCSI_STATE_ENUM_COMPLETE    2
+
+#define XENSCSI_MAX_ENUM_TIME 5
 
 struct
 {
@@ -82,13 +80,17 @@ struct
   evtchn_port_t event_channel;
 
   vscsiif_front_ring_t ring;
-
-  int host;
-  int channel;
-  int id;
-  int lun;
-
+  
   XENPCI_VECTORS vectors;
+  
+  LIST_ENTRY dev_list_head;
+  
+  STOR_DPC dpc;
+  
+  /* protected by StartIoLock */
+  BOOLEAN paused;  
+  ULONG state;
+
 } typedef XENSCSI_DEVICE_DATA, *PXENSCSI_DEVICE_DATA;
 
 enum dma_data_direction {

@@ -101,6 +101,16 @@ typedef NTSTATUS
 typedef NTSTATUS
 (*PXEN_XENPCI_XEN_SHUTDOWN_DEVICE)(PVOID Context);
 
+#ifndef XENPCI_POOL_TAG
+#define XENPCI_POOL_TAG (ULONG) 'XenP'
+#endif
+
+static __inline VOID
+XenPci_FreeMem(PVOID Ptr)
+{
+  ExFreePoolWithTag(Ptr, XENPCI_POOL_TAG);
+}
+
 #define XEN_DATA_MAGIC 0x12345678
 
 typedef struct {
@@ -123,6 +133,18 @@ typedef struct {
 
   PXEN_XENPCI_XEN_CONFIG_DEVICE XenPci_XenConfigDevice;
   PXEN_XENPCI_XEN_SHUTDOWN_DEVICE XenPci_XenShutdownDevice;
+
+  CHAR path[128];
+  CHAR backend_path[128];
+
+  PXEN_XENBUS_READ XenBus_Read;
+  PXEN_XENBUS_WRITE XenBus_Write;
+  PXEN_XENBUS_PRINTF XenBus_Printf;
+  PXEN_XENBUS_STARTTRANSACTION XenBus_StartTransaction;
+  PXEN_XENBUS_ENDTRANSACTION XenBus_EndTransaction;
+  PXEN_XENBUS_LIST XenBus_List;
+  PXEN_XENBUS_ADDWATCH XenBus_AddWatch;
+  PXEN_XENBUS_REMWATCH XenBus_RemWatch;
 
 } XENPCI_VECTORS, *PXENPCI_VECTORS;
 

@@ -396,6 +396,88 @@ XenPci_GntTbl_GetRef(PVOID Context)
   return GntTbl_GetRef(xpdd);
 }
 
+PCHAR
+XenPci_XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = Context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  return XenBus_Read(xpdd, xbt, path, value);
+}
+
+PCHAR
+XenPci_XenBus_Write(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *value)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = Context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  return XenBus_Write(xpdd, xbt, path, value);
+}
+
+PCHAR
+XenPci_XenBus_Printf(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *fmt, ...)
+{
+  //PXENPCI_PDO_DEVICE_DATA xppdd = Context;
+  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  //return XenBus_Printf(xpdd, xbt, path, value);
+  UNREFERENCED_PARAMETER(Context);
+  UNREFERENCED_PARAMETER(xbt);
+  UNREFERENCED_PARAMETER(path);
+  UNREFERENCED_PARAMETER(fmt);
+  return NULL;
+}
+
+PCHAR
+XenPci_XenBus_StartTransaction(PVOID Context, xenbus_transaction_t *xbt)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = Context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  return XenBus_StartTransaction(xpdd, xbt);
+}
+
+PCHAR
+XenPci_XenBus_EndTransaction(PVOID Context, xenbus_transaction_t xbt, int abort, int *retry)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = Context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  return XenBus_EndTransaction(xpdd, xbt, abort, retry);
+}
+
+PCHAR
+XenPci_XenBus_List(PVOID Context, xenbus_transaction_t xbt, const char *prefix, char ***contents)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = Context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  return XenBus_List(xpdd, xbt, prefix, contents);
+}
+
+PCHAR
+XenPci_XenBus_AddWatch(PVOID Context, xenbus_transaction_t xbt, const char *path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = Context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  PCHAR retval;
+  
+  FUNCTION_ENTER();
+  retval = XenBus_AddWatch(xpdd, xbt, path, ServiceRoutine, ServiceContext);
+  if (retval == NULL)
+  {
+    KdPrint((__DRIVER_NAME "     XenPci_XenBus_AddWatch - %s = NULL\n", path));
+  }
+  else
+  {
+    KdPrint((__DRIVER_NAME "     XenPci_XenBus_AddWatch - %s = %s\n", path, retval));
+  }
+  FUNCTION_EXIT();
+  return retval;
+}
+
+PCHAR
+XenPci_XenBus_RemWatch(PVOID Context, xenbus_transaction_t xbt, const char *path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = Context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  return XenBus_RemWatch(xpdd, xbt, path, ServiceRoutine, ServiceContext);
+}
+
 static NTSTATUS
 XenPci_XenShutdownDevice(PVOID Context)
 {
@@ -502,6 +584,17 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   vectors.GntTbl_EndAccess = XenPci_GntTbl_EndAccess;
   vectors.XenPci_XenConfigDevice = XenPci_XenConfigDevice;
   vectors.XenPci_XenShutdownDevice = XenPci_XenShutdownDevice;
+  strncpy(vectors.path, xppdd->path, 128);
+  strncpy(vectors.backend_path, xppdd->backend_path, 128);
+  vectors.XenBus_Read = XenPci_XenBus_Read;
+  vectors.XenBus_Write = XenPci_XenBus_Write;
+  vectors.XenBus_Printf = XenPci_XenBus_Printf;
+  vectors.XenBus_StartTransaction = XenPci_XenBus_StartTransaction;
+  vectors.XenBus_EndTransaction = XenPci_XenBus_EndTransaction;
+  vectors.XenBus_List = XenPci_XenBus_List;
+  vectors.XenBus_AddWatch = XenPci_XenBus_AddWatch;
+  vectors.XenBus_RemWatch = XenPci_XenBus_RemWatch;
+ 
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors);
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_STATE_PTR, NULL, &xppdd->device_state);
 
