@@ -272,9 +272,6 @@ typedef struct {
   PUCHAR assigned_resources_ptr;
   XENPCI_DEVICE_STATE device_state;
   BOOLEAN restart_on_resume;
-  PXEN_COMM_IFACE comm_iface;
-  KSPIN_LOCK comm_iface_spinlock;
-  USHORT req_cons;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 typedef struct
@@ -346,11 +343,13 @@ sw_interrupt(UCHAR intno)
 
 #define XBT_NIL ((xenbus_transaction_t)0)
 
+#if 0
 static __inline VOID
 XenPci_FreeMem(PVOID Ptr)
 {
   ExFreePoolWithTag(Ptr, XENPCI_POOL_TAG);
 }
+#endif
 
 NTSTATUS
 hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd);
