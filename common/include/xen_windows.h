@@ -3,6 +3,7 @@
 
 #pragma warning( disable : 4201 ) // nonstandard extension used : nameless struct/union
 #pragma warning( disable : 4214 ) // nonstandard extension used : bit field types other than int
+#pragma warning( disable : 4505 ) // 'XenDbgPrint' : unreferenced local function has been removed
 
 #define __XEN_INTERFACE_VERSION__ 0x00030205
 #if defined(_AMD64_)
@@ -193,7 +194,7 @@ FreePages(PMDL Mdl)
 
 #define XEN_IOPORT_DEBUG_PORT_BASE 0x10
 
-static XenDbgPrint(PCHAR format, ...)
+static void XenDbgPrint(PCHAR format, ...)
 {
   CHAR buf[512];
   va_list ap;
