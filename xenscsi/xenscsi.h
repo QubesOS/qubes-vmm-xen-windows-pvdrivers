@@ -24,7 +24,8 @@
 #include <io/vscsiif.h>
 
 //#include <io/blkif.h>
-#include <storport.h>
+//#include <storport.h>
+#include <scsi.h>
 //#include <ntddscsi.h>
 //#include <ntdddisk.h>
 #include <stdlib.h>
@@ -85,12 +86,10 @@ struct
   
   LIST_ENTRY dev_list_head;
   
-  STOR_DPC dpc;
+  //STOR_DPC dpc;
   
-  /* protected by StartIoLock */
-  BOOLEAN paused;  
-  ULONG state;
-
+  BOOLEAN pause_req;
+  BOOLEAN pause_ack;
 } typedef XENSCSI_DEVICE_DATA, *PXENSCSI_DEVICE_DATA;
 
 enum dma_data_direction {

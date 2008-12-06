@@ -73,7 +73,8 @@ ServiceBinary  = %12%\xenconfig.sys
 AddReg = XenConfig_Service_AddReg
 
 [XenConfig_Service_AddReg]
-HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+HKR,"Parameters\PnpInterface", "0", %FLG_ADDREG_TYPE_DWORD%, 1
+HKR,"Parameters", "BusType", %FLG_ADDREG_TYPE_DWORD%, 1
 
 [SourceDisksFiles]
 xenscsi.sys=1
