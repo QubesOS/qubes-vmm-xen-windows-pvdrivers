@@ -901,8 +901,13 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         }
         for (j = 0; j < shadow->req.nr_segments; j++)
         {
-          BOOLEAN result = xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context, shadow->req.seg[j].gref, TRUE);
+#if DBG
+          BOOLEAN result = 
+#endif
+              xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context, shadow->req.seg[j].gref, TRUE);
+#if DBG
           ASSERT(result);
+#endif
           put_grant_on_freelist(xvdd, shadow->req.seg[j].gref);
         }
 
