@@ -372,11 +372,11 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
   xpdd->interrupts_masked = FALSE;
   KeMemoryBarrier();
 
-  xpdd->suspend_evtchn = EvtChn_AllocIpi(xpdd, 0);
-  xpdd->ev_actions[xpdd->suspend_evtchn].type = EVT_ACTION_TYPE_SUSPEND;
-  EvtChn_Unmask(xpdd, xpdd->suspend_evtchn);
+  xpdd->pdo_event_channel = EvtChn_AllocIpi(xpdd, 0);
+  xpdd->ev_actions[xpdd->pdo_event_channel].type = EVT_ACTION_TYPE_SUSPEND;
+  EvtChn_Unmask(xpdd, xpdd->pdo_event_channel);
   
-  KdPrint((__DRIVER_NAME "     suspend_evtchn = %d\n", xpdd->suspend_evtchn));
+  KdPrint((__DRIVER_NAME "     pdo_event_channel = %d\n", xpdd->pdo_event_channel));
 
   FUNCTION_EXIT();
   

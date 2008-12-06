@@ -586,6 +586,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   vectors.XenPci_XenShutdownDevice = XenPci_XenShutdownDevice;
   strncpy(vectors.path, xppdd->path, 128);
   strncpy(vectors.backend_path, xppdd->backend_path, 128);
+  vectors.pdo_event_channel = xpdd->pdo_event_channel;
   vectors.XenBus_Read = XenPci_XenBus_Read;
   vectors.XenBus_Write = XenPci_XenBus_Write;
   vectors.XenBus_Printf = XenPci_XenBus_Printf;
@@ -856,7 +857,7 @@ XenPci_Pdo_Resume(PDEVICE_OBJECT device_object)
   KeMemoryBarrier();
   xppdd->device_state.resume_state = RESUME_STATE_FRONTEND_RESUME;
   KeMemoryBarrier();
-  EvtChn_Notify(xpdd, xpdd->suspend_evtchn);  
+  EvtChn_Notify(xpdd, xpdd->pdo_event_channel);  
 
   FUNCTION_EXIT();
 
@@ -886,7 +887,7 @@ XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object)
     KeMemoryBarrier();
     xppdd->device_state.resume_state = RESUME_STATE_SUSPENDING;
     KeMemoryBarrier();
-    EvtChn_Notify(xpdd, xpdd->suspend_evtchn);    
+    EvtChn_Notify(xpdd, xpdd->pdo_event_channel);    
     while(xppdd->device_state.resume_state_ack != RESUME_STATE_SUSPENDING)
     {
       KdPrint((__DRIVER_NAME "     Starting delay - resume_state = %d, resume_state_ack = %d\n", xppdd->device_state.resume_state, xppdd->device_state.resume_state_ack));
