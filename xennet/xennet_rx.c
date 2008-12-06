@@ -381,12 +381,11 @@ XenNet_MakePackets(
           {
             csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
           }
-        }
-        if (xi->setting_csum.V4Receive.UdpChecksum && xi->rxpi.ip_proto == 17)
+        } else if (xi->setting_csum.V4Receive.UdpChecksum && xi->rxpi.ip_proto == 17)
         {
           csum_info->Receive.NdisPacketUdpChecksumSucceeded = TRUE;
         }
-        if (xi->rxpi.csum_blank) // && !csum_info->Value)
+        if (xi->rxpi.csum_blank)
         {
           XenNet_SumPacketData(&xi->rxpi, packet, TRUE);
         }
@@ -403,8 +402,7 @@ XenNet_MakePackets(
           {
             csum_info->Receive.NdisPacketTcpChecksumFailed = TRUE;
           }
-        }
-        if (xi->setting_csum.V4Receive.UdpChecksum && xi->rxpi.ip_proto == 17)
+        } else if (xi->setting_csum.V4Receive.UdpChecksum && xi->rxpi.ip_proto == 17)
         {
           if (XenNet_SumPacketData(&xi->rxpi, packet, FALSE))
           {
