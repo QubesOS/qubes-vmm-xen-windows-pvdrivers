@@ -137,6 +137,8 @@ typedef struct {
   CHAR path[128];
   CHAR backend_path[128];
 
+  evtchn_port_t pdo_event_channel;
+
   PXEN_XENBUS_READ XenBus_Read;
   PXEN_XENBUS_WRITE XenBus_Write;
   PXEN_XENBUS_PRINTF XenBus_Printf;
