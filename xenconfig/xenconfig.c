@@ -391,6 +391,7 @@ XenConfig_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
   stack = IoGetCurrentIrpStackLocation(irp);
 
   switch (stack->MinorFunction) {
+#if 0
   case IRP_MN_START_DEVICE:
     return XenConfig_Pnp_StartDevice(device_object, irp);
   case IRP_MN_QUERY_CAPABILITIES:
@@ -401,6 +402,7 @@ XenConfig_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
     IoCompleteRequest(irp, IO_NO_INCREMENT);
 //    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__"\n"));
     return status;
+#endif
   default:
     IoSkipCurrentIrpStackLocation(irp);
     status = IoCallDriver(xcdd->lower_do, irp);

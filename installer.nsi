@@ -72,7 +72,6 @@ Section "Windows 2000" win2k
   File .\target\win2k\i386\xenvbd.sys
   File .\target\win2k\i386\xenscsi.sys
   File .\target\win2k\i386\xenstub.sys
-  File .\target\win2k\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows XP" winxp
@@ -92,7 +91,6 @@ Section "Windows XP" winxp
   File .\target\winxp\i386\xenvbd.sys
   File .\target\winxp\i386\xenscsi.sys
   File .\target\winxp\i386\xenstub.sys
-  File .\target\winxp\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows 2003 x32" win2k3x32
@@ -112,7 +110,6 @@ Section "Windows 2003 x32" win2k3x32
   File .\target\winnet\i386\xenvbd.sys
   File .\target\winnet\i386\xenscsi.sys
   File .\target\winnet\i386\xenstub.sys
-  File .\target\winnet\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows 2003 x64" win2k3x64
@@ -132,7 +129,6 @@ Section "Windows 2003 x64" win2k3x64
   File .\target\winnet\amd64\xenvbd.sys
   File .\target\winnet\amd64\xenscsi.sys
   File .\target\winnet\amd64\xenstub.sys
-  File .\target\winnet\amd64\xenconfig.sys
 SectionEnd
 
 Section "Windows 2008 x32" win2k8x32
@@ -152,7 +148,6 @@ Section "Windows 2008 x32" win2k8x32
   File .\target\winlh\i386\xenvbd.sys
   File .\target\winlh\i386\xenscsi.sys
   File .\target\winlh\i386\xenstub.sys
-  File .\target\winlh\i386\xenconfig.sys
 SectionEnd
 
 Section "Windows 2008 x64" win2k8x64
@@ -172,7 +167,6 @@ Section "Windows 2008 x64" win2k8x64
   File .\target\winlh\amd64\xenvbd.sys
   File .\target\winlh\amd64\xenscsi.sys
   File .\target\winlh\amd64\xenstub.sys
-  File .\target\winlh\amd64\xenconfig.sys
 SectionEnd
 
 Section /o "Install Cert" installcert
