@@ -26,11 +26,9 @@ CopyFiles=XenScsi.CopyFiles
 
 [XenScsi.CopyFiles]
 xenscsi.sys
-xenconfig.sys
 
 [XenScsi_Inst.NT.Services]
 AddService=XenScsi,2,XenScsi_Service, XenScsi_EventLog
-AddService=XenConfig,0,XenConfig_Service
 
 [XenScsi_Service]
 DisplayName    = %XenScsi.SVCDESC%                            
@@ -39,7 +37,7 @@ StartType      = 0
 ErrorControl   = 1
 LoadOrderGroup = System Bus Extender
 ServiceBinary  = %12%\xenscsi.sys                            
-AddReg = XenScsi_Service_AddReg,XenScsi_XenConfig_AddReg
+AddReg = XenScsi_Service_AddReg
 
 [XenScsi_Service_AddReg]
 HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
@@ -51,34 +49,8 @@ AddReg = XenScsi_EventLog_AddReg
 HKR,,EventMessageFile,0x00020000,"%SystemRoot%\System32\IoLogMsg.dll;%SystemRoot%\System32\drivers\XenScsi.sys"
 HKR,,TypesSupported,0x00010001,7
 
-[XenScsi_Inst.NT.HW]
-AddReg = XenScsi_XenConfig_AddReg, XenScsi_UpperFilter_AddReg
-
-[XenScsi_XenConfig_AddReg]
-HKR,"XenConfig\ring-ref", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_RING%
-HKR,"XenConfig\event-channel", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_EVENT_CHANNEL_IRQ%
-HKR,"XenConfig\grants", "type", %FLG_ADDREG_TYPE_DWORD%, %XEN_INIT_TYPE_GRANT_ENTRIES%
-HKR,"XenConfig\grants", "value", %FLG_ADDREG_TYPE_DWORD%, 144
-
-[XenScsi_UpperFilter_AddReg]
-HKR,,UpperFilters,0x10000,XenConfig
-
-[XenConfig_Service]
-DisplayName    = %XenConfig.SVCDESC%                            
-ServiceType    = 1
-StartType      = 0
-ErrorControl   = 1
-LoadOrderGroup = System Bus Extender
-ServiceBinary  = %12%\xenconfig.sys                            
-AddReg = XenConfig_Service_AddReg
-
-[XenConfig_Service_AddReg]
-HKR,"Parameters\PnpInterface", "0", %FLG_ADDREG_TYPE_DWORD%, 1
-HKR,"Parameters", "BusType", %FLG_ADDREG_TYPE_DWORD%, 1
-
 [SourceDisksFiles]
 xenscsi.sys=1
-xenconfig.sys=1
 
 [SourceDisksNames.x86]
 1 = %DISK_NAME%,,,.\i386
@@ -90,16 +62,5 @@ xenconfig.sys=1
 XenGplPv = "Xen GPL PV Driver Developers"
 XenScsi.SVCDESC = "Xen SCSI Driver"
 XenScsi.DRVDESC = "Xen SCSI Driver"
-XenConfig.SVCDESC = "Xen Config Resource Generator"
 DISK_NAME = "Xen SCSI Device Driver Install Disk"
 FLG_ADDREG_TYPE_DWORD = 0x00010001
-XEN_INIT_TYPE_END = 0
-XEN_INIT_TYPE_WRITE_STRING = 1
-XEN_INIT_TYPE_RING = 2
-XEN_INIT_TYPE_EVENT_CHANNEL = 3
-XEN_INIT_TYPE_EVENT_CHANNEL_IRQ = 4
-XEN_INIT_TYPE_READ_STRING_FRONT = 5
-XEN_INIT_TYPE_READ_STRING_BACK = 6
-XEN_INIT_TYPE_VECTORS = 7
-XEN_INIT_TYPE_GRANT_ENTRIES = 8
-XEN_INIT_TYPE_COPY_PTR = 9

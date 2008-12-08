@@ -80,6 +80,8 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
   int more_to_do = TRUE;
   vscsiif_shadow_t *shadow;
 
+  //FUNCTION_ENTER();
+
   if (xsdd->pause_ack != xsdd->pause_req)
   {
     xsdd->pause_ack = xsdd->pause_req;
@@ -92,8 +94,6 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
   if (!dump_mode && !xsdd->vectors.EvtChn_AckEvent(xsdd->vectors.context, xsdd->event_channel))
     return FALSE;
   
-  //FUNCTION_ENTER();
-
   while (more_to_do)
   {
     rp = xsdd->ring.sring->rsp_prod;
@@ -109,6 +109,10 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
         KdPrint((__DRIVER_NAME "     sense before %02x: %02x\n", j, (ULONG)((PUCHAR)Srb->SenseInfoBuffer)[j]));
 */
       memset(Srb->SenseInfoBuffer, 0, Srb->SenseInfoBufferLength);
+      if (rep->sense_len > 0 && Srb->SenseInfoBuffer != NULL)
+      {
+        memcpy(Srb->SenseInfoBuffer, rep->sense_buffer, min(Srb->SenseInfoBufferLength, rep->sense_len));
+      }
       switch(rep->rslt)
       {
       case 0:
@@ -126,7 +130,6 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
         {
           KdPrint((__DRIVER_NAME "     Doing autosense\n"));
           Srb->SrbStatus |= SRB_STATUS_AUTOSENSE_VALID;
-          memcpy(Srb->SenseInfoBuffer, rep->sense_buffer, min(Srb->SenseInfoBufferLength, rep->sense_len));
         }
       }
 /*
@@ -421,7 +424,7 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
         FRONT_RING_INIT(&xsdd->ring, sring, PAGE_SIZE);
       }
       break;
-    case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+    //case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
     case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel */
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
       if (strcmp(setting, "event-channel") == 0)
@@ -588,7 +591,10 @@ XenScsi_PutSrbOnRing(PXENSCSI_DEVICE_DATA xsdd, PSCSI_REQUEST_BLOCK Srb)
     physical_address = MmGetPhysicalAddress(ptr);
     pfn = (ULONG)(physical_address.QuadPart >> PAGE_SHIFT);
     shadow->req.seg[shadow->req.nr_segments].gref = get_grant_from_freelist(xsdd);
-    ASSERT(shadow->req.seg[shadow->req.nr_segments].gref);
+    if (shadow->req.seg[shadow->req.nr_segments].gref == 0x0FFFFFFF)
+    {
+      return; /* better than crashing... */
+    }
     xsdd->vectors.GntTbl_GrantAccess(xsdd->vectors.context, 0, (ULONG)pfn, 0, shadow->req.seg[shadow->req.nr_segments].gref);
     shadow->req.seg[shadow->req.nr_segments].offset = (USHORT)(physical_address.LowPart & (PAGE_SIZE - 1));
     shadow->req.seg[shadow->req.nr_segments].length = (USHORT)min(PAGE_SIZE - (ULONG)shadow->req.seg[shadow->req.nr_segments].offset, remaining);
@@ -600,7 +606,10 @@ XenScsi_PutSrbOnRing(PXENSCSI_DEVICE_DATA xsdd, PSCSI_REQUEST_BLOCK Srb)
   xsdd->ring.req_prod_pvt++;
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xsdd->ring, notify);
   if (notify)
+  {
+    //KdPrint((__DRIVER_NAME "     Notifying %d\n", xsdd->event_channel));
     xsdd->vectors.EvtChn_Notify(xsdd->vectors.context, xsdd->event_channel);
+  }
 
   //FUNCTION_EXIT();
 }
@@ -738,11 +747,20 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
   ULONG Status;
   HW_INITIALIZATION_DATA HwInitializationData;
+  PVOID driver_extension;
+  PUCHAR ptr;
 
   FUNCTION_ENTER();
 
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
+  IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_INIT_DRIVER_EXTENSION_MAGIC), PAGE_SIZE, &driver_extension);
+  ptr = driver_extension;
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, NULL, UlongToPtr(144));
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);       
   /* RegistryPath == NULL when we are invoked as a crash dump driver */
   if (!RegistryPath)
   {
