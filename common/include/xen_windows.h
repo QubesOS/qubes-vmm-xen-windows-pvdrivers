@@ -192,7 +192,7 @@ FreePages(PMDL Mdl)
   ExFreePoolWithTag(Buf, ALLOCATE_PAGES_POOL_TAG);
 }
 
-#define XEN_IOPORT_DEBUG_PORT_BASE 0x10
+//#define XEN_IOPORT_DEBUG_PORT_BASE 0x10
 
 static void XenDbgPrint(PCHAR format, ...)
 {

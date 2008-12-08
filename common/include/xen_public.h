@@ -163,6 +163,8 @@ typedef struct {
   ULONG resume_state_ack;
 } XENPCI_DEVICE_STATE, *PXENPCI_DEVICE_STATE;
 
+#define XEN_INIT_DRIVER_EXTENSION_MAGIC ((ULONG)'XCFG')
+
 #define XEN_INIT_TYPE_END               0
 #define XEN_INIT_TYPE_WRITE_STRING      1
 #define XEN_INIT_TYPE_RING              2
