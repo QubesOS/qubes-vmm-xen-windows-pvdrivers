@@ -134,17 +134,20 @@ to CPU != 0, but we should always use vcpu_info[0]
       switch (ev_action->type)
       {
       case EVT_ACTION_TYPE_NORMAL:
+        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_NORMAL\n"));
         ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
         break;
       case EVT_ACTION_TYPE_IRQ:
+        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_IRQ\n"));
         synch_set_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
         deferred = TRUE;
         break;
       case EVT_ACTION_TYPE_DPC:
+        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_DPC\n"));
         KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
         break;
       case EVT_ACTION_TYPE_SUSPEND:
-        KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_SUSPEND\n"));
+        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_SUSPEND\n"));
         for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt); i++)
         {
           if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_IRQ)

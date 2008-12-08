@@ -68,6 +68,8 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define EVT_ACTION_TYPE_IRQ     3
 #define EVT_ACTION_TYPE_SUSPEND 4
 
+extern UNICODE_STRING service_path;
+
 typedef struct _ev_action_t {
   PKSERVICE_ROUTINE ServiceRoutine;
   PVOID ServiceContext;
@@ -245,7 +247,7 @@ typedef struct {
   ULONG shutdown_cons;
   ULONG shutdown_start; /* the start of the most recent message on the ring */
   PIRP shutdown_irp;
-  
+
   BOOLEAN log_interrupts;
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 

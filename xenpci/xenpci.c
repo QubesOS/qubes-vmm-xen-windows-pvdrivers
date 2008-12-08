@@ -224,6 +224,8 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
   return status;
 }
 
+DECLARE_UNICODE_STRING_SIZE(service_path, 512);
+
 NTSTATUS DDKAPI
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -235,6 +237,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   //InitializeListHead(&ShutdownMsgList);
   //KeInitializeSpinLock(&ShutdownMsgLock);
+  
+  RtlUnicodeStringCopy(&service_path, RegistryPath);
 
   DriverObject->DriverExtension->AddDevice = XenPci_AddDevice;
   DriverObject->MajorFunction[IRP_MJ_PNP] = XenPci_Pnp;

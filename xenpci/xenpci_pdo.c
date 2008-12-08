@@ -974,16 +974,32 @@ XenConfig_MakeConfigPage(PDEVICE_OBJECT device_object)
   ANSI_STRING value;
   PUCHAR ptr;
   int i;
-
+  DECLARE_UNICODE_STRING_SIZE(service_path_xenconfig, 512);
+  PDRIVER_OBJECT fdo_driver_object;
+  PUCHAR fdo_driver_extension;
+  
   mdl = AllocateUncachedPage();
   ptr = MmGetMdlVirtualAddress(mdl);
+
+  fdo_driver_object = IoGetAttachedDeviceReference(device_object)->DriverObject;
+  KdPrint((__DRIVER_NAME "     fdo_driver_object = %p\n", fdo_driver_object));
+  if (fdo_driver_object)
+  {
+    fdo_driver_extension = IoGetDriverObjectExtension(fdo_driver_object, UlongToPtr(XEN_INIT_DRIVER_EXTENSION_MAGIC));
+    KdPrint((__DRIVER_NAME "     fdo_driver_extension = %p\n", fdo_driver_extension));
+    if (fdo_driver_extension)
+    {
+      memcpy(ptr, fdo_driver_extension, PAGE_SIZE);
+      return mdl;
+    }
+  }
 
   status = IoOpenDeviceRegistryKey(device_object, PLUGPLAY_REGKEY_DEVICE, KEY_READ, &hwkey_handle);
 
   if (!NT_SUCCESS(status))
   {
-    KdPrint((__DRIVER_NAME "    cannot get hardware key\n"));
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);          
+    KdPrint((__DRIVER_NAME "     cannot get device key\n"));
+    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
     return mdl;
   }
   RtlInitUnicodeString(&xenkey_name, L"XenConfig");
@@ -991,10 +1007,39 @@ XenConfig_MakeConfigPage(PDEVICE_OBJECT device_object)
   status = ZwOpenKey(&xenkey_handle, KEY_READ, &oa);
   if (!NT_SUCCESS(status))
   {
-    // close key_handle
-    KdPrint((__DRIVER_NAME "    cannot get XenConfig key\n"));
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);          
-    return mdl;
+    KdPrint((__DRIVER_NAME "     cannot get XenConfig key for device\n"));
+    fdo_driver_object = IoGetAttachedDeviceReference(device_object)->DriverObject;
+    KdPrint((__DRIVER_NAME "     fdo_driver_object = %p\n", fdo_driver_object));
+    fdo_driver_extension = IoGetDriverObjectExtension(fdo_driver_object, UlongToPtr(666));
+    KdPrint((__DRIVER_NAME "     fdo_driver_extension = %p\n", fdo_driver_extension));
+    KdPrint((__DRIVER_NAME "     fdo_driver_extension = %s\n", fdo_driver_extension));
+#if 0
+    RtlUnicodeStringPrintf(&service_path_xenconfig, L"%wZ\\XenConfig", &service_path);
+    KdPrint((__DRIVER_NAME "     %wZ\n", &service_path_xenconfig));
+    InitializeObjectAttributes(&oa, &service_path_xenconfig, 0, NULL, NULL);
+#endif
+    
+    KdPrint((__DRIVER_NAME "     %wZ\n", &service_path));
+    InitializeObjectAttributes(&oa, &service_path, 0, NULL, NULL);
+    status = ZwOpenKey(&xenkey_handle, KEY_READ, &oa);
+    if (!NT_SUCCESS(status))
+    {
+      // close key_handle
+      KdPrint((__DRIVER_NAME "    cannot get XenConfig for service (%08x)\n"));
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
+      return mdl;
+    }
+/*
+    RtlInitUnicodeString(&xenkey_name, L"XenConfig");
+    InitializeObjectAttributes(&oa, &xenkey_name, 0, service_handle, NULL);
+    status = ZwOpenKey(&xenkey_handle, KEY_READ, &oa);
+    if (!NT_SUCCESS(status))
+    {    
+      KdPrint((__DRIVER_NAME "    cannot get XenConfig key for driver\n"));
+      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);          
+      return mdl;
+    }
+*/
   }
   // XenConfig key exists, so we go ahead and make fake memory resources
   RtlInitUnicodeString(&type_name, L"type");
