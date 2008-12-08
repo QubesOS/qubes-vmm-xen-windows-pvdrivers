@@ -6,7 +6,7 @@ Var ARCH_SPEC
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.12-pre5"
+!define Version "0.9.12-pre7"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 
