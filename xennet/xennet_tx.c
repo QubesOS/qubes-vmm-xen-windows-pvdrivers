@@ -138,13 +138,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   {
     csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
       packet, TcpIpChecksumPacketInfo);
-    if (csum_info->Transmit.NdisPacketChecksumV6)
-    {
-      KdPrint((__DRIVER_NAME "     NdisPacketChecksumV6 not supported\n"));
-      //NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
-      //return TRUE;
-    }
-
     if (csum_info->Transmit.NdisPacketChecksumV4)
     {
       if (csum_info->Transmit.NdisPacketIpChecksum && !xi->setting_csum.V4Transmit.IpChecksum)
@@ -166,7 +159,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
           //return TRUE;
         }
       }
-      if (csum_info->Transmit.NdisPacketUdpChecksum)
+      else if (csum_info->Transmit.NdisPacketUdpChecksum)
       {
         if (xi->setting_csum.V4Transmit.UdpChecksum)
         {
@@ -180,6 +173,13 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
         }
       }
     }
+    else if (csum_info->Transmit.NdisPacketChecksumV6)
+    {
+      KdPrint((__DRIVER_NAME "     NdisPacketChecksumV6 not supported\n"));
+      //NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_FAILURE);
+      //return TRUE;
+    }
+
   }
     
   mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
