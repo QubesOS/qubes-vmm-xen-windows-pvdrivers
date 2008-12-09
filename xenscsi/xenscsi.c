@@ -471,8 +471,8 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
   }
 #endif
   
-  ConfigInfo->ScatterGather = TRUE;
-  ConfigInfo->NumberOfPhysicalBreaks = VSCSIIF_SG_TABLESIZE - 1;
+  ConfigInfo->ScatterGather = FALSE;
+  ConfigInfo->NumberOfPhysicalBreaks = 0; //VSCSIIF_SG_TABLESIZE - 1;
   ConfigInfo->MaximumTransferLength = VSCSIIF_SG_TABLESIZE * PAGE_SIZE;
   ConfigInfo->CachesData = FALSE;
   ConfigInfo->NumberOfBuses = 4; //SCSI_MAXIMUM_BUSES; //8
@@ -588,6 +588,10 @@ XenScsi_PutSrbOnRing(PXENSCSI_DEVICE_DATA xsdd, PSCSI_REQUEST_BLOCK Srb)
 
   for (ptr = Srb->DataBuffer, shadow->req.nr_segments = 0; remaining != 0; shadow->req.nr_segments++)
   {
+    if (shadow->req.nr_segments >= VSCSIIF_SG_TABLESIZE)
+    {
+      KdPrint((__DRIVER_NAME "     too many segments (length = %d, remaining = %d)\n", Srb->DataTransferLength, remaining));
+    }
     physical_address = MmGetPhysicalAddress(ptr);
     pfn = (ULONG)(physical_address.QuadPart >> PAGE_SHIFT);
     shadow->req.seg[shadow->req.nr_segments].gref = get_grant_from_freelist(xsdd);
