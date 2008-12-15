@@ -192,7 +192,7 @@ FreePages(PMDL Mdl)
   ExFreePoolWithTag(Buf, ALLOCATE_PAGES_POOL_TAG);
 }
 
-//#define XEN_IOPORT_DEBUG_PORT_BASE 0x10
+#define XEN_IOPORT_DEBUG_PORT_BASE 0x10
 
 static void XenDbgPrint(PCHAR format, ...)
 {
@@ -215,7 +215,7 @@ static void XenDbgPrint(PCHAR format, ...)
   {
     KeRaiseIrql(HIGH_LEVEL, &old_irql);
   }
-  cpu = KeGetCurrentProcessorNumber() & 0x0F;
+  cpu = KeGetCurrentProcessorNumber() & 0x07;
   for (i = 0; i < strlen(buf); i++)
   {
     WRITE_PORT_UCHAR((PUCHAR)XEN_IOPORT_DEBUG_PORT_BASE + cpu, buf[i]);

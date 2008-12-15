@@ -177,6 +177,7 @@ typedef struct {
 //#define XEN_INIT_TYPE_COPY_PTR          9
 #define XEN_INIT_TYPE_RUN               10
 #define XEN_INIT_TYPE_STATE_PTR         11
+#define XEN_INIT_TYPE_ACTIVE		12
 
 static __inline VOID
 __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
@@ -278,6 +279,7 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   case XEN_INIT_TYPE_VECTORS:
   case XEN_INIT_TYPE_RUN:
   case XEN_INIT_TYPE_STATE_PTR:
+  case XEN_INIT_TYPE_ACTIVE:
     break;
   case XEN_INIT_TYPE_WRITE_STRING:
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
@@ -312,6 +314,7 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2)
   case XEN_INIT_TYPE_VECTORS:
   case XEN_INIT_TYPE_RUN:
   case XEN_INIT_TYPE_STATE_PTR:
+  case XEN_INIT_TYPE_ACTIVE:
     *p1 = NULL;
     *p2 = NULL;
     break;
@@ -347,6 +350,7 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   case XEN_INIT_TYPE_END:
   case XEN_INIT_TYPE_WRITE_STRING: /* this shouldn't happen */
   case XEN_INIT_TYPE_RUN:
+  case XEN_INIT_TYPE_ACTIVE:
     break;
   case XEN_INIT_TYPE_RING:
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
@@ -392,6 +396,7 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2)
   {
   case XEN_INIT_TYPE_END:
   case XEN_INIT_TYPE_RUN:
+  case XEN_INIT_TYPE_ACTIVE:
     *p1 = NULL;
     *p2 = NULL;
     break;

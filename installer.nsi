@@ -6,7 +6,7 @@ Var ARCH_SPEC
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.12-pre7"
+!define Version "0.9.12-pre8"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 
@@ -53,25 +53,6 @@ amd64_done:
   CreateShortCut "${StartMenu}\Wiki Page.lnk" "http://wiki.xensource.com/xenwiki/XenWindowsGplPv" 
   WriteUninstaller $INSTDIR\Uninstall.exe
   CreateShortCut "${StartMenu}\Uninstall.lnk" "$INSTDIR\uninstall.exe"
-SectionEnd
-
-Section "Windows 2000" win2k
-  SetOutPath $INSTDIR
-  File /nonfatal .\ca.cer
-  SetOutPath $INSTDIR\drivers
-  File .\target\win2k\xenpci.inf
-  File .\target\win2k\xennet.inf
-  File .\target\win2k\xenvbd.inf
-  File .\target\win2k\xenscsi.inf
-  File .\target\win2k\xenstub.inf
-  File /nonfatal .\target\win2k\xengplpv.cat
-  SetOutPath $INSTDIR\drivers\i386
-  File .\target\win2k\i386\xenpci.sys
-  File .\target\win2k\i386\xenhide.sys
-  File .\target\win2k\i386\xennet.sys
-  File .\target\win2k\i386\xenvbd.sys
-  File .\target\win2k\i386\xenscsi.sys
-  File .\target\win2k\i386\xenstub.sys
 SectionEnd
 
 Section "Windows XP" winxp
@@ -260,10 +241,6 @@ is_amd64:
 amd64_done:
   StrCpy $INSTDIR "$MYPROGRAMFILES\${AppName}"
   
-  StrCmp $R0 "2000" 0 check_XP
-  StrCpy $arch "win2k"
-  Goto version_done
-check_XP:
   StrCmp $R0 "XP" 0 check_2k3
   StrCpy $arch "winxp"
   Goto version_done
@@ -305,11 +282,6 @@ Function .onSelChange
   Push $0
   
   StrCpy $newarch $arch
-  StrCmp $arch "win2k" check_xp
-  SectionGetFlags ${win2k} $0
-  IntOp $0 $0 & ${SF_SELECTED}
-  IntCmp $0 ${SF_SELECTED} 0 check_xp check_xp
-  StrCpy $newarch "win2k"
 check_xp:
   StrCmp $arch "winxp" check_2k3x32
   SectionGetFlags ${winxp} $0
@@ -350,15 +322,6 @@ FunctionEnd
 Function SelectSection
   Push $0
 
-  StrCmp $arch "win2k" set_win2k
-  SectionGetFlags ${win2k} $0
-  IntOp $0 $0 & ${SECTION_OFF}
-  SectionSetFlags ${win2k} $0
-  goto check_xp
-set_win2k:
-  SectionGetFlags ${win2k} $0
-  IntOp $0 $0 | ${SF_SELECTED}
-  SectionSetFlags ${win2k} $0  
 check_xp:
   StrCmp $arch "winxp" set_winxp
   SectionGetFlags ${winxp} $0

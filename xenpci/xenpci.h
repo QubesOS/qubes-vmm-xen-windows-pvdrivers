@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define __attribute__(arg) /* empty */
 #define EISCONN 127
 
+#include <ntifs.h>
 #include <ntddk.h>
 
 #ifdef __MINGW32__
@@ -68,7 +69,7 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define EVT_ACTION_TYPE_IRQ     3
 #define EVT_ACTION_TYPE_SUSPEND 4
 
-extern UNICODE_STRING service_path;
+extern ULONG need_gplpv_filter;
 
 typedef struct _ev_action_t {
   PKSERVICE_ROUTINE ServiceRoutine;

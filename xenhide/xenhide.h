@@ -19,6 +19,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #if !defined(_XENHIDE_H_)
 #define _XENHIDE_H_
 
+#include <ntifs.h>
 #include <ntddk.h>
 #include <wdm.h>
 #include <initguid.h>
@@ -30,6 +31,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define __DRIVER_NAME "XenHide"
 
+#include <xen_windows.h>
 #include <xen_guids.h>
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -50,19 +52,5 @@ typedef struct {
   IO_REMOVE_LOCK RemoveLock;
   USHORT hide_type;
 } XENHIDE_DEVICE_DATA, *PXENHIDE_DEVICE_DATA;
-
-typedef struct
-{
-  LIST_ENTRY entry;
-  PDEVICE_OBJECT pdo;
-} XENHIDE_HIDE_LIST_ENTRY,  *PXENHIDE_HIDE_LIST_ENTRY;
-
-typedef struct
-{
-  PDEVICE_OBJECT pci_bus_pdo;
-  LIST_ENTRY hide_list_head;
-  KSPIN_LOCK hide_list_lock;
-  KEVENT hide_list_event;
-} XENHIDE_DRIVER_DATA, *PXENHIDE_DRIVER_DATA;
 
 #endif

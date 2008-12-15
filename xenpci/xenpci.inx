@@ -46,7 +46,7 @@ xenhide.sys=1
 1 = %DISK_NAME%,,,.\i386
 
 [XenPCI_Inst.NT.Services]
-AddService=XenPCI,2,XenPCI_Service
+AddService=XenPCI,3,XenPCI_Service
 AddService=XenHide,0,XenHide_Service
 
 [XenPCI_Service]
@@ -54,24 +54,16 @@ DisplayName    = %XenPCI.SVCDESC%
 ServiceType    = 1
 StartType      = 0
 ErrorControl   = 1
-LoadOrderGroup = System Bus Extender
+LoadOrderGroup = Boot Bus Extender
 ServiceBinary  = %12%\xenpci.sys
-AddReg         = XenPCI_Service_AddReg
 
 [XenHide_Service]
 DisplayName    = %XenHide.SVCDESC%
 ServiceType    = 1
 StartType      = 0
 ErrorControl   = 1
-LoadOrderGroup = Boot Bus Extender
+LoadOrderGroup = System Bus Extender
 ServiceBinary  = %12%\xenhide.sys
-AddReg         = XenHide_Service_AddReg
-
-[XenHide_Service_AddReg]
-HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97D-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenHide
-
-[XenPCI_Service_AddReg]
-HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)"   ; SDDL_DEVOBJ_SYS_ALL_ADM_ALL
 
 [Strings]
 XenGplPv = "Xen GPL PV Driver Developers"

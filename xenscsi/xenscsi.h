@@ -92,6 +92,11 @@ struct
   BOOLEAN pause_ack;
 } typedef XENSCSI_DEVICE_DATA, *PXENSCSI_DEVICE_DATA;
 
+struct {
+  UCHAR sense_len;
+  UCHAR sense_buffer[VSCSIIF_SENSE_BUFFERSIZE];
+} typedef XENSCSI_LU_DATA, *PXENSCSI_LU_DATA;
+
 enum dma_data_direction {
         DMA_BIDIRECTIONAL = 0,
         DMA_TO_DEVICE = 1,

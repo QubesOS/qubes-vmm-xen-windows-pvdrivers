@@ -223,23 +223,100 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
   FUNCTION_EXIT();
   return status;
 }
+//DECLARE_UNICODE_STRING_SIZE(service_path, 512);
 
-DECLARE_UNICODE_STRING_SIZE(service_path, 512);
+#define XEN_GLOBAL_IOPORT_PORT_BASE 0x10
+
+ULONG need_gplpv_filter;
+extern PULONG InitSafeBootMode;
 
 NTSTATUS DDKAPI
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
   NTSTATUS status = STATUS_SUCCESS;
+  PCONFIGURATION_INFORMATION conf_info;
+  WCHAR *SystemStartOptions;
+  UNICODE_STRING RegKeyName;
+  UNICODE_STRING RegValueName;
+  HANDLE RegHandle;
+  OBJECT_ATTRIBUTES RegObjectAttributes;
+  char Buf[300];// Sometimes bigger then 200 if system reboot from crash
+  ULONG BufLen = 300;
+  PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
 
   UNREFERENCED_PARAMETER(RegistryPath);
 
   FUNCTION_ENTER();
 
-  //InitializeListHead(&ShutdownMsgList);
-  //KeInitializeSpinLock(&ShutdownMsgLock);
-  
-  RtlUnicodeStringCopy(&service_path, RegistryPath);
+  RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
+  InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
+  status = ZwOpenKey(&RegHandle, KEY_READ, &RegObjectAttributes);
+  if(!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     ZwOpenKey returned %08x\n", status));
+  }
 
+  RtlInitUnicodeString(&RegValueName, L"SystemStartOptions");
+  status = ZwQueryValueKey(RegHandle, &RegValueName, KeyValuePartialInformation, Buf, BufLen, &BufLen);
+  if(!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     ZwQueryKeyValue returned %08x\n", status));
+  }
+  else
+    ZwClose(RegHandle);
+  KeyPartialValue = (PKEY_VALUE_PARTIAL_INFORMATION)Buf;
+  SystemStartOptions = (WCHAR *)KeyPartialValue->Data;
+
+  KdPrint((__DRIVER_NAME "     SystemStartOptions = %s\n", SystemStartOptions));
+  if (wcsstr(SystemStartOptions, L"NOGPLPV"))
+    KdPrint((__DRIVER_NAME "     NOGPLPV found\n"));
+  conf_info = IoGetConfigurationInformation();
+  if ((conf_info == NULL || conf_info->DiskCount == 0)
+      && !wcsstr(SystemStartOptions, L"NOGPLPV")
+      && !*InitSafeBootMode)
+  {
+    /* see if the qemu method of disabling the PCI devices exists */
+    if (READ_PORT_UCHAR((PUCHAR)UlongToPtr(XEN_GLOBAL_IOPORT_PORT_BASE + 0)) == 'X'
+        && READ_PORT_UCHAR((PUCHAR)UlongToPtr(XEN_GLOBAL_IOPORT_PORT_BASE + 1)) == 'E'
+        && READ_PORT_UCHAR((PUCHAR)UlongToPtr(XEN_GLOBAL_IOPORT_PORT_BASE + 2)) == 'N')
+    {
+      UCHAR version = READ_PORT_UCHAR((PUCHAR)UlongToPtr(XEN_GLOBAL_IOPORT_PORT_BASE + 3));
+      switch(version)
+      {
+      case 1:
+        need_gplpv_filter = TRUE;
+        WRITE_PORT_UCHAR((PUCHAR)UlongToPtr(XEN_GLOBAL_IOPORT_PORT_BASE + 8), 1);
+        KdPrint((__DRIVER_NAME "     Disabled PCI devices\n"));
+        break;
+      default:
+        KdPrint((__DRIVER_NAME "     Unknown version %d\n", (ULONG)version));
+        break;
+      }
+    }
+    else
+    {
+      KdPrint((__DRIVER_NAME "     Missing XEN signature\n"));
+    }
+    /* if not, tell the filter to deny the pci devices their resources */
+    if (!need_gplpv_filter)
+    {
+      OBJECT_ATTRIBUTES oa;
+      UNICODE_STRING dir_name;
+      NTSTATUS status;
+      HANDLE handle;
+      
+      RtlInitUnicodeString(&dir_name, L"\\NEED_GPLPV_FILTER");
+      InitializeObjectAttributes(&oa, &dir_name, OBJ_KERNEL_HANDLE, NULL, NULL);
+      status = ZwCreateDirectoryObject(&handle, DIRECTORY_CREATE_OBJECT, &oa);
+      KdPrint((__DRIVER_NAME "     ZwCreateDirectoryObject = %08x\n", status));
+      if (!NT_SUCCESS(status))
+      {
+        return status;
+      }
+      need_gplpv_filter = TRUE;
+    }
+  }
+  
   DriverObject->DriverExtension->AddDevice = XenPci_AddDevice;
   DriverObject->MajorFunction[IRP_MJ_PNP] = XenPci_Pnp;
   DriverObject->MajorFunction[IRP_MJ_POWER] = XenPci_Power;

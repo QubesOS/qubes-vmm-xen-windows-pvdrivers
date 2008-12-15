@@ -28,7 +28,6 @@ DRIVER_INITIALIZE DriverEntry;
 #pragma warning(disable: 4127)
 
 static BOOLEAN dump_mode = FALSE;
-static BOOLEAN global_inactive = FALSE;
 
 static vscsiif_shadow_t *
 get_shadow_from_freelist(PXENSCSI_DEVICE_DATA xsdd)
@@ -80,8 +79,6 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
   int more_to_do = TRUE;
   vscsiif_shadow_t *shadow;
 
-  //FUNCTION_ENTER();
-
   if (xsdd->pause_ack != xsdd->pause_req)
   {
     xsdd->pause_ack = xsdd->pause_req;
@@ -92,7 +89,11 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
     }
   }
   if (!dump_mode && !xsdd->vectors.EvtChn_AckEvent(xsdd->vectors.context, xsdd->event_channel))
+  {
     return FALSE;
+  }
+
+  //FUNCTION_ENTER();
   
   while (more_to_do)
   {
@@ -104,10 +105,6 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
       shadow = &xsdd->shadows[rep->rqid];
       Srb = shadow->Srb;
       Srb->ScsiStatus = (UCHAR)rep->rslt;
-/*
-      for (j = 0; j < Srb->SenseInfoBufferLength; j++)
-        KdPrint((__DRIVER_NAME "     sense before %02x: %02x\n", j, (ULONG)((PUCHAR)Srb->SenseInfoBuffer)[j]));
-*/
       memset(Srb->SenseInfoBuffer, 0, Srb->SenseInfoBufferLength);
       if (rep->sense_len > 0 && Srb->SenseInfoBuffer != NULL)
       {
@@ -118,24 +115,42 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
       case 0:
         //KdPrint((__DRIVER_NAME "     Xen Operation complete - result = 0x%08x, sense_len = %d, residual = %d\n", rep->rslt, rep->sense_len, rep->residual_len));
         Srb->SrbStatus = SRB_STATUS_SUCCESS;
+        if (Srb->Cdb[0] == 0x03)
+        {
+          KdPrint((__DRIVER_NAME "     REQUEST_SENSE DataTransferLength = %d, residual = %d\n", Srb->DataTransferLength, rep->residual_len));
+          //for (j = 0; j < Srb->DataTransferLength - rep->residual_len; j++)
+          //  KdPrint((__DRIVER_NAME "     sense %02x: %02x\n", j, (ULONG)((PUCHAR)Srb->DataBuffer)[j]));
+        }
         break;
       case 0x00010000: /* Device does not exist */
-        KdPrint((__DRIVER_NAME "     Xen Operation error - result = 0x%08x, sense_len = %d, residual = %d\n", rep->rslt, rep->sense_len, rep->residual_len));
+        KdPrint((__DRIVER_NAME "     Xen Operation error - cdb[0] = %02x, result = 0x%08x, sense_len = %d, residual = %d\n", (ULONG)Srb->Cdb[0], rep->rslt, rep->sense_len, rep->residual_len));
         Srb->SrbStatus = SRB_STATUS_NO_DEVICE;
         break;
       default:
-        KdPrint((__DRIVER_NAME "     Xen Operation error - result = 0x%08x, sense_len = %d, residual = %d\n", rep->rslt, rep->sense_len, rep->residual_len));
+        KdPrint((__DRIVER_NAME "     Xen Operation error - cdb[0] = %02x, result = 0x%08x, sense_len = %d, residual = %d\n", (ULONG)Srb->Cdb[0], rep->rslt, rep->sense_len, rep->residual_len));
         Srb->SrbStatus = SRB_STATUS_ERROR;
+
+        //for (j = 0; j < Srb->SenseInfoBufferLength; j++)
+        //  KdPrint((__DRIVER_NAME "     sense %02x: %02x\n", j, (ULONG)((PUCHAR)Srb->SenseInfoBuffer)[j]));
+
         if (rep->sense_len > 0 && !(Srb->SrbFlags & SRB_FLAGS_DISABLE_AUTOSENSE) && Srb->SenseInfoBuffer != NULL)
         {
           KdPrint((__DRIVER_NAME "     Doing autosense\n"));
           Srb->SrbStatus |= SRB_STATUS_AUTOSENSE_VALID;
         }
+        else if (Srb->SrbFlags & SRB_FLAGS_DISABLE_AUTOSENSE)
+        {
+          PXENSCSI_LU_DATA lud = ScsiPortGetLogicalUnit(DeviceExtension, Srb->PathId, Srb->TargetId, Srb->Lun);
+          KdPrint((__DRIVER_NAME "     Autosense disabled\n"));
+          if (lud != NULL)
+          {
+            KdPrint((__DRIVER_NAME "     Saving sense data\n"));
+            lud->sense_len = rep->sense_len;
+            memcpy(lud->sense_buffer, Srb->SenseInfoBuffer, lud->sense_len);
+          }
+        }
       }
-/*
-      for (j = 0; j < Srb->SenseInfoBufferLength; j++)
-        KdPrint((__DRIVER_NAME "     sense after %02x: %02x\n", j, (ULONG)((PUCHAR)Srb->SenseInfoBuffer)[j]));
-*/
+
       /* work around a bug in scsiback that gives an incorrect result to REPORT_LUNS - fail it if the output is only 8 bytes */
       if (Srb->Cdb[0] == 0xa0 && Srb->SrbStatus == SRB_STATUS_SUCCESS &&
         Srb->DataTransferLength - rep->residual_len == 8)
@@ -391,11 +406,10 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
     return SP_RETURN_BAD_CONFIG;
   }
 
+  ptr = NULL;
   access_range = &((*(ConfigInfo->AccessRanges))[0]);
-
   KdPrint((__DRIVER_NAME "     RangeStart = %08x, RangeLength = %08x\n",
     access_range->RangeStart.LowPart, access_range->RangeLength));
-
   ptr = ScsiPortGetDeviceBase(
     DeviceExtension,
     ConfigInfo->AdapterInterfaceType,
@@ -403,13 +417,12 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
     access_range->RangeStart,
     access_range->RangeLength,
     !access_range->RangeInMemory);
-  if (ptr == NULL)
+  if (!ptr)
   {
     KdPrint((__DRIVER_NAME "     Unable to map range\n"));
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));  
     return SP_RETURN_BAD_CONFIG;
   }
-
   sring = NULL;
   xsdd->event_channel = 0;
   while((type = GET_XEN_INIT_RSP(&ptr, &setting, &value)) != XEN_INIT_TYPE_END)
@@ -471,8 +484,8 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
   }
 #endif
   
-  ConfigInfo->ScatterGather = FALSE;
-  ConfigInfo->NumberOfPhysicalBreaks = 0; //VSCSIIF_SG_TABLESIZE - 1;
+  ConfigInfo->ScatterGather = TRUE;
+  ConfigInfo->NumberOfPhysicalBreaks = VSCSIIF_SG_TABLESIZE - 1;
   ConfigInfo->MaximumTransferLength = VSCSIIF_SG_TABLESIZE * PAGE_SIZE;
   ConfigInfo->CachesData = FALSE;
   ConfigInfo->NumberOfBuses = 4; //SCSI_MAXIMUM_BUSES; //8
@@ -574,13 +587,6 @@ XenScsi_PutSrbOnRing(PXENSCSI_DEVICE_DATA xsdd, PSCSI_REQUEST_BLOCK Srb)
     shadow->req.sc_data_direction = DMA_NONE;
   }
 
-/*  
-  for (i = 0; i < Srb->CdbLength; i++)
-  {
-    KdPrint((__DRIVER_NAME "     Cdb[%02x] = %02x\n", i, (ULONG)Srb->Cdb[i]));
-  }
-*/
-
   remaining = Srb->DataTransferLength;
   shadow->req.seg[0].offset = 0;
   shadow->req.seg[0].length = 0;
@@ -661,8 +667,42 @@ XenScsi_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   switch (Srb->Function)
   {
   case SRB_FUNCTION_EXECUTE_SCSI:
-    XenScsi_PutSrbOnRing(xsdd, Srb);
-    Srb->SrbStatus = SRB_STATUS_PENDING;
+    switch (Srb->Cdb[0])
+    {
+    case 0x03: { /* REQUEST_SENSE*/
+      /* but what about when we allow multiple requests per lu? */
+      PXENSCSI_LU_DATA lud = ScsiPortGetLogicalUnit(DeviceExtension, Srb->PathId, Srb->TargetId, Srb->Lun);
+      if (lud != NULL && lud->sense_len)
+      {
+        KdPrint((__DRIVER_NAME "     Emulating REQUEST_SENSE (lu data = %p)\n", lud));
+        memcpy(Srb->DataBuffer, lud->sense_buffer, min(lud->sense_len, Srb->DataTransferLength));
+        if (lud->sense_len < Srb->DataTransferLength)
+        {
+          Srb->DataTransferLength = lud->sense_len;
+          Srb->SrbStatus = SRB_STATUS_DATA_OVERRUN;
+        }
+        else
+        {
+          Srb->SrbStatus = SRB_STATUS_SUCCESS;
+        }
+        //for (i = 0; i < Srb->DataTransferLength; i++)
+        //  KdPrint((__DRIVER_NAME "     sense %02x: %02x\n", i, (ULONG)((PUCHAR)Srb->DataBuffer)[i]));
+        lud->sense_len = 0;
+        ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
+        ScsiPortNotification(NextRequest, DeviceExtension);
+        break;
+      }
+      else
+      {
+        KdPrint((__DRIVER_NAME "     Issuing REQUEST_SENSE (lud = %p)\n", lud));
+      }
+      // fall through
+    }
+    default:
+      XenScsi_PutSrbOnRing(xsdd, Srb);
+      Srb->SrbStatus = SRB_STATUS_PENDING;
+      break;
+    }
     break;
   case SRB_FUNCTION_IO_CONTROL:
     KdPrint((__DRIVER_NAME "     SRB_FUNCTION_IO_CONTROL\n"));
@@ -776,11 +816,11 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HwInitializationData.HwInitializationDataSize = sizeof(HW_INITIALIZATION_DATA);
   HwInitializationData.AdapterInterfaceType = Internal;
   HwInitializationData.DeviceExtensionSize = sizeof(XENSCSI_DEVICE_DATA);
-  HwInitializationData.SpecificLuExtensionSize = 0;
+  HwInitializationData.SpecificLuExtensionSize = sizeof(XENSCSI_LU_DATA);
   HwInitializationData.SrbExtensionSize = 0;
   HwInitializationData.NumberOfAccessRanges = 1;
-  HwInitializationData.MapBuffers = FALSE;
-  HwInitializationData.NeedPhysicalAddresses = TRUE;
+  HwInitializationData.MapBuffers = TRUE;
+  HwInitializationData.NeedPhysicalAddresses = FALSE;
   HwInitializationData.TaggedQueuing = TRUE;
   HwInitializationData.AutoRequestSense = TRUE;
   HwInitializationData.MultipleRequestPerLu = TRUE;

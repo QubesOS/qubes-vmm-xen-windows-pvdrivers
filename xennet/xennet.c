@@ -392,9 +392,13 @@ XenNet_Init(
       irq_level = (KIRQL)prd->u.Interrupt.Level;
       KdPrint((__DRIVER_NAME "     irq_vector = %03x, irq_level = %03x\n", irq_vector, irq_level));
       break;
-
     case CmResourceTypeMemory:
-      if (prd->u.Memory.Start.QuadPart)
+      if (xi->config_page)
+      {
+        KdPrint(("More than one memory range\n"));
+        return NDIS_STATUS_RESOURCES;
+      }
+      else
       {
         status = NdisMMapIoSpace(&xi->config_page, MiniportAdapterHandle, prd->u.Memory.Start, prd->u.Memory.Length);
         if (!NT_SUCCESS(status))
@@ -403,10 +407,6 @@ XenNet_Init(
           NdisFreeMemory(nrl, nrl_length, 0);
           return NDIS_STATUS_RESOURCES;
         }
-      }
-      else
-      {
-        xi->inactive = TRUE;
       }
       break;
     }
@@ -739,23 +739,31 @@ DriverEntry(
   )
 {
   NTSTATUS status;
-  NDIS_HANDLE ndis_wrapper_handle;
+  NDIS_HANDLE ndis_wrapper_handle = NULL;
   NDIS_MINIPORT_CHARACTERISTICS mini_chars;
 
   FUNCTION_ENTER();
 
+  KdPrint((__DRIVER_NAME "     DriverObject = %p, RegistryPath = %p\n", DriverObject, RegistryPath));
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));
 
+  KdPrint((__DRIVER_NAME "     NdisGetVersion = %x\n", NdisGetVersion()));
+
+  KdPrint((__DRIVER_NAME "     ndis_wrapper_handle = %p\n", ndis_wrapper_handle));
   NdisMInitializeWrapper(&ndis_wrapper_handle, DriverObject, RegistryPath, NULL);
+  KdPrint((__DRIVER_NAME "     ndis_wrapper_handle = %p\n", ndis_wrapper_handle));
   if (!ndis_wrapper_handle)
   {
-    KdPrint(("NdisMInitializeWrapper failed\n"));
+    KdPrint((__DRIVER_NAME "     NdisMInitializeWrapper failed\n"));
     return NDIS_STATUS_FAILURE;
   }
+  KdPrint((__DRIVER_NAME "     NdisMInitializeWrapper succeeded\n"));
 
   /* NDIS 5.1 driver */
   mini_chars.MajorNdisVersion = NDIS_MINIPORT_MAJOR_VERSION;
   mini_chars.MinorNdisVersion = NDIS_MINIPORT_MINOR_VERSION;
+
+  KdPrint((__DRIVER_NAME "     MajorNdisVersion = %d,  MinorNdisVersion = %d\n", NDIS_MINIPORT_MAJOR_VERSION, NDIS_MINIPORT_MINOR_VERSION));
 
   mini_chars.HaltHandler = XenNet_Halt;
   mini_chars.InitializeHandler = XenNet_Init;
@@ -777,10 +785,12 @@ DriverEntry(
 #endif
 
   /* set up upper-edge interface */
+  KdPrint((__DRIVER_NAME "     about to call NdisMRegisterMiniport\n"));
   status = NdisMRegisterMiniport(ndis_wrapper_handle, &mini_chars, sizeof(mini_chars));
+  KdPrint((__DRIVER_NAME "     called NdisMRegisterMiniport\n"));
   if (!NT_SUCCESS(status))
   {
-    KdPrint(("NdisMRegisterMiniport failed, status = 0x%x\n", status));
+    KdPrint((__DRIVER_NAME "     NdisMRegisterMiniport failed, status = 0x%x\n", status));
     NdisTerminateWrapper(ndis_wrapper_handle, NULL);
     return status;
   }

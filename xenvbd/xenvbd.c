@@ -42,7 +42,6 @@ DRIVER_INITIALIZE DriverEntry;
 #endif
 
 static BOOLEAN dump_mode = FALSE;
-static BOOLEAN global_inactive = FALSE;
 
 static blkif_shadow_t *
 get_shadow_from_freelist(PXENVBD_DEVICE_DATA xvdd)
@@ -139,7 +138,8 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
   xvdd->device_type = XENVBD_DEVICETYPE_UNKNOWN;
   xvdd->sring = NULL;
   xvdd->event_channel = 0;
-  
+
+  xvdd->inactive = TRUE;  
   ptr = xvdd->device_base;
   while((type = GET_XEN_INIT_RSP(&ptr, (PVOID) &setting, (PVOID) &value)) != XEN_INIT_TYPE_END)
   {
@@ -255,6 +255,9 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
       xvdd->device_state = (PXENPCI_DEVICE_STATE)value;
       break;
+    case XEN_INIT_TYPE_ACTIVE:
+      xvdd->inactive = FALSE;
+      break;
     default:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
       break;
@@ -270,6 +273,9 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
     return SP_RETURN_BAD_CONFIG;
   }
+  if (xvdd->inactive)
+    KdPrint((__DRIVER_NAME "     Device is inactive\n"));
+  
   if (xvdd->device_type == XENVBD_DEVICETYPE_CDROM)
   {
     /* CD/DVD drives must have bytes_per_sector = 2048. */
@@ -412,7 +418,7 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   if (PtrToUlong(srb->DataBuffer) & 511) /* use SrbExtension intead of DataBuffer if DataBuffer is not aligned to sector size */
   {
     shadow->req.sector_number += srb_offset / 512; //xvdd->bytes_per_sector;
-    //KdPrint((__DRIVER_NAME "     Using unaligned buffer - DataBuffer = %p, SrbExtension = %p, total length = %d, offset = %d, length = %d, sector = %d\n", srb->DataBuffer, srb->SrbExtension, block_count * 512, shadow->offset, shadow->length, shadow->req.sector_number));
+    //KdPrint((__DRIVER_NAME "     Using unaligned buffer - DataBuffer = %p, SrbExtension = %p, total length = %d, offset = %d, length = %d, sector = %d\n", srb->DataBuffer, srb->SrbExtension, block_count * 512, shadow->offset, shadow->length, (ULONG)shadow->req.sector_number));
     if (srb->Cdb[0] == SCSIOP_WRITE)
     {
       memcpy(ptr, ((PUCHAR)srb->DataBuffer) + srb_offset, shadow->length);
@@ -526,7 +532,6 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   ULONG status;
 //  PXENPCI_XEN_DEVICE_DATA XenDeviceData;
   PACCESS_RANGE access_range;
-  ULONG i;
 
   UNREFERENCED_PARAMETER(HwContext);
   UNREFERENCED_PARAMETER(BusInformation);
@@ -540,42 +545,22 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   KdPrint((__DRIVER_NAME "     BusInterruptLevel = %d\n", ConfigInfo->BusInterruptLevel));
   KdPrint((__DRIVER_NAME "     BusInterruptVector = %03x\n", ConfigInfo->BusInterruptVector));
 
+  KdPrint((__DRIVER_NAME "     NumberOfAccessRanges = %d\n", ConfigInfo->NumberOfAccessRanges));    
   if (ConfigInfo->NumberOfAccessRanges != 1 && ConfigInfo->NumberOfAccessRanges != 2)
   {
-    KdPrint((__DRIVER_NAME "     NumberOfAccessRanges = %d\n", ConfigInfo->NumberOfAccessRanges));    
     return SP_RETURN_BAD_CONFIG;
   }
 
-  xvdd->inactive = global_inactive;
-  
-  for (i = 0; i < ConfigInfo->NumberOfAccessRanges; i++)
-  {
-    access_range = &((*(ConfigInfo->AccessRanges))[i]);
-    if (access_range->RangeStart.QuadPart)
-    {
-      KdPrint((__DRIVER_NAME "     RangeStart = %08x, RangeLength = %08x\n",
-        access_range->RangeStart.LowPart, access_range->RangeLength));
-
-      xvdd->device_base = ScsiPortGetDeviceBase(
-        DeviceExtension,
-        ConfigInfo->AdapterInterfaceType,
-        ConfigInfo->SystemIoBusNumber,
-        access_range->RangeStart,
-        access_range->RangeLength,
-        !access_range->RangeInMemory);
-      if (xvdd->device_base == NULL)
-      {
-        KdPrint((__DRIVER_NAME "     Unable to map range\n"));
-        KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));  
-        return SP_RETURN_BAD_CONFIG;
-      }
-    }
-    else
-    {
-      xvdd->inactive = TRUE;
-    }
-  }
-
+  access_range = &((*(ConfigInfo->AccessRanges))[0]);
+  KdPrint((__DRIVER_NAME "     RangeStart = %08x, RangeLength = %08x\n",
+    access_range->RangeStart.LowPart, access_range->RangeLength));
+  xvdd->device_base = ScsiPortGetDeviceBase(
+    DeviceExtension,
+    ConfigInfo->AdapterInterfaceType,
+    ConfigInfo->SystemIoBusNumber,
+    access_range->RangeStart,
+    access_range->RangeLength,
+    !access_range->RangeInMemory);
   if (!xvdd->device_base)
   {
     KdPrint((__DRIVER_NAME "     Invalid config\n"));
@@ -891,8 +876,8 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
           if (srb->Cdb[0] == SCSIOP_READ)
             KdPrint((__DRIVER_NAME "     Operation = Read\n"));
           else
-            KdPrint((__DRIVER_NAME "     Operation = Write\n"));     
-          KdPrint((__DRIVER_NAME "     Sector = %08X, Count = %d\n", shadow->req.sector_number, block_count));
+            KdPrint((__DRIVER_NAME "     Operation = Write\n"));
+          KdPrint((__DRIVER_NAME "     Sector = %08X, Count = %d\n", (ULONG)shadow->req.sector_number, block_count));
           srb->SrbStatus = SRB_STATUS_ERROR;
           srb->ScsiStatus = 0x02;
           xvdd->last_sense_key = SCSI_SENSE_MEDIUM_ERROR;
@@ -917,7 +902,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
             memcpy(((PUCHAR)srb->DataBuffer) + shadow->offset, GET_PAGE_ALIGNED(srb->SrbExtension), shadow->length);
           offset = shadow->offset + shadow->length;
           put_shadow_on_freelist(xvdd, shadow);
-          if (offset == block_count * xvdd->bytes_per_sector)
+          if (offset == block_count * 512)
           {
             ScsiPortNotification(RequestComplete, xvdd, srb);
             stat_outstanding_requests--;
@@ -980,6 +965,8 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   if (xvdd->inactive)
   {
     Srb->SrbStatus = SRB_STATUS_NO_DEVICE;
+    ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
+    ScsiPortNotification(NextRequest, DeviceExtension);
     return TRUE;
   }
   
@@ -1367,12 +1354,12 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
   ULONG status;
   HW_INITIALIZATION_DATA HwInitializationData;
-  PCONFIGURATION_INFORMATION conf_info;
   PVOID driver_extension;
   PUCHAR ptr;
 
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  KdPrint((__DRIVER_NAME "     DriverObject = %p\n", DriverObject));
 
   IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_INIT_DRIVER_EXTENSION_MAGIC), PAGE_SIZE, &driver_extension);
   ptr = driver_extension;
@@ -1390,23 +1377,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   if (!RegistryPath)
   {
     dump_mode = TRUE;
-  }
-  else
-  {
-    conf_info = IoGetConfigurationInformation();
-    if (conf_info == NULL)
-    {
-      KdPrint((__DRIVER_NAME "     conf_info == NULL\n"));
-    }
-    else
-    {
-      KdPrint((__DRIVER_NAME "     conf_info->DiskCount = %d\n", conf_info->DiskCount));
-    }
-    if (conf_info != NULL && conf_info->DiskCount && RegistryPath)
-    {
-      global_inactive = TRUE;
-      KdPrint((__DRIVER_NAME "     Not loaded at boot time so setting inactive\n"));
-    }
   }
   RtlZeroMemory(&HwInitializationData, sizeof(HW_INITIALIZATION_DATA));
 

@@ -595,7 +595,10 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   vectors.XenBus_List = XenPci_XenBus_List;
   vectors.XenBus_AddWatch = XenPci_XenBus_AddWatch;
   vectors.XenBus_RemWatch = XenPci_XenBus_RemWatch;
- 
+
+  if (need_gplpv_filter)
+    ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_ACTIVE, NULL, NULL);
+  
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors);
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_STATE_PTR, NULL, &xppdd->device_state);
 
@@ -950,220 +953,36 @@ XenPci_DumpPdoConfig(PDEVICE_OBJECT device_object)
 static PMDL
 XenConfig_MakeConfigPage(PDEVICE_OBJECT device_object)
 {
-  NTSTATUS status;
-
   //PXENCONFIG_DEVICE_DATA xcdd = (PXENCONFIG_DEVICE_DATA)device_object->DeviceExtension;
   //PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
   //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
-
-  HANDLE hwkey_handle, xenkey_handle, confkey_handle;
-  ULONG length;
-  PKEY_BASIC_INFORMATION key_info;
-  PKEY_VALUE_PARTIAL_INFORMATION type_info;
-  PKEY_VALUE_PARTIAL_INFORMATION value_info;
-  UNICODE_STRING xenkey_name, confkey_name;
-  UNICODE_STRING type_name, value_name;
-  UNICODE_STRING tmp_unicode_string;
-  //UNICODE_STRING typekey_value, valuekey_value;
-  //UNICODE_STRING value_value;
-  OBJECT_ATTRIBUTES oa;
-  ULONG info_length = 1000;
   PMDL mdl;
-  UCHAR type;
-  ANSI_STRING setting;
-  ANSI_STRING value;
   PUCHAR ptr;
-  int i;
-  DECLARE_UNICODE_STRING_SIZE(service_path_xenconfig, 512);
+  PDEVICE_OBJECT curr;
   PDRIVER_OBJECT fdo_driver_object;
   PUCHAR fdo_driver_extension;
   
   mdl = AllocateUncachedPage();
   ptr = MmGetMdlVirtualAddress(mdl);
-
-  fdo_driver_object = IoGetAttachedDeviceReference(device_object)->DriverObject;
-  KdPrint((__DRIVER_NAME "     fdo_driver_object = %p\n", fdo_driver_object));
-  if (fdo_driver_object)
+  curr = IoGetAttachedDeviceReference(device_object);
+  while (curr != NULL)
   {
-    fdo_driver_extension = IoGetDriverObjectExtension(fdo_driver_object, UlongToPtr(XEN_INIT_DRIVER_EXTENSION_MAGIC));
-    KdPrint((__DRIVER_NAME "     fdo_driver_extension = %p\n", fdo_driver_extension));
-    if (fdo_driver_extension)
-    {
-      memcpy(ptr, fdo_driver_extension, PAGE_SIZE);
-      return mdl;
-    }
-  }
-
-  status = IoOpenDeviceRegistryKey(device_object, PLUGPLAY_REGKEY_DEVICE, KEY_READ, &hwkey_handle);
-
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     cannot get device key\n"));
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
-    return mdl;
-  }
-  RtlInitUnicodeString(&xenkey_name, L"XenConfig");
-  InitializeObjectAttributes(&oa, &xenkey_name, 0, hwkey_handle, NULL);
-  status = ZwOpenKey(&xenkey_handle, KEY_READ, &oa);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     cannot get XenConfig key for device\n"));
-    fdo_driver_object = IoGetAttachedDeviceReference(device_object)->DriverObject;
+    fdo_driver_object = curr->DriverObject;
     KdPrint((__DRIVER_NAME "     fdo_driver_object = %p\n", fdo_driver_object));
-    fdo_driver_extension = IoGetDriverObjectExtension(fdo_driver_object, UlongToPtr(666));
-    KdPrint((__DRIVER_NAME "     fdo_driver_extension = %p\n", fdo_driver_extension));
-    KdPrint((__DRIVER_NAME "     fdo_driver_extension = %s\n", fdo_driver_extension));
-#if 0
-    RtlUnicodeStringPrintf(&service_path_xenconfig, L"%wZ\\XenConfig", &service_path);
-    KdPrint((__DRIVER_NAME "     %wZ\n", &service_path_xenconfig));
-    InitializeObjectAttributes(&oa, &service_path_xenconfig, 0, NULL, NULL);
-#endif
-    
-    KdPrint((__DRIVER_NAME "     %wZ\n", &service_path));
-    InitializeObjectAttributes(&oa, &service_path, 0, NULL, NULL);
-    status = ZwOpenKey(&xenkey_handle, KEY_READ, &oa);
-    if (!NT_SUCCESS(status))
+    if (fdo_driver_object)
     {
-      // close key_handle
-      KdPrint((__DRIVER_NAME "    cannot get XenConfig for service (%08x)\n"));
-      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
-      return mdl;
-    }
-/*
-    RtlInitUnicodeString(&xenkey_name, L"XenConfig");
-    InitializeObjectAttributes(&oa, &xenkey_name, 0, service_handle, NULL);
-    status = ZwOpenKey(&xenkey_handle, KEY_READ, &oa);
-    if (!NT_SUCCESS(status))
-    {    
-      KdPrint((__DRIVER_NAME "    cannot get XenConfig key for driver\n"));
-      ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);          
-      return mdl;
-    }
-*/
-  }
-  // XenConfig key exists, so we go ahead and make fake memory resources
-  RtlInitUnicodeString(&type_name, L"type");
-  RtlInitUnicodeString(&value_name, L"value");
-  key_info = ExAllocatePoolWithTag(PagedPool, info_length, XENPCI_POOL_TAG);
-  type_info = ExAllocatePoolWithTag(PagedPool, info_length, XENPCI_POOL_TAG);
-  value_info = ExAllocatePoolWithTag(PagedPool, info_length, XENPCI_POOL_TAG);
-  //value.Buffer = ExAllocatePoolWithTag(PagedPool, info_length, XENPCI_POOL_TAG);
-  //value.MaximumLength = info_length;
-  setting.Buffer = ExAllocatePoolWithTag(PagedPool, info_length, XENPCI_POOL_TAG);
-  setting.MaximumLength = (USHORT)info_length;
-  
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL);
-  for (i = 0; ZwEnumerateKey(xenkey_handle, i, KeyBasicInformation, key_info, info_length, &length) == STATUS_SUCCESS; i++)
-  {
-    confkey_name.Length = (USHORT)key_info->NameLength;
-    confkey_name.MaximumLength = (USHORT)key_info->NameLength;
-    confkey_name.Buffer = key_info->Name;
-    RtlUnicodeStringToAnsiString(&setting, &confkey_name, FALSE);
-    setting.Buffer[setting.Length] = 0;
-    KdPrint((__DRIVER_NAME "     config key name = '%wZ'\n", &confkey_name));
-    InitializeObjectAttributes(&oa, &confkey_name, 0, xenkey_handle, NULL);
-    status = ZwOpenKey(&confkey_handle, KEY_READ, &oa);
-    if (!NT_SUCCESS(status))
-    {
-      KdPrint((__DRIVER_NAME "    cannot get handle for XenConfig\\%wZ\n", &confkey_name));
-      continue;
-    }
-    
-    status = ZwQueryValueKey(confkey_handle, &type_name, KeyValuePartialInformation, type_info, info_length, &length);
-    // make sure type is dword
-    type = (UCHAR)*(ULONG *)type_info->Data;
-    status = ZwQueryValueKey(confkey_handle, &value_name, KeyValuePartialInformation, value_info, info_length, &length);
-    if (!NT_SUCCESS(status))
-    {
-      ADD_XEN_INIT_REQ(&ptr, type, setting.Buffer, NULL);
-    }
-    else
-    {
-      switch(value_info->Type)
+      fdo_driver_extension = IoGetDriverObjectExtension(fdo_driver_object, UlongToPtr(XEN_INIT_DRIVER_EXTENSION_MAGIC));
+      KdPrint((__DRIVER_NAME "     fdo_driver_extension = %p\n", fdo_driver_extension));
+      if (fdo_driver_extension)
       {
-      case REG_DWORD:
-        ADD_XEN_INIT_REQ(&ptr, type, setting.Buffer, UlongToPtr(*(PULONG)value_info->Data));
-        break;
-        
-      case REG_SZ:
-        tmp_unicode_string.Length = (USHORT)value_info->DataLength;
-        tmp_unicode_string.MaximumLength = (USHORT)value_info->DataLength;
-        tmp_unicode_string.Buffer = (PWCHAR)value_info->Data;
-        RtlUnicodeStringToAnsiString(&value, &tmp_unicode_string, FALSE);
-        value.Buffer[value.Length] = 0;
-        ADD_XEN_INIT_REQ(&ptr, type, setting.Buffer, value.Buffer);
-        break;
-      
-      default:
-        // report error here
+        memcpy(ptr, fdo_driver_extension, PAGE_SIZE);
         break;
       }
     }
+    curr = IoGetLowerDeviceObject(curr);
   }
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);          
-
-  ExFreePoolWithTag(key_info, XENPCI_POOL_TAG);
-
   return mdl;
 }
-#if 0
-static NTSTATUS
-XenConfig_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
-{
-  PIO_STACK_LOCATION stack;
-  PMDL mdl;
-  PCM_RESOURCE_LIST old_crl, new_crl;
-  PCM_PARTIAL_RESOURCE_LIST prl;
-  PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
-  ULONG old_length, new_length;
-
-  UNREFERENCED_PARAMETER(device_object);
-
-  FUNCTION_ENTER();
-
-  stack = IoGetCurrentIrpStackLocation(irp);
-
-  if ((mdl = XenConfig_MakeConfigPage(device_object)) != NULL)
-  {
-    old_crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
-    old_length = FIELD_OFFSET(CM_RESOURCE_LIST, List) + 
-      FIELD_OFFSET(CM_FULL_RESOURCE_DESCRIPTOR, PartialResourceList) +
-      FIELD_OFFSET(CM_PARTIAL_RESOURCE_LIST, PartialDescriptors) +
-      sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * old_crl->List[0].PartialResourceList.Count;
-    new_length = old_length + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * 1;
-    new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENPCI_POOL_TAG);
-    memcpy(new_crl, old_crl, old_length);
-    prl = &new_crl->List[0].PartialResourceList;
-    prd = &prl->PartialDescriptors[prl->Count++];
-    prd->Type = CmResourceTypeMemory;
-    prd->ShareDisposition = CmResourceShareDeviceExclusive;
-    prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE;
-    KdPrint((__DRIVER_NAME "     PFN[0] = %p\n", MmGetMdlPfnArray(mdl)[0]));
-    prd->u.Memory.Start.QuadPart = ((ULONGLONG)MmGetMdlPfnArray(mdl)[0]) << PAGE_SHIFT;
-    prd->u.Memory.Length = PAGE_SIZE;
-    KdPrint((__DRIVER_NAME "     Start = %08x:%08x, Length = %d\n", prd->u.Memory.Start.HighPart, prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
-    stack->Parameters.StartDevice.AllocatedResourcesTranslated = new_crl;
-
-    old_crl = stack->Parameters.StartDevice.AllocatedResources;
-    new_crl = ExAllocatePoolWithTag(PagedPool, new_length, XENPCI_POOL_TAG);
-    memcpy(new_crl, old_crl, old_length);
-    prl = &new_crl->List[0].PartialResourceList;
-    prd = &prl->PartialDescriptors[prl->Count++];
-    prd->Type = CmResourceTypeMemory;
-    prd->ShareDisposition = CmResourceShareDeviceExclusive;
-    prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE;
-    prd->u.Memory.Start.QuadPart = (ULONGLONG)MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
-    prd->u.Memory.Length = PAGE_SIZE;
-    stack->Parameters.StartDevice.AllocatedResources = new_crl;
-
-    // free the original resource lists???
-  }
-
-  FUNCTION_EXIT();
-  
-  return STATUS_PENDING;
-}
-#endif
 
 static NTSTATUS
 XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
@@ -1179,6 +998,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
   PMDL mdl;
  
   FUNCTION_ENTER();
+  KdPrint((__DRIVER_NAME "     %s\n", xppdd->path));
 
   DUMP_CURRENT_PNP_STATE(xppdd);
   
@@ -1206,7 +1026,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
       //xppdd->irq_level = (KIRQL)prd->u.Interrupt.Level;
       break;
     case CmResourceTypeMemory:
-      if (prd->u.Memory.Length == 0)
+      if (prd->u.Memory.Start.QuadPart == xpdd->platform_mmio_addr.QuadPart && prd->u.Memory.Length == 0)
       {
         prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
         prd->u.Memory.Length = MmGetMdlByteCount(mdl);
@@ -1222,32 +1042,36 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     switch (prd->Type)
     {
     case CmResourceTypeInterrupt:
-      KdPrint((__DRIVER_NAME "     CmResourceTypeInterrupt\n"));
+      KdPrint((__DRIVER_NAME "     CmResourceTypeInterrupt (%d)\n", i));
       KdPrint((__DRIVER_NAME "     irq_vector = %02x\n", prd->u.Interrupt.Vector));
       KdPrint((__DRIVER_NAME "     irq_level = %d\n", prd->u.Interrupt.Level));
       xppdd->irq_vector = prd->u.Interrupt.Vector;
       xppdd->irq_level = (KIRQL)prd->u.Interrupt.Level;
       break;
     case CmResourceTypeMemory:
-      if (prd->u.Memory.Length == 0)
-      {
-        prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
-        prd->u.Memory.Length = MmGetMdlByteCount(mdl);
-      }
-      KdPrint((__DRIVER_NAME "     CmResourceTypeMemory\n"));
+      KdPrint((__DRIVER_NAME "     CmResourceTypeMemory (%d)\n", i));
       KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
-      xppdd->config_page_phys = prd->u.Memory.Start;
-      xppdd->config_page_length = prd->u.Memory.Length;
-      xppdd->requested_resources_start = xppdd->requested_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
-      xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
-      
-      status = XenPci_XenConfigDevice(xppdd);
-      if (!NT_SUCCESS(status))
+      if (prd->u.Memory.Start.QuadPart == xpdd->platform_mmio_addr.QuadPart)
       {
-        RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-        XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
-        FUNCTION_ERROR_EXIT();
-        return status;
+        if (prd->u.Memory.Length == 0)
+        {
+          prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+          prd->u.Memory.Length = MmGetMdlByteCount(mdl);
+          KdPrint((__DRIVER_NAME "     New Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
+        }
+        xppdd->config_page_phys = prd->u.Memory.Start;
+        xppdd->config_page_length = prd->u.Memory.Length;
+        xppdd->requested_resources_start = xppdd->requested_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+        xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+        
+        status = XenPci_XenConfigDevice(xppdd);
+        if (!NT_SUCCESS(status))
+        {
+          RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+          XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+          FUNCTION_ERROR_EXIT();
+          return status;
+        }
       }
       break;
     }
