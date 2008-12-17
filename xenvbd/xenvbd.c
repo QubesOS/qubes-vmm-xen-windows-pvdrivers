@@ -43,6 +43,17 @@ DRIVER_INITIALIZE DriverEntry;
 
 static BOOLEAN dump_mode = FALSE;
 
+ULONGLONG parse_numeric_string(PCHAR string)
+{
+  ULONGLONG val = 0;
+  while (*string != 0)
+  {
+    val = val * 10 + (*string - '0');
+    string++;
+  }
+  return val;
+}
+
 static blkif_shadow_t *
 get_shadow_from_freelist(PXENVBD_DEVICE_DATA xvdd)
 {
@@ -175,9 +186,9 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     case XEN_INIT_TYPE_READ_STRING_FRONT:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
       if (strcmp(setting, "sectors") == 0)
-        xvdd->total_sectors = atoi(value);
+        xvdd->total_sectors = parse_numeric_string(value);
       else if (strcmp(setting, "sector-size") == 0)
-        xvdd->bytes_per_sector = atoi(value);
+        xvdd->bytes_per_sector = (ULONG)parse_numeric_string(value);
       else if (strcmp(setting, "device-type") == 0)
       {
         if (strcmp(value, "disk") == 0)
@@ -340,6 +351,64 @@ XenVbd_DumpStats()
   KdPrint((__DRIVER_NAME "     stat_outstanding_requests = %d\n", stat_outstanding_requests));
 }
 
+static __inline ULONG
+decode_cdb_length(PSCSI_REQUEST_BLOCK srb)
+{
+  switch (srb->Cdb[0])
+  {
+  case SCSIOP_READ:
+  case SCSIOP_WRITE:
+    return (srb->Cdb[7] << 8) | srb->Cdb[8];
+  case SCSIOP_READ16:
+  case SCSIOP_WRITE16:
+    return (srb->Cdb[10] << 24) | (srb->Cdb[11] << 16) | (srb->Cdb[12] << 8) | srb->Cdb[13];    
+  default:
+    return 0;
+  }
+}
+
+static __inline ULONGLONG
+decode_cdb_sector(PSCSI_REQUEST_BLOCK srb)
+{
+  ULONGLONG sector;
+  
+  switch (srb->Cdb[0])
+  {
+  case SCSIOP_READ:
+  case SCSIOP_WRITE:
+    sector = (srb->Cdb[2] << 24) | (srb->Cdb[3] << 16) | (srb->Cdb[4] << 8) | srb->Cdb[5];
+    break;
+  case SCSIOP_READ16:
+  case SCSIOP_WRITE16:
+    sector = ((ULONGLONG)srb->Cdb[2] << 56) | ((ULONGLONG)srb->Cdb[3] << 48)
+           | ((ULONGLONG)srb->Cdb[4] << 40) | ((ULONGLONG)srb->Cdb[5] << 32)
+           | ((ULONGLONG)srb->Cdb[6] << 24) | ((ULONGLONG)srb->Cdb[7] << 16)
+           | ((ULONGLONG)srb->Cdb[8] << 8) | ((ULONGLONG)srb->Cdb[9]);
+    //KdPrint((__DRIVER_NAME "     sector_number = %d (high) %d (low)\n", (ULONG)(sector >> 32), (ULONG)sector));
+    break;
+  default:
+    sector = 0;
+    break;
+  }
+  return sector;
+}
+
+static __inline BOOLEAN
+decode_cdb_is_read(PSCSI_REQUEST_BLOCK srb)
+{
+  switch (srb->Cdb[0])
+  {
+  case SCSIOP_READ:
+  case SCSIOP_READ16:
+    return TRUE;
+  case SCSIOP_WRITE:
+  case SCSIOP_WRITE16:
+    return FALSE;
+  default:
+    return FALSE;
+  }
+}
+
 static VOID
 XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb_offset)
 {
@@ -354,7 +423,7 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
   //ASSERT(!(srb_offset == 0 && xvdd->split_request_in_progress));
-  block_count = (srb->Cdb[7] << 8) | srb->Cdb[8];
+  block_count = decode_cdb_length(srb);;
   block_count *= xvdd->bytes_per_sector / 512;
   if (PtrToUlong(srb->DataBuffer) & 511) /* use SrbExtension intead of DataBuffer if DataBuffer is not aligned to sector size */
   {
@@ -393,19 +462,19 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
       else
         stat_unaligned_gt_65536++;
     }
-    if (srb->Cdb[0] == SCSIOP_WRITE)
-      stat_writes++;
-    else
+    if (decode_cdb_is_read(srb))
       stat_reads++;
+    else
+      stat_writes++;
     stat_outstanding_requests++;
   }
   
   shadow = get_shadow_from_freelist(xvdd);
   ASSERT(shadow);
-  shadow->req.sector_number = (srb->Cdb[2] << 24) | (srb->Cdb[3] << 16) | (srb->Cdb[4] << 8) | srb->Cdb[5];
+  shadow->req.sector_number = decode_cdb_sector(srb);
   shadow->req.sector_number *= xvdd->bytes_per_sector / 512;
   shadow->req.handle = 0;
-  shadow->req.operation = (srb->Cdb[0] == SCSIOP_READ)?BLKIF_OP_READ:BLKIF_OP_WRITE;
+  shadow->req.operation = decode_cdb_is_read(srb)?BLKIF_OP_READ:BLKIF_OP_WRITE;
   shadow->req.nr_segments = 0;
   shadow->offset = srb_offset;
   shadow->length = transfer_length;
@@ -419,7 +488,7 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   {
     shadow->req.sector_number += srb_offset / 512; //xvdd->bytes_per_sector;
     //KdPrint((__DRIVER_NAME "     Using unaligned buffer - DataBuffer = %p, SrbExtension = %p, total length = %d, offset = %d, length = %d, sector = %d\n", srb->DataBuffer, srb->SrbExtension, block_count * 512, shadow->offset, shadow->length, (ULONG)shadow->req.sector_number));
-    if (srb->Cdb[0] == SCSIOP_WRITE)
+    if (!decode_cdb_is_read(srb))
     {
       memcpy(ptr, ((PUCHAR)srb->DataBuffer) + srb_offset, shadow->length);
     }
@@ -656,21 +725,44 @@ XenVbd_HwScsiInitialize(PVOID DeviceExtension)
 static ULONG
 XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
 {
-  PCDB cdb;
   PMODE_PARAMETER_HEADER parameter_header;
   PMODE_PARAMETER_BLOCK param_block;
   PMODE_FORMAT_PAGE format_page;
-  UCHAR page_code;
   ULONG offset;
   UCHAR buffer[256];
   BOOLEAN valid_page = FALSE;
+  BOOLEAN cdb_llbaa;
+  BOOLEAN cdb_dbd;
+  UCHAR cdb_page_code;
+  USHORT cdb_allocation_length;
 
   UNREFERENCED_PARAMETER(xvdd);
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   
-  cdb = (PCDB)srb->Cdb;
-  page_code = cdb->MODE_SENSE.PageCode;
+  //cdb = (PCDB)srb->Cdb;
+  switch (srb->Cdb[0])
+  {
+  case SCSIOP_MODE_SENSE:
+    cdb_llbaa = FALSE;
+    cdb_dbd = (BOOLEAN)!!(srb->Cdb[1] & 8);
+    cdb_page_code = srb->Cdb[2] & 0x3f;
+    cdb_allocation_length = srb->Cdb[4];
+    KdPrint((__DRIVER_NAME "     SCSIOP_MODE_SENSE llbaa = %d, dbd = %d, page_code = %d, allocation_length = %d\n",
+      cdb_llbaa, cdb_dbd, cdb_page_code, cdb_allocation_length));
+    break;
+  case SCSIOP_MODE_SENSE10:
+    cdb_llbaa = (BOOLEAN)!!(srb->Cdb[1] & 16);
+    cdb_dbd = (BOOLEAN)!!(srb->Cdb[1] & 8);
+    cdb_page_code = srb->Cdb[2] & 0x3f;
+    cdb_allocation_length = (srb->Cdb[7] << 8) | srb->Cdb[8];
+    KdPrint((__DRIVER_NAME "     SCSIOP_MODE_SENSE10 llbaa = %d, dbd = %d, page_code = %d, allocation_length = %d\n",
+      cdb_llbaa, cdb_dbd, cdb_page_code, cdb_allocation_length));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     SCSIOP_MODE_SENSE_WTF (%02x)\n", (ULONG)srb->Cdb[0]));
+    return FALSE;
+  }
   offset = 0;
   RtlZeroMemory(srb->DataBuffer, srb->DataTransferLength);
   RtlZeroMemory(buffer, ARRAY_SIZE(buffer));
@@ -687,7 +779,7 @@ XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
     parameter_header->DeviceSpecificParameter|=MODE_DSP_WRITE_PROTECT; 
   }
   
-  if (!cdb->MODE_SENSE.Dbd)
+  if (!cdb_dbd)
   {
     parameter_header->BlockDescriptorLength += sizeof(MODE_PARAMETER_BLOCK);
     param_block = (PMODE_PARAMETER_BLOCK)&buffer[offset];
@@ -713,7 +805,7 @@ XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
     }
     offset += sizeof(MODE_PARAMETER_BLOCK);
   }
-  if (xvdd->device_type == XENVBD_DEVICETYPE_DISK && (page_code == MODE_PAGE_FORMAT_DEVICE || page_code == MODE_SENSE_RETURN_ALL))
+  if (xvdd->device_type == XENVBD_DEVICETYPE_DISK && (cdb_page_code == MODE_PAGE_FORMAT_DEVICE || cdb_page_code == MODE_SENSE_RETURN_ALL))
   {
     valid_page = TRUE;
     format_page = (PMODE_FORMAT_PAGE)&buffer[offset];
@@ -730,7 +822,7 @@ XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
     offset += sizeof(MODE_FORMAT_PAGE);
   }
   parameter_header->ModeDataLength = (UCHAR)(offset - 1);
-  if (!valid_page && page_code != MODE_SENSE_RETURN_ALL)
+  if (!valid_page && cdb_page_code != MODE_SENSE_RETURN_ALL)
   {
     srb->SrbStatus = SRB_STATUS_ERROR;
   }
@@ -866,14 +958,14 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         shadow = &xvdd->shadows[rep->id];
         srb = shadow->srb;
         ASSERT(srb != NULL);
-        block_count = (srb->Cdb[7] << 8) | srb->Cdb[8];
+        block_count = decode_cdb_length(srb);
         block_count *= xvdd->bytes_per_sector / 512;
         if (rep->status == BLKIF_RSP_OKAY)
           srb->SrbStatus = SRB_STATUS_SUCCESS;
         else
         {
           KdPrint((__DRIVER_NAME "     Xen Operation returned error\n"));
-          if (srb->Cdb[0] == SCSIOP_READ)
+          if (decode_cdb_is_read(srb))
             KdPrint((__DRIVER_NAME "     Operation = Read\n"));
           else
             KdPrint((__DRIVER_NAME "     Operation = Write\n"));
@@ -898,11 +990,11 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
         if (PtrToUlong(srb->DataBuffer) & 511) /* use SrbExtension intead of DataBuffer if DataBuffer is not aligned to sector size */
         {
-          if (srb->Cdb[0] == SCSIOP_READ)
+          if (decode_cdb_is_read(srb))
             memcpy(((PUCHAR)srb->DataBuffer) + shadow->offset, GET_PAGE_ALIGNED(srb->SrbExtension), shadow->length);
           offset = shadow->offset + shadow->length;
           put_shadow_on_freelist(xvdd, shadow);
-          if (offset == block_count * 512)
+          if (offset == (ULONG)block_count * 512)
           {
             ScsiPortNotification(RequestComplete, xvdd, srb);
             stat_outstanding_requests--;
@@ -1140,12 +1232,37 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
       Srb->ScsiStatus = 0;
       Srb->SrbStatus = SRB_STATUS_SUCCESS;
       break;
+    case SCSIOP_READ_CAPACITY16:
+      //KdPrint((__DRIVER_NAME "     Command = READ_CAPACITY\n"));
+      //KdPrint((__DRIVER_NAME "       LUN = %d, RelAdr = %d\n", Srb->Cdb[1] >> 4, Srb->Cdb[1] & 1));
+      //KdPrint((__DRIVER_NAME "       LBA = %02x%02x%02x%02x\n", Srb->Cdb[2], Srb->Cdb[3], Srb->Cdb[4], Srb->Cdb[5]));
+      //KdPrint((__DRIVER_NAME "       PMI = %d\n", Srb->Cdb[8] & 1));
+      DataBuffer = Srb->DataBuffer;
+      RtlZeroMemory(DataBuffer, Srb->DataTransferLength);
+      DataBuffer[0] = (unsigned char)((xvdd->total_sectors - 1) >> 56) & 0xff;
+      DataBuffer[1] = (unsigned char)((xvdd->total_sectors - 1) >> 48) & 0xff;
+      DataBuffer[2] = (unsigned char)((xvdd->total_sectors - 1) >> 40) & 0xff;
+      DataBuffer[3] = (unsigned char)((xvdd->total_sectors - 1) >> 32) & 0xff;
+      DataBuffer[4] = (unsigned char)((xvdd->total_sectors - 1) >> 24) & 0xff;
+      DataBuffer[5] = (unsigned char)((xvdd->total_sectors - 1) >> 16) & 0xff;
+      DataBuffer[6] = (unsigned char)((xvdd->total_sectors - 1) >> 8) & 0xff;
+      DataBuffer[7] = (unsigned char)((xvdd->total_sectors - 1) >> 0) & 0xff;
+      DataBuffer[8] = (unsigned char)(xvdd->bytes_per_sector >> 24) & 0xff;
+      DataBuffer[9] = (unsigned char)(xvdd->bytes_per_sector >> 16) & 0xff;
+      DataBuffer[10] = (unsigned char)(xvdd->bytes_per_sector >> 8) & 0xff;
+      DataBuffer[11] = (unsigned char)(xvdd->bytes_per_sector >> 0) & 0xff;
+      Srb->ScsiStatus = 0;
+      Srb->SrbStatus = SRB_STATUS_SUCCESS;
+      break;
     case SCSIOP_MODE_SENSE:
+    case SCSIOP_MODE_SENSE10:
 //      KdPrint((__DRIVER_NAME "     Command = MODE_SENSE (DBD = %d, PC = %d, Page Code = %02x)\n", Srb->Cdb[1] & 0x08, Srb->Cdb[2] & 0xC0, Srb->Cdb[2] & 0x3F));
       XenVbd_FillModePage(xvdd, Srb);
       break;
-    case SCSIOP_WRITE:
     case SCSIOP_READ:
+    case SCSIOP_READ16:
+    case SCSIOP_WRITE:
+    case SCSIOP_WRITE16:
 //      KdPrint((__DRIVER_NAME "     Command = READ/WRITE\n"));
       XenVbd_PutSrbOnRing(xvdd, Srb, 0);
       break;
@@ -1219,7 +1336,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
       Srb->SrbStatus = SRB_STATUS_SUCCESS;
       break;
     default:
-      //KdPrint((__DRIVER_NAME "     Unhandled EXECUTE_SCSI Command = %02X\n", Srb->Cdb[0]));
+      KdPrint((__DRIVER_NAME "     Unhandled EXECUTE_SCSI Command = %02X\n", Srb->Cdb[0]));
       Srb->SrbStatus = SRB_STATUS_ERROR;
       break;
     }
@@ -1257,7 +1374,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
     ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
     break;
   default:
-    //KdPrint((__DRIVER_NAME "     Unhandled Srb->Function = %08X\n", Srb->Function));
+    KdPrint((__DRIVER_NAME "     Unhandled Srb->Function = %08X\n", Srb->Function));
     Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
     ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
