@@ -274,41 +274,13 @@ XenHide_SendAndWaitForIrp(PDEVICE_OBJECT device_object, PIRP irp)
 XenHide_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
-#if 0
-  PIO_STACK_LOCATION stack;
-  PCM_RESOURCE_LIST crl;
-  PCM_PARTIAL_RESOURCE_LIST prl;
-#endif
 
   UNREFERENCED_PARAMETER(device_object);
 
   FUNCTION_ENTER();
 
-#if 0
-  stack = IoGetCurrentIrpStackLocation(irp);
-
-  crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
-  prl = &crl->List[0].PartialResourceList;
-  KdPrint((__DRIVER_NAME "     AllocatedResourcesTranslated count old value = %d\n", prl->Count));
-  prl->Count = 0;
-  crl = stack->Parameters.StartDevice.AllocatedResources;
-  prl = &crl->List[0].PartialResourceList;
-  KdPrint((__DRIVER_NAME "     AllocatedResources count old value = %d\n", prl->Count));
-  prl->Count = 0;
-#endif
-
   IoMarkIrpPending(irp);
   status = XenHide_SendAndWaitForIrp(device_object, irp);
-
-#if 0
-  crl = stack->Parameters.StartDevice.AllocatedResourcesTranslated;
-  prl = &crl->List[0].PartialResourceList;
-  KdPrint((__DRIVER_NAME "     AllocatedResourcesTranslated count value = %d\n", prl->Count));
-  crl = stack->Parameters.StartDevice.AllocatedResources;
-  prl = &crl->List[0].PartialResourceList;
-  KdPrint((__DRIVER_NAME "     AllocatedResources count value = %d\n", prl->Count));
-#endif
-
   XenHide_QueueWorkItem(device_object, XenHide_Pnp_StartDeviceCallback, irp);
 
   FUNCTION_EXIT();
