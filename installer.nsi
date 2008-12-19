@@ -6,7 +6,7 @@ Var ARCH_SPEC
 
 !define AppName "Xen PV Drivers"
 !define StartMenu "$SMPROGRAMS\${AppName}"
-!define Version "0.9.12-pre8"
+!define Version "0.9.12-pre9"
 #!define Version "$%VERSION%"
 Name "${AppName}"
 
@@ -321,7 +321,6 @@ FunctionEnd
 Function SelectSection
   Push $0
 
-check_xp:
   StrCmp $arch "winxp" set_winxp
   SectionGetFlags ${winxp} $0
   IntOp $0 $0 & ${SECTION_OFF}
