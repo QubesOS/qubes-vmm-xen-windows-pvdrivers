@@ -165,19 +165,20 @@ typedef struct {
 
 #define XEN_INIT_DRIVER_EXTENSION_MAGIC ((ULONG)'XCFG')
 
-#define XEN_INIT_TYPE_END               0
-#define XEN_INIT_TYPE_WRITE_STRING      1
-#define XEN_INIT_TYPE_RING              2
-#define XEN_INIT_TYPE_EVENT_CHANNEL     3
-#define XEN_INIT_TYPE_EVENT_CHANNEL_IRQ 4
-#define XEN_INIT_TYPE_READ_STRING_FRONT 5
-#define XEN_INIT_TYPE_READ_STRING_BACK  6
-#define XEN_INIT_TYPE_VECTORS           7
-#define XEN_INIT_TYPE_GRANT_ENTRIES     8
-//#define XEN_INIT_TYPE_COPY_PTR          9
-#define XEN_INIT_TYPE_RUN               10
-#define XEN_INIT_TYPE_STATE_PTR         11
-#define XEN_INIT_TYPE_ACTIVE		12
+#define XEN_INIT_TYPE_END                       0
+#define XEN_INIT_TYPE_WRITE_STRING              1
+#define XEN_INIT_TYPE_RING                      2
+#define XEN_INIT_TYPE_EVENT_CHANNEL             3
+#define XEN_INIT_TYPE_EVENT_CHANNEL_IRQ         4
+#define XEN_INIT_TYPE_READ_STRING_FRONT         5
+#define XEN_INIT_TYPE_READ_STRING_BACK          6
+#define XEN_INIT_TYPE_VECTORS                   7
+#define XEN_INIT_TYPE_GRANT_ENTRIES             8
+//#define XEN_INIT_TYPE_COPY_PTR                  9
+#define XEN_INIT_TYPE_RUN                       10
+#define XEN_INIT_TYPE_STATE_PTR                 11
+#define XEN_INIT_TYPE_ACTIVE                    12
+#define XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION     13
 
 static __inline VOID
 __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
@@ -280,6 +281,7 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   case XEN_INIT_TYPE_RUN:
   case XEN_INIT_TYPE_STATE_PTR:
   case XEN_INIT_TYPE_ACTIVE:
+  case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
     break;
   case XEN_INIT_TYPE_WRITE_STRING:
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
@@ -315,6 +317,7 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2)
   case XEN_INIT_TYPE_RUN:
   case XEN_INIT_TYPE_STATE_PTR:
   case XEN_INIT_TYPE_ACTIVE:
+  case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
     *p1 = NULL;
     *p2 = NULL;
     break;
@@ -379,6 +382,9 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2)
   case XEN_INIT_TYPE_STATE_PTR:
     __ADD_XEN_INIT_PTR(ptr, p2);
     break;
+  case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
+    __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p2));
+    break;
 //  case XEN_INIT_TYPE_COPY_PTR:
 //    __ADD_XEN_INIT_STRING(ptr, p1);
 //    __ADD_XEN_INIT_PTR(ptr, p2);
@@ -432,6 +438,9 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2)
     break;
   case XEN_INIT_TYPE_STATE_PTR:
     *p2 = __GET_XEN_INIT_PTR(ptr);
+    break;
+  case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
+    *p2 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     break;
 //  case XEN_INIT_TYPE_COPY_PTR:
 //    *p1 = __GET_XEN_INIT_STRING(ptr);

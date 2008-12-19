@@ -69,7 +69,11 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define EVT_ACTION_TYPE_IRQ     3
 #define EVT_ACTION_TYPE_SUSPEND 4
 
-extern ULONG need_gplpv_filter;
+#define XEN_PV_PRODUCT_NUMBER   0x0002
+#define XEN_PV_PRODUCT_BUILD    0x00000001
+
+extern ULONG qemu_filtered;
+extern ULONG qemu_protocol_version;
 
 typedef struct _ev_action_t {
   PKSERVICE_ROUTINE ServiceRoutine;

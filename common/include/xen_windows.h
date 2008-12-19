@@ -192,39 +192,63 @@ FreePages(PMDL Mdl)
   ExFreePoolWithTag(Buf, ALLOCATE_PAGES_POOL_TAG);
 }
 
-#define XEN_IOPORT_DEBUG_PORT_BASE 0x10
+#define XEN_IOPORT_BASE 0x10
+
+/*
+define these as pointers so that the READ_PORT* functions complain if
+the wrong width is used with the wrong defined port
+*/
+
+#define XEN_IOPORT_MAGIC        ((PUSHORT)UlongToPtr(XEN_IOPORT_BASE + 0))
+#define XEN_IOPORT_LOG          ((PUCHAR)UlongToPtr(XEN_IOPORT_BASE + 2))
+#define XEN_IOPORT_VERSION      ((PUCHAR)UlongToPtr(XEN_IOPORT_BASE + 2))
+#define XEN_IOPORT_PRODUCT      ((PUSHORT)UlongToPtr(XEN_IOPORT_BASE + 2))
+#define XEN_IOPORT_BUILD        ((PULONG)UlongToPtr(XEN_IOPORT_BASE + 0))
+#define XEN_IOPORT_DEVICE_MASK  ((PUSHORT)UlongToPtr(XEN_IOPORT_BASE + 0))
+
+#define QEMU_UNPLUG_ALL_IDE_DISKS 1
+#define QEMU_UNPLUG_ALL_NICS 2
+#define QEMU_UNPLUG_AUX_IDE_DISKS 4
+
+static BOOLEAN debug_port_probed = FALSE;
+static BOOLEAN debug_port_enabled;
 
 static void XenDbgPrint(PCHAR format, ...)
 {
   CHAR buf[512];
   va_list ap;
-#ifdef XEN_IOPORT_DEBUG_PORT_BASE
   ULONG i;
-  BOOLEAN flag;
-  int cpu;
+  //int cpu;
   KIRQL old_irql = 0;
-#endif
-  
+
+  if (!debug_port_probed)
+  {
+    if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0x49d2
+        || READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0xd249)
+    {
+      debug_port_enabled = TRUE;
+    }
+    else
+    {
+      debug_port_enabled = FALSE;
+    }
+    debug_port_probed = TRUE;
+  }
   va_start(ap, format);
   RtlStringCbVPrintfA(buf, ARRAY_SIZE(buf), format, ap);
   va_end(ap);
   DbgPrint(buf);
-#ifdef XEN_IOPORT_DEBUG_PORT_BASE
-  flag = (KeGetCurrentIrql() < HIGH_LEVEL);
-  if (flag)
+
+  if (debug_port_enabled)
   {
     KeRaiseIrql(HIGH_LEVEL, &old_irql);
-  }
-  cpu = KeGetCurrentProcessorNumber() & 0x07;
-  for (i = 0; i < strlen(buf); i++)
-  {
-    WRITE_PORT_UCHAR((PUCHAR)XEN_IOPORT_DEBUG_PORT_BASE + cpu, buf[i]);
-  }
-  if (flag)
-  {
+    //cpu = KeGetCurrentProcessorNumber() & 0x07;
+    for (i = 0; i < strlen(buf); i++)
+    {
+      WRITE_PORT_UCHAR(XEN_IOPORT_LOG, buf[i]);
+    }
     KeLowerIrql(old_irql);
   }
-#endif
 }
 
 #ifdef KdPrint

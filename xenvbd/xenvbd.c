@@ -145,6 +145,7 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
   PUCHAR ptr;
   USHORT type;
   PCHAR setting, value;
+  ULONG qemu_protocol_version = 0;
 
   xvdd->device_type = XENVBD_DEVICETYPE_UNKNOWN;
   xvdd->sring = NULL;
@@ -269,6 +270,8 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     case XEN_INIT_TYPE_ACTIVE:
       xvdd->inactive = FALSE;
       break;
+    case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
+      qemu_protocol_version = PtrToUlong(value);
     default:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
       break;
@@ -284,6 +287,9 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
     return SP_RETURN_BAD_CONFIG;
   }
+  if (!xvdd->inactive && xvdd->device_type == XENVBD_DEVICETYPE_CDROM && qemu_protocol_version > 0)
+    xvdd->inactive = TRUE;
+
   if (xvdd->inactive)
     KdPrint((__DRIVER_NAME "     Device is inactive\n"));
   

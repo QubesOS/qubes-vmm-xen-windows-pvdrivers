@@ -223,11 +223,9 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
   FUNCTION_EXIT();
   return status;
 }
-//DECLARE_UNICODE_STRING_SIZE(service_path, 512);
 
-#define XEN_GLOBAL_IOPORT_PORT_BASE 0x10
-
-ULONG need_gplpv_filter;
+ULONG qemu_filtered;
+ULONG qemu_protocol_version;
 extern PULONG InitSafeBootMode;
 
 NTSTATUS DDKAPI
@@ -276,20 +274,28 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
       && !*InitSafeBootMode)
   {
     /* see if the qemu method of disabling the PCI devices exists */
-    if (READ_PORT_UCHAR((PUCHAR)UlongToPtr(XEN_GLOBAL_IOPORT_PORT_BASE + 0)) == 'X'
-        && READ_PORT_UCHAR((PUCHAR)UlongToPtr(XEN_GLOBAL_IOPORT_PORT_BASE + 1)) == 'E'
-        && READ_PORT_UCHAR((PUCHAR)UlongToPtr(XEN_GLOBAL_IOPORT_PORT_BASE + 2)) == 'N')
+    if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0x49d2)
     {
-      UCHAR version = READ_PORT_UCHAR((PUCHAR)UlongToPtr(XEN_GLOBAL_IOPORT_PORT_BASE + 3));
-      switch(version)
+      qemu_protocol_version = READ_PORT_UCHAR(XEN_IOPORT_VERSION);
+      KdPrint((__DRIVER_NAME "     Version = %d\n", qemu_protocol_version));
+      switch(qemu_protocol_version)
       {
       case 1:
-        need_gplpv_filter = TRUE;
-        WRITE_PORT_UCHAR((PUCHAR)UlongToPtr(XEN_GLOBAL_IOPORT_PORT_BASE + 8), 1);
-        KdPrint((__DRIVER_NAME "     Disabled PCI devices\n"));
+        WRITE_PORT_USHORT(XEN_IOPORT_PRODUCT, XEN_PV_PRODUCT_NUMBER);
+        WRITE_PORT_ULONG(XEN_IOPORT_BUILD, XEN_PV_PRODUCT_BUILD);
+        if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) != 0x49d2)
+        {
+          KdPrint((__DRIVER_NAME "     Blacklisted\n"));
+          break;
+        }
+        /* fall through */
+      case 0:
+        qemu_filtered = TRUE;
+        WRITE_PORT_USHORT(XEN_IOPORT_DEVICE_MASK, QEMU_UNPLUG_ALL_IDE_DISKS|QEMU_UNPLUG_ALL_NICS);
+        KdPrint((__DRIVER_NAME "     Disabled qemu devices\n"));
         break;
       default:
-        KdPrint((__DRIVER_NAME "     Unknown version %d\n", (ULONG)version));
+        KdPrint((__DRIVER_NAME "     Unknown qemu version %d\n", qemu_protocol_version));
         break;
       }
     }
@@ -298,13 +304,14 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
       KdPrint((__DRIVER_NAME "     Missing XEN signature\n"));
     }
     /* if not, tell the filter to deny the pci devices their resources */
-    if (!need_gplpv_filter)
+    if (!qemu_filtered)
     {
       OBJECT_ATTRIBUTES oa;
       UNICODE_STRING dir_name;
       NTSTATUS status;
       HANDLE handle;
       
+      KdPrint((__DRIVER_NAME "     Adding DirectoryObject\n"));
       RtlInitUnicodeString(&dir_name, L"\\NEED_GPLPV_FILTER");
       InitializeObjectAttributes(&oa, &dir_name, OBJ_KERNEL_HANDLE, NULL, NULL);
       status = ZwCreateDirectoryObject(&handle, DIRECTORY_CREATE_OBJECT, &oa);
@@ -313,10 +320,10 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
       {
         return status;
       }
-      need_gplpv_filter = TRUE;
+      qemu_filtered = TRUE;
     }
   }
-  
+
   DriverObject->DriverExtension->AddDevice = XenPci_AddDevice;
   DriverObject->MajorFunction[IRP_MJ_PNP] = XenPci_Pnp;
   DriverObject->MajorFunction[IRP_MJ_POWER] = XenPci_Power;
