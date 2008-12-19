@@ -36,8 +36,8 @@ Section "Common Files"
   File .\doc\xennet.txt
   ExecWait 'NET STOP ShutdownMon'
   StrCmp $ARCH_SPEC "amd64" amd64
-  File .\target\winnet\i386\copyconfig.exe
-  File .\target\winnet\i386\shutdownmon.exe
+  File .\target\winxp\i386\copyconfig.exe
+  File .\target\winxp\i386\shutdownmon.exe
   File $%DDK_PATH%\redist\DIFx\DPInst\EngMui\x86\DPInst.exe
   Goto amd64_done
 amd64:
@@ -282,7 +282,6 @@ Function .onSelChange
   Push $0
   
   StrCpy $newarch $arch
-check_xp:
   StrCmp $arch "winxp" check_2k3x32
   SectionGetFlags ${winxp} $0
   IntOp $0 $0 & ${SF_SELECTED}
