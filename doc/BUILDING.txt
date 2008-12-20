@@ -15,15 +15,12 @@ http://www.selenic.com/mercurial/wiki/index.cgi/BinaryPackages) to get
 the latest sources from 
 http://xenbits.xensource.com/ext/win-pvdrivers.hg.
 
-4. Build the shutdown monitor using Visual Studio. If you don't build it,
-then you'll need to edit it out of installer.nsi before the next step.
-
-5. From the top directory, type 'makedist', which will build the drivers
+4. From the top directory, type 'makedist', which will build the drivers
 for all architectures. If the build fails, then you probably don't have
 exactly the 6001.17121 that i'm using. Edit set_ddk_path.bat and do a
 'makedist' again.
 
-6. Assuming all went well, your drivers should be in target/<os>/<arch> 
+5. Assuming all went well, your drivers should be in target/<os>/<arch> 
 directory. (<os> is win2k, winxp, winnet and winlh, arch is i386 and
 amd64). "Xen PV Drivers <version>.exe" should also be created which is
 the nsis installer.
