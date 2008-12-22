@@ -29,10 +29,10 @@ ExcludeFromSelect=*
 CopyFiles=XenStub.CopyFiles
 
 [XenStub.CopyFiles]
-XenStub.sys
+xenstub.sys
 
 [SourceDisksFiles]
-XenStub.sys=1
+xenstub.sys=1
 
 [SourceDisksNames.x86]
 1 = %DISK_NAME%,,,.\i386
