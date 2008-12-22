@@ -183,21 +183,32 @@ do_shutdown(BOOL bRebootAfterShutdown)
 static char *
 get_xen_interface_path()
 {
-  HDEVINFO handle = SetupDiGetClassDevs(&GUID_XEN_IFACE, 0, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+  HDEVINFO handle;
   SP_DEVICE_INTERFACE_DATA sdid;
   SP_DEVICE_INTERFACE_DETAIL_DATA *sdidd;
   DWORD buf_len;
   char *path;
 
+  handle = SetupDiGetClassDevs(&GUID_XEN_IFACE, 0, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+  if (handle == INVALID_HANDLE_VALUE)
+  {
+    write_log("SetupDiGetClassDevs failed\n"); 
+    return NULL;
+  }
   sdid.cbSize = sizeof(sdid);
   if (!SetupDiEnumDeviceInterfaces(handle, NULL, &GUID_XEN_IFACE, 0, &sdid))
+  {
+    write_log("SetupDiEnumDeviceInterfaces failed\n");
     return NULL;
+  }
   SetupDiGetDeviceInterfaceDetail(handle, &sdid, NULL, 0, &buf_len, NULL);
-  printf("buf_len = %d\n", buf_len);
   sdidd = malloc(buf_len);
   sdidd->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
   if (!SetupDiGetDeviceInterfaceDetail(handle, &sdid, sdidd, buf_len, NULL, NULL))
+  {
+    write_log("SetupDiGetDeviceInterfaceDetail failed\n"); 
     return NULL;
+  }
   
   path = malloc(strlen(sdidd->DevicePath) + 1);
   strcpy(path, sdidd->DevicePath);
@@ -254,7 +265,6 @@ do_monitoring()
     case 1:
       if (inchar == '\n')
       {
-        printf("%s\n", buf);
         if (strcmp("poweroff", buf) == 0 || strcmp("halt", buf) == 0)
         {
           do_shutdown(FALSE);
@@ -326,7 +336,7 @@ void service_main(int argc, char *argv[])
 
   do_monitoring();
 
-write_log("All done\n"); 
+  write_log("All done\n"); 
 
   return; 
 }
