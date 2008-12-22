@@ -5,4 +5,4 @@ INF_NAME=$(TARGETNAME)
 MISCFILES=..\Target\$(DDK_TARGET_OS)\$(INF_NAME).inf
 TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\wdmsec.lib
 AMD64_SOURCES=hypercall.asm swint.asm
-SOURCES=xenpci.c xenpci_fdo.c xenpci_pdo.c evtchn.c gnttbl.c xenbus.c memory.c
+SOURCES=xenpci.c xenpci_fdo.c xenpci_pdo.c evtchn.c gnttbl.c xenbus.c memory.c xenbus_device_interface.c

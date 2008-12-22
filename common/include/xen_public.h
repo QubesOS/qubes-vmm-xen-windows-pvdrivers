@@ -23,8 +23,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <grant_table.h>
 #include <event_channel.h>
 #include <xen_guids.h>
-//{5C568AC5-9DDF-4FA5-A94A-39D67077819C}
+
+// {5C568AC5-9DDF-4FA5-A94A-39D67077819C}
 DEFINE_GUID(GUID_XEN_IFACE, 0x5C568AC5, 0x9DDF, 0x4FA5, 0xA9, 0x4A, 0x39, 0xD6, 0x70, 0x77, 0x81, 0x9C);
+
+// {14CE175A-3EE2-4fae-9252-00DBD84F018E}
+DEFINE_GUID(GUID_XENBUS_IFACE, 0x14ce175a, 0x3ee2, 0x4fae, 0x92, 0x52, 0x0, 0xdb, 0xd8, 0x4f, 0x1, 0x8e);
 
 #define INVALID_GRANT_REF 0xFFFFFFFF
 
@@ -72,13 +76,13 @@ typedef VOID
 (*PXENBUS_WATCH_CALLBACK)(char *Path, PVOID ServiceContext);
 
 typedef char *
-(*PXEN_XENBUS_READ)(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value);
+(*PXEN_XENBUS_READ)(PVOID Context, xenbus_transaction_t xbt, char *path, char **value);
 
 typedef char *
-(*PXEN_XENBUS_WRITE)(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *value);
+(*PXEN_XENBUS_WRITE)(PVOID Context, xenbus_transaction_t xbt, char *path, char *value);
 
 typedef char *
-(*PXEN_XENBUS_PRINTF)(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *fmt, ...);
+(*PXEN_XENBUS_PRINTF)(PVOID Context, xenbus_transaction_t xbt, char *path, char *fmt, ...);
 
 typedef char *
 (*PXEN_XENBUS_STARTTRANSACTION)(PVOID Context, xenbus_transaction_t *xbt);
@@ -87,13 +91,13 @@ typedef char *
 (*PXEN_XENBUS_ENDTRANSACTION)(PVOID Context, xenbus_transaction_t t, int abort, int *retry);
 
 typedef char *
-(*PXEN_XENBUS_LIST)(PVOID Context, xenbus_transaction_t xbt, const char *prefix, char ***contents);
+(*PXEN_XENBUS_LIST)(PVOID Context, xenbus_transaction_t xbt, char *prefix, char ***contents);
 
 typedef char *
-(*PXEN_XENBUS_ADDWATCH)(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
+(*PXEN_XENBUS_ADDWATCH)(PVOID Context, xenbus_transaction_t xbt, char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 
 typedef char *
-(*PXEN_XENBUS_REMWATCH)(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
+(*PXEN_XENBUS_REMWATCH)(PVOID Context, xenbus_transaction_t xbt, char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 
 typedef NTSTATUS
 (*PXEN_XENPCI_XEN_CONFIG_DEVICE)(PVOID Context);

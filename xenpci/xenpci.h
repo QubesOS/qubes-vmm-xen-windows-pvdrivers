@@ -49,6 +49,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <hvm/hvm_op.h>
 #include <sched.h>
 #include <io/xenbus.h>
+#include "io/xs_wire.h"
 
 #include <xen_public.h>
 
@@ -91,13 +92,6 @@ typedef struct _XENBUS_WATCH_RING
   char Path[128];
   char Token[10];
 } XENBUS_WATCH_RING;
-
-typedef struct _XENBUS_REQ_INFO
-{
-  int In_Use:1;
-  KEVENT WaitEvent;
-  void *Reply;
-} XENBUS_REQ_INFO;
 
 typedef struct _XENBUS_WATCH_ENTRY {
   char Path[128];
@@ -204,10 +198,12 @@ typedef struct {
 
   evtchn_port_t xen_store_evtchn;
 
+  /* grant related */
   grant_entry_t *gnttab_table;
   PHYSICAL_ADDRESS gnttab_table_physical;
   grant_ref_t *gnttab_list;
   int gnttab_list_free;
+  KSPIN_LOCK grant_lock;
   /* this is the maximum number of grant frames we have memory allocated for */
   /* after a resume it may not be the actual number of grant frames we have though */
   ULONG max_grant_frames;
@@ -220,29 +216,24 @@ typedef struct {
   PKTHREAD XenBus_WatchThread;
   KEVENT XenBus_WatchThreadEvent;
 
-  KSPIN_LOCK xenbus_id_lock;
-  KEVENT xenbus_id_event;
-  
   XENBUS_WATCH_RING XenBus_WatchRing[WATCH_RING_SIZE];
   int XenBus_WatchRingReadIndex;
   int XenBus_WatchRingWriteIndex;
 
   struct xenstore_domain_interface *xen_store_interface;
 
-  XENBUS_REQ_INFO req_info[NR_XB_REQS];
-  int nr_live_reqs;
+  /* xenbus related */
   XENBUS_WATCH_ENTRY XenBus_WatchEntries[MAX_WATCH_ENTRIES];
-
-  FAST_MUTEX watch_mutex;
-  FAST_MUTEX xenbus_mutex;
-  KSPIN_LOCK grant_lock;
-
-  //KGUARDED_MUTEX WatchHandlerMutex;
-
+  FAST_MUTEX xb_watch_mutex;
+  FAST_MUTEX xb_request_mutex;
+  KEVENT xb_request_complete_event;
+  struct xsd_sockmsg *xb_reply;
+  
   LIST_ENTRY child_list;
   
   int suspend_state;
   
+  UNICODE_STRING legacy_interface_name;
   UNICODE_STRING interface_name;
   BOOLEAN interface_open;
   
@@ -288,6 +279,22 @@ typedef struct
   PXENPCI_PDO_DEVICE_DATA context;
 } XEN_CHILD, *PXEN_CHILD;
 
+#define DEVICE_INTERFACE_TYPE_LEGACY 0
+#define DEVICE_INTERFACE_TYPE_XENBUS 1
+
+typedef struct {
+  ULONG type;
+  KSPIN_LOCK lock;
+  ULONG len;
+  union {
+    struct xsd_sockmsg msg;
+    UCHAR buffer[PAGE_SIZE];
+  } u;
+  LIST_ENTRY read_list_head;
+  PIRP pending_read_irp;
+} device_interface_xenbus_context_t;
+
+
 #include "hypercall.h"
 
 #define XBT_NIL ((xenbus_transaction_t)0)
@@ -318,9 +325,22 @@ XenPci_Irp_Close_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_Irp_Read_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
+XenPci_Irp_Write_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
 XenPci_Irp_Cleanup_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_SystemControl_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
+
+NTSTATUS
+XenPci_Irp_Create_XenBus(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Close_XenBus(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Read_XenBus(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Write_XenBus(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
+XenPci_Irp_Cleanup_XenBus(PDEVICE_OBJECT device_object, PIRP irp);
 
 NTSTATUS
 XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
@@ -335,6 +355,8 @@ XenPci_Irp_Close_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_Irp_Read_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
+XenPci_Irp_Write_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+NTSTATUS
 XenPci_Irp_Cleanup_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_SystemControl_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
@@ -347,22 +369,24 @@ XenPci_Pdo_Resume(PDEVICE_OBJECT device_object);
 VOID
 XenPci_DumpPdoConfig(PDEVICE_OBJECT device_object);
 
+struct xsd_sockmsg *
+XenBus_Raw(PXENPCI_DEVICE_DATA xpdd, struct xsd_sockmsg *msg);
 char *
-XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value);
+XenBus_Read(PVOID Context, xenbus_transaction_t xbt, char *path, char **value);
 char *
-XenBus_Write(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *value);
+XenBus_Write(PVOID Context, xenbus_transaction_t xbt, char *path, char *value);
 char *
-XenBus_Printf(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *fmt, ...);
+XenBus_Printf(PVOID Context, xenbus_transaction_t xbt, char *path, char *fmt, ...);
 char *
 XenBus_StartTransaction(PVOID Context, xenbus_transaction_t *xbt);
 char *
 XenBus_EndTransaction(PVOID Context, xenbus_transaction_t t, int abort, int *retry);
 char *
-XenBus_List(PVOID Context, xenbus_transaction_t xbt, const char *prefix, char ***contents);
+XenBus_List(PVOID Context, xenbus_transaction_t xbt, char *prefix, char ***contents);
 char *
-XenBus_AddWatch(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
+XenBus_AddWatch(PVOID Context, xenbus_transaction_t xbt, char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 char *
-XenBus_RemWatch(PVOID Context, xenbus_transaction_t xbt, const char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
+XenBus_RemWatch(PVOID Context, xenbus_transaction_t xbt, char *Path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext);
 //VOID
 //XenBus_ThreadProc(PVOID StartContext);
 NTSTATUS

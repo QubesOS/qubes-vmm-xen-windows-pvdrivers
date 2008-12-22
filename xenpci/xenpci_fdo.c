@@ -678,6 +678,12 @@ XenPci_Pnp_StartDeviceCallback(PDEVICE_OBJECT device_object, PVOID context)
   KdPrint((__DRIVER_NAME "     balloon watch response = '%s'\n", response));
 #endif
 
+  status = IoSetDeviceInterfaceState(&xpdd->legacy_interface_name, TRUE);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     IoSetDeviceInterfaceState (legacy) failed with status 0x%08x\n", status));
+  }
+
   status = IoSetDeviceInterfaceState(&xpdd->interface_name, TRUE);
   if (!NT_SUCCESS(status))
   {
@@ -1065,32 +1071,10 @@ XenPci_Pnp_FilterResourceRequirementsCallback(PDEVICE_OBJECT device_object, PVOI
   NTSTATUS status = STATUS_SUCCESS;
   //PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   PIRP irp = context;
-#if 0
-  PIO_RESOURCE_REQUIREMENTS_LIST irrl;
-  PIO_RESOURCE_LIST irl;
-  PIO_RESOURCE_DESCRIPTOR ird;
-  ULONG i;
-#endif
 
   UNREFERENCED_PARAMETER(device_object);
 
   FUNCTION_ENTER();
-#if 0
-  /* this assumes that AlternativeLists == 1 */
-  irrl = (PIO_RESOURCE_REQUIREMENTS_LIST)irp->IoStatus.Information;
-  KdPrint(("AlternativeLists = %d\n", irrl->AlternativeLists));
-  irl = &irrl->List[0];
-  for (i = 0; i < irl->Count; i++)
-  {
-    ird = &irl->Descriptors[i];
-    if (ird->Type == CmResourceTypeInterrupt)
-    {
-      /* IRQ's < 16 (eg ISA interrupts) don't work reliably, so don't allow them. */
-      KdPrint(("MinimumVector = %d, MaximumVector = %d\n", ird->u.Interrupt.MinimumVector, ird->u.Interrupt.MaximumVector));
-      ird->u.Interrupt.MinimumVector = 16;
-    }
-  }
-#endif
   irp->IoStatus.Status = status;
   IoCompleteRequest (irp, IO_NO_INCREMENT);
   
@@ -1331,14 +1315,28 @@ XenPci_Irp_Create_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
   PXENPCI_DEVICE_DATA xpdd;
   NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  PFILE_OBJECT file;
 
   FUNCTION_ENTER();
-
-  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
-  status = STATUS_SUCCESS;    
-  irp->IoStatus.Status = status;
-  IoCompleteRequest(irp, IO_NO_INCREMENT);
-
+  
+  stack = IoGetCurrentIrpStackLocation(irp);
+  file = stack->FileObject;
+  
+  KdPrint((__DRIVER_NAME "     filename = %wZ\n", &file->FileName));
+  if (wcscmp(L"\\xenbus", file->FileName.Buffer) == 0)
+  {
+    status = XenPci_Irp_Create_XenBus(device_object, irp);
+  }
+  else
+  {
+    // legacy interface
+    xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+    file->FsContext = ExAllocatePoolWithTag(NonPagedPool, sizeof(ULONG), XENPCI_POOL_TAG);
+    status = STATUS_SUCCESS;    
+    irp->IoStatus.Status = status;
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
+  }
   FUNCTION_EXIT();
 
   return status;
@@ -1349,15 +1347,27 @@ XenPci_Irp_Close_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
   PXENPCI_DEVICE_DATA xpdd;
   NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  PFILE_OBJECT file;
 
   FUNCTION_ENTER();
+  
+  stack = IoGetCurrentIrpStackLocation(irp);
+  file = stack->FileObject;
 
-  // wait until pending irp's 
-  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
-  status = STATUS_SUCCESS;    
-  irp->IoStatus.Status = status;
-  IoCompleteRequest(irp, IO_NO_INCREMENT);
-
+  if (*(PULONG)file->FsContext == DEVICE_INTERFACE_TYPE_XENBUS)
+  {
+    status = XenPci_Irp_Close_XenBus(device_object, irp);
+  }
+  else
+  {
+    // wait until pending irp's 
+    xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+    status = STATUS_SUCCESS;    
+    irp->IoStatus.Status = status;
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
+  }
+  
   FUNCTION_EXIT();
 
   return status;
@@ -1370,49 +1380,101 @@ XenPci_Irp_Read_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   NTSTATUS status;
   PIO_STACK_LOCATION stack;
   KIRQL old_irql;
+  PFILE_OBJECT file;
 
   FUNCTION_ENTER();
+  
+  stack = IoGetCurrentIrpStackLocation(irp);
+  file = stack->FileObject;
+
+  if (*(PULONG)file->FsContext == DEVICE_INTERFACE_TYPE_XENBUS)
+  {
+    status = XenPci_Irp_Read_XenBus(device_object, irp);
+  }
+  else
+  {
+    xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
+    stack = IoGetCurrentIrpStackLocation(irp);
+    if (stack->Parameters.Read.Length == 0)
+    {
+      irp->IoStatus.Information = 0;
+      status = STATUS_SUCCESS;    
+      irp->IoStatus.Status = status;
+      IoCompleteRequest(irp, IO_NO_INCREMENT);
+    }
+    else 
+    {
+      KdPrint((__DRIVER_NAME "     stack = %p\n", stack));
+      KdPrint((__DRIVER_NAME "     length = %d, buffer = %p\n", stack->Parameters.Read.Length, irp->AssociatedIrp.SystemBuffer));
+      
+      KeAcquireSpinLock(&xpdd->shutdown_ring_lock, &old_irql);
+      xpdd->shutdown_irp = irp;
+      IoSetCancelRoutine(irp, XenBus_ShutdownIoCancel);
+      KeReleaseSpinLock(&xpdd->shutdown_ring_lock, old_irql);
+      status = XenPci_ProcessShutdownIrp(xpdd);
+    }
+  }
+  FUNCTION_EXIT();
+
+  return status;
+}
+
+NTSTATUS
+XenPci_Irp_Write_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PXENPCI_DEVICE_DATA xpdd;
+  NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  PFILE_OBJECT file;
+
+  FUNCTION_ENTER();
+  
+  stack = IoGetCurrentIrpStackLocation(irp);
+  file = stack->FileObject;
 
   xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   stack = IoGetCurrentIrpStackLocation(irp);
-  if (stack->Parameters.Read.Length == 0)
+
+  if (*(PULONG)file->FsContext == DEVICE_INTERFACE_TYPE_XENBUS)
   {
-    irp->IoStatus.Information = 0;
-    status = STATUS_SUCCESS;    
+    status = XenPci_Irp_Close_XenBus(device_object, irp);
+  }
+  else
+  {
+    status = STATUS_UNSUCCESSFUL;
     irp->IoStatus.Status = status;
     IoCompleteRequest(irp, IO_NO_INCREMENT);
-  }
-  else 
-  {
-    KdPrint((__DRIVER_NAME "     stack = %p\n", stack));
-    KdPrint((__DRIVER_NAME "     length = %d, buffer = %p\n", stack->Parameters.Read.Length, irp->AssociatedIrp.SystemBuffer));
-    
-    KeAcquireSpinLock(&xpdd->shutdown_ring_lock, &old_irql);
-    xpdd->shutdown_irp = irp;
-    IoSetCancelRoutine(irp, XenBus_ShutdownIoCancel);
-    KeReleaseSpinLock(&xpdd->shutdown_ring_lock, old_irql);
-    status = XenPci_ProcessShutdownIrp(xpdd);
-  }
+  }    
 
   FUNCTION_EXIT();
 
   return status;
 }
 
-
 NTSTATUS
 XenPci_Irp_Cleanup_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  PFILE_OBJECT file;
 
   UNREFERENCED_PARAMETER(device_object);
 
   FUNCTION_ENTER();
   
-  status = STATUS_SUCCESS;
-  irp->IoStatus.Status = status;
-  IoCompleteRequest(irp, IO_NO_INCREMENT);
+  stack = IoGetCurrentIrpStackLocation(irp);
+  file = stack->FileObject;
   
+  if (*(PULONG)file->FsContext == DEVICE_INTERFACE_TYPE_XENBUS)
+  {
+    status = XenPci_Irp_Close_XenBus(device_object, irp);
+  }
+  else
+  {
+    status = STATUS_SUCCESS;
+    irp->IoStatus.Status = status;
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
+  }
   FUNCTION_EXIT();
 
   return status;

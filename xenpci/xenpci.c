@@ -103,6 +103,20 @@ XenPci_Irp_Read(PDEVICE_OBJECT device_object, PIRP irp)
 }
 
 static DDKAPI NTSTATUS
+XenPci_Irp_Write(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PXENPCI_COMMON common = device_object->DeviceExtension;
+  
+  if (common->lower_do)
+    status = XenPci_Irp_Write_Fdo(device_object, irp);
+  else
+    status = XenPci_Irp_Write_Pdo(device_object, irp);  
+
+  return status;
+}
+
+static DDKAPI NTSTATUS
 XenPci_Irp_Cleanup(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
@@ -161,6 +175,7 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
 //  DECLARE_CONST_UNICODE_STRING(SymbolicName, L"\\DosDevices\\XenShutdown");
 //  WDFDEVICE Device;
   PXENPCI_DEVICE_DATA xpdd;
+  UNICODE_STRING reference;
   //PWSTR InterfaceList;
 
   FUNCTION_ENTER();
@@ -203,21 +218,38 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
 
   InitializeListHead(&xpdd->child_list);
 
+  RtlInitUnicodeString(&reference, L"legacy");
   status = IoRegisterDeviceInterface(
     PhysicalDeviceObject,
     &GUID_XEN_IFACE,
-    NULL,
+    &reference,
+    &xpdd->legacy_interface_name);
+
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface(GUID_XEN_IFACE) failed with status 0x%08x\n", status));
+  }
+  else
+  {
+    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface(GUID_XEN_IFACE) succeeded - %wZ\n", &xpdd->legacy_interface_name));
+  }
+
+  RtlInitUnicodeString(&reference, L"xenbus");
+  status = IoRegisterDeviceInterface(
+    PhysicalDeviceObject,
+    &GUID_XENBUS_IFACE,
+    &reference,
     &xpdd->interface_name);
 
   if (!NT_SUCCESS(status))
   {
-    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface failed with status 0x%08x\n", status));
+    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface(GUID_XENBUS_IFACE) failed with status 0x%08x\n", status));
   }
   else
   {
-    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface succeeded - %wZ\n", &xpdd->interface_name));
+    KdPrint((__DRIVER_NAME "     IoRegisterDeviceInterface(GUID_XENBUS_IFACE) succeeded - %wZ\n", &xpdd->interface_name));
   }
-  
+
   fdo->Flags &= ~DO_DEVICE_INITIALIZING;
 
   FUNCTION_EXIT();
@@ -332,7 +364,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   DriverObject->MajorFunction[IRP_MJ_CLEANUP] = XenPci_Irp_Cleanup;
   DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = XenPci_Dummy;
   DriverObject->MajorFunction[IRP_MJ_READ] = XenPci_Irp_Read;
-  DriverObject->MajorFunction[IRP_MJ_WRITE] = XenPci_Dummy;
+  DriverObject->MajorFunction[IRP_MJ_WRITE] = XenPci_Irp_Write;
   DriverObject->MajorFunction[IRP_MJ_SYSTEM_CONTROL] = XenPci_SystemControl;
 
   FUNCTION_EXIT();

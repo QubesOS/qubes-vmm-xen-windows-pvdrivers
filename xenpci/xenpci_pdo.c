@@ -397,7 +397,7 @@ XenPci_GntTbl_GetRef(PVOID Context)
 }
 
 PCHAR
-XenPci_XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, char **value)
+XenPci_XenBus_Read(PVOID Context, xenbus_transaction_t xbt, char *path, char **value)
 {
   PXENPCI_PDO_DEVICE_DATA xppdd = Context;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
@@ -405,7 +405,7 @@ XenPci_XenBus_Read(PVOID Context, xenbus_transaction_t xbt, const char *path, ch
 }
 
 PCHAR
-XenPci_XenBus_Write(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *value)
+XenPci_XenBus_Write(PVOID Context, xenbus_transaction_t xbt, char *path, char *value)
 {
   PXENPCI_PDO_DEVICE_DATA xppdd = Context;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
@@ -413,7 +413,7 @@ XenPci_XenBus_Write(PVOID Context, xenbus_transaction_t xbt, const char *path, c
 }
 
 PCHAR
-XenPci_XenBus_Printf(PVOID Context, xenbus_transaction_t xbt, const char *path, const char *fmt, ...)
+XenPci_XenBus_Printf(PVOID Context, xenbus_transaction_t xbt, char *path, char *fmt, ...)
 {
   //PXENPCI_PDO_DEVICE_DATA xppdd = Context;
   //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
@@ -442,7 +442,7 @@ XenPci_XenBus_EndTransaction(PVOID Context, xenbus_transaction_t xbt, int abort,
 }
 
 PCHAR
-XenPci_XenBus_List(PVOID Context, xenbus_transaction_t xbt, const char *prefix, char ***contents)
+XenPci_XenBus_List(PVOID Context, xenbus_transaction_t xbt, char *prefix, char ***contents)
 {
   PXENPCI_PDO_DEVICE_DATA xppdd = Context;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
@@ -450,7 +450,7 @@ XenPci_XenBus_List(PVOID Context, xenbus_transaction_t xbt, const char *prefix, 
 }
 
 PCHAR
-XenPci_XenBus_AddWatch(PVOID Context, xenbus_transaction_t xbt, const char *path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext)
+XenPci_XenBus_AddWatch(PVOID Context, xenbus_transaction_t xbt, char *path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext)
 {
   PXENPCI_PDO_DEVICE_DATA xppdd = Context;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
@@ -471,7 +471,7 @@ XenPci_XenBus_AddWatch(PVOID Context, xenbus_transaction_t xbt, const char *path
 }
 
 PCHAR
-XenPci_XenBus_RemWatch(PVOID Context, xenbus_transaction_t xbt, const char *path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext)
+XenPci_XenBus_RemWatch(PVOID Context, xenbus_transaction_t xbt, char *path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext)
 {
   PXENPCI_PDO_DEVICE_DATA xppdd = Context;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
@@ -1516,6 +1516,23 @@ XenPci_Irp_Close_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 
 NTSTATUS
 XenPci_Irp_Read_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  FUNCTION_ENTER();
+
+  status = irp->IoStatus.Status;
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+  FUNCTION_EXIT();
+
+  return status;
+}
+
+NTSTATUS
+XenPci_Irp_Write_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
 
