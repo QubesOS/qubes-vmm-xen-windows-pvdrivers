@@ -288,8 +288,10 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     return SP_RETURN_BAD_CONFIG;
   }
   if (!xvdd->inactive && xvdd->device_type == XENVBD_DEVICETYPE_CDROM && qemu_protocol_version > 0)
+  {
     xvdd->inactive = TRUE;
-
+  }
+  
   if (xvdd->inactive)
     KdPrint((__DRIVER_NAME "     Device is inactive\n"));
   
