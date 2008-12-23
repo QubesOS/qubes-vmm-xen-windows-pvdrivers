@@ -150,7 +150,7 @@ xenbus_format_msg_reply(
   KdPrint((__DRIVER_NAME "     ...done waiting\n"));
   reply = xpdd->xb_reply;
   xpdd->xb_reply = NULL;
-  ExReleaseFastMutex(&xpdd->xb_request_mutex);  
+  ExReleaseFastMutex(&xpdd->xb_request_mutex);
 
   FUNCTION_EXIT();
   
