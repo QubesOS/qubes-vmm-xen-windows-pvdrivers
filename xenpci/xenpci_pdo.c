@@ -1057,9 +1057,10 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
       {
         if (prd->u.Memory.Length == 0)
         {
-          prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+          KdPrint((__DRIVER_NAME "     pfn[0] = %08x\n", (ULONG)MmGetMdlPfnArray(mdl)[0]));
+          prd->u.Memory.Start.QuadPart = (ULONGLONG)MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
           prd->u.Memory.Length = MmGetMdlByteCount(mdl);
-          KdPrint((__DRIVER_NAME "     New Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
+          KdPrint((__DRIVER_NAME "     New Start = %08x%08x, Length = %d\n", prd->u.Memory.Start.HighPart, prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
         }
         xppdd->config_page_phys = prd->u.Memory.Start;
         xppdd->config_page_length = prd->u.Memory.Length;
