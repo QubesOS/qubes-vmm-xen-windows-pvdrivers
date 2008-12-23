@@ -27,6 +27,8 @@ XenPci_Irp_Create_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
   PFILE_OBJECT file;
   device_interface_xenbus_context_t *dixc;
   
+  FUNCTION_ENTER();
+  
   UNREFERENCED_PARAMETER(device_object);
   stack = IoGetCurrentIrpStackLocation(irp);
   file = stack->FileObject;
@@ -37,8 +39,12 @@ XenPci_Irp_Create_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
   dixc->len = 0;
   file->FsContext = dixc;
   status = STATUS_SUCCESS;    
+  dixc->pending_read_irp = NULL;
   irp->IoStatus.Status = status;
   IoCompleteRequest(irp, IO_NO_INCREMENT);
+  
+  FUNCTION_EXIT();
+  
   return status;
 }
 
@@ -74,15 +80,23 @@ XenPci_Irp_Read_XenBus_Complete(device_interface_xenbus_context_t *dixc, PIRP ir
   xenbus_read_queue_item_t *list_entry;
   PIO_STACK_LOCATION stack;
   NTSTATUS status;
+
+  FUNCTION_ENTER();
   
-  dixc->pending_read_irp = NULL;
+KdPrint((__DRIVER_NAME "     A - dixc = %p, irp = %p\n", dixc, irp));
   stack = IoGetCurrentIrpStackLocation(irp);
+KdPrint((__DRIVER_NAME "     Aa\n"));
   dst_length = stack->Parameters.Read.Length;
+KdPrint((__DRIVER_NAME "     B - dst_length = %d\n", dst_length));
   dst_offset = 0;
+KdPrint((__DRIVER_NAME "     C\n"));
   KeAcquireSpinLock(&dixc->lock, &old_irql);
+KdPrint((__DRIVER_NAME "     D"));
   while(dst_offset < dst_length && (list_entry = (xenbus_read_queue_item_t *)RemoveHeadList(&dixc->read_list_head)) != (xenbus_read_queue_item_t *)&dixc->read_list_head)
   {
+KdPrint((__DRIVER_NAME "     E\n"));
     copy_length = min(list_entry->length - list_entry->offset, dst_length - dst_offset);
+    KdPrint((__DRIVER_NAME "     copying %d bytes\n", copy_length));
     memcpy((PUCHAR)irp->AssociatedIrp.SystemBuffer + dst_offset, (PUCHAR)list_entry->data + list_entry->offset, copy_length);
     list_entry->offset += copy_length;
     dst_offset += copy_length;
@@ -97,20 +111,56 @@ XenPci_Irp_Read_XenBus_Complete(device_interface_xenbus_context_t *dixc, PIRP ir
     }      
   }
   KeReleaseSpinLock(&dixc->lock, old_irql);
-    
+KdPrint((__DRIVER_NAME "     F\n"));
+  
   if (dst_offset > 0)
   {
+    KdPrint((__DRIVER_NAME "     completing request\n"));
     status = STATUS_SUCCESS;
     irp->IoStatus.Status = status;
     irp->IoStatus.Information = dst_offset;
-    //IoSetCancelRoutine(irp, NULL);
+    IoSetCancelRoutine(irp, NULL);
     IoCompleteRequest(irp, IO_NO_INCREMENT);
   }
   else
   {
+    KdPrint((__DRIVER_NAME "     pending request\n"));
     status = STATUS_PENDING;
   }
+
+  FUNCTION_EXIT();
+
   return status;
+}
+
+static VOID
+XenPci_Irp_Read_Cancel(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  PIO_STACK_LOCATION stack;
+  PFILE_OBJECT file;
+  device_interface_xenbus_context_t *dixc;
+  KIRQL old_irql;
+
+  FUNCTION_ENTER();
+
+  UNREFERENCED_PARAMETER(device_object);
+
+  stack = IoGetCurrentIrpStackLocation(irp);
+  file = stack->FileObject;
+  dixc = file->FsContext;
+  IoReleaseCancelSpinLock(irp->CancelIrql);
+  KeAcquireSpinLock(&dixc->lock, &old_irql);
+  if (irp != dixc->pending_read_irp)
+  {
+    KdPrint((__DRIVER_NAME "     Not the current irp???\n"));
+  }
+  dixc->pending_read_irp = NULL;
+  irp->IoStatus.Status = STATUS_CANCELLED;
+  irp->IoStatus.Information = 0;
+  KeReleaseSpinLock(&dixc->lock, old_irql);
+  IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+  FUNCTION_EXIT();
 }
 
 NTSTATUS
@@ -128,7 +178,7 @@ XenPci_Irp_Read_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
   file = stack->FileObject;
   dixc = file->FsContext;
 
-  ASSERT(dixc->pending_read_irp);
+  ASSERT(!dixc->pending_read_irp);
   
   if (stack->Parameters.Read.Length == 0)
   {
@@ -145,8 +195,8 @@ XenPci_Irp_Read_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
       IoMarkIrpPending(irp);
       KeAcquireSpinLock(&dixc->lock, &old_irql);
       dixc->pending_read_irp = irp;
-      //IoSetCancelRoutine(irp, XenBus_ShutdownIoCancel);
       KeReleaseSpinLock(&dixc->lock, old_irql);
+      IoSetCancelRoutine(irp, XenPci_Irp_Read_Cancel);
     }
   }
   return status;
@@ -170,10 +220,14 @@ XenPci_Irp_Write_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
   PIRP read_irp;
   NTSTATUS read_status;
   
+  FUNCTION_ENTER();
+  
   xpdd = device_object->DeviceExtension;
   stack = IoGetCurrentIrpStackLocation(irp);
   file = stack->FileObject;
   dixc = file->FsContext;
+  
+  KdPrint((__DRIVER_NAME "     write length = %d\n", stack->Parameters.Write.Length));
   
   src_ptr = (PUCHAR)irp->AssociatedIrp.SystemBuffer;
   src_len = stack->Parameters.Write.Length;
@@ -232,7 +286,13 @@ XenPci_Irp_Write_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
   status = STATUS_SUCCESS;    
   irp->IoStatus.Status = status;
   irp->IoStatus.Information = stack->Parameters.Write.Length;
+
+  KdPrint((__DRIVER_NAME "     Information = %d\n", irp->IoStatus.Information));
+
   IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+  FUNCTION_EXIT();
+
   return status;
 }
 

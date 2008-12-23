@@ -279,11 +279,13 @@ typedef struct
   PXENPCI_PDO_DEVICE_DATA context;
 } XEN_CHILD, *PXEN_CHILD;
 
+#define XEN_INTERFACE_VERSION 1
+
 #define DEVICE_INTERFACE_TYPE_LEGACY 0
 #define DEVICE_INTERFACE_TYPE_XENBUS 1
 
 typedef struct {
-  ULONG type;
+  ULONG type; /* must be the first member */
   KSPIN_LOCK lock;
   ULONG len;
   union {

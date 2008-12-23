@@ -138,7 +138,7 @@ xenbus_format_msg_reply(
   msg.tx_id = trans_id;
   msg.len = 0;
   for (i = 0; i < nr_reqs; i++)
-    msg.len += (size_t)req[i].len;
+    msg.len = msg.len + (size_t)req[i].len;
 
   ExAcquireFastMutex(&xpdd->xb_request_mutex);
   xb_write(xpdd, &msg, sizeof(msg));

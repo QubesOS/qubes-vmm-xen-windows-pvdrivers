@@ -1333,10 +1333,13 @@ XenPci_Irp_Create_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
     // legacy interface
     xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
     file->FsContext = ExAllocatePoolWithTag(NonPagedPool, sizeof(ULONG), XENPCI_POOL_TAG);
+    *(PULONG)file->FsContext = DEVICE_INTERFACE_TYPE_LEGACY;
     status = STATUS_SUCCESS;    
     irp->IoStatus.Status = status;
     IoCompleteRequest(irp, IO_NO_INCREMENT);
   }
+  KdPrint((__DRIVER_NAME "     context = %p\n", file->FsContext));
+  KdPrint((__DRIVER_NAME "     type = %d\n", *(PULONG)file->FsContext));
   FUNCTION_EXIT();
 
   return status;
@@ -1431,13 +1434,16 @@ XenPci_Irp_Write_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   
   stack = IoGetCurrentIrpStackLocation(irp);
   file = stack->FileObject;
+  
+  KdPrint((__DRIVER_NAME "     context = %p\n", file->FsContext));
+  KdPrint((__DRIVER_NAME "     type = %d\n", *(PULONG)file->FsContext));
 
   xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
   stack = IoGetCurrentIrpStackLocation(irp);
 
   if (*(PULONG)file->FsContext == DEVICE_INTERFACE_TYPE_XENBUS)
   {
-    status = XenPci_Irp_Close_XenBus(device_object, irp);
+    status = XenPci_Irp_Write_XenBus(device_object, irp);
   }
   else
   {
@@ -1467,7 +1473,7 @@ XenPci_Irp_Cleanup_Fdo(PDEVICE_OBJECT device_object, PIRP irp)
   
   if (*(PULONG)file->FsContext == DEVICE_INTERFACE_TYPE_XENBUS)
   {
-    status = XenPci_Irp_Close_XenBus(device_object, irp);
+    status = XenPci_Irp_Cleanup_XenBus(device_object, irp);
   }
   else
   {
