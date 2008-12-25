@@ -32,8 +32,6 @@ static DDKAPI void
 XenBus_ReadThreadProc(PVOID StartContext);
 static DDKAPI void
 XenBus_WatchThreadProc(PVOID StartContext);
-static DDKAPI BOOLEAN
-XenBus_Dpc(PKINTERRUPT Interrupt, PVOID ServiceContext);
 
 // This routine free's the rep structure if there was an error!!!
 static char *errmsg(struct xsd_sockmsg *rep)
@@ -138,7 +136,7 @@ xenbus_format_msg_reply(
   msg.tx_id = trans_id;
   msg.len = 0;
   for (i = 0; i < nr_reqs; i++)
-    msg.len = msg.len + (size_t)req[i].len;
+    msg.len += req[i].len;
 
   ExAcquireFastMutex(&xpdd->xb_request_mutex);
   xb_write(xpdd, &msg, sizeof(msg));
@@ -243,6 +241,20 @@ XenBus_Write(
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NULL;
+}
+
+static VOID
+XenBus_Dpc(PVOID ServiceContext)
+{
+  PXENPCI_DEVICE_DATA xpdd = ServiceContext;
+
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  KeSetEvent(&xpdd->XenBus_ReadThreadEvent, IO_NO_INCREMENT, FALSE);
+
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return;
 }
 
 NTSTATUS
@@ -821,22 +833,6 @@ XenBus_EndTransaction(
 //  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NULL;
-}
-
-static DDKAPI BOOLEAN
-XenBus_Dpc(PKINTERRUPT Interrupt, PVOID ServiceContext)
-{
-  PXENPCI_DEVICE_DATA xpdd = ServiceContext;
-
-  UNREFERENCED_PARAMETER(Interrupt);
-
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
-  KeSetEvent(&xpdd->XenBus_ReadThreadEvent, IO_NO_INCREMENT, FALSE);
-
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-
-  return TRUE;
 }
 
 char *

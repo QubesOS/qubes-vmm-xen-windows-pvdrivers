@@ -50,7 +50,7 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
 
   if (action->type == EVT_ACTION_TYPE_DPC)
   {
-    action->ServiceRoutine(NULL, action->ServiceContext);
+    action->ServiceRoutine(action->ServiceContext);
   }
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 }
@@ -68,6 +68,7 @@ EvtChn_AckEvent(PVOID context, evtchn_port_t port)
   evt_word = port >> BITS_PER_LONG_SHIFT;
 
   val = synch_clear_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
+  //KdPrint((__DRIVER_NAME "     EvtChn_AckEvent work[0] = %08x, port %d = %d\n", xpdd->evtchn_pending_pvt[0], port, val));
   
   return (BOOLEAN)!!val;
 }
@@ -135,7 +136,7 @@ to CPU != 0, but we should always use vcpu_info[0]
       {
       case EVT_ACTION_TYPE_NORMAL:
         //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_NORMAL\n"));
-        ev_action->ServiceRoutine(NULL, ev_action->ServiceContext);
+        ev_action->ServiceRoutine(ev_action->ServiceContext);
         break;
       case EVT_ACTION_TYPE_IRQ:
         //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_IRQ\n"));
@@ -156,6 +157,10 @@ to CPU != 0, but we should always use vcpu_info[0]
             int suspend_word = i >> BITS_PER_LONG_SHIFT;
             synch_set_bit(suspend_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[suspend_word]);
           }
+          else if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_NORMAL && xpdd->ev_actions[i].ServiceRoutine)
+          {
+            xpdd->ev_actions[i].ServiceRoutine(xpdd->ev_actions[i].ServiceContext);
+          }
         }
         deferred = TRUE;
         break;
@@ -170,11 +175,12 @@ to CPU != 0, but we should always use vcpu_info[0]
   {
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   }
+
   return handled && !deferred;
 }
 
 NTSTATUS
-EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
+EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 
@@ -201,7 +207,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine,
 }
 
 NTSTATUS
-EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
+EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 

@@ -77,7 +77,7 @@ extern ULONG qemu_filtered;
 extern ULONG qemu_protocol_version;
 
 typedef struct _ev_action_t {
-  PKSERVICE_ROUTINE ServiceRoutine;
+  PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine;
   PVOID ServiceContext;
   CHAR description[128];
   ULONG type; /* EVT_ACTION_TYPE_* */
@@ -421,9 +421,9 @@ EvtChn_Mask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
 EvtChn_Unmask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
-EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
+EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 NTSTATUS
-EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
+EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 NTSTATUS
 EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description);
 evtchn_port_t

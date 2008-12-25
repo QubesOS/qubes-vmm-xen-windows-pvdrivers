@@ -298,7 +298,7 @@ DUMP_CURRENT_PNP_STATE(PXENPCI_PDO_DEVICE_DATA xppdd)
 }
 
 static NTSTATUS
-XenPci_EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
+XenPci_EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
   PXENPCI_PDO_DEVICE_DATA xppdd = Context;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
@@ -307,7 +307,7 @@ XenPci_EvtChn_Bind(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceR
 }
 
 static NTSTATUS
-XenPci_EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
+XenPci_EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
   PXENPCI_PDO_DEVICE_DATA xppdd = Context;
   PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
@@ -517,8 +517,6 @@ XenPci_XenShutdownDevice(PVOID Context)
         FreePages(value);
         break;
       case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
-        // don't know how to do this yet...
-        break;
       case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
         EvtChn_Unbind(xpdd, PtrToUlong(value));
         EvtChn_Close(xpdd, PtrToUlong(value));

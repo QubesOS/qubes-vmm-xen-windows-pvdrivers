@@ -759,6 +759,8 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
 	    xpdd->irq_affinity = res_descriptor->u.Interrupt.Affinity;
       
       xpdd->irq_mode = (res_descriptor->Flags & CM_RESOURCE_INTERRUPT_LATCHED)?Latched:LevelSensitive;
+      KdPrint((__DRIVER_NAME "     irq_mode = %s\n", (xpdd->irq_mode == Latched)?"Latched":"LevelSensitive"));
+      
       //memcpy(&InterruptTranslated, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
       break;
     case CmResourceTypeDevicePrivate:
