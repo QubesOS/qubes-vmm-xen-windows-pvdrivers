@@ -38,8 +38,11 @@ typedef PHYSICAL_ADDRESS
 typedef void
 (*PXEN_FREEMEM)(PVOID Ptr);
 
+typedef VOID
+(*PXEN_EVTCHN_SERVICE_ROUTINE)(PVOID Context);
+
 typedef NTSTATUS
-(*PXEN_EVTCHN_BIND)(PVOID Context, evtchn_port_t Port, PKSERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
+(*PXEN_EVTCHN_BIND)(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
 
 typedef NTSTATUS
 (*PXEN_EVTCHN_UNBIND)(PVOID Context, evtchn_port_t Port);
