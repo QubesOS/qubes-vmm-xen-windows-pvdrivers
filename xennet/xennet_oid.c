@@ -480,7 +480,7 @@ XenNet_SetInformation(
       if (*(ULONG *)data & NDIS_PACKET_TYPE_BROADCAST)
         KdPrint(("  NDIS_PACKET_TYPE_BROADCAST\n"));
       if (*(ULONG *)data & NDIS_PACKET_TYPE_PROMISCUOUS)
-        KdPrint(("  NDIS_PACKET_TYPE_PROMISCUOUS (not supported)\n"));
+        KdPrint(("  NDIS_PACKET_TYPE_PROMISCUOUS\n"));
       if (*(ULONG *)data & NDIS_PACKET_TYPE_ALL_FUNCTIONAL)
         KdPrint(("  NDIS_PACKET_TYPE_ALL_FUNCTIONAL (not supported)\n"));
       if (*(ULONG *)data & NDIS_PACKET_TYPE_ALL_LOCAL)

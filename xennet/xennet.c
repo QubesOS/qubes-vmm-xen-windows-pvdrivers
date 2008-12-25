@@ -142,8 +142,8 @@ XenNet_ConnectBackend(struct xennet_info *xi)
         FRONT_RING_INIT(&xi->rx, (netif_rx_sring_t *)value, PAGE_SIZE);
       }
       break;
-    case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel */
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
+    case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, PtrToUlong(value)));
       if (strcmp(setting, "event-channel") == 0)
       {
         xi->event_channel = PtrToUlong(value);
@@ -260,10 +260,12 @@ XenNet_InterruptIsr(
   *QueueMiniportHandleInterrupt = FALSE;
   if (!xi->vectors.EvtChn_AckEvent(xi->vectors.context, xi->event_channel))
   {
+    KdPrint((__DRIVER_NAME "     Interrupt NOT for me\n"));
     /* interrupt was not for us */
   }
   else
   {
+    KdPrint((__DRIVER_NAME "     Interrupt for me\n"));
     //*QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
     if (xi->device_state->resume_state != xi->device_state->resume_state_ack)
     {
@@ -271,14 +273,32 @@ XenNet_InterruptIsr(
     }
     else if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
     {
+      KdPrint((__DRIVER_NAME "     Queuing DPC's\n"));
       KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
-      //KdPrint((__DRIVER_NAME "     Queueding Dpc (Isr)\n"));
       KeInsertQueueDpc(&xi->rx_dpc, UlongToPtr(FALSE), NULL);
-      //KdPrint((__DRIVER_NAME "     Dpc Queued (Isr)\n"));
     }
   }
 
   //FUNCTION_EXIT();
+}
+
+static DDKAPI BOOLEAN
+XenNet_HandleEvent(PVOID context)
+{
+  struct xennet_info *xi = context;
+  
+  //FUNCTION_ENTER();
+  if (xi->device_state->resume_state != xi->device_state->resume_state_ack)
+  {
+    KeInsertQueueDpc(&xi->suspend_dpc, NULL, NULL);
+  }
+  else if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
+  {
+    KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
+    KeInsertQueueDpc(&xi->rx_dpc, UlongToPtr(FALSE), NULL);
+  }
+  //FUNCTION_EXIT();
+  return TRUE;
 }
 
 // Called at <= DISPATCH_LEVEL
@@ -300,6 +320,7 @@ XenNet_Init(
   PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
   KIRQL irq_level = 0;
   ULONG irq_vector = 0;
+  ULONG irq_mode = 0;
   NDIS_HANDLE config_handle;
   NDIS_STRING config_param_name;
   PNDIS_CONFIGURATION_PARAMETER config_param;
@@ -347,6 +368,7 @@ XenNet_Init(
   xi->rx_target     = RX_DFL_MIN_TARGET;
   xi->rx_min_target = RX_DFL_MIN_TARGET;
   xi->rx_max_target = RX_MAX_TARGET;
+  xi->inactive      = TRUE;
   NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi,
     0, NDIS_ATTRIBUTE_DESERIALIZE|NDIS_ATTRIBUTE_SURPRISE_REMOVE_OK
 #ifdef NDIS51_MINIPORT
@@ -390,7 +412,9 @@ XenNet_Init(
     case CmResourceTypeInterrupt:
       irq_vector = prd->u.Interrupt.Vector;
       irq_level = (KIRQL)prd->u.Interrupt.Level;
-      KdPrint((__DRIVER_NAME "     irq_vector = %03x, irq_level = %03x\n", irq_vector, irq_level));
+      irq_mode = (prd->Flags & CM_RESOURCE_INTERRUPT_LATCHED)?NdisInterruptLatched:NdisInterruptLevelSensitive;
+      KdPrint((__DRIVER_NAME "     irq_vector = %03x, irq_level = %03x, irq_mode = %s\n", irq_vector, irq_level,
+        (irq_mode == NdisInterruptLatched)?"NdisInterruptLatched":"NdisInterruptLevelSensitive"));
       break;
     case CmResourceTypeMemory:
       if (xi->config_page)
@@ -475,6 +499,9 @@ XenNet_Init(
     case XEN_INIT_TYPE_STATE_PTR:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
       xi->device_state = (PXENPCI_DEVICE_STATE)value;
+      break;
+    case XEN_INIT_TYPE_ACTIVE:
+      xi->inactive = FALSE;
       break;
     default:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
@@ -600,7 +627,8 @@ XenNet_Init(
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "tx-ring-ref", NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
+  //ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL, "event-channel", NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", buf);
@@ -634,8 +662,9 @@ XenNet_Init(
 
   KeMemoryBarrier(); // packets could be received anytime after we set Frontent to Connected
 
+  #if 0
   status = NdisMRegisterInterrupt(&xi->interrupt, MiniportAdapterHandle, irq_vector, irq_level,
-    TRUE, TRUE, NdisInterruptLevelSensitive);
+    TRUE, TRUE, irq_mode);
   if (!NT_SUCCESS(status))
   {
     KdPrint(("NdisMRegisterInterrupt failed with 0x%x\n", status));
@@ -645,8 +674,8 @@ XenNet_Init(
     XenNet_RxShutdown(xi);
     goto err;
   }
-
-  /* send fake arp? */
+  #endif
+  xi->vectors.EvtChn_Bind(xi->vectors.context, xi->event_channel, XenNet_HandleEvent, xi);
 
   FUNCTION_EXIT();
 
@@ -767,7 +796,7 @@ DriverEntry(
 
   mini_chars.HaltHandler = XenNet_Halt;
   mini_chars.InitializeHandler = XenNet_Init;
-  mini_chars.ISRHandler = XenNet_InterruptIsr;
+  //mini_chars.ISRHandler = XenNet_InterruptIsr;
   //mini_chars.HandleInterruptHandler = XenNet_InterruptDpc;
   mini_chars.QueryInformationHandler = XenNet_QueryInformation;
   mini_chars.ResetHandler = XenNet_Reset;

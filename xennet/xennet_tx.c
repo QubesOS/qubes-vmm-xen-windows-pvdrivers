@@ -490,6 +490,16 @@ XenNet_SendPackets(
 
   //FUNCTION_ENTER();
 
+  if (xi->inactive)
+  {
+    for (i = 0; i < NumberOfPackets; i++)
+    {
+      NDIS_SET_PACKET_STATUS(PacketArray[i], NDIS_STATUS_FAILURE);
+      NdisMSendComplete(xi->adapter_handle, PacketArray[i], NDIS_GET_PACKET_STATUS(PacketArray[i]));
+    }
+    return;
+  }
+    
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
 //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (packets = %d, free_requests = %d)\n", NumberOfPackets, free_requests(xi)));
