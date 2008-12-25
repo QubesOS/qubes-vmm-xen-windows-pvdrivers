@@ -62,6 +62,9 @@ typedef evtchn_port_t
 typedef BOOLEAN
 (*PXEN_EVTCHN_ACK_EVENT)(PVOID context, evtchn_port_t port);
 
+typedef BOOLEAN
+(*PXEN_EVTCHN_SYNC)(PVOID Context, PKSYNCHRONIZE_ROUTINE sync_routine, PVOID sync_context);
+
 typedef grant_ref_t
 (*PXEN_GNTTBL_GRANTACCESS)(PVOID Context, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref);
 
@@ -132,6 +135,7 @@ typedef struct {
   PXEN_EVTCHN_UNMASK EvtChn_Unmask;
   PXEN_EVTCHN_NOTIFY EvtChn_Notify;
   PXEN_EVTCHN_ACK_EVENT EvtChn_AckEvent;
+  PXEN_EVTCHN_SYNC EvtChn_Sync;
 
   PXEN_GNTTBL_GETREF GntTbl_GetRef;
   PXEN_GNTTBL_PUTREF GntTbl_PutRef;

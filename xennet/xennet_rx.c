@@ -529,8 +529,9 @@ XenNet_RxTimerDpc(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   
   sc.xi = xi;
   sc.is_timer = TRUE;
-#pragma warning(suppress:4054) /* no way around this... */
-  NdisMSynchronizeWithInterrupt(&xi->interrupt, (PVOID)XenNet_RxQueueDpcSynchronized, &sc);
+  xi->vectors.EvtChn_Sync(xi->vectors.context, XenNet_RxQueueDpcSynchronized, &sc);
+//#pragma warning(suppress:4054) /* no way around this... */
+//  NdisMSynchronizeWithInterrupt(&xi->interrupt, (PVOID)XenNet_RxQueueDpcSynchronized, &sc);
 }
 
 // Called at DISPATCH_LEVEL
@@ -717,8 +718,9 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     sync_context_t sc;
     sc.xi = xi;
     sc.is_timer = FALSE;
-#pragma warning(suppress:4054) /* no way around this... */
-    NdisMSynchronizeWithInterrupt(&xi->interrupt, (PVOID)XenNet_RxQueueDpcSynchronized, &sc);
+    xi->vectors.EvtChn_Sync(xi->vectors.context, XenNet_RxQueueDpcSynchronized, &sc);
+//#pragma warning(suppress:4054) /* no way around this... */
+//    NdisMSynchronizeWithInterrupt(&xi->interrupt, (PVOID)XenNet_RxQueueDpcSynchronized, &sc);
   }
   else if (xi->config_rx_interrupt_moderation)
   {

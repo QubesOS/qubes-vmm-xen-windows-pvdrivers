@@ -360,6 +360,15 @@ XenPci_EvtChn_AckEvent(PVOID context, evtchn_port_t port)
   return EvtChn_AckEvent(xpdd, port);
 }
 
+static BOOLEAN
+XenPci_EvtChn_Sync(PVOID context, PKSYNCHRONIZE_ROUTINE sync_routine, PVOID sync_context)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = context;
+  PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  
+  return KeSynchronizeExecution(xpdd->interrupt, sync_routine, sync_context);
+}
+
 static grant_ref_t
 XenPci_GntTbl_GrantAccess(PVOID Context, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref)
 {
@@ -576,6 +585,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   vectors.EvtChn_Unmask = XenPci_EvtChn_Unmask;
   vectors.EvtChn_Notify = XenPci_EvtChn_Notify;
   vectors.EvtChn_AckEvent = XenPci_EvtChn_AckEvent;
+  vectors.EvtChn_Sync = XenPci_EvtChn_Sync;
   vectors.GntTbl_GetRef = XenPci_GntTbl_GetRef;
   vectors.GntTbl_PutRef = XenPci_GntTbl_PutRef;
   vectors.GntTbl_GrantAccess = XenPci_GntTbl_GrantAccess;
