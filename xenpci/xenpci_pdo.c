@@ -968,7 +968,7 @@ XenConfig_MakeConfigPage(PDEVICE_OBJECT device_object)
   //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
   PMDL mdl;
   PUCHAR ptr;
-  PDEVICE_OBJECT curr;
+  PDEVICE_OBJECT curr, prev;
   PDRIVER_OBJECT fdo_driver_object;
   PUCHAR fdo_driver_extension;
   
@@ -986,10 +986,13 @@ XenConfig_MakeConfigPage(PDEVICE_OBJECT device_object)
       if (fdo_driver_extension)
       {
         memcpy(ptr, fdo_driver_extension, PAGE_SIZE);
+        ObDereferenceObject(curr);
         break;
       }
     }
+    prev = curr;
     curr = IoGetLowerDeviceObject(curr);
+    ObDereferenceObject(prev);
   }
   return mdl;
 }
