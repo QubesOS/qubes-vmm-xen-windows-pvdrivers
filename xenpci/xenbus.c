@@ -78,8 +78,8 @@ static void xb_write(
   PUCHAR ptr;
   ULONG remaining;
   
-  FUNCTION_ENTER();
-  KdPrint((__DRIVER_NAME "     len = %d\n", len));
+  //FUNCTION_ENTER();
+  //KdPrint((__DRIVER_NAME "     len = %d\n", len));
 
   ASSERT(len <= XENSTORE_RING_SIZE);
   /* Wait for the ring to drain to the point where we can send the
@@ -102,7 +102,7 @@ static void xb_write(
   while (remaining)
   {
     copy_len = min(remaining, XENSTORE_RING_SIZE - MASK_XENSTORE_IDX(prod));
-    KdPrint((__DRIVER_NAME "     copy_len = %d\n", copy_len));
+    //KdPrint((__DRIVER_NAME "     copy_len = %d\n", copy_len));
     memcpy((PUCHAR)xpdd->xen_store_interface->req + MASK_XENSTORE_IDX(prod), ptr, copy_len);
     prod += (XENSTORE_RING_IDX)copy_len;
     ptr += copy_len;
@@ -113,7 +113,7 @@ static void xb_write(
   xpdd->xen_store_interface->req_prod = prod;
   EvtChn_Notify(xpdd, xpdd->xen_store_evtchn);
 
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
 }
 
 /* takes and releases xb_request_mutex */
@@ -143,9 +143,9 @@ xenbus_format_msg_reply(
   for (i = 0; i < nr_reqs; i++)
     xb_write(xpdd, req[i].data, req[i].len);
 
-  KdPrint((__DRIVER_NAME "     waiting...\n"));
+  //KdPrint((__DRIVER_NAME "     waiting...\n"));
   KeWaitForSingleObject(&xpdd->xb_request_complete_event, Executive, KernelMode, FALSE, NULL);
-  KdPrint((__DRIVER_NAME "     ...done waiting\n"));
+  //KdPrint((__DRIVER_NAME "     ...done waiting\n"));
   reply = xpdd->xb_reply;
   xpdd->xb_reply = NULL;
   ExReleaseFastMutex(&xpdd->xb_request_mutex);
@@ -475,19 +475,18 @@ XenBus_ReadThreadProc(PVOID StartContext)
   for(;;)
   {
     KeWaitForSingleObject(&xpdd->XenBus_ReadThreadEvent, Executive, KernelMode, FALSE, NULL);
-    KdPrint((__DRIVER_NAME " +++ thread woken\n"));
+    //Print((__DRIVER_NAME " +++ thread woken\n"));
     if (xpdd->XenBus_ShuttingDown)
     {
       KdPrint((__DRIVER_NAME "     Shutdown detected in ReadThreadProc\n"));
       PsTerminateSystemThread(0);
-      KdPrint((__DRIVER_NAME "     ReadThreadProc still running... wtf?\n"));
     }
     while (xpdd->xen_store_interface->rsp_prod != xpdd->xen_store_interface->rsp_cons)
     {
       //KdPrint((__DRIVER_NAME "     a - Rsp_cons %d, rsp_prod %d.\n", xen_store_interface->rsp_cons, xen_store_interface->rsp_prod));
       if (xpdd->xen_store_interface->rsp_prod - xpdd->xen_store_interface->rsp_cons < sizeof(msg))
       {
-        KdPrint((__DRIVER_NAME " +++ Message incomplete (not even a full header)\n"));
+        //KdPrint((__DRIVER_NAME " +++ Message incomplete (not even a full header)\n"));
         break;
       }
       KeMemoryBarrier();
@@ -495,7 +494,7 @@ XenBus_ReadThreadProc(PVOID StartContext)
         MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons), sizeof(msg));
       if (xpdd->xen_store_interface->rsp_prod - xpdd->xen_store_interface->rsp_cons < sizeof(msg) + msg.len)
       {
-        KdPrint((__DRIVER_NAME " +++ Message incomplete (header but not full body)\n"));
+        //KdPrint((__DRIVER_NAME " +++ Message incomplete (header but not full body)\n"));
         break;
       }
   
@@ -507,7 +506,7 @@ XenBus_ReadThreadProc(PVOID StartContext)
           MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons),
           msg.len + sizeof(msg));
         xpdd->xen_store_interface->rsp_cons += msg.len + sizeof(msg);
-        KdPrint((__DRIVER_NAME " +++ Setting event\n"));
+        //KdPrint((__DRIVER_NAME " +++ Setting event\n"));
         KeSetEvent(&xpdd->xb_request_complete_event, IO_NO_INCREMENT, FALSE);
       }
       else // a watch: add to watch ring and signal watch thread
@@ -528,7 +527,7 @@ XenBus_ReadThreadProc(PVOID StartContext)
         }
         else
         {
-          KdPrint((__DRIVER_NAME " +++ Queue full Path = %s Token = %s\n", path, token));
+          //KdPrint((__DRIVER_NAME " +++ Queue full Path = %s Token = %s\n", path, token));
           // drop the message on the floor
           continue;
         }
