@@ -1,6 +1,8 @@
 @echo off
 IF NOT EXIST set_ddk_path.bat ECHO >set_ddk_path.bat SET DDK_PATH=C:\WinDDK\6001.18001
 
+CALL set_ddk_path.bat
+
 cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk WXP && CD \Projects\win-pvdrivers.hg && build -cZg"
 CALL sign_sys.bat winxp i386 XP_X86
 CALL sign_inf.bat winxp XP_X86
