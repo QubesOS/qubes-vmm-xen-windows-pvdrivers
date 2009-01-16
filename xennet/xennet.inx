@@ -109,7 +109,7 @@ AddReg = XenNet_Service_AddReg
 
 [XenNet_Service_AddReg]
 ; 5 = PciBus, 0 = Internal, 15 = PnpBus
-HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+HKR,"Parameters\PnpInterface", "15", 0x00010001, 0x00000001
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002bE10318},UpperFilters,0x00010008,XenHide
 
 [Strings]

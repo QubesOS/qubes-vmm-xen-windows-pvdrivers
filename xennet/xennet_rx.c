@@ -35,8 +35,8 @@ XenNet_RxBufferAlloc(struct xennet_info *xi)
 
   batch_target = xi->rx_target - (req_prod - xi->rx.rsp_cons);
 
-  //if (batch_target < (xi->rx_target >> 2))
-  //  return NDIS_STATUS_SUCCESS; /* only refill if we are less than 3/4 full already */
+  if (batch_target < (xi->rx_target >> 2))
+    return NDIS_STATUS_SUCCESS; /* only refill if we are less than 3/4 full already */
 
   for (i = 0; i < batch_target; i++)
   {
@@ -200,7 +200,6 @@ XenNet_MakePacket(struct xennet_info *xi)
   }
 
   //FUNCTION_EXIT();
-  
   return packet;
 }
 
@@ -338,7 +337,7 @@ XenNet_MakePackets(
   //FUNCTION_ENTER();
 
   parse_result = XenNet_ParsePacketHeader(&xi->rxpi);
-  
+
   if ((xi->packet_filter & NDIS_PACKET_TYPE_MULTICAST)
     && !(xi->packet_filter & NDIS_PACKET_TYPE_ALL_MULTICAST)
     && (xi->rxpi.header[0] & 0x01)
@@ -789,6 +788,8 @@ XenNet_ReturnPacket(
   
   if (!xi->rx_outstanding && xi->rx_shutting_down)
     KeSetEvent(&xi->packet_returned_event, IO_NO_INCREMENT, FALSE);
+
+  XenNet_RxBufferAlloc(xi);
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 

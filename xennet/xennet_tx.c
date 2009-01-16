@@ -127,7 +127,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     KdPrint((__DRIVER_NAME "     NdisGetFirstBufferFromPacketSafe failed\n"));
     return FALSE;
   }
-  
+
   if (!total_length)
   {
     KdPrint((__DRIVER_NAME "     Zero length packet\n"));

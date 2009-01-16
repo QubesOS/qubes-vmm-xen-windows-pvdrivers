@@ -247,41 +247,6 @@ XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   FUNCTION_EXIT();
 }
 
-static DDKAPI VOID
-XenNet_InterruptIsr(
-  PBOOLEAN InterruptRecognized,
-  PBOOLEAN QueueMiniportHandleInterrupt,
-  NDIS_HANDLE MiniportAdapterContext)
-{
-  struct xennet_info *xi = MiniportAdapterContext;
-  
-  //FUNCTION_ENTER();
-  *InterruptRecognized = FALSE;
-  *QueueMiniportHandleInterrupt = FALSE;
-  if (!xi->vectors.EvtChn_AckEvent(xi->vectors.context, xi->event_channel))
-  {
-    KdPrint((__DRIVER_NAME "     Interrupt NOT for me\n"));
-    /* interrupt was not for us */
-  }
-  else
-  {
-    KdPrint((__DRIVER_NAME "     Interrupt for me\n"));
-    //*QueueMiniportHandleInterrupt = (BOOLEAN)!!xi->connected;
-    if (xi->device_state->resume_state != xi->device_state->resume_state_ack)
-    {
-      KeInsertQueueDpc(&xi->suspend_dpc, NULL, NULL);
-    }
-    else if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
-    {
-      KdPrint((__DRIVER_NAME "     Queuing DPC's\n"));
-      KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
-      KeInsertQueueDpc(&xi->rx_dpc, UlongToPtr(FALSE), NULL);
-    }
-  }
-
-  //FUNCTION_EXIT();
-}
-
 static DDKAPI BOOLEAN
 XenNet_HandleEvent(PVOID context)
 {
