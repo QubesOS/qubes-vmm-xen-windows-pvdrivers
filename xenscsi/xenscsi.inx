@@ -40,7 +40,7 @@ ServiceBinary  = %12%\xenscsi.sys
 AddReg = XenScsi_Service_AddReg
 
 [XenScsi_Service_AddReg]
-HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+HKR,"Parameters\PnpInterface", "15", 0x00010001, 0x00000001
 
 [XenScsi_EventLog]
 AddReg = XenScsi_EventLog_AddReg

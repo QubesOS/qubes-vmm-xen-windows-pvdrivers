@@ -400,9 +400,15 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
   KdPrint((__DRIVER_NAME "     BusInterruptLevel = %d\n", ConfigInfo->BusInterruptLevel));
   KdPrint((__DRIVER_NAME "     BusInterruptVector = %03x\n", ConfigInfo->BusInterruptVector));
 
+  if (ConfigInfo->BusInterruptVector != 1)
+  {
+    KdPrint((__DRIVER_NAME "     No Interrupt assigned\n"));
+    return SP_RETURN_BAD_CONFIG;
+  }
+
   if (ConfigInfo->NumberOfAccessRanges != 1)
   {
-    KdPrint((__DRIVER_NAME "     NumberOfAccessRanges = %d\n", ConfigInfo->NumberOfAccessRanges));    
+    KdPrint((__DRIVER_NAME "     NumberOfAccessRanges = %d\n", ConfigInfo->NumberOfAccessRanges));
     return SP_RETURN_BAD_CONFIG;
   }
 
@@ -814,7 +820,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   RtlZeroMemory(&HwInitializationData, sizeof(HW_INITIALIZATION_DATA));
 
   HwInitializationData.HwInitializationDataSize = sizeof(HW_INITIALIZATION_DATA);
-  HwInitializationData.AdapterInterfaceType = Internal;
+  HwInitializationData.AdapterInterfaceType = PNPBus;
   HwInitializationData.DeviceExtensionSize = sizeof(XENSCSI_DEVICE_DATA);
   HwInitializationData.SpecificLuExtensionSize = sizeof(XENSCSI_LU_DATA);
   HwInitializationData.SrbExtensionSize = 0;
