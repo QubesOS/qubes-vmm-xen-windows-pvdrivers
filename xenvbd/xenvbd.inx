@@ -40,7 +40,7 @@ ServiceBinary  = %12%\xenvbd.sys
 AddReg = XenVbd_Service_AddReg
 
 [XenVbd_Service_AddReg]
-HKR,"Parameters\PnpInterface", "0", 0x00010001, 0x00000001
+HKR,"Parameters\PnpInterface", "15", 0x00010001, 0x00000001
 ; Add XenHide as a filter to IDE Controllers
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E96A-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenHide
 ; Add XenHide as a filter to SCSI Controllers

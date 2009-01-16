@@ -327,38 +327,6 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
   return SP_RETURN_FOUND;
 }
 
-ULONG stat_interrupts = 0;
-ULONG stat_interrupts_for_me = 0;
-ULONG stat_reads = 0;
-ULONG stat_writes = 0;
-ULONG stat_unaligned_le_4096 = 0;
-ULONG stat_unaligned_le_8192 = 0;
-ULONG stat_unaligned_le_16384 = 0;
-ULONG stat_unaligned_le_32768 = 0;
-ULONG stat_unaligned_le_65536 = 0;
-ULONG stat_unaligned_gt_65536 = 0;
-ULONG stat_no_shadows = 0;
-ULONG stat_no_grants = 0;
-ULONG stat_outstanding_requests = 0;
-
-static VOID
-XenVbd_DumpStats()
-{
-  KdPrint((__DRIVER_NAME "     stat_interrupts = %d\n", stat_interrupts));
-  KdPrint((__DRIVER_NAME "     stat_interrupts_for_me = %d\n", stat_interrupts_for_me));
-  KdPrint((__DRIVER_NAME "     stat_reads = %d\n", stat_reads));
-  KdPrint((__DRIVER_NAME "     stat_writes = %d\n", stat_writes));
-  KdPrint((__DRIVER_NAME "     stat_unaligned_le_4096 = %d\n", stat_unaligned_le_4096));
-  KdPrint((__DRIVER_NAME "     stat_unaligned_le_8192 = %d\n", stat_unaligned_le_8192));
-  KdPrint((__DRIVER_NAME "     stat_unaligned_le_16384 = %d\n", stat_unaligned_le_16384));
-  KdPrint((__DRIVER_NAME "     stat_unaligned_le_32768 = %d\n", stat_unaligned_le_32768));
-  KdPrint((__DRIVER_NAME "     stat_unaligned_le_65536 = %d\n", stat_unaligned_le_65536));
-  KdPrint((__DRIVER_NAME "     stat_unaligned_gt_65536 = %d\n", stat_unaligned_gt_65536));
-  KdPrint((__DRIVER_NAME "     stat_no_shadows = %d\n", stat_no_shadows));
-  KdPrint((__DRIVER_NAME "     stat_no_grants = %d\n", stat_no_grants));
-  KdPrint((__DRIVER_NAME "     stat_outstanding_requests = %d\n", stat_outstanding_requests));
-}
-
 static __inline ULONG
 decode_cdb_length(PSCSI_REQUEST_BLOCK srb)
 {
@@ -447,36 +415,11 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
   if (xvdd->grant_free <= ADDRESS_AND_SIZE_TO_SPAN_PAGES(ptr, transfer_length))
   {
     ASSERT(!xvdd->pending_srb);
-    //KdPrint((__DRIVER_NAME "     No enough grants - deferring\n"));
+    KdPrint((__DRIVER_NAME "     No enough grants - deferring\n"));
     xvdd->pending_srb = srb;
-    stat_no_grants++;
     return;
   }
 
-  if (!srb_offset)
-  {
-    if (PtrToUlong(srb->DataBuffer) & 511)
-    {
-      if (block_count * 512 <= 4096)
-        stat_unaligned_le_4096++;
-      else if (block_count * 512 <= 8192)
-        stat_unaligned_le_8192++;
-      else if (block_count * 512 <= 16384)
-        stat_unaligned_le_16384++;
-      else if (block_count * 512 <= 32768)
-        stat_unaligned_le_32768++;
-      else if (block_count * 512 <= 65536)
-        stat_unaligned_le_65536++;
-      else
-        stat_unaligned_gt_65536++;
-    }
-    if (decode_cdb_is_read(srb))
-      stat_reads++;
-    else
-      stat_writes++;
-    stat_outstanding_requests++;
-  }
-  
   shadow = get_shadow_from_freelist(xvdd);
   ASSERT(shadow);
   shadow->req.sector_number = decode_cdb_sector(srb);
@@ -540,8 +483,6 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb, ULONG srb
     xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
   }
 
-  if (!xvdd->shadow_free)
-    stat_no_shadows++;
   if (xvdd->shadow_free && srb_offset == 0)
     ScsiPortNotification(NextLuRequest, xvdd, 0, 0, 0);
 
@@ -889,11 +830,9 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  stat_interrupts++;
   /* in dump mode I think we get called on a timer, not by an actual IRQ */
   if (!dump_mode && !xvdd->vectors.EvtChn_AckEvent(xvdd->vectors.context, xvdd->event_channel))
     return FALSE; /* interrupt was not for us */
-  stat_interrupts_for_me++;
   if (xvdd->device_state->resume_state != xvdd->device_state->resume_state_ack)
   {
     FUNCTION_ENTER();
@@ -920,9 +859,6 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     return FALSE;
   }
 
-  if (!dump_mode && !(stat_interrupts_for_me & 0xFFFF))
-    XenVbd_DumpStats();
-    
   while (more_to_do)
   {
     rp = xvdd->ring.sring->rsp_prod;
@@ -1005,7 +941,6 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
           if (offset == (ULONG)block_count * 512)
           {
             ScsiPortNotification(RequestComplete, xvdd, srb);
-            stat_outstanding_requests--;
             ScsiPortNotification(NextLuRequest, DeviceExtension, 0, 0, 0);
           }
           else
@@ -1017,7 +952,6 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         {
           put_shadow_on_freelist(xvdd, shadow);
           ScsiPortNotification(RequestComplete, xvdd, srb);
-          stat_outstanding_requests--;
           if (xvdd->pending_srb)
           {
             srb = xvdd->pending_srb;
@@ -1510,7 +1444,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   RtlZeroMemory(&HwInitializationData, sizeof(HW_INITIALIZATION_DATA));
 
   HwInitializationData.HwInitializationDataSize = sizeof(HW_INITIALIZATION_DATA);
-  HwInitializationData.AdapterInterfaceType = Internal;
+  HwInitializationData.AdapterInterfaceType = PNPBus;
   HwInitializationData.DeviceExtensionSize = sizeof(XENVBD_DEVICE_DATA);
   HwInitializationData.SpecificLuExtensionSize = 0;
   /* SrbExtension is not always aligned to a page boundary, so we add PAGE_SIZE-1 to it to make sure we have at least UNALIGNED_DOUBLE_BUFFER_SIZE bytes of page aligned memory */
