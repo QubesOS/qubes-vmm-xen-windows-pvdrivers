@@ -177,14 +177,14 @@ typedef struct {
   KIRQL irq_level;
   KINTERRUPT_MODE irq_mode;
   KAFFINITY irq_affinity;
-
+  
   PHYSICAL_ADDRESS shared_info_area_unmapped;
   shared_info_t *shared_info_area;
   xen_ulong_t evtchn_pending_pvt[sizeof(xen_ulong_t) * 8];
   xen_ulong_t evtchn_pending_suspend[sizeof(xen_ulong_t) * 8];
   evtchn_port_t pdo_event_channel;
   BOOLEAN interrupts_masked;
-
+  
   PHYSICAL_ADDRESS platform_mmio_addr;
   ULONG platform_mmio_orig_len;
   ULONG platform_mmio_len;
@@ -370,6 +370,15 @@ XenPci_Pdo_Resume(PDEVICE_OBJECT device_object);
 
 VOID
 XenPci_DumpPdoConfig(PDEVICE_OBJECT device_object);
+
+typedef VOID
+(*PXENPCI_HIGHSYNC_FUNCTION)(PVOID context);
+
+VOID
+XenPci_HighSync(PXENPCI_HIGHSYNC_FUNCTION function0, PXENPCI_HIGHSYNC_FUNCTION functionN, PVOID context);
+
+VOID
+XenPci_PatchKernel(PXENPCI_DEVICE_DATA xpdd, PVOID base, ULONG length);
 
 struct xsd_sockmsg *
 XenBus_Raw(PXENPCI_DEVICE_DATA xpdd, struct xsd_sockmsg *msg);

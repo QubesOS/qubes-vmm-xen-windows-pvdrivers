@@ -19,6 +19,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 #include <stdlib.h>
+#include <aux_klib.h>
 
 #define SYSRQ_PATH "control/sysrq"
 #define SHUTDOWN_PATH "control/shutdown"
@@ -124,6 +125,43 @@ XenPci_AllocMMIO(PXENPCI_DEVICE_DATA xpdd, ULONG len)
   return addr;
 }
 
+static VOID
+XenPci_MapHalThenPatchKernel(PXENPCI_DEVICE_DATA xpdd)
+{
+  NTSTATUS status;
+  PAUX_MODULE_EXTENDED_INFO amei;
+  ULONG module_info_buffer_size;
+  ULONG i;
+   
+  FUNCTION_ENTER();
+
+  status = AuxKlibInitialize();
+  amei = NULL;
+  /* buffer size could change between requesting and allocating - need to loop until we are successful */
+  while ((status = AuxKlibQueryModuleInformation(&module_info_buffer_size, sizeof(AUX_MODULE_EXTENDED_INFO), amei)) == STATUS_BUFFER_TOO_SMALL || amei == NULL)
+  {
+    if (amei != NULL)
+      ExFreePoolWithTag(amei, XENPCI_POOL_TAG);
+    amei = ExAllocatePoolWithTag(NonPagedPool, module_info_buffer_size, XENPCI_POOL_TAG);
+  }
+  
+  KdPrint((__DRIVER_NAME "     AuxKlibQueryModuleInformation = %d\n", status));
+  for (i = 0; i < module_info_buffer_size / sizeof(AUX_MODULE_EXTENDED_INFO); i++)
+  {
+    if (strcmp((PCHAR)amei[i].FullPathName + amei[i].FileNameOffset, "hal.dll") == 0)
+    {
+      KdPrint((__DRIVER_NAME "     hal.dll found at %p - %p\n", 
+        amei[i].BasicInfo.ImageBase,
+        ((PUCHAR)amei[i].BasicInfo.ImageBase) + amei[i].ImageSize));
+      XenPci_PatchKernel(xpdd, amei[i].BasicInfo.ImageBase, amei[i].ImageSize);
+    }
+  }
+  ExFreePoolWithTag(amei, XENPCI_POOL_TAG);
+  FUNCTION_EXIT();
+}
+
+extern ULONG tpr_patch_requested;
+
 static NTSTATUS
 XenPci_Init(PXENPCI_DEVICE_DATA xpdd)
 {
@@ -142,14 +180,19 @@ XenPci_Init(PXENPCI_DEVICE_DATA xpdd)
     xpdd->shared_info_area = MmMapIoSpace(xpdd->shared_info_area_unmapped,
       PAGE_SIZE, MmNonCached);
   }
-  KdPrint((__DRIVER_NAME " shared_info_area_unmapped.QuadPart = %lx\n", xpdd->shared_info_area_unmapped.QuadPart));
+  KdPrint((__DRIVER_NAME "     shared_info_area_unmapped.QuadPart = %lx\n", xpdd->shared_info_area_unmapped.QuadPart));
   xatp.domid = DOMID_SELF;
   xatp.idx = 0;
   xatp.space = XENMAPSPACE_shared_info;
   xatp.gpfn = (xen_pfn_t)(xpdd->shared_info_area_unmapped.QuadPart >> PAGE_SHIFT);
-  KdPrint((__DRIVER_NAME " gpfn = %x\n", xatp.gpfn));
+  KdPrint((__DRIVER_NAME "     gpfn = %x\n", xatp.gpfn));
   ret = HYPERVISOR_memory_op(xpdd, XENMEM_add_to_physmap, &xatp);
-  KdPrint((__DRIVER_NAME " hypervisor memory op ret = %d\n", ret));
+  KdPrint((__DRIVER_NAME "     hypervisor memory op (XENMAPSPACE_shared_info) ret = %d\n", ret));
+  
+  if (tpr_patch_requested)
+  {
+    XenPci_MapHalThenPatchKernel(xpdd);
+  }
 
   FUNCTION_EXIT();
 
@@ -760,8 +803,21 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
       
       xpdd->irq_mode = (res_descriptor->Flags & CM_RESOURCE_INTERRUPT_LATCHED)?Latched:LevelSensitive;
       KdPrint((__DRIVER_NAME "     irq_mode = %s\n", (xpdd->irq_mode == Latched)?"Latched":"LevelSensitive"));
-      
-      //memcpy(&InterruptTranslated, res_descriptor, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+      switch(res_descriptor->ShareDisposition)
+      {
+      case CmResourceShareDeviceExclusive:
+        KdPrint((__DRIVER_NAME "     ShareDisposition = CmResourceShareDeviceExclusive\n"));
+        break;
+      case CmResourceShareDriverExclusive:
+        KdPrint((__DRIVER_NAME "     ShareDisposition = CmResourceShareDriverExclusive\n"));
+        break;
+      case CmResourceShareShared:
+        KdPrint((__DRIVER_NAME "     ShareDisposition = CmResourceShareShared\n"));
+        break;
+      default:
+        KdPrint((__DRIVER_NAME "     ShareDisposition = %d\n", res_descriptor->ShareDisposition));
+        break;
+      }
       break;
     case CmResourceTypeDevicePrivate:
       KdPrint((__DRIVER_NAME "     Private Data: 0x%02x 0x%02x 0x%02x\n", res_descriptor->u.DevicePrivate.Data[0], res_descriptor->u.DevicePrivate.Data[1], res_descriptor->u.DevicePrivate.Data[2]));

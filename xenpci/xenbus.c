@@ -129,7 +129,7 @@ xenbus_format_msg_reply(
   struct xsd_sockmsg *reply;
   int i;
 
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
   
   msg.type = type;
   msg.req_id = 0;
@@ -150,7 +150,7 @@ xenbus_format_msg_reply(
   xpdd->xb_reply = NULL;
   ExReleaseFastMutex(&xpdd->xb_request_mutex);
 
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
   
   return reply;
 }

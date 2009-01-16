@@ -258,6 +258,7 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
 
 ULONG qemu_filtered;
 ULONG qemu_protocol_version;
+ULONG tpr_patch_requested;
 extern PULONG InitSafeBootMode;
 
 NTSTATUS DDKAPI
@@ -277,7 +278,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   UNREFERENCED_PARAMETER(RegistryPath);
 
   FUNCTION_ENTER();
-
+  
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
   InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
   status = ZwOpenKey(&RegHandle, KEY_READ, &RegObjectAttributes);
@@ -298,6 +299,13 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   SystemStartOptions = (WCHAR *)KeyPartialValue->Data;
 
   KdPrint((__DRIVER_NAME "     SystemStartOptions = %s\n", SystemStartOptions));
+  
+  if (wcsstr(SystemStartOptions, L"PATCHTPR"))
+  {
+    KdPrint((__DRIVER_NAME "     PATCHTPR found\n"));
+    tpr_patch_requested = TRUE;
+  }
+  
   if (wcsstr(SystemStartOptions, L"NOGPLPV"))
     KdPrint((__DRIVER_NAME "     NOGPLPV found\n"));
   conf_info = IoGetConfigurationInformation();

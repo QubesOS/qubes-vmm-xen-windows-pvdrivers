@@ -1031,18 +1031,29 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     prd = & prl->PartialDescriptors[i];
     switch (prd->Type)
     {
+#if 0    
     case CmResourceTypeInterrupt:
       KdPrint((__DRIVER_NAME "     CmResourceTypeInterrupt\n"));
       KdPrint((__DRIVER_NAME "     irq_number = %02x\n", prd->u.Interrupt.Vector));
-      //KdPrint((__DRIVER_NAME "     irq_level = %d\n", prd->u.Interrupt.Level));
       xppdd->irq_number = prd->u.Interrupt.Vector;
-      //xppdd->irq_level = (KIRQL)prd->u.Interrupt.Level;
       break;
+#endif
     case CmResourceTypeMemory:
       if (prd->u.Memory.Start.QuadPart == xpdd->platform_mmio_addr.QuadPart && prd->u.Memory.Length == 0)
       {
         prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
         prd->u.Memory.Length = MmGetMdlByteCount(mdl);
+      }
+      else if (prd->u.Memory.Start.QuadPart == xpdd->platform_mmio_addr.QuadPart + 1 && prd->u.Memory.Length == 0)
+      {
+        RtlZeroMemory(prd, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+        prd->Type = CmResourceTypeInterrupt;
+        prd->ShareDisposition = CmResourceShareShared;
+        prd->Flags = (xpdd->irq_mode == Latched)?CM_RESOURCE_INTERRUPT_LATCHED:CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+        prd->u.Interrupt.Level = xpdd->irq_number;
+        prd->u.Interrupt.Vector = xpdd->irq_number;
+        prd->u.Interrupt.Affinity = (KAFFINITY)-1;
+        xppdd->irq_number = xpdd->irq_number;
       }
       break;
     }
@@ -1054,6 +1065,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
     prd = & prl->PartialDescriptors[i];
     switch (prd->Type)
     {
+#if 0
     case CmResourceTypeInterrupt:
       KdPrint((__DRIVER_NAME "     CmResourceTypeInterrupt (%d)\n", i));
       KdPrint((__DRIVER_NAME "     irq_vector = %02x\n", prd->u.Interrupt.Vector));
@@ -1061,6 +1073,7 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
       xppdd->irq_vector = prd->u.Interrupt.Vector;
       xppdd->irq_level = (KIRQL)prd->u.Interrupt.Level;
       break;
+#endif
     case CmResourceTypeMemory:
       KdPrint((__DRIVER_NAME "     CmResourceTypeMemory (%d)\n", i));
       KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
@@ -1086,6 +1099,18 @@ XenPci_Pnp_StartDevice(PDEVICE_OBJECT device_object, PIRP irp)
           FUNCTION_ERROR_EXIT();
           return status;
         }
+      }
+      else if (prd->u.Memory.Start.QuadPart == xpdd->platform_mmio_addr.QuadPart + 1 && prd->u.Memory.Length == 0)
+      {
+        RtlZeroMemory(prd, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+        prd->Type = CmResourceTypeInterrupt;
+        prd->ShareDisposition = CmResourceShareShared;
+        prd->Flags = (xpdd->irq_mode == Latched)?CM_RESOURCE_INTERRUPT_LATCHED:CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+        prd->u.Interrupt.Level = xpdd->irq_level;
+        prd->u.Interrupt.Vector = xpdd->irq_vector;
+        prd->u.Interrupt.Affinity = (KAFFINITY)-1;
+        xppdd->irq_vector = xpdd->irq_vector;
+        xppdd->irq_level = xpdd->irq_level;
       }
       break;
     }
@@ -1142,6 +1167,8 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
 
   UNREFERENCED_PARAMETER(device_object);
 
+  FUNCTION_ENTER();
+  
   length = FIELD_OFFSET(IO_RESOURCE_REQUIREMENTS_LIST, List) +
     FIELD_OFFSET(IO_RESOURCE_LIST, Descriptors) +
     sizeof(IO_RESOURCE_DESCRIPTOR) * 2;
@@ -1150,7 +1177,7 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
     XENPCI_POOL_TAG);
   
   irrl->ListSize = length;
-  irrl->InterfaceType = Internal;
+  irrl->InterfaceType = PNPBus; //Internal;
   irrl->BusNumber = 0;
   irrl->SlotNumber = 0;
   irrl->AlternativeLists = 1;
@@ -1158,25 +1185,41 @@ XenPci_QueryResourceRequirements(PDEVICE_OBJECT device_object, PIRP irp)
   irrl->List[0].Revision = 1;
   irrl->List[0].Count = 0;
 
+  #if 0
   ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
   ird->Option = 0;
   ird->Type = CmResourceTypeInterrupt;
   ird->ShareDisposition = CmResourceShareShared;
   ird->Flags = (xpdd->irq_mode == Latched)?CM_RESOURCE_INTERRUPT_LATCHED:CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+  KdPrint((__DRIVER_NAME "      irq type = %s\n", (xpdd->irq_mode == Latched)?"Latched":"Level"));
   ird->u.Interrupt.MinimumVector = xpdd->irq_number;
   ird->u.Interrupt.MaximumVector = xpdd->irq_number;
+  #endif
+  
+  ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
+  ird->Option = 0;
+  ird->Type = CmResourceTypeMemory;
+  ird->ShareDisposition = CmResourceShareShared;
+  ird->Flags = CM_RESOURCE_MEMORY_READ_WRITE | CM_RESOURCE_MEMORY_CACHEABLE;
+  ird->u.Memory.MinimumAddress.QuadPart = xpdd->platform_mmio_addr.QuadPart;
+  ird->u.Memory.MaximumAddress.QuadPart = xpdd->platform_mmio_addr.QuadPart;
+  ird->u.Memory.Length = 0;
+  ird->u.Memory.Alignment = PAGE_SIZE;
 
   ird = &irrl->List[0].Descriptors[irrl->List[0].Count++];
   ird->Option = 0;
   ird->Type = CmResourceTypeMemory;
   ird->ShareDisposition = CmResourceShareShared;
   ird->Flags = CM_RESOURCE_MEMORY_READ_WRITE | CM_RESOURCE_MEMORY_CACHEABLE;
-  ird->u.Memory.MinimumAddress = xpdd->platform_mmio_addr;
-  ird->u.Memory.MaximumAddress = xpdd->platform_mmio_addr;
+  ird->u.Memory.MinimumAddress.QuadPart = xpdd->platform_mmio_addr.QuadPart + 1;
+  ird->u.Memory.MaximumAddress.QuadPart = xpdd->platform_mmio_addr.QuadPart + 1;
   ird->u.Memory.Length = 0;
   ird->u.Memory.Alignment = PAGE_SIZE;
-  
+
   irp->IoStatus.Information = (ULONG_PTR)irrl;
+
+  FUNCTION_EXIT();
+  
   return STATUS_SUCCESS;
 }
 
@@ -1229,12 +1272,138 @@ XenPci_Pnp_QueryCapabilities(PDEVICE_OBJECT device_object, PIRP irp)
   return STATUS_SUCCESS;
 }
 
+static VOID
+XenPci_IS_InterfaceReference(PVOID context)
+{
+  UNREFERENCED_PARAMETER(context);
+}
+
+static VOID
+XenPci_IS_InterfaceDereference(PVOID context)
+{
+  UNREFERENCED_PARAMETER(context);
+}
+
+static BOOLEAN
+XenPci_BIS_TranslateBusAddress(PVOID context, PHYSICAL_ADDRESS bus_address, ULONG length, PULONG address_space, PPHYSICAL_ADDRESS translated_address)
+{
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(length);
+  FUNCTION_ENTER();
+  if (*address_space != 0)
+  {
+    KdPrint((__DRIVER_NAME "      Cannot map I/O space\n"));
+    FUNCTION_EXIT();
+    return FALSE;
+  }
+  *translated_address = bus_address;
+  FUNCTION_EXIT();
+  return TRUE;
+}
+
+static PDMA_ADAPTER
+XenPci_BIS_GetDmaAdapter(PVOID context, PDEVICE_DESCRIPTION device_descriptor, PULONG number_of_map_registers)
+{
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(device_descriptor);
+  UNREFERENCED_PARAMETER(number_of_map_registers);
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return NULL;
+}
+
+static ULONG
+XenPci_BIS_SetBusData(PVOID context, ULONG data_type, PVOID buffer, ULONG offset, ULONG length)
+{
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(data_type);
+  UNREFERENCED_PARAMETER(buffer);
+  UNREFERENCED_PARAMETER(offset);
+  UNREFERENCED_PARAMETER(length);
+  
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return 0;
+}
+
+static ULONG
+XenPci_BIS_GetBusData(PVOID context, ULONG data_type, PVOID buffer, ULONG offset, ULONG length)
+{
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(data_type);
+  UNREFERENCED_PARAMETER(buffer);
+  UNREFERENCED_PARAMETER(offset);
+  UNREFERENCED_PARAMETER(length);
+  
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return 0;
+}
+
+static NTSTATUS
+XenPci_QueryInterface(PDEVICE_OBJECT device_object, PIRP irp)
+{
+  NTSTATUS status;
+  PIO_STACK_LOCATION stack;
+  PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  PBUS_INTERFACE_STANDARD bis;
+  PGUID guid;
+
+  FUNCTION_ENTER();
+
+  stack = IoGetCurrentIrpStackLocation(irp);
+
+  if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &GUID_BUS_INTERFACE_STANDARD, sizeof(GUID_BUS_INTERFACE_STANDARD)) == 0)
+  {
+    KdPrint((__DRIVER_NAME "      GUID_BUS_INTERFACE_STANDARD\n"));
+    if (stack->Parameters.QueryInterface.Size < sizeof(BUS_INTERFACE_STANDARD))
+    {
+      KdPrint((__DRIVER_NAME "      buffer too small\n"));
+      status = STATUS_INVALID_PARAMETER;
+      FUNCTION_EXIT();
+      return status;
+    }
+    if (stack->Parameters.QueryInterface.Version != 1)
+    {
+      KdPrint((__DRIVER_NAME "      incorrect version %d\n", stack->Parameters.QueryInterface.Version));
+      status = STATUS_INVALID_PARAMETER;
+      FUNCTION_EXIT();
+      return status;
+    }
+    bis = (PBUS_INTERFACE_STANDARD)stack->Parameters.QueryInterface.Interface;
+    bis->Size = sizeof(BUS_INTERFACE_STANDARD);
+    bis->Version = 1; //BUS_INTERFACE_STANDARD_VERSION;
+    bis->Context = xppdd;
+    bis->InterfaceReference = XenPci_IS_InterfaceReference;
+    bis->InterfaceDereference = XenPci_IS_InterfaceReference;
+    bis->TranslateBusAddress = XenPci_BIS_TranslateBusAddress;
+    bis->GetDmaAdapter = XenPci_BIS_GetDmaAdapter;
+    bis->SetBusData = XenPci_BIS_SetBusData;
+    bis->GetBusData = XenPci_BIS_GetBusData;
+    status = STATUS_SUCCESS;
+    FUNCTION_EXIT();
+    return status;
+  }
+  else
+  {
+    guid = (PGUID)stack->Parameters.QueryInterface.InterfaceType;
+    KdPrint((__DRIVER_NAME "      Unknown GUID %08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X\n",
+    guid->Data1, (ULONG)guid->Data2, (ULONG)guid->Data3, (ULONG)guid->Data4[0], (ULONG)guid->Data4[1],
+    (ULONG)guid->Data4[2], (ULONG)guid->Data4[3], (ULONG)guid->Data4[4], (ULONG)guid->Data4[5],
+    (ULONG)guid->Data4[6], (ULONG)guid->Data4[7]));
+    status = irp->IoStatus.Status;
+    FUNCTION_EXIT();
+    return status;
+  }
+}
+
 NTSTATUS
 XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
   PIO_STACK_LOCATION stack;
   PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
   LPWSTR buffer;
   WCHAR widebuf[256];
   unsigned int i;
@@ -1431,27 +1600,47 @@ XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_BUS_INFORMATION (status = %08x)\n", irp->IoStatus.Status));
     pbi = (PPNP_BUS_INFORMATION)ExAllocatePoolWithTag(PagedPool, sizeof(PNP_BUS_INFORMATION), XENPCI_POOL_TAG);
     pbi->BusTypeGuid = GUID_BUS_TYPE_XEN;
-    pbi->LegacyBusType = Internal;
+    pbi->LegacyBusType = PNPBus; //Internal;
     pbi->BusNumber = 0;
     irp->IoStatus.Information = (ULONG_PTR)pbi;
     status = STATUS_SUCCESS;
     break;
 
+  case IRP_MN_QUERY_INTERFACE:
+    status = XenPci_QueryInterface(device_object, irp);
+    break;
+    
   case IRP_MN_QUERY_RESOURCES:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_RESOURCES (status = %08x)\n", irp->IoStatus.Status));
     status = irp->IoStatus.Status;
-    #if 0
-    crl = (PCM_RESOURCE_LIST)ExAllocatePoolWithTag(PagedPool, sizeof(CM_RESOURCE_LIST) - sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR), XENPCI_POOL_TAG);
+#if 0    
+    crl = (PCM_RESOURCE_LIST)ExAllocatePoolWithTag(PagedPool, sizeof(CM_RESOURCE_LIST) - sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * 2, XENPCI_POOL_TAG);
     crl->Count = 1;
-    crl->List[0].InterfaceType = Internal;
+    crl->List[0].InterfaceType = PNPBus;
     crl->List[0].BusNumber = 0;
-    crl->List[0].PartialResourceList.Version = 0;
-    crl->List[0].PartialResourceList.Revision = 0;
+    crl->List[0].PartialResourceList.Version = 1;
+    crl->List[0].PartialResourceList.Revision = 1;
     crl->List[0].PartialResourceList.Count = 0;
+
+    prd = &crl->List[0].PartialResourceList.PartialDescriptors[crl->List[0].PartialResourceList.Count++];
+    prd->Type = CmResourceTypeInterrupt;
+    prd->ShareDisposition = CmResourceShareShared;
+    prd->Flags = (xpdd->irq_mode == Latched)?CM_RESOURCE_INTERRUPT_LATCHED:CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+    prd->u.Interrupt.Level = xpdd->irq_number;
+    prd->u.Interrupt.Vector = xpdd->irq_number;
+    prd->u.Interrupt.Affinity = (KAFFINITY)-1;
+    
+    prd = &crl->List[0].PartialResourceList.PartialDescriptors[crl->List[0].PartialResourceList.Count++];
+    prd->Type = CmResourceTypeMemory;
+    prd->ShareDisposition = CmResourceShareShared;
+    prd->Flags = CM_RESOURCE_MEMORY_READ_WRITE | CM_RESOURCE_MEMORY_CACHEABLE;
+    prd->u.Memory.Start = xpdd->platform_mmio_addr;
+    prd->u.Memory.Length = 0;
+    
     irp->IoStatus.Information = (ULONG_PTR)crl;
     status = STATUS_SUCCESS;
-    #endif
-    break;
+#endif
+    break;    
     
   case IRP_MN_QUERY_PNP_DEVICE_STATE:
     KdPrint((__DRIVER_NAME "     IRP_MN_QUERY_PNP_DEVICE_STATE (status = %08x)\n", irp->IoStatus.Status));
