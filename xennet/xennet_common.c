@@ -20,32 +20,112 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xennet.h"
 
-ULONG
-XenNet_ParsePacketHeader(
-  packet_info_t *pi
-)
-{
-  UINT header_length;
+/*
+Increase the header to a certain size
+*/
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+BOOLEAN
+XenNet_BuildHeader(packet_info_t *pi, ULONG new_header_size)
+{
+  ULONG bytes_remaining;
+  PMDL current_mdl;
+
+  //FUNCTION_ENTER();
+
+  if (new_header_size <= pi->header_length)
+  {
+    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " new_header_size < pi->header_length\n"));
+    return TRUE;
+  }
+
+  if (new_header_size > ARRAY_SIZE(pi->header_data))
+  {
+    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " new_header_size > ARRAY_SIZE(pi->header_data)\n"));
+    return FALSE;
+  }
+  
+  if (new_header_size <= pi->first_buffer_length)
+  {
+    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " new_header_size <= pi->first_buffer_length\n"));
+    pi->header_length = new_header_size;
+    return TRUE;
+  }
+  else if (pi->header != pi->header_data)
+  {
+    //KdPrint((__DRIVER_NAME "     Using header_data\n"));
+    memcpy(pi->header_data, pi->header, pi->header_length);
+    pi->header = pi->header_data;
+  }
+  
+  bytes_remaining = new_header_size - pi->header_length;
+
+  //KdPrint((__DRIVER_NAME "     A bytes_remaining = %d, pi->curr_mdl_index = %d, pi->mdl_count = %d\n",
+  //  bytes_remaining, pi->curr_mdl_index, pi->mdl_count));
+  while (bytes_remaining && pi->curr_mdl_index < pi->mdl_count)
+  {
+    ULONG copy_size;
+    
+    //KdPrint((__DRIVER_NAME "     B bytes_remaining = %d, pi->curr_mdl_index = %d, pi->mdl_count = %d\n",
+    //  bytes_remaining, pi->curr_mdl_index, pi->mdl_count));
+    current_mdl = pi->mdls[pi->curr_mdl_index];
+    if (MmGetMdlByteCount(current_mdl))
+    {
+      copy_size = min(bytes_remaining, MmGetMdlByteCount(current_mdl) - pi->curr_mdl_offset);
+      //KdPrint((__DRIVER_NAME "     B copy_size = %d\n", copy_size));
+      memcpy(pi->header + pi->header_length,
+        (PUCHAR)MmGetMdlVirtualAddress(current_mdl) + pi->curr_mdl_offset, copy_size);
+      pi->curr_mdl_offset += copy_size;
+      pi->header_length += copy_size;
+      bytes_remaining -= copy_size;
+    }
+    if (pi->curr_mdl_offset == MmGetMdlByteCount(current_mdl))
+    {
+      pi->curr_mdl_index++;
+      pi->curr_mdl_offset = 0;
+    }
+  }
+  //KdPrint((__DRIVER_NAME "     C bytes_remaining = %d, pi->curr_mdl_index = %d, pi->mdl_count = %d\n",
+  //  bytes_remaining, pi->curr_mdl_index, pi->mdl_count));
+  if (bytes_remaining)
+  {
+    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " bytes_remaining\n"));
+    return FALSE;
+  }
+  //FUNCTION_EXIT();
+  return TRUE;
+}
+
+ULONG
+XenNet_ParsePacketHeader(packet_info_t *pi)
+{
+  //FUNCTION_ENTER();
 
   ASSERT(pi->mdls[0]);
   
-  NdisQueryBufferSafe(pi->mdls[0], (PVOID) &pi->header, &header_length, NormalPagePriority);
+  NdisQueryBufferSafe(pi->mdls[0], (PVOID) &pi->header, &pi->first_buffer_length, NormalPagePriority);
 
-// what about if the buffer isn't completely on one page???
-  if (ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(pi->mdls[0]), header_length) != 1)
-    KdPrint((__DRIVER_NAME "     header crosses a page!\n"));
-
-
-  if (header_length < XN_HDR_SIZE + 20 + 20) // minimum size of first buffer is ETH + IP + TCP header
+  pi->header_length = 0;
+  pi->curr_mdl_index = 0;
+  pi->curr_mdl_offset = 0;
+    
+  if (!XenNet_BuildHeader(pi, (ULONG)XN_HDR_SIZE))
   {
+    KdPrint((__DRIVER_NAME "     packet too small (Ethernet Header)\n"));
     return PARSE_TOO_SMALL;
   }
-  
+
   switch (GET_NET_PUSHORT(&pi->header[12])) // L2 protocol field
   {
   case 0x0800:
+    //KdPrint((__DRIVER_NAME "     IP\n"));
+    if (pi->header_length < (ULONG)(XN_HDR_SIZE + 20))
+    {
+      if (!XenNet_BuildHeader(pi, (ULONG)(XN_HDR_SIZE + 20)))
+      {
+        KdPrint((__DRIVER_NAME "     packet too small (IP Header)\n"));
+        return PARSE_TOO_SMALL;
+      }
+    }
     pi->ip_version = (pi->header[XN_HDR_SIZE + 0] & 0xF0) >> 4;
     if (pi->ip_version != 4)
     {
@@ -53,21 +133,25 @@ XenNet_ParsePacketHeader(
       return PARSE_UNKNOWN_TYPE;
     }
     pi->ip4_header_length = (pi->header[XN_HDR_SIZE + 0] & 0x0F) << 2;
-    if (header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20))
+    if (pi->header_length < (ULONG)(XN_HDR_SIZE + 20 + pi->ip4_header_length))
     {
-      KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (1)\n", header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)));
+      if (!XenNet_BuildHeader(pi, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)))
+      {
+        KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header)\n"));
+        return PARSE_TOO_SMALL;
+      }
 #if 0      
+      KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (1)\n", pi->header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)));
       KdPrint((__DRIVER_NAME "     total_length = %d\n", pi->total_length));
       for (i = 0; i < pi->mdl_count; i++)
       {
         KdPrint((__DRIVER_NAME "     mdl %d length = %d\n", i, MmGetMdlByteCount(pi->mdls[i])));
       }
 #endif
-      return PARSE_TOO_SMALL;
     }
     break;
   default:
-//    KdPrint((__DRIVER_NAME "     Not IP\n"));
+    KdPrint((__DRIVER_NAME "     Not IP (%d)\n", GET_NET_PUSHORT(&pi->header[12])));
     return PARSE_UNKNOWN_TYPE;
   }
   pi->ip_proto = pi->header[XN_HDR_SIZE + 9];
@@ -77,15 +161,23 @@ XenNet_ParsePacketHeader(
   case 17: // UDP
     break;
   default:
+    KdPrint((__DRIVER_NAME "     Not TCP/UDP (%d)\n", pi->ip_proto));
     return PARSE_UNKNOWN_TYPE;
   }
   pi->ip4_length = GET_NET_PUSHORT(&pi->header[XN_HDR_SIZE + 2]);
   pi->tcp_header_length = (pi->header[XN_HDR_SIZE + pi->ip4_header_length + 12] & 0xf0) >> 2;
 
-  if (header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)) // pi->tcp_header_length))
+  if (pi->header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length))
   {
-    KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (2)\n", header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)));
+    if (!XenNet_BuildHeader(pi, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)))
+    {
+      KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header + TCP Options)\n"));
+      return PARSE_TOO_SMALL;
+    }
+#if 0    
+    KdPrint((__DRIVER_NAME "     first buffer is only %d bytes long, must be >= %d (2)\n", pi->header_length, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)));
     return PARSE_TOO_SMALL;
+#endif
   }
 
   pi->tcp_length = pi->ip4_length - pi->ip4_header_length - pi->tcp_header_length;
@@ -94,7 +186,11 @@ XenNet_ParsePacketHeader(
   pi->tcp_has_options = (BOOLEAN)(pi->tcp_header_length > 20);
   if (pi->mss > 0 && pi->tcp_length > pi->mss)
     pi->split_required = TRUE;
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  //KdPrint((__DRIVER_NAME "     ip4_length = %d\n", pi->ip4_length));
+  //KdPrint((__DRIVER_NAME "     tcp_length = %d\n", pi->tcp_length));
+  //FUNCTION_EXIT();
+  
   return PARSE_OK;
 }
 

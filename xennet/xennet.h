@@ -172,12 +172,19 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 #define RX_DFL_MIN_TARGET 256
 #define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
 
-#define MAX_BUFFERS_PER_PACKET 128
+#define MAX_BUFFERS_PER_PACKET NET_RX_RING_SIZE
+
+typedef struct {
+  ULONG reference_count;
+  PNDIS_BUFFER mdls[MAX_BUFFERS_PER_PACKET];
+  ULONG mdl_count;
+} mdl_alloc_t;
 
 typedef struct {
   PNDIS_BUFFER mdls[MAX_BUFFERS_PER_PACKET];
+  UCHAR header_data[132]; /* maximum possible size of ETH + IP + TCP/UDP headers */
   ULONG mdl_count;
-  USHORT curr_mdl;
+  USHORT curr_mdl_index;
   USHORT curr_mdl_offset;
   USHORT mss;
   NDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
@@ -186,6 +193,8 @@ typedef struct {
   BOOLEAN split_required;
   UCHAR ip_version;
   PUCHAR header;
+  ULONG first_buffer_length;
+  ULONG header_length;
   UCHAR ip_proto;
   USHORT total_length;
   USHORT ip4_header_length;
@@ -382,10 +391,11 @@ XenNet_SetInformation(
 #define PARSE_TOO_SMALL 1 /* first buffer is too small */
 #define PARSE_UNKNOWN_TYPE 2
 
+BOOLEAN
+XenNet_IncreasePacketHeader(packet_info_t *pi, ULONG new_header_size);
+
 ULONG
-XenNet_ParsePacketHeader(
-  packet_info_t *pi
-);
+XenNet_ParsePacketHeader(packet_info_t *pi);
 
 VOID
 XenNet_SumIpHeader(
@@ -406,7 +416,7 @@ XenNet_GetData(
   PUSHORT length
 )
 {
-  PNDIS_BUFFER mdl = pi->mdls[pi->curr_mdl];
+  PNDIS_BUFFER mdl = pi->mdls[pi->curr_mdl_index];
   PUCHAR buffer = (PUCHAR)MmGetMdlVirtualAddress(mdl) + pi->curr_mdl_offset;
 
   *length = (USHORT)min(req_length, MmGetMdlByteCount(mdl) - pi->curr_mdl_offset);
@@ -414,7 +424,7 @@ XenNet_GetData(
   pi->curr_mdl_offset = pi->curr_mdl_offset + *length;
   if (pi->curr_mdl_offset == MmGetMdlByteCount(mdl))
   {
-    pi->curr_mdl++;
+    pi->curr_mdl_index++;
     pi->curr_mdl_offset = 0;
   }
 
@@ -432,7 +442,7 @@ XenNet_ClearPacketInfo(packet_info_t *pi)
   #endif
 #else
   pi->mdl_count = 0;
-  pi->curr_mdl = pi->curr_mdl_offset = 0;
+  pi->curr_mdl_index = pi->curr_mdl_offset = 0;
   pi->extra_info = pi->more_frags = pi->csum_blank =
     pi->data_validated = pi->split_required = 0;
 #endif

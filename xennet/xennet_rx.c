@@ -188,7 +188,7 @@ XenNet_MakePacket(struct xennet_info *xi)
     xi->rxpi.tcp_remaining = xi->rxpi.tcp_remaining - out_remaining;
     do 
     {
-      ASSERT(xi->rxpi.curr_mdl < xi->rxpi.mdl_count);
+      ASSERT(xi->rxpi.curr_mdl_index < xi->rxpi.mdl_count);
       in_buffer = XenNet_GetData(&xi->rxpi, out_remaining, &length);
       memcpy(&out_buffer[out_offset], in_buffer, length);
       out_remaining = out_remaining - length;
@@ -437,10 +437,12 @@ XenNet_MakePackets(
   }
 
   xi->rxpi.tcp_remaining = xi->rxpi.tcp_length;
+#if 0 // _index and _offset set by ParseHeader
   if (MmGetMdlByteCount(xi->rxpi.mdls[0]) > (ULONG)(XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length))
     xi->rxpi.curr_mdl_offset = XN_HDR_SIZE + xi->rxpi.ip4_header_length + xi->rxpi.tcp_header_length;
   else
-    xi->rxpi.curr_mdl = 1;
+    xi->rxpi.curr_mdl_index = 1;
+#endif
 
   /* we can make certain assumptions here as the following code is only for tcp4 */
   psh = xi->rxpi.header[XN_HDR_SIZE + xi->rxpi.ip4_header_length + 13] & 8;
@@ -485,6 +487,7 @@ done:
   for (i = 0; i < xi->rxpi.mdl_count; i++)
   {
     NdisAdjustBufferLength(xi->rxpi.mdls[i], PAGE_SIZE);
+    xi->rxpi.mdls[i]->ByteOffset = 0;
     XenFreelist_PutPage(&xi->rx_freelist, xi->rxpi.mdls[i]);
   }
   XenNet_ClearPacketInfo(&xi->rxpi);
@@ -534,8 +537,6 @@ XenNet_RxTimerDpc(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 }
 
 // Called at DISPATCH_LEVEL
-//NDIS_STATUS
-//XenNet_RxBufferCheck(struct xennet_info *xi, BOOLEAN is_timer)
 static VOID
 XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 {
@@ -630,6 +631,9 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
             xi->rxpi.data_validated = TRUE;
         }
         
+        NdisAdjustBufferLength(mdl, rxrsp->status);
+        xi->rxpi.mdls[xi->rxpi.mdl_count++] = mdl;
+#if 0
         if (!xi->rxpi.mdl_count || MmGetMdlByteCount(xi->rxpi.mdls[xi->rxpi.mdl_count - 1]) == PAGE_SIZE)
         {
           /* first buffer or no room in current buffer */
@@ -664,6 +668,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
           NdisAdjustBufferLength(mdl, copy_size);
           xi->rxpi.mdls[xi->rxpi.mdl_count++] = mdl;
         }
+#endif
         xi->rxpi.extra_info = (BOOLEAN)!!(rxrsp->flags & NETRXF_extra_info);
         xi->rxpi.more_frags = (BOOLEAN)!!(rxrsp->flags & NETRXF_more_data);
         xi->rxpi.total_length = xi->rxpi.total_length + rxrsp->status;
@@ -778,6 +783,7 @@ XenNet_ReturnPacket(
   while (mdl)
   {
     //KdPrint((__DRIVER_NAME "     packet = %p, mdl = %p\n", Packet, mdl));
+    mdl->ByteOffset = 0;
     NdisAdjustBufferLength(mdl, PAGE_SIZE);
     XenFreelist_PutPage(&xi->rx_freelist, mdl);
     NdisUnchainBufferAtBack(Packet, &mdl);
