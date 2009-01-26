@@ -1289,6 +1289,7 @@ XenPci_BIS_TranslateBusAddress(PVOID context, PHYSICAL_ADDRESS bus_address, ULON
 {
   UNREFERENCED_PARAMETER(context);
   UNREFERENCED_PARAMETER(length);
+  /* actually this isn't right - should look up the gref for the physical address and work backwards from that */
   FUNCTION_ENTER();
   if (*address_space != 0)
   {
@@ -1301,15 +1302,512 @@ XenPci_BIS_TranslateBusAddress(PVOID context, PHYSICAL_ADDRESS bus_address, ULON
   return TRUE;
 }
 
+static VOID
+XenPci_DOP_PutDmaAdapter(PDMA_ADAPTER dma_adapter)
+{
+  UNREFERENCED_PARAMETER(dma_adapter);
+  
+  FUNCTION_ENTER();
+  // decrement ref count
+  FUNCTION_EXIT();
+
+  return;
+}
+
+static PVOID
+XenPci_DOP_AllocateCommonBuffer(
+  PDMA_ADAPTER DmaAdapter,
+  ULONG Length,
+  PPHYSICAL_ADDRESS LogicalAddress,
+  BOOLEAN CacheEnabled
+)
+{
+  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
+  PXENPCI_DEVICE_DATA xpdd = xen_dma_adapter->xppdd->bus_fdo->DeviceExtension;
+  PVOID buffer;
+  PFN_NUMBER pfn;
+  grant_ref_t gref;
+  /* should LogicalAddress be the gref? */
+  
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(CacheEnabled);
+  
+  FUNCTION_ENTER();
+  KdPrint((__DRIVER_NAME "     Length = %d\n", Length));
+  
+  buffer = ExAllocatePoolWithTag(NonPagedPool, Length, XENPCI_POOL_TAG);
+
+  pfn = (PFN_NUMBER)(MmGetPhysicalAddress(buffer).QuadPart >> PAGE_SHIFT);
+  ASSERT(pfn);
+  gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, pfn, FALSE, INVALID_GRANT_REF);
+  ASSERT(gref);
+  LogicalAddress->QuadPart = (gref << PAGE_SHIFT) | (PtrToUlong(buffer) & (PAGE_SIZE - 1));
+  
+  FUNCTION_EXIT();
+  return buffer;
+}
+
+static VOID
+XenPci_DOP_FreeCommonBuffer(
+  PDMA_ADAPTER DmaAdapter,
+  ULONG Length,
+  PHYSICAL_ADDRESS LogicalAddress,
+  PVOID VirtualAddress,
+  BOOLEAN CacheEnabled
+)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  ExFreePoolWithTag(VirtualAddress, XENPCI_POOL_TAG);
+  FUNCTION_EXIT();
+}
+
+static NTSTATUS
+XenPci_DOP_AllocateAdapterChannel(
+    IN PDMA_ADAPTER  DmaAdapter,
+    IN PDEVICE_OBJECT  DeviceObject,
+    IN ULONG  NumberOfMapRegisters,
+    IN PDRIVER_CONTROL  ExecutionRoutine,
+    IN PVOID  Context
+    )
+{
+  IO_ALLOCATION_ACTION action;
+  
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(NumberOfMapRegisters);
+  
+  FUNCTION_ENTER();
+  action = ExecutionRoutine(DeviceObject, DeviceObject->CurrentIrp, UlongToPtr(64), Context);
+  
+  switch (action)
+  {
+  case KeepObject:
+    KdPrint((__DRIVER_NAME "     KeepObject\n"));
+    break;
+  case DeallocateObject:
+    KdPrint((__DRIVER_NAME "     DeallocateObject\n"));
+    break;
+  case DeallocateObjectKeepRegisters:
+    KdPrint((__DRIVER_NAME "     DeallocateObjectKeepRegisters\n"));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown action %d\n", action));
+    break;
+  }
+  FUNCTION_EXIT();
+  return STATUS_SUCCESS;
+}
+
+static BOOLEAN
+XenPci_DOP_FlushAdapterBuffers(
+    IN PDMA_ADAPTER  DmaAdapter,
+    IN PMDL  Mdl,
+    IN PVOID  MapRegisterBase,
+    IN PVOID  CurrentVa,
+    IN ULONG  Length,
+    IN BOOLEAN  WriteToDevice
+    )
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+static VOID
+XenPci_DOP_FreeAdapterChannel(
+    IN PDMA_ADAPTER  DmaAdapter
+    )
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+static VOID
+XenPci_DOP_FreeMapRegisters(
+  PDMA_ADAPTER DmaAdapter,
+  PVOID MapRegisterBase,
+  ULONG NumberOfMapRegisters)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+static PHYSICAL_ADDRESS
+XenPci_DOP_MapTransfer(
+    PDMA_ADAPTER DmaAdapter,
+    PMDL Mdl,
+    PVOID MapRegisterBase,
+    PVOID CurrentVa,
+    PULONG Length,
+    BOOLEAN WriteToDevice)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+static ULONG
+XenPci_DOP_GetDmaAlignment(
+  PDMA_ADAPTER DmaAdapter)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+static ULONG
+XenPci_DOP_ReadDmaCounter(
+  PDMA_ADAPTER DmaAdapter)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+static NTSTATUS
+XenPci_DOP_GetScatterGatherList(
+  PDMA_ADAPTER DmaAdapter,
+  PDEVICE_OBJECT DeviceObject,
+  PMDL Mdl,
+  PVOID CurrentVa,
+  ULONG Length,
+  PDRIVER_LIST_CONTROL ExecutionRoutine,
+  PVOID Context,
+  BOOLEAN WriteToDevice)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+#define MAP_TYPE_VIRTUAL  1
+#define MAP_TYPE_MDL      2
+#define MAP_TYPE_REMAPPED 3
+
+typedef struct {
+  ULONG map_type;
+  PVOID aligned_buffer;
+  PVOID unaligned_buffer;
+  ULONG copy_length;
+} sg_extra_t;
+
+static VOID
+XenPci_DOP_PutScatterGatherList(
+    IN PDMA_ADAPTER DmaAdapter,
+    IN PSCATTER_GATHER_LIST ScatterGather,
+    IN BOOLEAN WriteToDevice
+    )
+{
+  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
+  PXENPCI_DEVICE_DATA xpdd = xen_dma_adapter->xppdd->bus_fdo->DeviceExtension;
+  ULONG i;
+  sg_extra_t *sg_extra;
+
+  UNREFERENCED_PARAMETER(WriteToDevice);
+  
+  //FUNCTION_ENTER();
+  
+  sg_extra = (sg_extra_t *)((PUCHAR)ScatterGather + FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
+    (sizeof(SCATTER_GATHER_ELEMENT)) * ScatterGather->NumberOfElements);
+
+  switch (sg_extra->map_type)
+  {
+  case MAP_TYPE_REMAPPED:
+    for (i = 0; i < ScatterGather->NumberOfElements; i++)
+    {
+      grant_ref_t gref;
+      gref = (grant_ref_t)(ScatterGather->Elements[i].Address.QuadPart >> PAGE_SHIFT);
+      GntTbl_EndAccess(xpdd, gref, FALSE);
+      ScatterGather->Elements[i].Address.QuadPart = -1;
+    }
+    if (!WriteToDevice)
+      memcpy(sg_extra->unaligned_buffer, sg_extra->aligned_buffer, sg_extra->copy_length);
+    ExFreePoolWithTag(sg_extra->aligned_buffer, XENPCI_POOL_TAG);
+    break;
+  case MAP_TYPE_MDL:
+    for (i = 0; i < ScatterGather->NumberOfElements; i++)
+    {
+      grant_ref_t gref;
+      gref = (grant_ref_t)(ScatterGather->Elements[i].Address.QuadPart >> PAGE_SHIFT);
+      GntTbl_EndAccess(xpdd, gref, FALSE);
+      ScatterGather->Elements[i].Address.QuadPart = -1;
+    }
+    break;
+  case MAP_TYPE_VIRTUAL:
+    break;
+  }
+  //FUNCTION_EXIT();
+}
+
+static NTSTATUS
+XenPci_DOP_CalculateScatterGatherList(
+  PDMA_ADAPTER DmaAdapter,
+  PMDL Mdl,
+  PVOID CurrentVa,
+  ULONG Length,
+  PULONG ScatterGatherListSize,
+  PULONG NumberOfMapRegisters
+  )
+{
+  ULONG elements;
+  PMDL curr_mdl;
+  
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(Mdl);
+  
+  FUNCTION_ENTER();
+  
+  KdPrint((__DRIVER_NAME "     Mdl = %p\n", Mdl));
+  KdPrint((__DRIVER_NAME "     CurrentVa = %p\n", CurrentVa));
+  KdPrint((__DRIVER_NAME "     Length = %d\n", Length));
+  if (Mdl)
+  {
+    for (curr_mdl = Mdl, elements = 0; curr_mdl; curr_mdl = curr_mdl->Next)
+      elements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(CurrentVa, Length);
+  }
+  else
+  {
+    elements = ADDRESS_AND_SIZE_TO_SPAN_PAGES(0, Length) + 1;
+  }
+  
+  *ScatterGatherListSize = FIELD_OFFSET(SCATTER_GATHER_LIST, Elements)
+    + sizeof(SCATTER_GATHER_ELEMENT) * elements
+    + sizeof(sg_extra_t);
+  if (NumberOfMapRegisters)
+    *NumberOfMapRegisters = 1;
+
+  KdPrint((__DRIVER_NAME "     ScatterGatherListSize = %d\n", *ScatterGatherListSize));
+  FUNCTION_EXIT();
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+XenPci_DOP_BuildScatterGatherList(
+  IN PDMA_ADAPTER DmaAdapter,
+  IN PDEVICE_OBJECT DeviceObject,
+  IN PMDL Mdl,
+  IN PVOID CurrentVa,
+  IN ULONG Length,
+  IN PDRIVER_LIST_CONTROL ExecutionRoutine,
+  IN PVOID Context,
+  IN BOOLEAN WriteToDevice,
+  IN PVOID ScatterGatherBuffer,
+  IN ULONG ScatterGatherBufferLength)
+{
+  ULONG i;
+  PSCATTER_GATHER_LIST sglist = ScatterGatherBuffer;
+  PUCHAR ptr;
+  ULONG remaining = Length;
+  ULONG total_remaining;
+  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
+  PXENPCI_DEVICE_DATA xpdd = xen_dma_adapter->xppdd->bus_fdo->DeviceExtension;
+  sg_extra_t *sg_extra;
+  PMDL curr_mdl;
+  ULONG map_type;
+  ULONG sg_element;
+  ULONG offset;
+  PFN_NUMBER pfn;
+  grant_ref_t gref;
+  
+  UNREFERENCED_PARAMETER(WriteToDevice);
+
+  //FUNCTION_ENTER();
+
+  ASSERT(Mdl);
+  if (xen_dma_adapter->dma_extension)
+  {
+    if (xen_dma_adapter->dma_extension->need_virtual_address(DeviceObject->CurrentIrp))
+    {
+      ASSERT(!Mdl->Next); /* can only virtual a single buffer */
+      map_type = MAP_TYPE_VIRTUAL;
+      sglist->NumberOfElements = 1;
+    }
+    else
+    {
+      ULONG alignment = xen_dma_adapter->dma_extension->get_alignment(DeviceObject->CurrentIrp);
+      if (PtrToUlong(CurrentVa) & (alignment - 1))
+      {
+        ASSERT(!Mdl->Next); /* can only remap a single buffer */
+        map_type = MAP_TYPE_REMAPPED;
+        sglist->NumberOfElements = ADDRESS_AND_SIZE_TO_SPAN_PAGES(NULL, Length);
+      }
+      else
+      {
+        map_type = MAP_TYPE_MDL;
+        for (curr_mdl = Mdl, sglist->NumberOfElements = 0; curr_mdl; curr_mdl = curr_mdl->Next)
+          sglist->NumberOfElements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(
+            MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl));
+      }
+    }
+  }
+  else
+  {
+    map_type = MAP_TYPE_MDL;
+    for (curr_mdl = Mdl, sglist->NumberOfElements = 0; curr_mdl; curr_mdl = curr_mdl->Next)
+      sglist->NumberOfElements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(
+        MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl));
+  }
+  if (ScatterGatherBufferLength < FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
+    sizeof(SCATTER_GATHER_ELEMENT) * sglist->NumberOfElements + sizeof(sg_extra_t))
+  {
+    return STATUS_BUFFER_TOO_SMALL;
+  }
+  
+  sg_extra = (sg_extra_t *)((PUCHAR)sglist + FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
+    (sizeof(SCATTER_GATHER_ELEMENT)) * sglist->NumberOfElements);
+  
+  sg_extra->map_type = map_type;
+  switch (map_type)
+  {
+  case MAP_TYPE_MDL:
+    //KdPrint((__DRIVER_NAME "     MAP_TYPE_MDL\n"));
+    total_remaining = Length;
+    for (sg_element = 0, curr_mdl = Mdl; curr_mdl; curr_mdl = curr_mdl->Next)
+    {
+      remaining = MmGetMdlByteCount(curr_mdl);
+      offset = MmGetMdlByteOffset(curr_mdl);
+      for (i = 0; i < ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl)); i++)
+      {
+//KdPrint((__DRIVER_NAME "     element = %d\n", sg_element));
+//KdPrint((__DRIVER_NAME "     remaining = %d\n", remaining));
+        pfn = MmGetMdlPfnArray(curr_mdl)[i];
+        ASSERT(pfn);
+        gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, pfn, FALSE, INVALID_GRANT_REF);
+        ASSERT(gref != INVALID_GRANT_REF);
+        sglist->Elements[sg_element].Address.QuadPart = (LONGLONG)(gref << PAGE_SHIFT) | offset;
+        sglist->Elements[sg_element].Length = min(min(PAGE_SIZE - offset, remaining), total_remaining);
+        total_remaining -= sglist->Elements[sg_element].Length;
+        remaining -= sglist->Elements[sg_element].Length;
+        offset = 0;
+        sg_element++;
+      }
+    }
+    break;
+  case MAP_TYPE_REMAPPED:
+    //KdPrint((__DRIVER_NAME "     MAP_TYPE_REMAPPED\n"));
+    sg_extra->aligned_buffer = ExAllocatePoolWithTag(NonPagedPool, max(Length, PAGE_SIZE), XENPCI_POOL_TAG);
+    ASSERT(sg_extra->aligned_buffer); /* lazy */
+    sg_extra->unaligned_buffer = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+    ASSERT(sg_extra->unaligned_buffer); /* lazy */
+    sg_extra->copy_length = Length;
+    if (WriteToDevice)
+      memcpy(sg_extra->aligned_buffer, sg_extra->unaligned_buffer, sg_extra->copy_length);
+    for (sg_element = 0, remaining = Length; 
+      sg_element < ADDRESS_AND_SIZE_TO_SPAN_PAGES(sg_extra->aligned_buffer, Length); sg_element++)
+    {
+      pfn = (PFN_NUMBER)(MmGetPhysicalAddress((PUCHAR)sg_extra->aligned_buffer + (sg_element << PAGE_SHIFT)).QuadPart >> PAGE_SHIFT);
+      ASSERT(pfn);
+      gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, pfn, FALSE, INVALID_GRANT_REF);
+      ASSERT(gref);
+      sglist->Elements[sg_element].Address.QuadPart = (ULONGLONG)gref << PAGE_SHIFT;
+      sglist->Elements[sg_element].Length = min(PAGE_SIZE, remaining);
+      remaining -= sglist->Elements[sg_element].Length;
+    }
+    break;
+  case MAP_TYPE_VIRTUAL:
+    //KdPrint((__DRIVER_NAME "     MAP_TYPE_VIRTUAL\n"));
+    ptr = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+    ASSERT(ptr); /* lazy */
+    sglist->Elements[0].Address.QuadPart = (ULONGLONG)ptr;
+    sglist->Elements[0].Length = Length;
+    break;
+  }
+  //KdPrint((__DRIVER_NAME "     CurrentVa = %p, Length = %d\n", CurrentVa, Length));
+  //for (i = 0; i < sglist->NumberOfElements; i++)
+  //{
+    //KdPrint((__DRIVER_NAME "     sge[%d]->Address = %08x%08x, Length = %d\n", i, sglist->Elements[i].Address.HighPart,
+    //  sglist->Elements[i].Address.LowPart, sglist->Elements[i].Length));
+  //}
+  
+  ExecutionRoutine(DeviceObject, DeviceObject->CurrentIrp, ScatterGatherBuffer, Context);
+
+  //FUNCTION_EXIT();
+  
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+XenPci_DOP_BuildMdlFromScatterGatherList(
+    IN PDMA_ADAPTER  DmaAdapter,
+    IN PSCATTER_GATHER_LIST  ScatterGather,
+    IN PMDL  OriginalMdl,
+    OUT PMDL  *TargetMdl
+    )
+{
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return STATUS_UNSUCCESSFUL;
+}
+
 static PDMA_ADAPTER
 XenPci_BIS_GetDmaAdapter(PVOID context, PDEVICE_DESCRIPTION device_descriptor, PULONG number_of_map_registers)
 {
-  UNREFERENCED_PARAMETER(context);
+  xen_dma_adapter_t *xen_dma_adapter;
+  PDEVICE_OBJECT curr, prev;
+  PDRIVER_OBJECT fdo_driver_object;
+  PVOID fdo_driver_extension;
+  
   UNREFERENCED_PARAMETER(device_descriptor);
-  UNREFERENCED_PARAMETER(number_of_map_registers);
+  
   FUNCTION_ENTER();
+  xen_dma_adapter = ExAllocatePoolWithTag(NonPagedPool, sizeof(xen_dma_adapter_t), XENPCI_POOL_TAG);
+  xen_dma_adapter->dma_adapter.Version = 2;
+  xen_dma_adapter->dma_adapter.Size = sizeof(xen_dma_adapter_t);
+  xen_dma_adapter->dma_adapter.DmaOperations = &xen_dma_adapter->dma_operations;
+  xen_dma_adapter->dma_operations.Size = sizeof(DMA_OPERATIONS);
+  xen_dma_adapter->dma_operations.PutDmaAdapter = XenPci_DOP_PutDmaAdapter;
+  xen_dma_adapter->dma_operations.AllocateCommonBuffer = XenPci_DOP_AllocateCommonBuffer;
+  xen_dma_adapter->dma_operations.FreeCommonBuffer = XenPci_DOP_FreeCommonBuffer;
+  xen_dma_adapter->dma_operations.AllocateAdapterChannel = XenPci_DOP_AllocateAdapterChannel;
+  xen_dma_adapter->dma_operations.FlushAdapterBuffers = XenPci_DOP_FlushAdapterBuffers;
+  xen_dma_adapter->dma_operations.FreeAdapterChannel = XenPci_DOP_FreeAdapterChannel;
+  xen_dma_adapter->dma_operations.FreeMapRegisters = XenPci_DOP_FreeMapRegisters;
+  xen_dma_adapter->dma_operations.MapTransfer = XenPci_DOP_MapTransfer;
+  xen_dma_adapter->dma_operations.GetDmaAlignment = XenPci_DOP_GetDmaAlignment;
+  xen_dma_adapter->dma_operations.ReadDmaCounter = XenPci_DOP_ReadDmaCounter;
+  xen_dma_adapter->dma_operations.GetScatterGatherList = XenPci_DOP_GetScatterGatherList;
+  xen_dma_adapter->dma_operations.PutScatterGatherList = XenPci_DOP_PutScatterGatherList;
+  xen_dma_adapter->dma_operations.CalculateScatterGatherList = XenPci_DOP_CalculateScatterGatherList;
+  xen_dma_adapter->dma_operations.BuildScatterGatherList = XenPci_DOP_BuildScatterGatherList;
+  xen_dma_adapter->dma_operations.BuildMdlFromScatterGatherList = XenPci_DOP_BuildMdlFromScatterGatherList;
+  xen_dma_adapter->xppdd = context;
+  xen_dma_adapter->dma_extension = NULL;
+
+  curr = IoGetAttachedDeviceReference(xen_dma_adapter->xppdd->common.pdo);
+  while (curr != NULL)
+  {
+    fdo_driver_object = curr->DriverObject;
+    KdPrint((__DRIVER_NAME "     fdo_driver_object = %p\n", fdo_driver_object));
+    if (fdo_driver_object)
+    {
+      fdo_driver_extension = IoGetDriverObjectExtension(fdo_driver_object, UlongToPtr(XEN_DMA_DRIVER_EXTENSION_MAGIC));
+      if (fdo_driver_extension)
+      {
+        xen_dma_adapter->dma_extension = (dma_driver_extension_t *)fdo_driver_extension;
+        ObDereferenceObject(curr);
+        break;
+      }
+    }
+    prev = curr;
+    curr = IoGetLowerDeviceObject(curr);
+    ObDereferenceObject(prev);
+  }
+
+  *number_of_map_registers = 1024; /* why not... */
+
   FUNCTION_EXIT();
-  return NULL;
+
+  return &xen_dma_adapter->dma_adapter;
 }
 
 static ULONG

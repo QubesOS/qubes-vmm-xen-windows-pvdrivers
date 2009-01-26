@@ -261,6 +261,92 @@ ULONG qemu_protocol_version;
 ULONG tpr_patch_requested;
 extern PULONG InitSafeBootMode;
 
+static VOID
+TestStuff()
+{
+  int j;
+  int i;
+  PVOID page, page2;
+  PMDL mdl;
+  LARGE_INTEGER start_time, end_time;
+  KIRQL old_irql;
+  KSPIN_LOCK lock;
+  NPAGED_LOOKASIDE_LIST la_list;
+
+  for (j = 0; j < 10; j++)
+  {
+    KeQuerySystemTime(&start_time);
+    for (i = 0; i < 1000000; i++)
+    {
+      page = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+      page2 = ExAllocatePoolWithTag(NonPagedPool, sizeof(mdl) + 64, XENPCI_POOL_TAG);
+      ExFreePoolWithTag(page, XENPCI_POOL_TAG);
+      ExFreePoolWithTag(page2, XENPCI_POOL_TAG);
+    }
+    KeQuerySystemTime(&end_time);
+    KdPrint(("ExAllocatePoolWithTag+ExFreePoolWithTag ran in %d ms\n", (end_time.QuadPart - start_time.QuadPart) / 10000));
+  }
+  for (j = 0; j < 10; j++)
+  {
+    KeQuerySystemTime(&start_time);
+    for (i = 0; i < 1000000; i++)
+    {
+      mdl = AllocatePage();
+      FreePages(mdl);
+    }
+    KeQuerySystemTime(&end_time);
+    KdPrint(("AllocatePage+FreePages ran in %d ms\n", (end_time.QuadPart - start_time.QuadPart) / 10000));
+  }
+  KeInitializeSpinLock(&lock);
+  for (j = 0; j < 10; j++)
+  {
+    KeRaiseIrql(DISPATCH_LEVEL, &old_irql);
+    KeQuerySystemTime(&start_time);
+    for (i = 0; i < 1000000; i++)
+    {
+      KeAcquireSpinLockAtDpcLevel(&lock);
+      KeReleaseSpinLockFromDpcLevel(&lock);
+      KeAcquireSpinLockAtDpcLevel(&lock);
+      KeReleaseSpinLockFromDpcLevel(&lock);
+    }
+    KeQuerySystemTime(&end_time);
+    KeLowerIrql(old_irql);
+    KdPrint(("KeAcquireSpinLockAtDpcLevel+KeReleaseSpinLockFromDpcLevel x 2 ran in %d ms\n", (end_time.QuadPart - start_time.QuadPart) / 10000));
+  }
+  
+  ExInitializeNPagedLookasideList(&la_list, NULL, NULL, 0, PAGE_SIZE, XENPCI_POOL_TAG, 0);
+  for (j = 0; j < 10; j++)
+  {
+    KeRaiseIrql(DISPATCH_LEVEL, &old_irql);
+    KeQuerySystemTime(&start_time);
+    for (i = 0; i < 1000000; i++)
+    {
+      page = ExAllocateFromNPagedLookasideList(&la_list);
+      page2 = ExAllocateFromNPagedLookasideList(&la_list);
+      ExFreeToNPagedLookasideList(&la_list, page);
+      ExFreeToNPagedLookasideList(&la_list, page2);
+    }
+    KeQuerySystemTime(&end_time);
+    KeLowerIrql(old_irql);
+    KdPrint(("ExAllocateFromNPagedLookasideList+ExFreeToNPagedLookasideList ran in %d ms\n", (end_time.QuadPart - start_time.QuadPart) / 10000));
+  }
+  ExDeleteNPagedLookasideList(&la_list);
+
+    for (j = 0; j < 10; j++)
+  {
+    KeRaiseIrql(DISPATCH_LEVEL, &old_irql);
+    KeQuerySystemTime(&start_time);
+    for (i = 0; i < 1000000; i++)
+    {
+      KeMemoryBarrier();
+    }
+    KeQuerySystemTime(&end_time);
+    KeLowerIrql(old_irql);
+    KdPrint(("'Nothing ran in %d ms\n", (end_time.QuadPart - start_time.QuadPart) / 10000));
+  }
+
+}
+
 NTSTATUS DDKAPI
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -278,7 +364,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   UNREFERENCED_PARAMETER(RegistryPath);
 
   FUNCTION_ENTER();
-  
+
+  //TestStuff();  
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
   InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
   status = ZwOpenKey(&RegHandle, KEY_READ, &RegObjectAttributes);

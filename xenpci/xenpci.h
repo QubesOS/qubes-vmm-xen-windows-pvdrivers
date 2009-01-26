@@ -270,7 +270,17 @@ typedef struct {
   PUCHAR assigned_resources_ptr;
   XENPCI_DEVICE_STATE device_state;
   BOOLEAN restart_on_resume;
+  
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
+
+typedef struct {
+  DMA_ADAPTER dma_adapter;
+  DMA_OPERATIONS dma_operations;
+  PXENPCI_PDO_DEVICE_DATA xppdd;
+  dma_driver_extension_t *dma_extension;
+  //ULONG map_register_count;
+  //map_register_t *map_registers;
+} xen_dma_adapter_t;
 
 typedef struct
 {
@@ -295,7 +305,6 @@ typedef struct {
   LIST_ENTRY read_list_head;
   PIRP pending_read_irp;
 } device_interface_xenbus_context_t;
-
 
 #include "hypercall.h"
 

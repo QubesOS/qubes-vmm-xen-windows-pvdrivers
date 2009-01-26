@@ -163,7 +163,7 @@ GntTbl_EndAccess(
   do {
     if ((flags = nflags) & (GTF_reading|GTF_writing))
     {
-      KdPrint((__DRIVER_NAME "WARNING: g.e. still in use!\n"));
+      KdPrint((__DRIVER_NAME "     WARNING: g.e. %d still in use!\n", ref));
       return FALSE;
     }
   } while ((nflags = InterlockedCompareExchange16(

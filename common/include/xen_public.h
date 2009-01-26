@@ -175,6 +175,7 @@ typedef struct {
 } XENPCI_DEVICE_STATE, *PXENPCI_DEVICE_STATE;
 
 #define XEN_INIT_DRIVER_EXTENSION_MAGIC ((ULONG)'XCFG')
+#define XEN_DMA_DRIVER_EXTENSION_MAGIC ((ULONG)'XDMA')
 
 #define XEN_INIT_TYPE_END                       0
 #define XEN_INIT_TYPE_WRITE_STRING              1
@@ -459,5 +460,17 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2)
   }
   return retval;
 }
+
+typedef BOOLEAN
+(*PXEN_DMA_NEED_VIRTUAL_ADDRESS)(PIRP irp);
+
+typedef ULONG
+(*PXEN_DMA_GET_ALIGNMENT)(PIRP irp);
+
+typedef struct {
+  PXEN_DMA_NEED_VIRTUAL_ADDRESS need_virtual_address;
+  PXEN_DMA_GET_ALIGNMENT get_alignment;
+} dma_driver_extension_t;
+
 
 #endif
