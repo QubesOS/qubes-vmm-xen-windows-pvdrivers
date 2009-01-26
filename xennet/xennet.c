@@ -334,15 +334,16 @@ XenNet_Init(
   xi->rx_min_target = RX_DFL_MIN_TARGET;
   xi->rx_max_target = RX_MAX_TARGET;
   xi->inactive      = TRUE;
-  NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi,
-    0, NDIS_ATTRIBUTE_DESERIALIZE|NDIS_ATTRIBUTE_SURPRISE_REMOVE_OK
+  NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi, 0,
 #ifdef NDIS51_MINIPORT
-    |NDIS_ATTRIBUTE_USES_SAFE_BUFFER_APIS
+    NDIS_ATTRIBUTE_USES_SAFE_BUFFER_APIS
 #endif
-    ,
+    |NDIS_ATTRIBUTE_DESERIALIZE
+    |NDIS_ATTRIBUTE_SURPRISE_REMOVE_OK
+    |NDIS_ATTRIBUTE_BUS_MASTER,
     NdisInterfaceInternal);
   xi->multicast_list_size = 0;
-  
+
   nrl_length = 0;
   NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
     NULL, (PUINT)&nrl_length);
@@ -409,23 +410,11 @@ XenNet_Init(
 
   KeInitializeDpc(&xi->suspend_dpc, XenNet_SuspendResume, xi);
 
-  InitializeListHead(&xi->tx_waiting_pkt_list);
-  InitializeListHead(&xi->tx_sent_pkt_list);
-
   NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN * 8,
     PROTOCOL_RESERVED_SIZE_IN_PACKET);
   if (status != NDIS_STATUS_SUCCESS)
   {
     KdPrint(("NdisAllocatePacketPool failed with 0x%x\n", status));
-    status = NDIS_STATUS_RESOURCES;
-    goto err;
-  }
-  //IS THIS NECESSARY??? NdisSetPacketPoolProtocolId(xi->packet_pool, NDIS_PROTOCOL_ID_TCP_IP);
-
-  NdisAllocateBufferPool(&status, &xi->buffer_pool, XN_RX_QUEUE_LEN);
-  if (status != NDIS_STATUS_SUCCESS)
-  {
-    KdPrint(("NdisAllocateBufferPool failed with 0x%x\n", status));
     status = NDIS_STATUS_RESOURCES;
     goto err;
   }
@@ -608,7 +597,7 @@ XenNet_Init(
   status = xi->vectors.XenPci_XenConfigDevice(xi->vectors.context);
   if (!NT_SUCCESS(status))
   {
-    KdPrint(("Failed to complete device configuration\n", status));
+    KdPrint(("Failed to complete device configuration (%08x)\n", status));
     goto err;
   }
 
@@ -616,7 +605,14 @@ XenNet_Init(
   
   if (!NT_SUCCESS(status))
   {
-    KdPrint(("Failed to complete device configuration\n", status));
+    KdPrint(("Failed to complete device configuration (%08x)\n", status));
+    goto err;
+  }
+
+  status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE, xi->config_gso);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("NdisMInitializeScatterGatherDma failed (%08x)\n", status));
     goto err;
   }
 
@@ -706,7 +702,6 @@ XenNet_Halt(
   XenNet_TxShutdown(xi);
   XenNet_RxShutdown(xi);
 
-  NdisFreeBufferPool(xi->buffer_pool);
   NdisFreePacketPool(xi->packet_pool);
 
   NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL

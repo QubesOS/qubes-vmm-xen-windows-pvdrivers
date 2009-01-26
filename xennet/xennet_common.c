@@ -34,7 +34,7 @@ XenNet_BuildHeader(packet_info_t *pi, ULONG new_header_size)
 
   if (new_header_size <= pi->header_length)
   {
-    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " new_header_size < pi->header_length\n"));
+    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " new_header_size <= pi->header_length\n"));
     return TRUE;
   }
 
@@ -48,11 +48,12 @@ XenNet_BuildHeader(packet_info_t *pi, ULONG new_header_size)
   {
     //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " new_header_size <= pi->first_buffer_length\n"));
     pi->header_length = new_header_size;
+    pi->curr_mdl_offset = (USHORT)new_header_size;
     return TRUE;
   }
   else if (pi->header != pi->header_data)
   {
-    //KdPrint((__DRIVER_NAME "     Using header_data\n"));
+    //KdPrint((__DRIVER_NAME "     Switching to header_data\n"));
     memcpy(pi->header_data, pi->header, pi->header_length);
     pi->header = pi->header_data;
   }
@@ -74,7 +75,7 @@ XenNet_BuildHeader(packet_info_t *pi, ULONG new_header_size)
       //KdPrint((__DRIVER_NAME "     B copy_size = %d\n", copy_size));
       memcpy(pi->header + pi->header_length,
         (PUCHAR)MmGetMdlVirtualAddress(current_mdl) + pi->curr_mdl_offset, copy_size);
-      pi->curr_mdl_offset += copy_size;
+      pi->curr_mdl_offset = pi->curr_mdl_offset + copy_size;
       pi->header_length += copy_size;
       bytes_remaining -= copy_size;
     }
@@ -102,7 +103,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi)
 
   ASSERT(pi->mdls[0]);
   
-  NdisQueryBufferSafe(pi->mdls[0], (PVOID) &pi->header, &pi->first_buffer_length, NormalPagePriority);
+  NdisQueryBufferSafe(pi->mdls[0], (PVOID)&pi->header, &pi->first_buffer_length, NormalPagePriority);
 
   pi->header_length = 0;
   pi->curr_mdl_index = 0;
@@ -151,7 +152,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi)
     }
     break;
   default:
-    KdPrint((__DRIVER_NAME "     Not IP (%d)\n", GET_NET_PUSHORT(&pi->header[12])));
+    //KdPrint((__DRIVER_NAME "     Not IP (%d)\n", GET_NET_PUSHORT(&pi->header[12])));
     return PARSE_UNKNOWN_TYPE;
   }
   pi->ip_proto = pi->header[XN_HDR_SIZE + 9];

@@ -174,11 +174,25 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 
 #define MAX_BUFFERS_PER_PACKET NET_RX_RING_SIZE
 
-typedef struct {
-  ULONG reference_count;
-  PNDIS_BUFFER mdls[MAX_BUFFERS_PER_PACKET];
-  ULONG mdl_count;
-} mdl_alloc_t;
+#define MAX_ETH_HEADER_SIZE 14
+#define MIN_IP4_HEADER_SIZE 20
+#define MAX_IP4_HEADER_SIZE (15 * 4)
+#define MIN_TCP_HEADER_SIZE 20
+#define MAX_TCP_HEADER_SIZE (15 * 4)
+#define MAX_PKT_HEADER_SIZE (MAX_ETH_HEADER_SIZE + MAX_IP_HEADER_SIZE + MAX_TCP_HEADER_SIZE)
+
+typedef struct
+{
+  ULONG id;
+  PHYSICAL_ADDRESS logical;
+  PVOID virtual;
+} shared_buffer_t;
+
+typedef struct
+{
+  PNDIS_PACKET packet; /* only set on the last packet */
+  shared_buffer_t *sb;
+} tx_shadow_t;
 
 typedef struct {
   PNDIS_BUFFER mdls[MAX_BUFFERS_PER_PACKET];
@@ -196,7 +210,7 @@ typedef struct {
   ULONG first_buffer_length;
   ULONG header_length;
   UCHAR ip_proto;
-  USHORT total_length;
+  ULONG total_length;
   USHORT ip4_header_length;
   USHORT ip4_length;
   USHORT tcp_header_length;
@@ -239,7 +253,6 @@ struct xennet_info
   /* NDIS-related vars */
   NDIS_HANDLE adapter_handle;
   NDIS_HANDLE packet_pool;
-  NDIS_HANDLE buffer_pool;
   NDIS_MINIPORT_INTERRUPT interrupt;
   ULONG packet_filter;
   int connected;
@@ -261,14 +274,20 @@ struct xennet_info
   /* tx related - protected by tx_lock */
   KSPIN_LOCK tx_lock;
   LIST_ENTRY tx_waiting_pkt_list;
-  LIST_ENTRY tx_sent_pkt_list;
   struct netif_tx_front_ring tx;
+  ULONG tx_ring_free;
+  tx_shadow_t tx_shadows[NET_TX_RING_SIZE];
+  NDIS_HANDLE tx_buffer_pool;
+#define TX_SHARED_BUFFER_SIZE (PAGE_SIZE >> 3) /* 512 */
+//#define TX_SHARED_BUFFERS (NET_TX_RING_SIZE >> 4)
+#define TX_SHARED_BUFFERS (NET_TX_RING_SIZE)
   ULONG tx_id_free;
-  ULONG tx_no_id_used;
   USHORT tx_id_list[NET_TX_RING_SIZE];
-  //PNDIS_PACKET tx_pkts[NET_TX_RING_SIZE];
-  PNDIS_BUFFER tx_mdls[NET_TX_RING_SIZE];
-  freelist_t tx_freelist;
+  ULONG tx_sb_free;
+  ULONG tx_sb_list[TX_SHARED_BUFFERS];
+  shared_buffer_t tx_sbs[TX_SHARED_BUFFERS];
+  
+  //freelist_t tx_freelist;
   KDPC tx_dpc;
 
   /* rx_related - protected by rx_lock */
@@ -319,12 +338,6 @@ struct xennet_info
   
 } typedef xennet_info_t;
 
-
-//NDIS_STATUS
-//XenNet_RxBufferCheck(struct xennet_info *xi, BOOLEAN is_timer);
-//VOID
-//XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2);
-
 VOID DDKAPI
 XenNet_ReturnPacket(
   IN NDIS_HANDLE MiniportAdapterContext,
@@ -343,8 +356,6 @@ XenNet_RxResumeStart(xennet_info_t *xi);
 VOID
 XenNet_RxResumeEnd(xennet_info_t *xi);
 
-//NDIS_STATUS
-//XenNet_TxBufferGC(struct xennet_info *xi);
 VOID
 XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2);
 
