@@ -42,7 +42,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include <xen_windows.h>
 #include <memory.h>
-#include <grant_table.h>
+//#include <grant_table.h>
 #include <event_channel.h>
 #include <hvm/params.h>
 #include <hvm/hvm_op.h>
@@ -52,7 +52,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define XENVBD_POOL_TAG (ULONG) 'XVBD'
 
-#define UNALIGNED_DOUBLE_BUFFER_SIZE (PAGE_SIZE * 1)
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define BLK_RING_SIZE __RING_SIZE((blkif_sring_t *)0, PAGE_SIZE)
 #define BLK_OTHER_RING_SIZE __RING_SIZE((blkif_other_sring_t *)0, PAGE_SIZE)
@@ -84,13 +83,10 @@ DEFINE_RING_TYPES(blkif_other, struct blkif_other_request, struct blkif_other_re
 typedef struct {
   blkif_request_t req;
   PSCSI_REQUEST_BLOCK srb;
-  ULONG offset;
-  ULONG length;
 } blkif_shadow_t;
 
 #define MAX_SHADOW_ENTRIES 64
 #define SHADOW_ENTRIES min(MAX_SHADOW_ENTRIES, min(BLK_RING_SIZE, BLK_OTHER_RING_SIZE))
-#define MAX_GRANT_ENTRIES 512
 
 typedef enum {
   XENVBD_DEVICETYPE_UNKNOWN,
@@ -114,10 +110,6 @@ struct
   USHORT shadow_free;
   USHORT shadow_min_free;
 
-  grant_ref_t grant_free_list[MAX_GRANT_ENTRIES];
-  USHORT grant_free;
-  USHORT grant_entries;
-  
   PUCHAR device_base;
 
   blkif_sring_t *sring;
@@ -147,7 +139,6 @@ struct
   ULONGLONG aligned_bytes;
   ULONGLONG unaligned_requests;
   ULONGLONG unaligned_bytes;
-  ULONGLONG no_free_grant_requests;
 */
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 
