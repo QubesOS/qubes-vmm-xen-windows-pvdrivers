@@ -249,9 +249,6 @@ XenNet_QueryInformation(
           break;
       }
 
-      KdPrint(("InformationBuffer = %p\n", InformationBuffer));
-      KdPrint(("len = %d\n", len));
-
       ntoh = (PNDIS_TASK_OFFLOAD_HEADER)InformationBuffer;
       if (ntoh->Version != NDIS_TASK_OFFLOAD_VERSION
         || ntoh->Size != sizeof(*ntoh)
@@ -263,8 +260,6 @@ XenNet_QueryInformation(
         status = NDIS_STATUS_NOT_SUPPORTED;
         break;
       }
-      KdPrint(("ntoh = %p\n", ntoh));
-      KdPrint(("ntoh->Size = %d\n", ntoh->Size));
       ntoh->OffsetFirstTask = 0; 
       nto = NULL;
 
@@ -273,14 +268,12 @@ XenNet_QueryInformation(
         if (ntoh->OffsetFirstTask == 0)
         {
           ntoh->OffsetFirstTask = ntoh->Size;
-          KdPrint(("ntoh->OffsetFirstTask = %d\n", ntoh->OffsetFirstTask));
           nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + ntoh->OffsetFirstTask);
         }
         else
         {
           nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
             + nto->TaskBufferLength;
-          KdPrint(("nto->OffsetNextTask = %d\n", nto->OffsetNextTask));
           nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
         }
         /* fill in first nto */
@@ -320,14 +313,12 @@ XenNet_QueryInformation(
         if (ntoh->OffsetFirstTask == 0)
         {
           ntoh->OffsetFirstTask = ntoh->Size;
-          KdPrint(("ntoh->OffsetFirstTask = %d\n", ntoh->OffsetFirstTask));
           nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(ntoh) + ntoh->OffsetFirstTask);
         }
         else
         {
           nto->OffsetNextTask = FIELD_OFFSET(NDIS_TASK_OFFLOAD, TaskBuffer)
             + nto->TaskBufferLength;
-          KdPrint(("nto->OffsetNextTask = %d\n", nto->OffsetNextTask));
           nto = (PNDIS_TASK_OFFLOAD)((PCHAR)(nto) + nto->OffsetNextTask);
         }
   
@@ -576,7 +567,10 @@ XenNet_SetInformation(
       {
         if (!(multicast_list[i * 6 + 0] & 0x01))
         {
-          KdPrint(("       Address %d is not a multicast address\n", i));
+          KdPrint(("       Address %d (%02x:%02x:%02x:%02x:%02x:%02x) is not a multicast address\n", i,
+            (ULONG)multicast_list[i * 6 + 0], (ULONG)multicast_list[i * 6 + 1], 
+            (ULONG)multicast_list[i * 6 + 2], (ULONG)multicast_list[i * 6 + 3], 
+            (ULONG)multicast_list[i * 6 + 4], (ULONG)multicast_list[i * 6 + 5]));
           status = NDIS_STATUS_MULTICAST_FULL;
           break;
         }

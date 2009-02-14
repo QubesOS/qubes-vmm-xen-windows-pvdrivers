@@ -12,20 +12,20 @@ DefaultDestDir = 12
 ExcludeFromSelect=*
 
 [Manufacturer]
-%XenGplPv%=XenGplPv,NTx86
-%XenGplPv%=XenGplPv,NTamd64
-%XenGplPv%=XenGplPv
+%XenGplPv%=XenPCI,NTx86
+%XenGplPv%=XenPCI,NTamd64
+%XenGplPv%=XenPCI
 
-[XenGplPv.NTx86]
-%XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
+[XenPCI.NTx86]
+%XenPCI.DRVDESC%=XenPCI_Device, PCI\VEN_5853&DEV_0001
 
-[XenGplPv.NTAMD64]
-%XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
+[XenPCI.NTAMD64]
+%XenPCI.DRVDESC%=XenPCI_Device, PCI\VEN_5853&DEV_0001
 
-[XenGplPv]
-%XenPCI.DRVDESC%=XenPCI_Inst, PCI\VEN_5853&DEV_0001
+[XenPCI]
+%XenPCI.DRVDESC%=XenPCI_Device, PCI\VEN_5853&DEV_0001
 
-[XenPCI_Inst.NT]
+[XenPCI_Device.NT]
 CopyFiles=XenPCI.CopyFiles
 
 [XenPCI.CopyFiles]
@@ -45,7 +45,7 @@ xenhide.sys=1
 [SourceDisksNames]
 1 = %DISK_NAME%,,,.\i386
 
-[XenPCI_Inst.NT.Services]
+[XenPCI_Device.NT.Services]
 AddService=XenPCI,3,XenPCI_Service
 AddService=XenHide,0,XenHide_Service
 
@@ -68,6 +68,28 @@ DelReg         = XenHide_Service_DelReg
 
 [XenHide_Service_DelReg]
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97D-E325-11CE-BFC1-08002BE10318},UpperFilters
+
+[DestinationDirs]
+XenPCI_Device_CoInstaller_CopyFiles = 11
+
+[XenPCI_Device.NT.CoInstallers]
+AddReg=XenPCI_Device_CoInstaller_AddReg
+CopyFiles=XenPCI_Device_CoInstaller_CopyFiles
+
+[XenPCI_Device_CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll,WdfCoInstaller"
+
+[XenPCI_Device_CoInstaller_CopyFiles]
+WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll
+
+[SourceDisksFiles]
+WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll=1
+
+[XenPCI_Device.NT.Wdf]
+KmdfService = XenPCI, XenPCI_wdfsect
+
+[XenPCI_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
 
 [Strings]
 XenGplPv = "Xen GPL PV Driver Developers"

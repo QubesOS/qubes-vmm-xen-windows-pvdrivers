@@ -125,27 +125,6 @@ GntTbl_GrantAccess(
   return ref;
 }
 
-#ifdef __MINGW32__
-/* from linux/include/asm-i386/cmpxchg.h */
-static inline short InterlockedCompareExchange16(
-  short volatile *dest,
-  short exch,
-  short comp)
-{
-  unsigned long prev;
-
-  __asm__ __volatile__("lock;"
-    "cmpxchgw %w1,%2"
-    : "=a"(prev)
-    : "r"(exch), "m"(*(dest)), "0"(comp)
-    : "memory");
-
-  FUNCTION_MSG(("Check that I work as expected!\n"));
-
-  return prev;
-}
-#endif
-
 BOOLEAN
 GntTbl_EndAccess(
   PVOID Context,
@@ -183,7 +162,7 @@ GntTbl_QueryMaxFrames(PXENPCI_DEVICE_DATA xpdd)
 
   query.dom = DOMID_SELF;
 
-  rc = HYPERVISOR_grant_table_op(xpdd,GNTTABOP_query_size, &query, 1);
+  rc = HYPERVISOR_grant_table_op(xpdd, GNTTABOP_query_size, &query, 1);
   if ((rc < 0) || (query.status != GNTST_okay))
   {
     KdPrint((__DRIVER_NAME "     ***CANNOT QUERY MAX GRANT FRAME***\n"));
@@ -193,61 +172,66 @@ GntTbl_QueryMaxFrames(PXENPCI_DEVICE_DATA xpdd)
 }
 
 VOID
-GntTbl_InitMap(PXENPCI_DEVICE_DATA xpdd)
+GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
 {
   int i;
-  ULONG grant_frames;
   int grant_entries;
-  //KdPrint((__DRIVER_NAME " --> GntTbl_Init\n"));
+  
+  FUNCTION_ENTER();
+  
+  KeInitializeSpinLock(&xpdd->grant_lock);
 
-  grant_frames = GntTbl_QueryMaxFrames(xpdd);
-  grant_entries = min(NR_GRANT_ENTRIES, (grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
-  KdPrint((__DRIVER_NAME "     grant_entries : %d\n", grant_entries));
-
-  if (xpdd->gnttab_list)
+  xpdd->grant_frames = GntTbl_QueryMaxFrames(xpdd);
+  KdPrint((__DRIVER_NAME "     grant_frames = %d\n", xpdd->grant_frames));
+  grant_entries = min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
+  KdPrint((__DRIVER_NAME "     grant_entries = %d\n", grant_entries));
+  
+  ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+  xpdd->gnttab_table_copy = ExAllocatePoolWithTag(NonPagedPool, xpdd->grant_frames * PAGE_SIZE, XENPCI_POOL_TAG);
+  ASSERT(xpdd->gnttab_table_copy); // lazy
+  xpdd->gnttab_list = ExAllocatePoolWithTag(NonPagedPool, sizeof(grant_ref_t) * grant_entries, XENPCI_POOL_TAG);
+  ASSERT(xpdd->gnttab_list); // lazy
+  xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd, PAGE_SIZE * xpdd->grant_frames);
+  xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical, PAGE_SIZE * xpdd->grant_frames, MmNonCached);
+  if (!xpdd->gnttab_table)
   {
-    if (grant_frames > xpdd->max_grant_frames)
-    {
-      ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-      /* this won't actually work as it will be called at HIGH_IRQL and the free and unmap functions won't work... */
-      ExFreePoolWithTag(xpdd->gnttab_list, XENPCI_POOL_TAG);
-      MmUnmapIoSpace(xpdd->gnttab_table, PAGE_SIZE * xpdd->max_grant_frames);
-      xpdd->gnttab_list = NULL;
-    }
+    KdPrint((__DRIVER_NAME "     Error Mapping Grant Table Shared Memory\n"));
+    // this should be a show stopper...
+    return;
   }
   
-  if (!xpdd->gnttab_list)
-  {
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-    xpdd->gnttab_list = ExAllocatePoolWithTag(NonPagedPool, sizeof(grant_ref_t) * grant_entries, XENPCI_POOL_TAG);
-    xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd,
-      PAGE_SIZE * grant_frames);
-    xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical,
-      PAGE_SIZE * grant_frames, MmNonCached);
-    if (!xpdd->gnttab_table)
-    {
-      KdPrint((__DRIVER_NAME "     Error Mapping Grant Table Shared Memory\n"));
-      // this should be a show stopper...
-      return;
-    }
-    xpdd->max_grant_frames = grant_frames;
-  }
   RtlZeroMemory(xpdd->gnttab_list, sizeof(grant_ref_t) * grant_entries);
   xpdd->gnttab_list_free = 0;
   for (i = NR_RESERVED_ENTRIES; i < grant_entries; i++)
     GntTbl_PutRef(xpdd, i);
   
-  GntTbl_Map(xpdd, 0, grant_frames - 1);
-  RtlZeroMemory(xpdd->gnttab_table, PAGE_SIZE * grant_frames);
+  GntTbl_Map(xpdd, 0, xpdd->grant_frames - 1);
+
+  RtlZeroMemory(xpdd->gnttab_table, PAGE_SIZE * xpdd->grant_frames);
+  
+  FUNCTION_EXIT();
 }
 
 VOID
-GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
+GntTbl_Suspend(PXENPCI_DEVICE_DATA xpdd)
 {
-  //KdPrint((__DRIVER_NAME " --> GntTbl_Init\n"));
+  memcpy(xpdd->gnttab_table_copy, xpdd->gnttab_table, xpdd->grant_frames * PAGE_SIZE);
+}
+
+VOID
+GntTbl_Resume(PXENPCI_DEVICE_DATA xpdd)
+{
+  ULONG new_grant_frames;
+  ULONG result;
   
-  KeInitializeSpinLock(&xpdd->grant_lock);
-  GntTbl_InitMap(xpdd);
+  FUNCTION_ENTER();
   
-  //KdPrint((__DRIVER_NAME " <-- GntTbl_Init table mapped at %p\n", gnttab_table));
+  new_grant_frames = GntTbl_QueryMaxFrames(xpdd);
+  KdPrint((__DRIVER_NAME "     new_grant_frames = %d\n", new_grant_frames));
+  ASSERT(new_grant_frames >= xpdd->grant_frames); // lazy
+  result = GntTbl_Map(xpdd, 0, xpdd->grant_frames - 1);
+  KdPrint((__DRIVER_NAME "     GntTbl_Map result = %d\n", result));
+  memcpy(xpdd->gnttab_table, xpdd->gnttab_table_copy, xpdd->grant_frames * PAGE_SIZE);
+  
+  FUNCTION_EXIT();
 }

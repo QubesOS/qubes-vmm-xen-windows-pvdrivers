@@ -15,9 +15,41 @@
 
 #define OLD_SERVICE_ID "XenShutdownMon"
 
-DEFINE_GUID(GUID_XEN_IFACE, 0x5C568AC5, 0x9DDF, 0x4FA5, 0xA9, 0x4A, 0x39, 0xD6, 0x70, 0x77, 0x81, 0x9C);
+DEFINE_GUID(GUID_XENBUS_IFACE, 0x14ce175a, 0x3ee2, 0x4fae, 0x92, 0x52, 0x0, 0xdb, 0xd8, 0x4f, 0x1, 0x8e);
 
+enum xsd_sockmsg_type
+{
+    XS_DEBUG,
+    XS_DIRECTORY,
+    XS_READ,
+    XS_GET_PERMS,
+    XS_WATCH,
+    XS_UNWATCH,
+    XS_TRANSACTION_START,
+    XS_TRANSACTION_END,
+    XS_INTRODUCE,
+    XS_RELEASE,
+    XS_GET_DOMAIN_PATH,
+    XS_WRITE,
+    XS_MKDIR,
+    XS_RM,
+    XS_SET_PERMS,
+    XS_WATCH_EVENT,
+    XS_ERROR,
+    XS_IS_DOMAIN_INTRODUCED,
+    XS_RESUME,
+    XS_SET_TARGET
+};
 
+struct xsd_sockmsg
+{
+    ULONG type;  /* XS_??? */
+    ULONG req_id;/* Request identifier, echoed in daemon's response.  */
+    ULONG tx_id; /* Transaction id (0 if not related to a transaction). */
+    ULONG len;   /* Length of data following this. */
+
+    /* Generally followed by nul-terminated string(s). */
+};
 SERVICE_STATUS service_status; 
 SERVICE_STATUS_HANDLE hStatus; 
 
@@ -42,7 +74,7 @@ install_service()
   TCHAR path[MAX_PATH];
   TCHAR command_line[MAX_PATH + 10];
 
-  if( !GetModuleFileName( NULL, path, MAX_PATH ) )
+  if(!GetModuleFileName(NULL, path, MAX_PATH))
   {
     printf("Cannot install service (%d)\n", GetLastError());
     return;
@@ -189,14 +221,14 @@ get_xen_interface_path()
   DWORD buf_len;
   char *path;
 
-  handle = SetupDiGetClassDevs(&GUID_XEN_IFACE, 0, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+  handle = SetupDiGetClassDevs(&GUID_XENBUS_IFACE, 0, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
   if (handle == INVALID_HANDLE_VALUE)
   {
     write_log("SetupDiGetClassDevs failed\n"); 
     return NULL;
   }
   sdid.cbSize = sizeof(sdid);
-  if (!SetupDiEnumDeviceInterfaces(handle, NULL, &GUID_XEN_IFACE, 0, &sdid))
+  if (!SetupDiEnumDeviceInterfaces(handle, NULL, &GUID_XENBUS_IFACE, 0, &sdid))
   {
     write_log("SetupDiEnumDeviceInterfaces failed\n");
     return NULL;
@@ -217,70 +249,129 @@ get_xen_interface_path()
   return path;
 }
 
+static int
+xb_add_watch(HANDLE handle, char *path)
+{
+  char buf[1024];
+  struct xsd_sockmsg *msg;
+  DWORD bytes_written;
+  DWORD bytes_read;
+  char *token = "0";
+
+  msg = (struct xsd_sockmsg *)buf;
+  msg->type = XS_WATCH;
+  msg->req_id = 0;
+  msg->tx_id = 0;
+  msg->len = strlen(path) + 1 + strlen(token) + 1;
+  strcpy(buf + sizeof(*msg), path);
+  strcpy(buf + sizeof(*msg) + strlen(path) + 1, token);
+
+  if (!WriteFile(handle, buf, sizeof(*msg) + msg->len, &bytes_written, NULL))
+  {
+    printf("write failed\n");
+    return 0;
+  }
+  if (!ReadFile(handle, buf, 1024, &bytes_read, NULL))
+  {
+    printf("read failed\n");
+    return 0;
+  }
+  printf("bytes_read = %d\n", bytes_read);
+  printf("msg->len = %d\n", msg->len);
+  buf[sizeof(*msg) + msg->len] = 0;
+  printf("msg text = %s\n", buf + sizeof(*msg));
+
+  return 1;
+}
+
+static int
+xb_wait_event(HANDLE handle)
+{
+  char buf[1024];
+  struct xsd_sockmsg *msg;
+  DWORD bytes_read;
+
+printf("wait_event start\n");
+  msg = (struct xsd_sockmsg *)buf;
+  if (!ReadFile(handle, buf, 1024, &bytes_read, NULL))
+  {
+    printf("read failed\n");
+    return 0;
+  }
+  printf("bytes_read = %d\n", bytes_read);
+  printf("msg->len = %d\n", msg->len);
+  buf[sizeof(*msg) + msg->len] = 0;
+  printf("msg text = %s\n", buf + sizeof(*msg));
+  return 1;
+}
+
+static char *
+xb_read(HANDLE handle, char *path)
+{
+  char buf[1024];
+  struct xsd_sockmsg *msg;
+  char *ret;
+  DWORD bytes_written;
+  DWORD bytes_read;
+
+printf("read start\n");
+  msg = (struct xsd_sockmsg *)buf;
+  msg->type = XS_READ;
+  msg->req_id = 0;
+  msg->tx_id = 0;
+  msg->len = strlen(path) + 1;
+  strcpy(buf + sizeof(*msg), path);
+  if (!WriteFile(handle, buf, sizeof(*msg) + msg->len, &bytes_written, NULL))
+  {
+    printf("write failed\n");
+    return NULL;
+  }
+
+  if (!ReadFile(handle, buf, 1024, &bytes_read, NULL))
+  {
+    printf("read failed\n");
+    return NULL;
+  }
+  printf("bytes_read = %d\n", bytes_read);
+  printf("msg->len = %d\n", msg->len);
+  buf[sizeof(*msg) + msg->len] = 0;
+  printf("msg text = %s\n", buf + sizeof(*msg));
+  ret = malloc(strlen(buf + sizeof(*msg)));
+  strcpy(ret, buf + sizeof(*msg));
+  return ret;
+}
+
 static void
 do_monitoring()
 {
-  char buf[1024];
-  char *bufptr = buf;
   HANDLE handle;
   int state;
   char *path;
-  DWORD bytes_read;
-  char inchar;
+  char *buf;
 
   path = get_xen_interface_path();
   if (path == NULL)
     return;
 
-  handle = CreateFile(path, FILE_GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  handle = CreateFile(path, FILE_GENERIC_READ|FILE_GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+  xb_add_watch(handle, "control/shutdown");
 
   state = 0;
-  for (;;)
+  while(xb_wait_event(handle))
   {
     if (service_status.dwCurrentState != SERVICE_RUNNING)
       return;
-    if (!ReadFile(handle, &inchar, 1, &bytes_read, NULL))
+    buf = xb_read(handle, "control/shutdown");
+    //printf("msg = '%s'\n", msg);
+    if (strcmp("poweroff", buf) == 0 || strcmp("halt", buf) == 0)
     {
-      CloseHandle(handle);
-      return;
+      do_shutdown(FALSE);
     }
-    switch (state)
+    else if (strcmp("reboot", buf) == 0)
     {
-    case 0:
-      if (isalnum(inchar))
-      {
-        *bufptr = inchar;
-        bufptr++;
-      }
-      else if (inchar == '\r')
-      {
-        *bufptr = 0;
-        state = 1;
-      }
-      else
-      {
-        bufptr = buf;
-      }
-      break;
-    case 1:
-      if (inchar == '\n')
-      {
-        if (strcmp("poweroff", buf) == 0 || strcmp("halt", buf) == 0)
-        {
-          do_shutdown(FALSE);
-        }
-        else if (strcmp("reboot", buf) == 0)
-        {
-          do_shutdown(TRUE);
-        } 
-        else
-        {
-          // complain here
-        }
-      }
-      state = 0;
-      break;
-    }
+      do_shutdown(TRUE);
+    } 
   }
 }
 

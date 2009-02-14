@@ -163,7 +163,6 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 
 #define XN_MAX_SEND_PKTS 16
 
-#define XN_RX_QUEUE_LEN 256
 #define XENSOURCE_MAC_HDR 0x00163E
 #define XN_VENDOR_DESC "Xensource"
 #define MAX_XENBUS_STR_LEN 128
@@ -172,7 +171,7 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 #define RX_DFL_MIN_TARGET 256
 #define RX_MAX_TARGET min(NET_RX_RING_SIZE, 256)
 
-#define MAX_BUFFERS_PER_PACKET NET_RX_RING_SIZE
+//#define MAX_BUFFERS_PER_PACKET NET_RX_RING_SIZE
 
 #define MAX_ETH_HEADER_SIZE 14
 #define MIN_IP4_HEADER_SIZE 20
@@ -183,22 +182,27 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 
 typedef struct
 {
-  ULONG id;
+  PVOID next;
   PHYSICAL_ADDRESS logical;
   PVOID virtual;
+  PNDIS_BUFFER buffer;
+  USHORT id;
+  USHORT ref_count;
 } shared_buffer_t;
 
 typedef struct
 {
   PNDIS_PACKET packet; /* only set on the last packet */
-  shared_buffer_t *sb;
+  shared_buffer_t *hb;
 } tx_shadow_t;
 
 typedef struct {
-  PNDIS_BUFFER mdls[MAX_BUFFERS_PER_PACKET];
+  PNDIS_BUFFER first_buffer;
+  PNDIS_BUFFER curr_buffer;
+  shared_buffer_t *first_pb;
+  shared_buffer_t *curr_pb;
   UCHAR header_data[132]; /* maximum possible size of ETH + IP + TCP/UDP headers */
   ULONG mdl_count;
-  USHORT curr_mdl_index;
   USHORT curr_mdl_offset;
   USHORT mss;
   NDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
@@ -225,20 +229,6 @@ typedef struct {
 #define PAGE_LIST_SIZE (max(NET_RX_RING_SIZE, NET_TX_RING_SIZE) * 4)
 #define MULTICAST_LIST_MAX_SIZE 32
 
-typedef struct
-{
-  struct xennet_info *xi;
-  PMDL page_list[PAGE_LIST_SIZE];
-  ULONG page_free;
-  ULONG page_free_lowest;
-  ULONG page_free_target;
-  ULONG page_limit;
-  ULONG page_outstanding;
-  NDIS_MINIPORT_TIMER timer;
-  PKSPIN_LOCK lock;
-  BOOLEAN grants_resumed;
-} freelist_t;
-
 struct xennet_info
 {
   BOOLEAN inactive;
@@ -252,7 +242,6 @@ struct xennet_info
 
   /* NDIS-related vars */
   NDIS_HANDLE adapter_handle;
-  NDIS_HANDLE packet_pool;
   NDIS_MINIPORT_INTERRUPT interrupt;
   ULONG packet_filter;
   int connected;
@@ -278,35 +267,38 @@ struct xennet_info
   ULONG tx_ring_free;
   tx_shadow_t tx_shadows[NET_TX_RING_SIZE];
   NDIS_HANDLE tx_buffer_pool;
-#define TX_SHARED_BUFFER_SIZE (PAGE_SIZE >> 3) /* 512 */
-//#define TX_SHARED_BUFFERS (NET_TX_RING_SIZE >> 4)
-#define TX_SHARED_BUFFERS (NET_TX_RING_SIZE)
+#define TX_HEADER_BUFFER_SIZE 512
+//#define TX_HEADER_BUFFERS (NET_TX_RING_SIZE >> 2)
+#define TX_HEADER_BUFFERS (NET_TX_RING_SIZE)
   ULONG tx_id_free;
   USHORT tx_id_list[NET_TX_RING_SIZE];
-  ULONG tx_sb_free;
-  ULONG tx_sb_list[TX_SHARED_BUFFERS];
-  shared_buffer_t tx_sbs[TX_SHARED_BUFFERS];
-  
-  //freelist_t tx_freelist;
+  ULONG tx_hb_free;
+  ULONG tx_hb_list[TX_HEADER_BUFFERS];
+  shared_buffer_t tx_hbs[TX_HEADER_BUFFERS];
   KDPC tx_dpc;
 
   /* rx_related - protected by rx_lock */
   KSPIN_LOCK rx_lock;
   struct netif_rx_front_ring rx;
   ULONG rx_id_free;
-  PNDIS_BUFFER rx_mdls[NET_RX_RING_SIZE];
-  freelist_t rx_freelist;
   packet_info_t rxpi;
   PNDIS_PACKET rx_packet_list[NET_RX_RING_SIZE * 2];
   ULONG rx_packet_free;
   BOOLEAN rx_shutting_down;
   KEVENT packet_returned_event;
   //NDIS_MINIPORT_TIMER rx_timer;
-  ULONG avg_page_count;
   KDPC rx_dpc;
   KTIMER rx_timer;
   KDPC rx_timer_dpc;
-
+  NDIS_HANDLE rx_packet_pool;
+  NDIS_HANDLE rx_buffer_pool;
+  ULONG rx_pb_free;
+#define RX_PAGE_BUFFERS (NET_RX_RING_SIZE * 2)
+  ULONG rx_pb_list[RX_PAGE_BUFFERS];
+  shared_buffer_t rx_pbs[RX_PAGE_BUFFERS];
+  USHORT rx_ring_pbs[NET_RX_RING_SIZE];
+#define LOOKASIDE_LIST_ALLOC_SIZE 256
+  NPAGED_LOOKASIDE_LIST rx_lookaside_list;
   /* Receive-ring batched refills. */
   ULONG rx_target;
   ULONG rx_max_target;
@@ -402,9 +394,6 @@ XenNet_SetInformation(
 #define PARSE_TOO_SMALL 1 /* first buffer is too small */
 #define PARSE_UNKNOWN_TYPE 2
 
-BOOLEAN
-XenNet_IncreasePacketHeader(packet_info_t *pi, ULONG new_header_size);
-
 ULONG
 XenNet_ParsePacketHeader(packet_info_t *pi);
 
@@ -414,39 +403,11 @@ XenNet_SumIpHeader(
   USHORT ip4_header_length
 );
 
-static __forceinline grant_ref_t
-get_grant_ref(PMDL mdl)
-{
-  return *(grant_ref_t *)(((UCHAR *)mdl) + MmSizeOfMdl(0, PAGE_SIZE));
-}
-
-static __forceinline PUCHAR
-XenNet_GetData(
-  packet_info_t *pi,
-  USHORT req_length,
-  PUSHORT length
-)
-{
-  PNDIS_BUFFER mdl = pi->mdls[pi->curr_mdl_index];
-  PUCHAR buffer = (PUCHAR)MmGetMdlVirtualAddress(mdl) + pi->curr_mdl_offset;
-
-  *length = (USHORT)min(req_length, MmGetMdlByteCount(mdl) - pi->curr_mdl_offset);
-
-  pi->curr_mdl_offset = pi->curr_mdl_offset + *length;
-  if (pi->curr_mdl_offset == MmGetMdlByteCount(mdl))
-  {
-    pi->curr_mdl_index++;
-    pi->curr_mdl_offset = 0;
-  }
-
-  return buffer;
-}
-
 static __forceinline VOID
 XenNet_ClearPacketInfo(packet_info_t *pi)
 {
 #if 1
-  #if 1
+  #if 0
   RtlZeroMemory(&pi->mdl_count, sizeof(packet_info_t) - FIELD_OFFSET(packet_info_t, mdl_count));
   #else
   RtlZeroMemory(pi, sizeof(packet_info_t));
@@ -458,16 +419,3 @@ XenNet_ClearPacketInfo(packet_info_t *pi)
     pi->data_validated = pi->split_required = 0;
 #endif
 }
-
-VOID
-XenFreelist_Init(struct xennet_info *xi, freelist_t *fl, PKSPIN_LOCK lock);
-PMDL
-XenFreelist_GetPage(freelist_t *fl);
-VOID
-XenFreelist_PutPage(freelist_t *fl, PMDL mdl);
-VOID
-XenFreelist_Dispose(freelist_t *fl);
-VOID
-XenFreelist_ResumeStart(freelist_t *fl);
-VOID
-XenFreelist_ResumeEnd(freelist_t *fl);

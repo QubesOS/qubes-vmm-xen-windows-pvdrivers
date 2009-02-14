@@ -24,6 +24,1897 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable : 4200) // zero-sized array
 #pragma warning(disable: 4127) // conditional expression is constant
 
+static VOID
+XenPci_IS_InterfaceReference(PVOID context)
+{
+  UNREFERENCED_PARAMETER(context);
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+static VOID
+XenPci_IS_InterfaceDereference(PVOID context)
+{
+  UNREFERENCED_PARAMETER(context);
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+static BOOLEAN
+XenPci_BIS_TranslateBusAddress(PVOID context, PHYSICAL_ADDRESS bus_address, ULONG length, PULONG address_space, PPHYSICAL_ADDRESS translated_address)
+{
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(length);
+  /* actually this isn't right - should look up the gref for the physical address and work backwards from that */
+  FUNCTION_ENTER();
+  if (*address_space != 0)
+  {
+    KdPrint((__DRIVER_NAME "      Cannot map I/O space\n"));
+    FUNCTION_EXIT();
+    return FALSE;
+  }
+  *translated_address = bus_address;
+  FUNCTION_EXIT();
+  return TRUE;
+}
+
+static VOID
+XenPci_DOP_PutDmaAdapter(PDMA_ADAPTER dma_adapter)
+{
+  UNREFERENCED_PARAMETER(dma_adapter);
+  
+  FUNCTION_ENTER();
+  // decrement ref count
+  FUNCTION_EXIT();
+
+  return;
+}
+
+static PVOID
+XenPci_DOP_AllocateCommonBuffer(
+  PDMA_ADAPTER DmaAdapter,
+  ULONG Length,
+  PPHYSICAL_ADDRESS LogicalAddress,
+  BOOLEAN CacheEnabled
+)
+{
+  xen_dma_adapter_t *xen_dma_adapter;
+  PXENPCI_DEVICE_DATA xpdd;
+  PVOID buffer;
+  PFN_NUMBER pfn;
+  grant_ref_t gref;
+  
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(CacheEnabled);
+  
+  //FUNCTION_ENTER();
+
+  xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
+  xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
+
+  //KdPrint((__DRIVER_NAME "     Length = %d\n", Length));
+  
+  buffer = ExAllocatePoolWithTag(NonPagedPool, Length, XENPCI_POOL_TAG);
+
+  pfn = (PFN_NUMBER)(MmGetPhysicalAddress(buffer).QuadPart >> PAGE_SHIFT);
+  ASSERT(pfn);
+  gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, pfn, FALSE, INVALID_GRANT_REF);
+  ASSERT(gref);
+  LogicalAddress->QuadPart = (gref << PAGE_SHIFT) | (PtrToUlong(buffer) & (PAGE_SIZE - 1));
+  
+  //FUNCTION_EXIT();
+  return buffer;
+}
+
+static VOID
+XenPci_DOP_FreeCommonBuffer(
+  PDMA_ADAPTER dma_adapter,
+  ULONG length,
+  PHYSICAL_ADDRESS logical_address,
+  PVOID virtual_address,
+  BOOLEAN cache_enabled
+)
+{
+  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)dma_adapter;
+  PXENPCI_DEVICE_DATA xpdd;
+  grant_ref_t gref;
+
+  UNREFERENCED_PARAMETER(dma_adapter);
+  UNREFERENCED_PARAMETER(length);
+  UNREFERENCED_PARAMETER(logical_address);
+  UNREFERENCED_PARAMETER(cache_enabled);
+
+  FUNCTION_ENTER();
+
+  xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
+
+  gref = (grant_ref_t)(logical_address.QuadPart >> PAGE_SHIFT);
+  GntTbl_EndAccess(xpdd, gref, FALSE);
+  
+  ExFreePoolWithTag(virtual_address, XENPCI_POOL_TAG);
+
+  FUNCTION_EXIT();
+}
+
+static NTSTATUS
+XenPci_DOP_AllocateAdapterChannel(
+    IN PDMA_ADAPTER  DmaAdapter,
+    IN PDEVICE_OBJECT  DeviceObject,
+    IN ULONG  NumberOfMapRegisters,
+    IN PDRIVER_CONTROL  ExecutionRoutine,
+    IN PVOID  Context
+    )
+{
+  IO_ALLOCATION_ACTION action;
+  
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(NumberOfMapRegisters);
+  
+  FUNCTION_ENTER();
+  action = ExecutionRoutine(DeviceObject, DeviceObject->CurrentIrp, UlongToPtr(64), Context);
+  
+  switch (action)
+  {
+  case KeepObject:
+    KdPrint((__DRIVER_NAME "     KeepObject\n"));
+    break;
+  case DeallocateObject:
+    KdPrint((__DRIVER_NAME "     DeallocateObject\n"));
+    break;
+  case DeallocateObjectKeepRegisters:
+    KdPrint((__DRIVER_NAME "     DeallocateObjectKeepRegisters\n"));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown action %d\n", action));
+    break;
+  }
+  FUNCTION_EXIT();
+  return STATUS_SUCCESS;
+}
+
+static BOOLEAN
+XenPci_DOP_FlushAdapterBuffers(
+  PDMA_ADAPTER DmaAdapter,
+  PMDL Mdl,
+  PVOID MapRegisterBase,
+  PVOID CurrentVa,
+  ULONG Length,
+  BOOLEAN WriteToDevice)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(Mdl);
+  UNREFERENCED_PARAMETER(MapRegisterBase);
+  UNREFERENCED_PARAMETER(CurrentVa);
+  UNREFERENCED_PARAMETER(Length);
+  UNREFERENCED_PARAMETER(WriteToDevice);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return TRUE;
+}
+
+static VOID
+XenPci_DOP_FreeAdapterChannel(
+    IN PDMA_ADAPTER  DmaAdapter
+    )
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+static VOID
+XenPci_DOP_FreeMapRegisters(
+  PDMA_ADAPTER DmaAdapter,
+  PVOID MapRegisterBase,
+  ULONG NumberOfMapRegisters)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(MapRegisterBase);
+  UNREFERENCED_PARAMETER(NumberOfMapRegisters);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
+
+static PHYSICAL_ADDRESS
+XenPci_DOP_MapTransfer(
+    PDMA_ADAPTER DmaAdapter,
+    PMDL Mdl,
+    PVOID MapRegisterBase,
+    PVOID CurrentVa,
+    PULONG Length,
+    BOOLEAN WriteToDevice)
+{
+  PHYSICAL_ADDRESS physical;
+  
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(Mdl);
+  UNREFERENCED_PARAMETER(MapRegisterBase);
+  UNREFERENCED_PARAMETER(CurrentVa);
+  UNREFERENCED_PARAMETER(Length);
+  UNREFERENCED_PARAMETER(WriteToDevice);
+
+  FUNCTION_ENTER();
+  
+  physical.QuadPart = 0;
+  
+  FUNCTION_EXIT();
+  return physical;
+}
+
+static ULONG
+XenPci_DOP_GetDmaAlignment(
+  PDMA_ADAPTER DmaAdapter)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return 0;
+}
+
+static ULONG
+XenPci_DOP_ReadDmaCounter(
+  PDMA_ADAPTER DmaAdapter)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return 0;
+}
+
+static NTSTATUS
+XenPci_DOP_GetScatterGatherList(
+  PDMA_ADAPTER DmaAdapter,
+  PDEVICE_OBJECT DeviceObject,
+  PMDL Mdl,
+  PVOID CurrentVa,
+  ULONG Length,
+  PDRIVER_LIST_CONTROL ExecutionRoutine,
+  PVOID Context,
+  BOOLEAN WriteToDevice)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(DeviceObject);
+  UNREFERENCED_PARAMETER(Mdl);
+  UNREFERENCED_PARAMETER(CurrentVa);
+  UNREFERENCED_PARAMETER(Length);
+  UNREFERENCED_PARAMETER(ExecutionRoutine);
+  UNREFERENCED_PARAMETER(Context);
+  UNREFERENCED_PARAMETER(WriteToDevice);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return STATUS_SUCCESS;
+}
+
+#define MAP_TYPE_VIRTUAL  1
+#define MAP_TYPE_MDL      2
+#define MAP_TYPE_REMAPPED 3
+
+typedef struct {
+  ULONG map_type;
+  PVOID aligned_buffer;
+  PVOID unaligned_buffer;
+  ULONG copy_length;
+} sg_extra_t;
+
+static VOID
+XenPci_DOP_PutScatterGatherList(
+    IN PDMA_ADAPTER DmaAdapter,
+    IN PSCATTER_GATHER_LIST ScatterGather,
+    IN BOOLEAN WriteToDevice
+    )
+{
+  xen_dma_adapter_t *xen_dma_adapter;
+  PXENPCI_DEVICE_DATA xpdd;
+  ULONG i;
+  sg_extra_t *sg_extra;
+
+  UNREFERENCED_PARAMETER(WriteToDevice);
+  
+  //FUNCTION_ENTER();
+
+  xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
+  xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
+  
+  sg_extra = (sg_extra_t *)((PUCHAR)ScatterGather + FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
+    (sizeof(SCATTER_GATHER_ELEMENT)) * ScatterGather->NumberOfElements);
+
+  switch (sg_extra->map_type)
+  {
+  case MAP_TYPE_REMAPPED:
+    for (i = 0; i < ScatterGather->NumberOfElements; i++)
+    {
+      grant_ref_t gref;
+      gref = (grant_ref_t)(ScatterGather->Elements[i].Address.QuadPart >> PAGE_SHIFT);
+      GntTbl_EndAccess(xpdd, gref, FALSE);
+      ScatterGather->Elements[i].Address.QuadPart = -1;
+    }
+    if (!WriteToDevice)
+      memcpy(sg_extra->unaligned_buffer, sg_extra->aligned_buffer, sg_extra->copy_length);
+    ExFreePoolWithTag(sg_extra->aligned_buffer, XENPCI_POOL_TAG);
+    break;
+  case MAP_TYPE_MDL:
+    for (i = 0; i < ScatterGather->NumberOfElements; i++)
+    {
+      grant_ref_t gref;
+      gref = (grant_ref_t)(ScatterGather->Elements[i].Address.QuadPart >> PAGE_SHIFT);
+      GntTbl_EndAccess(xpdd, gref, FALSE);
+      ScatterGather->Elements[i].Address.QuadPart = -1;
+    }
+    break;
+  case MAP_TYPE_VIRTUAL:
+    break;
+  }
+  //FUNCTION_EXIT();
+}
+
+static NTSTATUS
+XenPci_DOP_CalculateScatterGatherList(
+  PDMA_ADAPTER DmaAdapter,
+  PMDL Mdl,
+  PVOID CurrentVa,
+  ULONG Length,
+  PULONG ScatterGatherListSize,
+  PULONG NumberOfMapRegisters
+  )
+{
+  ULONG elements;
+  PMDL curr_mdl;
+  
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(Mdl);
+  
+  FUNCTION_ENTER();
+  
+  KdPrint((__DRIVER_NAME "     Mdl = %p\n", Mdl));
+  KdPrint((__DRIVER_NAME "     CurrentVa = %p\n", CurrentVa));
+  KdPrint((__DRIVER_NAME "     Length = %d\n", Length));
+  if (Mdl)
+  {
+    for (curr_mdl = Mdl, elements = 0; curr_mdl; curr_mdl = curr_mdl->Next)
+      elements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(CurrentVa, Length);
+  }
+  else
+  {
+    elements = ADDRESS_AND_SIZE_TO_SPAN_PAGES(0, Length) + 1;
+  }
+  
+  *ScatterGatherListSize = FIELD_OFFSET(SCATTER_GATHER_LIST, Elements)
+    + sizeof(SCATTER_GATHER_ELEMENT) * elements
+    + sizeof(sg_extra_t);
+  if (NumberOfMapRegisters)
+    *NumberOfMapRegisters = 1;
+
+  KdPrint((__DRIVER_NAME "     ScatterGatherListSize = %d\n", *ScatterGatherListSize));
+
+  FUNCTION_EXIT();
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+XenPci_DOP_BuildScatterGatherList(
+  IN PDMA_ADAPTER DmaAdapter,
+  IN PDEVICE_OBJECT DeviceObject,
+  IN PMDL Mdl,
+  IN PVOID CurrentVa,
+  IN ULONG Length,
+  IN PDRIVER_LIST_CONTROL ExecutionRoutine,
+  IN PVOID Context,
+  IN BOOLEAN WriteToDevice,
+  IN PVOID ScatterGatherBuffer,
+  IN ULONG ScatterGatherBufferLength)
+{
+  ULONG i;
+  PSCATTER_GATHER_LIST sglist = ScatterGatherBuffer;
+  PUCHAR ptr;
+  ULONG remaining = Length;
+  ULONG total_remaining;
+  xen_dma_adapter_t *xen_dma_adapter;
+  PXENPCI_DEVICE_DATA xpdd;
+  sg_extra_t *sg_extra;
+  PMDL curr_mdl;
+  ULONG map_type;
+  ULONG sg_element;
+  ULONG offset;
+  PFN_NUMBER pfn;
+  grant_ref_t gref;
+  
+  UNREFERENCED_PARAMETER(WriteToDevice);
+
+  //FUNCTION_ENTER();
+
+  xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
+  xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
+
+  ASSERT(Mdl);
+  if (xen_dma_adapter->dma_extension)
+  {
+    if (xen_dma_adapter->dma_extension->need_virtual_address(DeviceObject->CurrentIrp))
+    {
+      ASSERT(!Mdl->Next); /* can only virtual a single buffer */
+      map_type = MAP_TYPE_VIRTUAL;
+      sglist->NumberOfElements = 1;
+    }
+    else
+    {
+      ULONG alignment = xen_dma_adapter->dma_extension->get_alignment(DeviceObject->CurrentIrp);
+      if (PtrToUlong(CurrentVa) & (alignment - 1))
+      {
+        ASSERT(!Mdl->Next); /* can only remap a single buffer */
+        map_type = MAP_TYPE_REMAPPED;
+        sglist->NumberOfElements = ADDRESS_AND_SIZE_TO_SPAN_PAGES(NULL, Length);
+      }
+      else
+      {
+        map_type = MAP_TYPE_MDL;
+        for (curr_mdl = Mdl, sglist->NumberOfElements = 0; curr_mdl; curr_mdl = curr_mdl->Next)
+          sglist->NumberOfElements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(
+            MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl));
+      }
+    }
+  }
+  else
+  {
+    map_type = MAP_TYPE_MDL;
+    for (curr_mdl = Mdl, sglist->NumberOfElements = 0; curr_mdl; curr_mdl = curr_mdl->Next)
+      sglist->NumberOfElements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(
+        MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl));
+  }
+  if (ScatterGatherBufferLength < FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
+    sizeof(SCATTER_GATHER_ELEMENT) * sglist->NumberOfElements + sizeof(sg_extra_t))
+  {
+    return STATUS_BUFFER_TOO_SMALL;
+  }
+  
+  sg_extra = (sg_extra_t *)((PUCHAR)sglist + FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
+    (sizeof(SCATTER_GATHER_ELEMENT)) * sglist->NumberOfElements);
+  
+  sg_extra->map_type = map_type;
+  switch (map_type)
+  {
+  case MAP_TYPE_MDL:
+    //KdPrint((__DRIVER_NAME "     MAP_TYPE_MDL\n"));
+    total_remaining = Length;
+    for (sg_element = 0, curr_mdl = Mdl; curr_mdl; curr_mdl = curr_mdl->Next)
+    {
+      remaining = MmGetMdlByteCount(curr_mdl);
+      if (!MmGetMdlByteOffset(Mdl) && (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1)))
+        offset = (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1));
+      else
+        offset = MmGetMdlByteOffset(curr_mdl);
+      for (i = 0; i < ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl)); i++)
+      {
+//KdPrint((__DRIVER_NAME "     element = %d\n", sg_element));
+//KdPrint((__DRIVER_NAME "     remaining = %d\n", remaining));
+        pfn = MmGetMdlPfnArray(curr_mdl)[i];
+        ASSERT(pfn);
+        gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, pfn, FALSE, INVALID_GRANT_REF);
+        ASSERT(gref != INVALID_GRANT_REF);
+        sglist->Elements[sg_element].Address.QuadPart = (LONGLONG)(gref << PAGE_SHIFT) | offset;
+        sglist->Elements[sg_element].Length = min(min(PAGE_SIZE - offset, remaining), total_remaining);
+        total_remaining -= sglist->Elements[sg_element].Length;
+        remaining -= sglist->Elements[sg_element].Length;
+        offset = 0;
+        sg_element++;
+      }
+    }
+    break;
+  case MAP_TYPE_REMAPPED:
+    //KdPrint((__DRIVER_NAME "     MAP_TYPE_REMAPPED\n"));
+    sg_extra->aligned_buffer = ExAllocatePoolWithTag(NonPagedPool, max(Length, PAGE_SIZE), XENPCI_POOL_TAG);
+    if (!sg_extra->aligned_buffer)
+    {
+      //KdPrint((__DRIVER_NAME "     MAP_TYPE_REMAPPED buffer allocation failed - requested va = %p, length = %d\n", CurrentVa, Length));
+      return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    sg_extra->unaligned_buffer = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+    ASSERT(sg_extra->unaligned_buffer); /* lazy */
+    if (!MmGetMdlByteOffset(Mdl) && (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1)))
+      sg_extra->unaligned_buffer = (PUCHAR)sg_extra->unaligned_buffer + (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1));
+    sg_extra->copy_length = Length;
+    if (WriteToDevice)
+      memcpy(sg_extra->aligned_buffer, sg_extra->unaligned_buffer, sg_extra->copy_length);
+    for (sg_element = 0, remaining = Length; 
+      sg_element < ADDRESS_AND_SIZE_TO_SPAN_PAGES(sg_extra->aligned_buffer, Length); sg_element++)
+    {
+      pfn = (PFN_NUMBER)(MmGetPhysicalAddress((PUCHAR)sg_extra->aligned_buffer + (sg_element << PAGE_SHIFT)).QuadPart >> PAGE_SHIFT);
+      ASSERT(pfn);
+      gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, pfn, FALSE, INVALID_GRANT_REF);
+      ASSERT(gref);
+      sglist->Elements[sg_element].Address.QuadPart = (ULONGLONG)gref << PAGE_SHIFT;
+      sglist->Elements[sg_element].Length = min(PAGE_SIZE, remaining);
+      remaining -= sglist->Elements[sg_element].Length;
+    }
+    break;
+  case MAP_TYPE_VIRTUAL:
+    //KdPrint((__DRIVER_NAME "     MAP_TYPE_VIRTUAL\n"));
+    ptr = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
+    ASSERT(ptr); /* lazy */
+    if (!MmGetMdlByteOffset(Mdl) && (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1)))
+      ptr += (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1));
+    sglist->Elements[0].Address.QuadPart = (ULONGLONG)ptr;
+    sglist->Elements[0].Length = Length;
+    break;
+  }
+#if 0
+  KdPrint((__DRIVER_NAME "     Mdl = %p, CurrentVa = %p, Mdl->Va = %p, Offset = %d, Length = %d\n", 
+    Mdl, CurrentVa, MmGetMdlVirtualAddress(Mdl), MmGetMdlByteOffset(Mdl), Length));
+  for (i = 0; i < sglist->NumberOfElements; i++)
+  {
+    KdPrint((__DRIVER_NAME "     sge[%d]->Address = %08x%08x, Length = %d\n", i, sglist->Elements[i].Address.HighPart,
+      sglist->Elements[i].Address.LowPart, sglist->Elements[i].Length));
+  }
+#endif
+  ExecutionRoutine(DeviceObject, DeviceObject->CurrentIrp, ScatterGatherBuffer, Context);
+
+  //FUNCTION_EXIT();
+  
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+XenPci_DOP_BuildMdlFromScatterGatherList(
+  PDMA_ADAPTER DmaAdapter,
+  PSCATTER_GATHER_LIST ScatterGather,
+  PMDL OriginalMdl,
+  PMDL *TargetMdl)
+{
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(ScatterGather);
+  UNREFERENCED_PARAMETER(OriginalMdl);
+  UNREFERENCED_PARAMETER(TargetMdl);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return STATUS_UNSUCCESSFUL;
+}
+
+static PDMA_ADAPTER
+XenPci_BIS_GetDmaAdapter(PVOID context, PDEVICE_DESCRIPTION device_description, PULONG number_of_map_registers)
+{
+  xen_dma_adapter_t *xen_dma_adapter;
+  PDEVICE_OBJECT curr, prev;
+  PDRIVER_OBJECT fdo_driver_object;
+  PVOID fdo_driver_extension;
+  
+  UNREFERENCED_PARAMETER(device_description);
+  
+  FUNCTION_ENTER();
+
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  KdPrint((__DRIVER_NAME "     Device Description = %p:\n", device_description));
+  KdPrint((__DRIVER_NAME "      Version  = %d\n", device_description->Version));
+  KdPrint((__DRIVER_NAME "      Master = %d\n", device_description->Master));
+  KdPrint((__DRIVER_NAME "      ScatterGather = %d\n", device_description->ScatterGather));
+  KdPrint((__DRIVER_NAME "      DemandMode = %d\n", device_description->DemandMode));
+  KdPrint((__DRIVER_NAME "      AutoInitialize = %d\n", device_description->AutoInitialize));
+  KdPrint((__DRIVER_NAME "      Dma32BitAddresses = %d\n", device_description->Dma32BitAddresses));
+  KdPrint((__DRIVER_NAME "      IgnoreCount = %d\n", device_description->IgnoreCount));
+  KdPrint((__DRIVER_NAME "      Dma64BitAddresses = %d\n", device_description->Dma64BitAddresses));
+  KdPrint((__DRIVER_NAME "      BusNumber = %d\n", device_description->BusNumber));
+  KdPrint((__DRIVER_NAME "      DmaChannel = %d\n", device_description->DmaChannel));
+  KdPrint((__DRIVER_NAME "      InterfaceType = %d\n", device_description->InterfaceType));
+  KdPrint((__DRIVER_NAME "      DmaWidth = %d\n", device_description->DmaWidth));
+  KdPrint((__DRIVER_NAME "      DmaSpeed = %d\n", device_description->DmaSpeed));
+  KdPrint((__DRIVER_NAME "      MaximumLength = %d\n", device_description->MaximumLength));
+  KdPrint((__DRIVER_NAME "      DmaPort = %d\n", device_description->DmaPort));
+  
+/*
+we have to allocate PAGE_SIZE bytes here because Windows thinks this is
+actually an ADAPTER_OBJECT, and then the verifier crashes because
+Windows accessed beyond the end of the structure :(
+*/
+  xen_dma_adapter = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+  RtlZeroMemory(xen_dma_adapter, PAGE_SIZE);
+  xen_dma_adapter->dma_adapter.Version = 2;
+  xen_dma_adapter->dma_adapter.Size = sizeof(DMA_ADAPTER); //xen_dma_adapter_t);
+  xen_dma_adapter->dma_adapter.DmaOperations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DMA_OPERATIONS), XENPCI_POOL_TAG);
+  //xen_dma_adapter->dma_adapter.DmaOperations = &xen_dma_adapter->dma_operations;
+  xen_dma_adapter->dma_adapter.DmaOperations->Size = sizeof(DMA_OPERATIONS);
+  xen_dma_adapter->dma_adapter.DmaOperations->PutDmaAdapter = XenPci_DOP_PutDmaAdapter;
+  xen_dma_adapter->dma_adapter.DmaOperations->AllocateCommonBuffer = XenPci_DOP_AllocateCommonBuffer;
+  xen_dma_adapter->dma_adapter.DmaOperations->FreeCommonBuffer = XenPci_DOP_FreeCommonBuffer;
+  xen_dma_adapter->dma_adapter.DmaOperations->AllocateAdapterChannel = XenPci_DOP_AllocateAdapterChannel;
+  xen_dma_adapter->dma_adapter.DmaOperations->FlushAdapterBuffers = XenPci_DOP_FlushAdapterBuffers;
+  xen_dma_adapter->dma_adapter.DmaOperations->FreeAdapterChannel = XenPci_DOP_FreeAdapterChannel;
+  xen_dma_adapter->dma_adapter.DmaOperations->FreeMapRegisters = XenPci_DOP_FreeMapRegisters;
+  xen_dma_adapter->dma_adapter.DmaOperations->MapTransfer = XenPci_DOP_MapTransfer;
+  xen_dma_adapter->dma_adapter.DmaOperations->GetDmaAlignment = XenPci_DOP_GetDmaAlignment;
+  xen_dma_adapter->dma_adapter.DmaOperations->ReadDmaCounter = XenPci_DOP_ReadDmaCounter;
+  xen_dma_adapter->dma_adapter.DmaOperations->GetScatterGatherList = XenPci_DOP_GetScatterGatherList;
+  xen_dma_adapter->dma_adapter.DmaOperations->PutScatterGatherList = XenPci_DOP_PutScatterGatherList;
+  xen_dma_adapter->dma_adapter.DmaOperations->CalculateScatterGatherList = XenPci_DOP_CalculateScatterGatherList;
+  xen_dma_adapter->dma_adapter.DmaOperations->BuildScatterGatherList = XenPci_DOP_BuildScatterGatherList;
+  xen_dma_adapter->dma_adapter.DmaOperations->BuildMdlFromScatterGatherList = XenPci_DOP_BuildMdlFromScatterGatherList;
+  xen_dma_adapter->xppdd = context;
+  xen_dma_adapter->dma_extension = NULL;
+
+  KdPrint((__DRIVER_NAME "     About to call IoGetAttachedDeviceReference\n"));
+  curr = IoGetAttachedDeviceReference(WdfDeviceWdmGetDeviceObject(xen_dma_adapter->xppdd->wdf_device));
+  //curr = WdfDeviceWdmGetAttachedDevice(xen_dma_adapter->xppdd->wdf_device);
+  KdPrint((__DRIVER_NAME "     Before start of loop - curr = %p\n", curr));
+  while (curr != NULL)
+  {
+    fdo_driver_object = curr->DriverObject;
+    KdPrint((__DRIVER_NAME "     fdo_driver_object = %p\n", fdo_driver_object));
+    if (fdo_driver_object)
+    {
+      fdo_driver_extension = IoGetDriverObjectExtension(fdo_driver_object, UlongToPtr(XEN_DMA_DRIVER_EXTENSION_MAGIC));
+      if (fdo_driver_extension)
+      {
+        xen_dma_adapter->dma_extension = (dma_driver_extension_t *)fdo_driver_extension;
+        ObDereferenceObject(curr);
+        break;
+      }
+    }
+    prev = curr;
+    curr = IoGetLowerDeviceObject(curr);
+    ObDereferenceObject(prev);
+  }
+  KdPrint((__DRIVER_NAME "     End of loop\n"));
+
+  *number_of_map_registers = 1024; //1024; /* why not... */
+
+  FUNCTION_EXIT();
+
+  return &xen_dma_adapter->dma_adapter;
+}
+
+static ULONG
+XenPci_BIS_SetBusData(PVOID context, ULONG data_type, PVOID buffer, ULONG offset, ULONG length)
+{
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(data_type);
+  UNREFERENCED_PARAMETER(buffer);
+  UNREFERENCED_PARAMETER(offset);
+  UNREFERENCED_PARAMETER(length);
+  
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return 0;
+}
+
+static ULONG
+XenPci_BIS_GetBusData(PVOID context, ULONG data_type, PVOID buffer, ULONG offset, ULONG length)
+{
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(data_type);
+  UNREFERENCED_PARAMETER(buffer);
+  UNREFERENCED_PARAMETER(offset);
+  UNREFERENCED_PARAMETER(length);
+  
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return 0;
+}
+
+/*
+Called at PASSIVE_LEVEL(?)
+Called during restore
+*/
+
+static ULONG
+XenPci_ReadBackendState(PXENPCI_PDO_DEVICE_DATA xppdd)
+{
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  char path[128];
+  char *value;
+  char *err;
+  ULONG backend_state;
+  
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+  err = XenBus_Read(xpdd, XBT_NIL, path, &value);
+  if (err)
+  {
+    XenPci_FreeMem(err);
+    return XenbusStateUnknown;
+  }
+  else
+  {
+    backend_state = atoi(value);
+    XenPci_FreeMem(value);
+    return backend_state;
+  }
+}
+
+static VOID
+XenPci_BackEndStateHandler(char *path, PVOID context)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  ULONG new_backend_state;
+
+#if !DBG
+  UNREFERENCED_PARAMETER(path);
+#endif
+  
+  //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  /* check that path == device/id/state */
+  //RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
+  new_backend_state = XenPci_ReadBackendState(xppdd);
+  if (new_backend_state == XenbusStateUnknown)
+  {
+    if (xpdd->suspend_state != SUSPEND_STATE_NONE)
+      return;
+    KdPrint(("Failed to read %s, assuming closed\n", path));
+    new_backend_state = XenbusStateClosed;
+  }
+
+  if (xppdd->backend_state == new_backend_state)
+  {
+    KdPrint((__DRIVER_NAME "     state unchanged\n"));
+    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+    return;
+  }
+
+  xppdd->backend_state = new_backend_state;
+
+  switch (xppdd->backend_state)
+  {
+  case XenbusStateUnknown:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Unknown (%s)\n", path));  
+    break;
+
+  case XenbusStateInitialising:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialising (%s)\n", path));  
+    break;
+
+  case XenbusStateInitWait:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait (%s)\n", path));  
+    break;
+
+  case XenbusStateInitialised:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialised (%s)\n", path));  
+    break;
+
+  case XenbusStateConnected:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Connected (%s)\n", path));    
+    break;
+
+  case XenbusStateClosing:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing (%s)\n", path));  
+    if (xpdd->suspend_state == SUSPEND_STATE_NONE)
+    {
+      WdfPdoRequestEject(device);
+#if 0
+      if (xppdd->common.device_usage_paging
+        || xppdd->common.device_usage_dump
+        || xppdd->common.device_usage_hibernation)
+      {
+        KdPrint((__DRIVER_NAME "     Not closing device because it is in use\n"));
+        /* in use by page file, dump file, or hiber file - can't close */
+        /* we should probably re-check if the device usage changes in the future */
+      }
+      else
+      {
+        
+        if (xppdd->common.current_pnp_state == Started)
+        {
+          KdPrint((__DRIVER_NME "     Sending RequestDeviceEject\n"));
+          WdfPdoRequestEject(device);
+        }
+        else
+        {
+          KdPrint((__DRIVER_NAME "     Not closing device because it is not started\n"));
+        }
+      }
+#endif
+    }
+    break;
+
+  case XenbusStateClosed:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closed (%s)\n", path));  
+    break;
+
+  default:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d (%s)\n", xppdd->backend_state, path));
+    break;
+  }
+
+  KeSetEvent(&xppdd->backend_state_event, 1, FALSE);
+
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return;
+}
+
+static NTSTATUS
+XenPci_GetBackendAndAddWatch(WDFDEVICE device)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  char path[128];
+  PCHAR res;
+  PCHAR value;
+
+  /* Get backend path */
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path),
+    "%s/backend", xppdd->path);
+  res = XenBus_Read(xpdd, XBT_NIL, path, &value);
+  if (res)
+  {
+    KdPrint((__DRIVER_NAME "    Failed to read backend path\n"));
+    XenPci_FreeMem(res);
+    return STATUS_UNSUCCESSFUL;
+  }
+  RtlStringCbCopyA(xppdd->backend_path, ARRAY_SIZE(xppdd->backend_path), value);
+  XenPci_FreeMem(value);
+
+  /* Add watch on backend state */
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+  XenBus_AddWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, device);
+  
+  return STATUS_SUCCESS;
+}
+
+static PMDL
+XenConfig_MakeConfigPage(WDFDEVICE device)
+{
+  //PXENCONFIG_DEVICE_DATA xcdd = (PXENCONFIG_DEVICE_DATA)device_object->DeviceExtension;
+  //PXENPCI_PDO_DEVICE_DATA xppdd = (PXENPCI_PDO_DEVICE_DATA)device_object->DeviceExtension;
+  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  PMDL mdl;
+  PUCHAR ptr;
+  PDEVICE_OBJECT curr, prev;
+  PDRIVER_OBJECT fdo_driver_object;
+  PUCHAR fdo_driver_extension;
+  
+  FUNCTION_ENTER();
+  
+  mdl = AllocateUncachedPage();
+  ptr = MmGetMdlVirtualAddress(mdl);
+  curr = IoGetAttachedDeviceReference(WdfDeviceWdmGetDeviceObject(device));
+  //curr = WdfDeviceWdmGetAttachedDevice(device);
+  while (curr != NULL)
+  {
+    fdo_driver_object = curr->DriverObject;
+    KdPrint((__DRIVER_NAME "     fdo_driver_object = %p\n", fdo_driver_object));
+    if (fdo_driver_object)
+    {
+      fdo_driver_extension = IoGetDriverObjectExtension(fdo_driver_object, UlongToPtr(XEN_INIT_DRIVER_EXTENSION_MAGIC));
+      KdPrint((__DRIVER_NAME "     fdo_driver_extension = %p\n", fdo_driver_extension));
+      if (fdo_driver_extension)
+      {
+        memcpy(ptr, fdo_driver_extension, PAGE_SIZE);
+        ObDereferenceObject(curr);
+        break;
+      }
+    }
+    prev = curr;
+    curr = IoGetLowerDeviceObject(curr);
+    ObDereferenceObject(prev);
+  }
+  
+  FUNCTION_EXIT();
+  
+  return mdl;
+}
+
+static NTSTATUS
+XenPci_EvtChn_Bind(PVOID context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  return EvtChn_Bind(xpdd, Port, ServiceRoutine, ServiceContext);
+}
+
+static NTSTATUS
+XenPci_EvtChn_BindDpc(PVOID context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  return EvtChn_BindDpc(xpdd, Port, ServiceRoutine, ServiceContext);
+}
+
+static NTSTATUS
+XenPci_EvtChn_Unbind(PVOID context, evtchn_port_t Port)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  return EvtChn_Unbind(xpdd, Port);
+}
+
+static NTSTATUS
+XenPci_EvtChn_Mask(PVOID context, evtchn_port_t Port)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  return EvtChn_Mask(xpdd, Port);
+}
+
+static NTSTATUS
+XenPci_EvtChn_Unmask(PVOID context, evtchn_port_t Port)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  return EvtChn_Unmask(xpdd, Port);
+}
+
+static NTSTATUS
+XenPci_EvtChn_Notify(PVOID context, evtchn_port_t Port)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  return EvtChn_Notify(xpdd, Port);
+}
+
+static BOOLEAN
+XenPci_EvtChn_AckEvent(PVOID context, evtchn_port_t port)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  return EvtChn_AckEvent(xpdd, port);
+}
+
+typedef struct {
+  PXEN_EVTCHN_SYNC_ROUTINE sync_routine;
+  PVOID sync_context;
+} sync_context_t;
+
+static BOOLEAN
+XenPci_EvtChn_Sync_Routine(WDFINTERRUPT interrupt, WDFCONTEXT context)
+{
+  sync_context_t *wdf_sync_context = context;
+  UNREFERENCED_PARAMETER(interrupt);
+  return wdf_sync_context->sync_routine(wdf_sync_context->sync_context);
+}
+
+static BOOLEAN
+XenPci_EvtChn_Sync(PVOID context, PXEN_EVTCHN_SYNC_ROUTINE sync_routine, PVOID sync_context)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  sync_context_t wdf_sync_context;
+  
+  wdf_sync_context.sync_routine = sync_routine;
+  wdf_sync_context.sync_context = sync_context;
+  
+  return WdfInterruptSynchronize(xpdd->interrupt, XenPci_EvtChn_Sync_Routine, &wdf_sync_context);
+}
+
+static grant_ref_t
+XenPci_GntTbl_GrantAccess(PVOID context, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  return GntTbl_GrantAccess(xpdd, domid, frame, readonly, ref);
+}
+
+static BOOLEAN
+XenPci_GntTbl_EndAccess(PVOID context, grant_ref_t ref, BOOLEAN keepref)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  return GntTbl_EndAccess(xpdd, ref, keepref);
+}
+
+static VOID
+XenPci_GntTbl_PutRef(PVOID context, grant_ref_t ref)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  GntTbl_PutRef(xpdd, ref);
+}
+
+static grant_ref_t
+XenPci_GntTbl_GetRef(PVOID context)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  
+  return GntTbl_GetRef(xpdd);
+}
+
+PCHAR
+XenPci_XenBus_Read(PVOID context, xenbus_transaction_t xbt, char *path, char **value)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  return XenBus_Read(xpdd, xbt, path, value);
+}
+
+PCHAR
+XenPci_XenBus_Write(PVOID context, xenbus_transaction_t xbt, char *path, char *value)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  return XenBus_Write(xpdd, xbt, path, value);
+}
+
+PCHAR
+XenPci_XenBus_Printf(PVOID context, xenbus_transaction_t xbt, char *path, char *fmt, ...)
+{
+  //PXENPCI_PDO_DEVICE_DATA xppdd = Context;
+  //PXENPCI_DEVICE_DATA xpdd = xppdd->bus_fdo->DeviceExtension;
+  //return XenBus_Printf(xpdd, xbt, path, value);
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(xbt);
+  UNREFERENCED_PARAMETER(path);
+  UNREFERENCED_PARAMETER(fmt);
+  return NULL;
+}
+
+PCHAR
+XenPci_XenBus_StartTransaction(PVOID context, xenbus_transaction_t *xbt)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  return XenBus_StartTransaction(xpdd, xbt);
+}
+
+PCHAR
+XenPci_XenBus_EndTransaction(PVOID context, xenbus_transaction_t xbt, int abort, int *retry)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  return XenBus_EndTransaction(xpdd, xbt, abort, retry);
+}
+
+PCHAR
+XenPci_XenBus_List(PVOID context, xenbus_transaction_t xbt, char *prefix, char ***contents)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  return XenBus_List(xpdd, xbt, prefix, contents);
+}
+
+PCHAR
+XenPci_XenBus_AddWatch(PVOID context, xenbus_transaction_t xbt, char *path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  PCHAR retval;
+  
+  FUNCTION_ENTER();
+  retval = XenBus_AddWatch(xpdd, xbt, path, ServiceRoutine, ServiceContext);
+  if (retval == NULL)
+  {
+    KdPrint((__DRIVER_NAME "     XenPci_XenBus_AddWatch - %s = NULL\n", path));
+  }
+  else
+  {
+    KdPrint((__DRIVER_NAME "     XenPci_XenBus_AddWatch - %s = %s\n", path, retval));
+  }
+  FUNCTION_EXIT();
+  return retval;
+}
+
+PCHAR
+XenPci_XenBus_RemWatch(PVOID context, xenbus_transaction_t xbt, char *path, PXENBUS_WATCH_CALLBACK ServiceRoutine, PVOID ServiceContext)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  return XenBus_RemWatch(xpdd, xbt, path, ServiceRoutine, ServiceContext);
+}
+
+/*
+Called at PASSIVE_LEVEL
+Called during restore
+*/
+
+static NTSTATUS
+XenPci_ChangeFrontendState(WDFDEVICE device, ULONG frontend_state_set, ULONG backend_state_response, ULONG maximum_wait_ms)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  LARGE_INTEGER timeout;
+  ULONG remaining;
+  ULONG thiswait;
+  char path[128];
+  
+  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
+  XenBus_Printf(xpdd, XBT_NIL, path, "%d", frontend_state_set);
+
+  remaining = maximum_wait_ms;
+
+  while (xppdd->backend_state != backend_state_response)
+  {
+    thiswait = min((LONG)remaining, 1000); // 1 second or remaining time, whichever is less
+    timeout.QuadPart = (LONGLONG)-1 * thiswait * 1000 * 10;
+    if (KeWaitForSingleObject(&xppdd->backend_state_event, Executive, KernelMode, FALSE, &timeout) == STATUS_TIMEOUT)
+    {
+      remaining -= thiswait;
+      if (remaining == 0)
+      {
+        KdPrint((__DRIVER_NAME "     Timed out waiting for %d!\n", backend_state_response));
+        return STATUS_UNSUCCESSFUL;
+      }
+      KdPrint((__DRIVER_NAME "     Still waiting for %d (currently %d)...\n", backend_state_response, xppdd->backend_state));
+    }
+  }
+  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+XenPci_XenConfigDevice(WDFDEVICE device);
+
+static NTSTATUS
+XenPci_XenShutdownDevice(PVOID context)
+{
+  WDFDEVICE device = context;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  PUCHAR in_ptr;
+  ULONG i;
+  UCHAR type;
+  PVOID setting;
+  PVOID value;
+  PVOID value2;
+
+  FUNCTION_ENTER();
+
+  if (xppdd->backend_state == XenbusStateConnected)
+  {
+    XenPci_ChangeFrontendState(device, XenbusStateClosing, XenbusStateClosing, 30000);
+    if (xppdd->backend_state == XenbusStateClosing)
+      XenPci_ChangeFrontendState(device, XenbusStateClosed, XenbusStateClosed, 30000);
+    if (xppdd->backend_state == XenbusStateClosed)
+      XenPci_ChangeFrontendState(device, XenbusStateInitialising, XenbusStateInitWait, 30000);
+  }
+  else
+  {
+    if (xppdd->backend_state == XenbusStateClosing)
+      XenPci_ChangeFrontendState(device, XenbusStateClosed, XenbusStateClosed, 30000);
+  }
+
+  if (xppdd->assigned_resources_start != NULL)
+  {
+    ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
+    in_ptr = xppdd->assigned_resources_start;
+    while((type = GET_XEN_INIT_RSP(&in_ptr, &setting, &value, &value2)) != XEN_INIT_TYPE_END)
+    {
+      switch (type)
+      {
+      case XEN_INIT_TYPE_RING: /* frontend ring */
+        FreePages(value);
+        break;
+      case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+      case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
+        EvtChn_Unbind(xpdd, PtrToUlong(value));
+        EvtChn_Close(xpdd, PtrToUlong(value));
+        break;
+      case XEN_INIT_TYPE_GRANT_ENTRIES:
+        for (i = 0; i < PtrToUlong(setting); i++)
+          GntTbl_EndAccess(xpdd, ((grant_ref_t *)value)[i], FALSE);
+        break;
+      }
+    }
+    ExFreePoolWithTag(xppdd->assigned_resources_start, XENPCI_POOL_TAG);
+    xppdd->assigned_resources_start = NULL;
+  }
+
+  FUNCTION_EXIT();
+
+  return STATUS_SUCCESS;
+}
+
+struct dummy_sring {
+    RING_IDX req_prod, req_event;
+    RING_IDX rsp_prod, rsp_event;
+    uint8_t  pad[48];
+};
+
+static NTSTATUS
+XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  NTSTATUS status = STATUS_SUCCESS;
+  ULONG i;
+  char path[128];
+  PCHAR setting, value;
+  PCHAR res;
+  PVOID address;
+  UCHAR type;
+  PUCHAR in_ptr; //, in_start;
+  PUCHAR out_ptr; //, out_start;
+  XENPCI_VECTORS vectors;
+  ULONG event_channel;
+  ULONG run_type = 0;
+  PMDL ring;
+  grant_ref_t gref;
+  BOOLEAN done_xenbus_init = FALSE;
+  PVOID value2;
+ 
+  FUNCTION_ENTER();
+
+  in_ptr = src;
+  out_ptr = dst;
+  
+  // always add vectors
+  vectors.magic = XEN_DATA_MAGIC;
+  vectors.length = sizeof(XENPCI_VECTORS);
+  vectors.context = device;
+  vectors.EvtChn_Bind = XenPci_EvtChn_Bind;
+  vectors.EvtChn_BindDpc = XenPci_EvtChn_BindDpc;
+  vectors.EvtChn_Unbind = XenPci_EvtChn_Unbind;
+  vectors.EvtChn_Mask = XenPci_EvtChn_Mask;
+  vectors.EvtChn_Unmask = XenPci_EvtChn_Unmask;
+  vectors.EvtChn_Notify = XenPci_EvtChn_Notify;
+  vectors.EvtChn_AckEvent = XenPci_EvtChn_AckEvent;
+  vectors.EvtChn_Sync = XenPci_EvtChn_Sync;
+  vectors.GntTbl_GetRef = XenPci_GntTbl_GetRef;
+  vectors.GntTbl_PutRef = XenPci_GntTbl_PutRef;
+  vectors.GntTbl_GrantAccess = XenPci_GntTbl_GrantAccess;
+  vectors.GntTbl_EndAccess = XenPci_GntTbl_EndAccess;
+  vectors.XenPci_XenConfigDevice = XenPci_XenConfigDevice;
+  vectors.XenPci_XenShutdownDevice = XenPci_XenShutdownDevice;
+  strncpy(vectors.path, xppdd->path, 128);
+  strncpy(vectors.backend_path, xppdd->backend_path, 128);
+  //vectors.pdo_event_channel = xpdd->pdo_event_channel;
+  vectors.XenBus_Read = XenPci_XenBus_Read;
+  vectors.XenBus_Write = XenPci_XenBus_Write;
+  vectors.XenBus_Printf = XenPci_XenBus_Printf;
+  vectors.XenBus_StartTransaction = XenPci_XenBus_StartTransaction;
+  vectors.XenBus_EndTransaction = XenPci_XenBus_EndTransaction;
+  vectors.XenBus_List = XenPci_XenBus_List;
+  vectors.XenBus_AddWatch = XenPci_XenBus_AddWatch;
+  vectors.XenBus_RemWatch = XenPci_XenBus_RemWatch;
+
+  if (qemu_filtered)
+    ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_ACTIVE, NULL, NULL, NULL);
+
+  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION, NULL, UlongToPtr(qemu_protocol_version), NULL);
+  
+  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors, NULL);
+  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_STATE_PTR, NULL, &xppdd->device_state, NULL);
+
+  // first pass, possibly before state == Connected
+  while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
+  {
+  
+    if (!done_xenbus_init)
+    {
+      if (XenPci_ChangeFrontendState(device, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
+      {
+        status = STATUS_UNSUCCESSFUL;
+        goto error;
+      }
+      done_xenbus_init = TRUE;
+    }
+    
+    ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, type, setting, value, value2);
+
+    switch (type)
+    {
+    case XEN_INIT_TYPE_RUN:
+      run_type++;
+      break;
+    case XEN_INIT_TYPE_WRITE_STRING: /* frontend setting = value */
+      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_WRITE_STRING - %s = %s\n", setting, value));
+      RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
+      XenBus_Printf(xpdd, XBT_NIL, path, "%s", value);
+      break;
+    case XEN_INIT_TYPE_RING: /* frontend ring */
+      /* we only allocate and do the SHARED_RING_INIT here */
+      if ((ring = AllocatePage()) != 0)
+      {
+        address = MmGetMdlVirtualAddress(ring);
+        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, address));
+        SHARED_RING_INIT((struct dummy_sring *)address);
+        if ((gref = GntTbl_GrantAccess(
+          xpdd, 0, (ULONG)*MmGetMdlPfnArray(ring), FALSE, INVALID_GRANT_REF)) != INVALID_GRANT_REF)
+        {
+          RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
+          XenBus_Printf(xpdd, XBT_NIL, path, "%d", gref);
+          ADD_XEN_INIT_RSP(&out_ptr, type, setting, address, NULL);
+          ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, type, setting, ring, NULL);
+          // add the grant entry too so it gets freed automatically
+          __ADD_XEN_INIT_UCHAR(&xppdd->assigned_resources_ptr, XEN_INIT_TYPE_GRANT_ENTRIES);
+          __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, 1);
+          __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, gref);
+        }
+        else
+        {
+          FreePages(ring);
+          status = STATUS_UNSUCCESSFUL;
+          goto error;
+        }
+      }
+      else
+      {
+        status = STATUS_UNSUCCESSFUL;
+        goto error;
+      }
+      break;
+    case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+    case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
+      if ((event_channel = EvtChn_AllocUnbound(xpdd, 0)) != 0)
+      {
+        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, event_channel));
+        RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
+        XenBus_Printf(xpdd, XBT_NIL, path, "%d", event_channel);
+        ADD_XEN_INIT_RSP(&out_ptr, type, setting, UlongToPtr(event_channel), NULL);
+        ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, type, setting, UlongToPtr(event_channel), NULL);
+        if (type == XEN_INIT_TYPE_EVENT_CHANNEL_IRQ)
+        {
+          EvtChn_BindIrq(xpdd, event_channel, xppdd->irq_vector, path);
+        }
+        else
+        {
+          EvtChn_Bind(xpdd, event_channel, (PXEN_EVTCHN_SERVICE_ROUTINE)value, value2);
+        }
+      }
+      else
+      {
+        status = STATUS_UNSUCCESSFUL;
+        goto error;
+      }
+      break;
+    }
+  }
+  if (!NT_SUCCESS(status))
+  {
+    goto error;
+  }
+  // If XEN_INIT_TYPE_RUN was specified more than once then we skip XenbusStateInitialised here and go straight to XenbusStateConnected at the end
+  if (run_type == 1)
+  {
+    if (XenPci_ChangeFrontendState(device, XenbusStateInitialised, XenbusStateConnected, 30000) != STATUS_SUCCESS)
+    {
+      status = STATUS_UNSUCCESSFUL;
+      goto error;
+    }
+  }
+
+  // second pass, possibly after state == Connected
+  in_ptr = src;
+  while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
+  {
+    switch(type)
+    {
+    case XEN_INIT_TYPE_READ_STRING_BACK:
+    case XEN_INIT_TYPE_READ_STRING_FRONT:
+      if (type == XEN_INIT_TYPE_READ_STRING_FRONT)
+        RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
+      else
+        RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->backend_path, setting);
+      res = XenBus_Read(xpdd, XBT_NIL, path, &value);
+      if (res)
+      {
+        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = <failed>\n", setting));
+        XenPci_FreeMem(res);
+        ADD_XEN_INIT_RSP(&out_ptr, type, setting, NULL, NULL);
+      }
+      else
+      {
+        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
+        ADD_XEN_INIT_RSP(&out_ptr, type, setting, value, value2);
+        XenPci_FreeMem(value);
+      }
+      break;
+    case XEN_INIT_TYPE_VECTORS:
+      // this is always done so ignore the request
+      break;
+    case XEN_INIT_TYPE_GRANT_ENTRIES:
+      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(value)));
+      __ADD_XEN_INIT_UCHAR(&out_ptr, type);
+      __ADD_XEN_INIT_UCHAR(&xppdd->assigned_resources_ptr, type);
+      __ADD_XEN_INIT_ULONG(&out_ptr, PtrToUlong(value));
+      __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, PtrToUlong(value));
+      for (i = 0; i < PtrToUlong(value); i++)
+      {
+        gref = GntTbl_GetRef(xpdd);
+        __ADD_XEN_INIT_ULONG(&out_ptr, gref);
+        __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, gref);
+      }
+      break;
+    }
+  }
+  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
+
+  if (run_type)
+  {
+    if (XenPci_ChangeFrontendState(device, XenbusStateConnected, XenbusStateConnected, 30000) != STATUS_SUCCESS)
+    {
+      status = STATUS_UNSUCCESSFUL;
+      goto error;
+    }
+  }
+  FUNCTION_EXIT();
+  return status;
+  
+error:
+  XenPci_ChangeFrontendState(device, XenbusStateInitialising, XenbusStateInitWait, 30000);
+  FUNCTION_EXIT_STATUS(status);
+
+  return status;
+}
+
+static NTSTATUS
+XenPci_XenConfigDevice(WDFDEVICE device)
+{
+  NTSTATUS status;
+  PUCHAR src, dst;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+
+  src = ExAllocatePoolWithTag(NonPagedPool, xppdd->config_page_length, XENPCI_POOL_TAG);
+  dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
+  memcpy(src, dst, xppdd->config_page_length);
+  
+  status = XenPci_XenConfigDeviceSpecifyBuffers(device, src, dst);
+
+  MmUnmapIoSpace(dst, xppdd->config_page_length);
+  ExFreePoolWithTag(src, XENPCI_POOL_TAG);
+  
+  return status;
+}
+
+static NTSTATUS
+XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  PIO_STACK_LOCATION stack;
+  PCM_PARTIAL_RESOURCE_LIST prl;
+  PCM_PARTIAL_RESOURCE_DESCRIPTOR prd;
+  ULONG i;
+  char path[128];
+  PMDL mdl;
+ 
+  FUNCTION_ENTER();
+  KdPrint((__DRIVER_NAME "     %s\n", xppdd->path));
+
+  stack = IoGetCurrentIrpStackLocation(irp);
+
+  status = XenPci_GetBackendAndAddWatch(device);
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_ERROR_EXIT();
+    return status;
+  }
+
+  mdl = XenConfig_MakeConfigPage(device);
+  
+  prl = &stack->Parameters.StartDevice.AllocatedResources->List[0].PartialResourceList;
+  for (i = 0; i < prl->Count; i++)
+  {
+    prd = & prl->PartialDescriptors[i];
+    switch (prd->Type)
+    {
+    case CmResourceTypeMemory:
+      if (prd->u.Memory.Start.QuadPart == xpdd->platform_mmio_addr.QuadPart && prd->u.Memory.Length == 0)
+      {
+        prd->u.Memory.Start.QuadPart = MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+        prd->u.Memory.Length = MmGetMdlByteCount(mdl);
+      }
+      else if (prd->u.Memory.Start.QuadPart == xpdd->platform_mmio_addr.QuadPart + 1 && prd->u.Memory.Length == 0)
+      {
+        RtlZeroMemory(prd, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+        prd->Type = CmResourceTypeInterrupt;
+        prd->ShareDisposition = CmResourceShareShared;
+        prd->Flags = (xpdd->irq_mode == Latched)?CM_RESOURCE_INTERRUPT_LATCHED:CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+        prd->u.Interrupt.Level = xpdd->irq_number;
+        prd->u.Interrupt.Vector = xpdd->irq_number;
+        prd->u.Interrupt.Affinity = (KAFFINITY)-1;
+        xppdd->irq_number = xpdd->irq_number;
+      }
+      break;
+    }
+  }
+
+  prl = &stack->Parameters.StartDevice.AllocatedResourcesTranslated->List[0].PartialResourceList;
+  for (i = 0; i < prl->Count; i++)
+  {
+    prd = & prl->PartialDescriptors[i];
+    switch (prd->Type)
+    {
+    case CmResourceTypeMemory:
+      KdPrint((__DRIVER_NAME "     CmResourceTypeMemory (%d)\n", i));
+      KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
+      if (prd->u.Memory.Start.QuadPart == xpdd->platform_mmio_addr.QuadPart)
+      {
+        if (prd->u.Memory.Length == 0)
+        {
+          KdPrint((__DRIVER_NAME "     pfn[0] = %08x\n", (ULONG)MmGetMdlPfnArray(mdl)[0]));
+          prd->u.Memory.Start.QuadPart = (ULONGLONG)MmGetMdlPfnArray(mdl)[0] << PAGE_SHIFT;
+          prd->u.Memory.Length = MmGetMdlByteCount(mdl);
+          KdPrint((__DRIVER_NAME "     New Start = %08x%08x, Length = %d\n", prd->u.Memory.Start.HighPart, prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
+        }
+        xppdd->config_page_phys = prd->u.Memory.Start;
+        xppdd->config_page_length = prd->u.Memory.Length;
+        xppdd->requested_resources_start = xppdd->requested_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+        xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+        
+        status = XenPci_XenConfigDevice(device);
+        if (!NT_SUCCESS(status))
+        {
+          RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+          XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+          FUNCTION_ERROR_EXIT();
+          return status;
+        }
+      }
+      else if (prd->u.Memory.Start.QuadPart == xpdd->platform_mmio_addr.QuadPart + 1 && prd->u.Memory.Length == 0)
+      {
+        RtlZeroMemory(prd, sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+        prd->Type = CmResourceTypeInterrupt;
+        prd->ShareDisposition = CmResourceShareShared;
+        prd->Flags = (xpdd->irq_mode == Latched)?CM_RESOURCE_INTERRUPT_LATCHED:CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+        prd->u.Interrupt.Level = xpdd->irq_level;
+        prd->u.Interrupt.Vector = xpdd->irq_vector;
+        prd->u.Interrupt.Affinity = (KAFFINITY)-1;
+        xppdd->irq_vector = xpdd->irq_vector;
+        xppdd->irq_level = xpdd->irq_level;
+      }
+      break;
+    }
+  }
+
+  IoSkipCurrentIrpStackLocation(irp);
+  
+  FUNCTION_EXIT();
+
+  return WdfDeviceWdmDispatchPreprocessedIrp(device, irp);
+}
+
+#if 0
+static NTSTATUS
+XenPciPdo_EvtDeviceResourcesQuery(WDFDEVICE device, WDFCMRESLIST resources)
+{
+}
+#endif
+
+static NTSTATUS
+XenPciPdo_EvtDeviceResourceRequirementsQuery(WDFDEVICE device, WDFIORESREQLIST requirements_list)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  WDFIORESLIST res_list;
+  IO_RESOURCE_DESCRIPTOR ird;
+
+  FUNCTION_ENTER();
+  
+  WdfIoResourceRequirementsListSetInterfaceType(requirements_list, PNPBus);
+  
+  WdfIoResourceListCreate(requirements_list, WDF_NO_OBJECT_ATTRIBUTES, &res_list);
+  ird.Option = 0;
+  ird.Type = CmResourceTypeMemory;
+  ird.ShareDisposition = CmResourceShareShared;
+  ird.Flags = CM_RESOURCE_MEMORY_READ_WRITE | CM_RESOURCE_MEMORY_CACHEABLE;
+  ird.u.Memory.MinimumAddress.QuadPart = xpdd->platform_mmio_addr.QuadPart;
+  ird.u.Memory.MaximumAddress.QuadPart = xpdd->platform_mmio_addr.QuadPart;
+  ird.u.Memory.Length = 0;
+  ird.u.Memory.Alignment = 1; //PAGE_SIZE;
+  WdfIoResourceListAppendDescriptor(res_list, &ird);
+  
+  ird.Option = 0;
+  ird.Type = CmResourceTypeMemory;
+  ird.ShareDisposition = CmResourceShareShared;
+  ird.Flags = CM_RESOURCE_MEMORY_READ_WRITE | CM_RESOURCE_MEMORY_CACHEABLE;
+  ird.u.Memory.MinimumAddress.QuadPart = xpdd->platform_mmio_addr.QuadPart + 1;
+  ird.u.Memory.MaximumAddress.QuadPart = xpdd->platform_mmio_addr.QuadPart + 1;
+  ird.u.Memory.Length = 0;
+  ird.u.Memory.Alignment = 1; //PAGE_SIZE;
+  WdfIoResourceListAppendDescriptor(res_list, &ird);
+  
+  WdfIoResourceRequirementsListAppendIoResList(requirements_list, res_list);
+
+  FUNCTION_EXIT();
+  
+  return STATUS_SUCCESS;
+}
+
+NTSTATUS
+XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
+  PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER identification_header,
+  PWDFDEVICE_INIT child_init)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  WDF_OBJECT_ATTRIBUTES child_attributes;
+  WDFDEVICE child_device;
+  PXENPCI_PDO_IDENTIFICATION_DESCRIPTION identification = (PXENPCI_PDO_IDENTIFICATION_DESCRIPTION)identification_header;
+  WDF_DEVICE_PNP_CAPABILITIES child_pnp_capabilities;
+  DECLARE_UNICODE_STRING_SIZE(buffer, 512);
+  DECLARE_CONST_UNICODE_STRING(location, L"Xen Bus");
+  PXENPCI_PDO_DEVICE_DATA xppdd;
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(WdfChildListGetDevice(child_list));
+  WDF_QUERY_INTERFACE_CONFIG interface_config;
+  BUS_INTERFACE_STANDARD bus_interface;
+  WDF_PDO_EVENT_CALLBACKS pdo_callbacks;
+  UCHAR pnp_minor_functions[] = { IRP_MN_START_DEVICE };
+  
+  FUNCTION_ENTER();
+
+  WdfDeviceInitSetDeviceType(child_init, FILE_DEVICE_UNKNOWN);
+  
+/*
+  WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&child_pnp_power_callbacks);
+  child_pnp_power_callbacks.EvtDeviceD0Entry = XenPciPdo_EvtDeviceD0Entry;
+  child_pnp_power_callbacks.EvtDeviceD0EntryPostInterruptsEnabled = XenPciPdo_EvtDeviceD0EntryPostInterruptsEnabled;
+  child_pnp_power_callbacks.EvtDeviceD0Exit = XenPciPdo_EvtDeviceD0Exit;
+  child_pnp_power_callbacks.EvtDeviceD0ExitPreInterruptsDisabled = XenPciPdo_EvtDeviceD0ExitPreInterruptsDisabled;
+  child_pnp_power_callbacks.EvtDevicePrepareHardware = XenPciPdo_EvtDevicePrepareHardware;
+  child_pnp_power_callbacks.EvtDeviceReleaseHardware = XenPciPdo_EvtDeviceReleaseHardware;
+  WdfDeviceInitSetPnpPowerEventCallbacks(child_init, &child_pnp_power_callbacks);
+*/
+  KdPrint((__DRIVER_NAME "     device = '%s', index = '%d', path = '%s'\n",
+    identification->device, identification->index, identification->path));
+  
+  status = WdfDeviceInitAssignWdmIrpPreprocessCallback(child_init, XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE,
+    IRP_MJ_PNP, pnp_minor_functions, ARRAY_SIZE(pnp_minor_functions));
+  if (!NT_SUCCESS(status))
+  {
+    return status;
+  }
+  
+  WDF_PDO_EVENT_CALLBACKS_INIT(&pdo_callbacks);
+  //pdo_callbacks.EvtDeviceResourcesQuery = XenPciPdo_EvtDeviceResourcesQuery;
+  pdo_callbacks.EvtDeviceResourceRequirementsQuery = XenPciPdo_EvtDeviceResourceRequirementsQuery;
+  //pdo_callbacks.EvtDeviceEject = XenPciPdo_EvtDeviceEject;
+  //pdo_callbacks.EvtDeviceSetLock  = XenPciPdo_EvtDeviceSetLock;
+  WdfPdoInitSetEventCallbacks(child_init, &pdo_callbacks);
+
+  RtlUnicodeStringPrintf(&buffer, L"xen\\%S", identification->device);
+  status = WdfPdoInitAssignDeviceID(child_init, &buffer);
+  if (!NT_SUCCESS(status))
+  {
+    return status;
+  }
+  status = WdfPdoInitAddHardwareID(child_init, &buffer);
+  if (!NT_SUCCESS(status))
+  {
+    return status;
+  }
+  status = WdfPdoInitAddCompatibleID(child_init, &buffer);
+  if (!NT_SUCCESS(status))
+  {
+    return status;
+  }
+  
+  RtlUnicodeStringPrintf(&buffer, L"%02d", identification->index);
+  status = WdfPdoInitAssignInstanceID(child_init, &buffer);
+  if (!NT_SUCCESS(status))
+  {
+    return status;
+  }
+  
+  RtlUnicodeStringPrintf(&buffer, L"Xen %S device #%d", identification->device, identification->index);
+  status = WdfPdoInitAddDeviceText(child_init, &buffer, &location, 0x0409);
+  if (!NT_SUCCESS(status))
+  {
+    return status;
+  }
+  WdfPdoInitSetDefaultLocale(child_init, 0x0409);
+  
+  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&child_attributes, XENPCI_PDO_DEVICE_DATA);
+  status = WdfDeviceCreate(&child_init, &child_attributes, &child_device);
+  if (!NT_SUCCESS(status))
+  {
+    return status;
+  }
+
+  xppdd = GetXppdd(child_device);
+  
+  xppdd->wdf_device = child_device;
+  xppdd->wdf_device_bus_fdo = WdfChildListGetDevice(child_list);
+
+  xppdd->device_state.magic = XEN_DEVICE_STATE_MAGIC;
+  xppdd->device_state.length = sizeof(XENPCI_DEVICE_STATE);
+  xppdd->device_state.suspend_resume_state_pdo = SR_STATE_RUNNING;
+  xppdd->device_state.suspend_resume_state_fdo = SR_STATE_RUNNING;
+  xppdd->device_state.pdo_event_channel = xpdd->pdo_event_channel;
+  WdfDeviceSetSpecialFileSupport(child_device, WdfSpecialFilePaging, TRUE);
+  WdfDeviceSetSpecialFileSupport(child_device, WdfSpecialFileHibernation, TRUE);
+  WdfDeviceSetSpecialFileSupport(child_device, WdfSpecialFileDump, TRUE);
+
+  WDF_DEVICE_PNP_CAPABILITIES_INIT(&child_pnp_capabilities);
+  child_pnp_capabilities.LockSupported = WdfFalse;
+  child_pnp_capabilities.EjectSupported  = WdfTrue;
+  child_pnp_capabilities.Removable  = WdfTrue;
+  child_pnp_capabilities.DockDevice  = WdfFalse;
+  child_pnp_capabilities.UniqueID  = WdfFalse;
+  child_pnp_capabilities.SilentInstall  = WdfTrue;
+  child_pnp_capabilities.SurpriseRemovalOK  = WdfTrue;
+  child_pnp_capabilities.HardwareDisabled = WdfFalse;
+  WdfDeviceSetPnpCapabilities(child_device, &child_pnp_capabilities);
+
+  //WDF_DEVICE_POWER_CAPABILITIES_INIT(&child_power_capabilities);
+  //WdfDeviceSetPowerCapabilities(child_device, &child_power_capabilities);  
+
+  bus_interface.Size = sizeof(BUS_INTERFACE_STANDARD);
+  bus_interface.Version = 1; //BUS_INTERFACE_STANDARD_VERSION;
+  bus_interface.Context = xppdd;
+  bus_interface.InterfaceReference = XenPci_IS_InterfaceReference;
+  bus_interface.InterfaceDereference = XenPci_IS_InterfaceReference;
+  bus_interface.TranslateBusAddress = XenPci_BIS_TranslateBusAddress;
+  bus_interface.GetDmaAdapter = XenPci_BIS_GetDmaAdapter;
+  bus_interface.SetBusData = XenPci_BIS_SetBusData;
+  bus_interface.GetBusData = XenPci_BIS_GetBusData;
+  WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&bus_interface, &GUID_BUS_INTERFACE_STANDARD, NULL);
+  status = WdfDeviceAddQueryInterface(child_device, &interface_config);
+  if (!NT_SUCCESS(status))
+  {
+    return status;
+  }
+  
+  RtlStringCbCopyA(xppdd->path, ARRAY_SIZE(xppdd->path), identification->path);
+  RtlStringCbCopyA(xppdd->device, ARRAY_SIZE(xppdd->device), identification->device);
+  xppdd->index = identification->index;
+  KeInitializeEvent(&xppdd->backend_state_event, SynchronizationEvent, FALSE);
+  xppdd->backend_state = XenbusStateUnknown;
+  xppdd->backend_path[0] = '\0';
+    
+  FUNCTION_EXIT();
+  
+  return status;
+}
+
+static __forceinline VOID
+XenPci_Pdo_ChangeSuspendState(WDFDEVICE device, ULONG new_state)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+
+  FUNCTION_ENTER();
+  KdPrint((__DRIVER_NAME "     setting pdo state to %d\n", new_state));
+  xppdd->device_state.suspend_resume_state_pdo = new_state;
+  KeMemoryBarrier();
+  KdPrint((__DRIVER_NAME "     Notifying event channel %d\n", xpdd->pdo_event_channel));
+  EvtChn_Notify(xpdd, xpdd->pdo_event_channel);    
+  while(xppdd->device_state.suspend_resume_state_fdo != xppdd->device_state.suspend_resume_state_pdo)
+  {
+    KdPrint((__DRIVER_NAME "     waiting...\n"));
+    KeWaitForSingleObject(&xpdd->pdo_suspend_event, Executive, KernelMode, FALSE, NULL);
+  }
+  KdPrint((__DRIVER_NAME "     fdo state set to %d\n", new_state));
+  FUNCTION_EXIT();
+}
+
+/* called at PASSIVE_LEVEL */
+NTSTATUS
+XenPci_Pdo_Suspend(WDFDEVICE device)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  //LARGE_INTEGER wait_time;
+  char path[128];
+  PUCHAR in_ptr;
+  UCHAR type;
+  PVOID setting;
+  PVOID value;
+  PVOID value2;
+
+  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (%s)\n", xppdd->path));
+
+  if (xppdd->backend_state == XenbusStateConnected)
+  {
+    xppdd->restart_on_resume = TRUE;
+    XenPci_Pdo_ChangeSuspendState(device, SR_STATE_SUSPENDING);
+
+    XenPci_ChangeFrontendState(device, XenbusStateClosing, XenbusStateClosing, 30000);
+    XenPci_ChangeFrontendState(device, XenbusStateClosed, XenbusStateClosed, 30000);
+    XenPci_ChangeFrontendState(device, XenbusStateInitialising, XenbusStateInitWait, 30000);
+
+    if (xppdd->assigned_resources_start != NULL)
+    {
+      in_ptr = xppdd->assigned_resources_ptr;
+      ADD_XEN_INIT_RSP(&in_ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
+      in_ptr = xppdd->assigned_resources_start;
+      while((type = GET_XEN_INIT_RSP(&in_ptr, &setting, &value, &value2)) != XEN_INIT_TYPE_END)
+      {
+        switch (type)
+        {
+        case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+        case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
+          EvtChn_Unbind(xpdd, PtrToUlong(value));
+          EvtChn_Close(xpdd, PtrToUlong(value));
+          break;
+        }
+      }
+    }
+
+    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);  
+  }
+  else
+  {
+    xppdd->restart_on_resume = FALSE;
+  }
+
+  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  
+  return status;
+}
+
+NTSTATUS
+XenPci_Pdo_Resume(WDFDEVICE device)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  ULONG old_backend_state;
+  PUCHAR src, dst;
+
+  FUNCTION_ENTER();
+  KdPrint((__DRIVER_NAME "     path = %s\n", xppdd->path));
+
+  xppdd->device_state.pdo_event_channel = xpdd->pdo_event_channel;
+  old_backend_state = xppdd->backend_state;
+
+  if (xppdd->restart_on_resume)
+  {  
+    status = XenPci_GetBackendAndAddWatch(device);
+  
+    if (XenPci_ChangeFrontendState(device, XenbusStateInitialising, XenbusStateInitWait, 30000) != STATUS_SUCCESS)
+    {
+      KdPrint((__DRIVER_NAME "     Failed to change frontend state to Initialising\n"));
+      // this is probably an unrecoverable situation...
+      FUNCTION_ERROR_EXIT();
+      return STATUS_UNSUCCESSFUL;
+    }
+    if (xppdd->assigned_resources_ptr)
+    {
+      // reset things - feed the 'requested resources' back in
+      ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
+      src = xppdd->requested_resources_start;
+      xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
+      xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;
+      
+      dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
+      
+      status = XenPci_XenConfigDeviceSpecifyBuffers(device, src, dst);
+
+      MmUnmapIoSpace(dst, xppdd->config_page_length);
+      ExFreePoolWithTag(src, XENPCI_POOL_TAG);
+    }
+    if (XenPci_ChangeFrontendState(device, XenbusStateConnected, XenbusStateConnected, 30000) != STATUS_SUCCESS)
+    {
+      // this is definitely an unrecoverable situation...
+      KdPrint((__DRIVER_NAME "     Failed to change frontend state to connected\n"));
+      FUNCTION_ERROR_EXIT();
+      return STATUS_UNSUCCESSFUL;
+    }
+    XenPci_Pdo_ChangeSuspendState(device, SR_STATE_RESUMING);
+    XenPci_Pdo_ChangeSuspendState(device, SR_STATE_RUNNING);
+  }
+
+  FUNCTION_EXIT();
+
+  return STATUS_SUCCESS;
+} 
+
+#if 0
 NTSTATUS
 XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 {
@@ -516,9 +2407,9 @@ XenPci_XenShutdownDevice(PVOID Context)
 
   if (xppdd->assigned_resources_start != NULL)
   {
-    ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL);
+    ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
     in_ptr = xppdd->assigned_resources_start;
-    while((type = GET_XEN_INIT_RSP(&in_ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+    while((type = GET_XEN_INIT_RSP(&in_ptr, &setting, &value, &value2)) != XEN_INIT_TYPE_END)
     {
       switch (type)
       {
@@ -556,7 +2447,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   NTSTATUS status = STATUS_SUCCESS;
   ULONG i;
   char path[128];
-  PCHAR setting, value;
+  PCHAR setting, value, value2;
   PCHAR res;
   PVOID address;
   UCHAR type;
@@ -605,15 +2496,15 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
   vectors.XenBus_RemWatch = XenPci_XenBus_RemWatch;
 
   if (qemu_filtered)
-    ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_ACTIVE, NULL, NULL);
+    ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_ACTIVE, NULL, NULL, NULL);
 
-  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION, NULL, UlongToPtr(qemu_protocol_version));
+  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION, NULL, UlongToPtr(qemu_protocol_version), NULL);
   
-  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors);
-  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_STATE_PTR, NULL, &xppdd->device_state);
+  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors, NULL);
+  ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_STATE_PTR, NULL, &xppdd->device_state, NULL);
 
   // first pass, possibly before state == Connected
-  while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value)) != XEN_INIT_TYPE_END)
+  while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
   {
   
     if (!done_xenbus_init)
@@ -626,7 +2517,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
       done_xenbus_init = TRUE;
     }
     
-    ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, type, setting, value);
+    ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, type, setting, value, value2);
 
     switch (type)
     {
@@ -650,8 +2541,8 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
         {
           RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
           XenBus_Printf(xpdd, XBT_NIL, path, "%d", gref);
-          ADD_XEN_INIT_RSP(&out_ptr, type, setting, address);
-          ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, type, setting, ring);
+          ADD_XEN_INIT_RSP(&out_ptr, type, setting, address, NULL);
+          ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, type, setting, ring, NULL);
           // add the grant entry too so it gets freed automatically
           __ADD_XEN_INIT_UCHAR(&xppdd->assigned_resources_ptr, XEN_INIT_TYPE_GRANT_ENTRIES);
           __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, 1);
@@ -677,8 +2568,8 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
         //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, event_channel));
         RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
         XenBus_Printf(xpdd, XBT_NIL, path, "%d", event_channel);
-        ADD_XEN_INIT_RSP(&out_ptr, type, setting, UlongToPtr(event_channel));
-        ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, type, setting, UlongToPtr(event_channel));
+        ADD_XEN_INIT_RSP(&out_ptr, type, setting, UlongToPtr(event_channel), NULL);
+        ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, type, setting, UlongToPtr(event_channel), NULL);
         if (type == XEN_INIT_TYPE_EVENT_CHANNEL_IRQ)
           EvtChn_BindIrq(xpdd, event_channel, xppdd->irq_vector, path);
       }
@@ -706,7 +2597,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
 
   // second pass, possibly after state == Connected
   in_ptr = src;
-  while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value)) != XEN_INIT_TYPE_END)
+  while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
   {
     switch(type)
     {
@@ -721,12 +2612,12 @@ XenPci_XenConfigDeviceSpecifyBuffers(PVOID context, PUCHAR src, PUCHAR dst)
       {
         //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = <failed>\n", setting));
         XenPci_FreeMem(res);
-        ADD_XEN_INIT_RSP(&out_ptr, type, setting, NULL);
+        ADD_XEN_INIT_RSP(&out_ptr, type, setting, NULL, NULL);
       }
       else
       {
         //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
-        ADD_XEN_INIT_RSP(&out_ptr, type, setting, value);
+        ADD_XEN_INIT_RSP(&out_ptr, type, setting, value, NULL);
         XenPci_FreeMem(value);
       }
       break;
@@ -1276,12 +3167,16 @@ static VOID
 XenPci_IS_InterfaceReference(PVOID context)
 {
   UNREFERENCED_PARAMETER(context);
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
 }
 
 static VOID
 XenPci_IS_InterfaceDereference(PVOID context)
 {
   UNREFERENCED_PARAMETER(context);
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
 }
 
 static BOOLEAN
@@ -1322,18 +3217,21 @@ XenPci_DOP_AllocateCommonBuffer(
   BOOLEAN CacheEnabled
 )
 {
-  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
-  PXENPCI_DEVICE_DATA xpdd = xen_dma_adapter->xppdd->bus_fdo->DeviceExtension;
+  xen_dma_adapter_t *xen_dma_adapter;
+  PXENPCI_DEVICE_DATA xpdd;
   PVOID buffer;
   PFN_NUMBER pfn;
   grant_ref_t gref;
-  /* should LogicalAddress be the gref? */
   
   UNREFERENCED_PARAMETER(DmaAdapter);
   UNREFERENCED_PARAMETER(CacheEnabled);
   
-  FUNCTION_ENTER();
-  KdPrint((__DRIVER_NAME "     Length = %d\n", Length));
+  //FUNCTION_ENTER();
+
+  xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
+  xpdd = xen_dma_adapter->xppdd->bus_fdo->DeviceExtension;
+
+  //KdPrint((__DRIVER_NAME "     Length = %d\n", Length));
   
   buffer = ExAllocatePoolWithTag(NonPagedPool, Length, XENPCI_POOL_TAG);
 
@@ -1343,7 +3241,7 @@ XenPci_DOP_AllocateCommonBuffer(
   ASSERT(gref);
   LogicalAddress->QuadPart = (gref << PAGE_SHIFT) | (PtrToUlong(buffer) & (PAGE_SIZE - 1));
   
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
   return buffer;
 }
 
@@ -1357,9 +3255,13 @@ XenPci_DOP_FreeCommonBuffer(
 )
 {
   UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(Length);
+  UNREFERENCED_PARAMETER(LogicalAddress);
+  UNREFERENCED_PARAMETER(CacheEnabled);
 
   FUNCTION_ENTER();
   ExFreePoolWithTag(VirtualAddress, XENPCI_POOL_TAG);
+  // TODO: free the grant ref here
   FUNCTION_EXIT();
 }
 
@@ -1401,18 +3303,23 @@ XenPci_DOP_AllocateAdapterChannel(
 
 static BOOLEAN
 XenPci_DOP_FlushAdapterBuffers(
-    IN PDMA_ADAPTER  DmaAdapter,
-    IN PMDL  Mdl,
-    IN PVOID  MapRegisterBase,
-    IN PVOID  CurrentVa,
-    IN ULONG  Length,
-    IN BOOLEAN  WriteToDevice
-    )
+  PDMA_ADAPTER DmaAdapter,
+  PMDL Mdl,
+  PVOID MapRegisterBase,
+  PVOID CurrentVa,
+  ULONG Length,
+  BOOLEAN WriteToDevice)
 {
   UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER( Mdl);
+  UNREFERENCED_PARAMETER(MapRegisterBase);
+  UNREFERENCED_PARAMETER(CurrentVa);
+  UNREFERENCED_PARAMETER(Length);
+  UNREFERENCED_PARAMETER(WriteToDevice);
 
   FUNCTION_ENTER();
   FUNCTION_EXIT();
+  return TRUE;
 }
 
 static VOID
@@ -1433,6 +3340,8 @@ XenPci_DOP_FreeMapRegisters(
   ULONG NumberOfMapRegisters)
 {
   UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(MapRegisterBase);
+  UNREFERENCED_PARAMETER(NumberOfMapRegisters);
 
   FUNCTION_ENTER();
   FUNCTION_EXIT();
@@ -1447,10 +3356,21 @@ XenPci_DOP_MapTransfer(
     PULONG Length,
     BOOLEAN WriteToDevice)
 {
+  PHYSICAL_ADDRESS physical;
+  
   UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(Mdl);
+  UNREFERENCED_PARAMETER(MapRegisterBase);
+  UNREFERENCED_PARAMETER(CurrentVa);
+  UNREFERENCED_PARAMETER(Length);
+  UNREFERENCED_PARAMETER(WriteToDevice);
 
   FUNCTION_ENTER();
+  
+  physical.QuadPart = 0;
+  
   FUNCTION_EXIT();
+  return physical;
 }
 
 static ULONG
@@ -1461,6 +3381,7 @@ XenPci_DOP_GetDmaAlignment(
 
   FUNCTION_ENTER();
   FUNCTION_EXIT();
+  return 0;
 }
 
 static ULONG
@@ -1471,6 +3392,7 @@ XenPci_DOP_ReadDmaCounter(
 
   FUNCTION_ENTER();
   FUNCTION_EXIT();
+  return 0;
 }
 
 static NTSTATUS
@@ -1485,9 +3407,17 @@ XenPci_DOP_GetScatterGatherList(
   BOOLEAN WriteToDevice)
 {
   UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(DeviceObject);
+  UNREFERENCED_PARAMETER(Mdl);
+  UNREFERENCED_PARAMETER(CurrentVa);
+  UNREFERENCED_PARAMETER(Length);
+  UNREFERENCED_PARAMETER(ExecutionRoutine);
+  UNREFERENCED_PARAMETER(Context);
+  UNREFERENCED_PARAMETER(WriteToDevice);
 
   FUNCTION_ENTER();
   FUNCTION_EXIT();
+  return STATUS_SUCCESS;
 }
 
 #define MAP_TYPE_VIRTUAL  1
@@ -1508,14 +3438,17 @@ XenPci_DOP_PutScatterGatherList(
     IN BOOLEAN WriteToDevice
     )
 {
-  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
-  PXENPCI_DEVICE_DATA xpdd = xen_dma_adapter->xppdd->bus_fdo->DeviceExtension;
+  xen_dma_adapter_t *xen_dma_adapter;
+  PXENPCI_DEVICE_DATA xpdd;
   ULONG i;
   sg_extra_t *sg_extra;
 
   UNREFERENCED_PARAMETER(WriteToDevice);
   
   //FUNCTION_ENTER();
+
+  xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
+  xpdd = xen_dma_adapter->xppdd->bus_fdo->DeviceExtension;
   
   sg_extra = (sg_extra_t *)((PUCHAR)ScatterGather + FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
     (sizeof(SCATTER_GATHER_ELEMENT)) * ScatterGather->NumberOfElements);
@@ -1587,6 +3520,7 @@ XenPci_DOP_CalculateScatterGatherList(
     *NumberOfMapRegisters = 1;
 
   KdPrint((__DRIVER_NAME "     ScatterGatherListSize = %d\n", *ScatterGatherListSize));
+
   FUNCTION_EXIT();
   return STATUS_SUCCESS;
 }
@@ -1609,8 +3543,8 @@ XenPci_DOP_BuildScatterGatherList(
   PUCHAR ptr;
   ULONG remaining = Length;
   ULONG total_remaining;
-  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
-  PXENPCI_DEVICE_DATA xpdd = xen_dma_adapter->xppdd->bus_fdo->DeviceExtension;
+  xen_dma_adapter_t *xen_dma_adapter;
+  PXENPCI_DEVICE_DATA xpdd;
   sg_extra_t *sg_extra;
   PMDL curr_mdl;
   ULONG map_type;
@@ -1622,6 +3556,9 @@ XenPci_DOP_BuildScatterGatherList(
   UNREFERENCED_PARAMETER(WriteToDevice);
 
   //FUNCTION_ENTER();
+
+  xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
+  xpdd = xen_dma_adapter->xppdd->bus_fdo->DeviceExtension;
 
   ASSERT(Mdl);
   if (xen_dma_adapter->dma_extension)
@@ -1675,7 +3612,10 @@ XenPci_DOP_BuildScatterGatherList(
     for (sg_element = 0, curr_mdl = Mdl; curr_mdl; curr_mdl = curr_mdl->Next)
     {
       remaining = MmGetMdlByteCount(curr_mdl);
-      offset = MmGetMdlByteOffset(curr_mdl);
+      if (!MmGetMdlByteOffset(Mdl) && (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1)))
+        offset = (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1));
+      else
+        offset = MmGetMdlByteOffset(curr_mdl);
       for (i = 0; i < ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl)); i++)
       {
 //KdPrint((__DRIVER_NAME "     element = %d\n", sg_element));
@@ -1699,6 +3639,8 @@ XenPci_DOP_BuildScatterGatherList(
     ASSERT(sg_extra->aligned_buffer); /* lazy */
     sg_extra->unaligned_buffer = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
     ASSERT(sg_extra->unaligned_buffer); /* lazy */
+    if (!MmGetMdlByteOffset(Mdl) && (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1)))
+      sg_extra->unaligned_buffer = (PUCHAR)sg_extra->unaligned_buffer + (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1));
     sg_extra->copy_length = Length;
     if (WriteToDevice)
       memcpy(sg_extra->aligned_buffer, sg_extra->unaligned_buffer, sg_extra->copy_length);
@@ -1718,17 +3660,21 @@ XenPci_DOP_BuildScatterGatherList(
     //KdPrint((__DRIVER_NAME "     MAP_TYPE_VIRTUAL\n"));
     ptr = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
     ASSERT(ptr); /* lazy */
+    if (!MmGetMdlByteOffset(Mdl) && (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1)))
+      ptr += (PtrToUlong(CurrentVa) & (PAGE_SIZE - 1));
     sglist->Elements[0].Address.QuadPart = (ULONGLONG)ptr;
     sglist->Elements[0].Length = Length;
     break;
   }
-  //KdPrint((__DRIVER_NAME "     CurrentVa = %p, Length = %d\n", CurrentVa, Length));
-  //for (i = 0; i < sglist->NumberOfElements; i++)
-  //{
-    //KdPrint((__DRIVER_NAME "     sge[%d]->Address = %08x%08x, Length = %d\n", i, sglist->Elements[i].Address.HighPart,
-    //  sglist->Elements[i].Address.LowPart, sglist->Elements[i].Length));
-  //}
-  
+#if 0
+  KdPrint((__DRIVER_NAME "     Mdl = %p, CurrentVa = %p, Mdl->Va = %p, Offset = %d, Length = %d\n", 
+    Mdl, CurrentVa, MmGetMdlVirtualAddress(Mdl), MmGetMdlByteOffset(Mdl), Length));
+  for (i = 0; i < sglist->NumberOfElements; i++)
+  {
+    KdPrint((__DRIVER_NAME "     sge[%d]->Address = %08x%08x, Length = %d\n", i, sglist->Elements[i].Address.HighPart,
+      sglist->Elements[i].Address.LowPart, sglist->Elements[i].Length));
+  }
+#endif
   ExecutionRoutine(DeviceObject, DeviceObject->CurrentIrp, ScatterGatherBuffer, Context);
 
   //FUNCTION_EXIT();
@@ -1738,52 +3684,84 @@ XenPci_DOP_BuildScatterGatherList(
 
 static NTSTATUS
 XenPci_DOP_BuildMdlFromScatterGatherList(
-    IN PDMA_ADAPTER  DmaAdapter,
-    IN PSCATTER_GATHER_LIST  ScatterGather,
-    IN PMDL  OriginalMdl,
-    OUT PMDL  *TargetMdl
-    )
+  PDMA_ADAPTER DmaAdapter,
+  PSCATTER_GATHER_LIST ScatterGather,
+  PMDL OriginalMdl,
+  PMDL *TargetMdl)
 {
+  UNREFERENCED_PARAMETER(DmaAdapter);
+  UNREFERENCED_PARAMETER(ScatterGather);
+  UNREFERENCED_PARAMETER(OriginalMdl);
+  UNREFERENCED_PARAMETER(TargetMdl);
+
   FUNCTION_ENTER();
   FUNCTION_EXIT();
   return STATUS_UNSUCCESSFUL;
 }
 
 static PDMA_ADAPTER
-XenPci_BIS_GetDmaAdapter(PVOID context, PDEVICE_DESCRIPTION device_descriptor, PULONG number_of_map_registers)
+XenPci_BIS_GetDmaAdapter(PVOID context, PDEVICE_DESCRIPTION device_description, PULONG number_of_map_registers)
 {
   xen_dma_adapter_t *xen_dma_adapter;
   PDEVICE_OBJECT curr, prev;
   PDRIVER_OBJECT fdo_driver_object;
   PVOID fdo_driver_extension;
   
-  UNREFERENCED_PARAMETER(device_descriptor);
+  UNREFERENCED_PARAMETER(device_description);
   
   FUNCTION_ENTER();
-  xen_dma_adapter = ExAllocatePoolWithTag(NonPagedPool, sizeof(xen_dma_adapter_t), XENPCI_POOL_TAG);
+
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  KdPrint((__DRIVER_NAME "     Device Description = %p:\n", device_description));
+  KdPrint((__DRIVER_NAME "      Version  = %d\n", device_description->Version));
+  KdPrint((__DRIVER_NAME "      Master = %d\n", device_description->Master));
+  KdPrint((__DRIVER_NAME "      ScatterGather = %d\n", device_description->ScatterGather));
+  KdPrint((__DRIVER_NAME "      DemandMode = %d\n", device_description->DemandMode));
+  KdPrint((__DRIVER_NAME "      AutoInitialize = %d\n", device_description->AutoInitialize));
+  KdPrint((__DRIVER_NAME "      Dma32BitAddresses = %d\n", device_description->Dma32BitAddresses));
+  KdPrint((__DRIVER_NAME "      IgnoreCount = %d\n", device_description->IgnoreCount));
+  KdPrint((__DRIVER_NAME "      Dma64BitAddresses = %d\n", device_description->Dma64BitAddresses));
+  KdPrint((__DRIVER_NAME "      BusNumber = %d\n", device_description->BusNumber));
+  KdPrint((__DRIVER_NAME "      DmaChannel = %d\n", device_description->DmaChannel));
+  KdPrint((__DRIVER_NAME "      InterfaceType = %d\n", device_description->InterfaceType));
+  KdPrint((__DRIVER_NAME "      DmaWidth = %d\n", device_description->DmaWidth));
+  KdPrint((__DRIVER_NAME "      DmaSpeed = %d\n", device_description->DmaSpeed));
+  KdPrint((__DRIVER_NAME "      MaximumLength = %d\n", device_description->MaximumLength));
+  KdPrint((__DRIVER_NAME "      DmaPort = %d\n", device_description->DmaPort));
+  
+/*
+we have to allocate PAGE_SIZE bytes here because Windows thinks this is
+actually an ADAPTER_OBJECT, and then the verifier crashes because
+Windows accessed beyond the end of the structure :(
+*/
+  xen_dma_adapter = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+  RtlZeroMemory(xen_dma_adapter, PAGE_SIZE);
   xen_dma_adapter->dma_adapter.Version = 2;
-  xen_dma_adapter->dma_adapter.Size = sizeof(xen_dma_adapter_t);
-  xen_dma_adapter->dma_adapter.DmaOperations = &xen_dma_adapter->dma_operations;
-  xen_dma_adapter->dma_operations.Size = sizeof(DMA_OPERATIONS);
-  xen_dma_adapter->dma_operations.PutDmaAdapter = XenPci_DOP_PutDmaAdapter;
-  xen_dma_adapter->dma_operations.AllocateCommonBuffer = XenPci_DOP_AllocateCommonBuffer;
-  xen_dma_adapter->dma_operations.FreeCommonBuffer = XenPci_DOP_FreeCommonBuffer;
-  xen_dma_adapter->dma_operations.AllocateAdapterChannel = XenPci_DOP_AllocateAdapterChannel;
-  xen_dma_adapter->dma_operations.FlushAdapterBuffers = XenPci_DOP_FlushAdapterBuffers;
-  xen_dma_adapter->dma_operations.FreeAdapterChannel = XenPci_DOP_FreeAdapterChannel;
-  xen_dma_adapter->dma_operations.FreeMapRegisters = XenPci_DOP_FreeMapRegisters;
-  xen_dma_adapter->dma_operations.MapTransfer = XenPci_DOP_MapTransfer;
-  xen_dma_adapter->dma_operations.GetDmaAlignment = XenPci_DOP_GetDmaAlignment;
-  xen_dma_adapter->dma_operations.ReadDmaCounter = XenPci_DOP_ReadDmaCounter;
-  xen_dma_adapter->dma_operations.GetScatterGatherList = XenPci_DOP_GetScatterGatherList;
-  xen_dma_adapter->dma_operations.PutScatterGatherList = XenPci_DOP_PutScatterGatherList;
-  xen_dma_adapter->dma_operations.CalculateScatterGatherList = XenPci_DOP_CalculateScatterGatherList;
-  xen_dma_adapter->dma_operations.BuildScatterGatherList = XenPci_DOP_BuildScatterGatherList;
-  xen_dma_adapter->dma_operations.BuildMdlFromScatterGatherList = XenPci_DOP_BuildMdlFromScatterGatherList;
+  xen_dma_adapter->dma_adapter.Size = sizeof(DMA_ADAPTER); //xen_dma_adapter_t);
+  xen_dma_adapter->dma_adapter.DmaOperations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DMA_OPERATIONS), XENPCI_POOL_TAG);
+  //xen_dma_adapter->dma_adapter.DmaOperations = &xen_dma_adapter->dma_operations;
+  xen_dma_adapter->dma_adapter.DmaOperations->Size = sizeof(DMA_OPERATIONS);
+  xen_dma_adapter->dma_adapter.DmaOperations->PutDmaAdapter = XenPci_DOP_PutDmaAdapter;
+  xen_dma_adapter->dma_adapter.DmaOperations->AllocateCommonBuffer = XenPci_DOP_AllocateCommonBuffer;
+  xen_dma_adapter->dma_adapter.DmaOperations->FreeCommonBuffer = XenPci_DOP_FreeCommonBuffer;
+  xen_dma_adapter->dma_adapter.DmaOperations->AllocateAdapterChannel = XenPci_DOP_AllocateAdapterChannel;
+  xen_dma_adapter->dma_adapter.DmaOperations->FlushAdapterBuffers = XenPci_DOP_FlushAdapterBuffers;
+  xen_dma_adapter->dma_adapter.DmaOperations->FreeAdapterChannel = XenPci_DOP_FreeAdapterChannel;
+  xen_dma_adapter->dma_adapter.DmaOperations->FreeMapRegisters = XenPci_DOP_FreeMapRegisters;
+  xen_dma_adapter->dma_adapter.DmaOperations->MapTransfer = XenPci_DOP_MapTransfer;
+  xen_dma_adapter->dma_adapter.DmaOperations->GetDmaAlignment = XenPci_DOP_GetDmaAlignment;
+  xen_dma_adapter->dma_adapter.DmaOperations->ReadDmaCounter = XenPci_DOP_ReadDmaCounter;
+  xen_dma_adapter->dma_adapter.DmaOperations->GetScatterGatherList = XenPci_DOP_GetScatterGatherList;
+  xen_dma_adapter->dma_adapter.DmaOperations->PutScatterGatherList = XenPci_DOP_PutScatterGatherList;
+  xen_dma_adapter->dma_adapter.DmaOperations->CalculateScatterGatherList = XenPci_DOP_CalculateScatterGatherList;
+  xen_dma_adapter->dma_adapter.DmaOperations->BuildScatterGatherList = XenPci_DOP_BuildScatterGatherList;
+  xen_dma_adapter->dma_adapter.DmaOperations->BuildMdlFromScatterGatherList = XenPci_DOP_BuildMdlFromScatterGatherList;
   xen_dma_adapter->xppdd = context;
   xen_dma_adapter->dma_extension = NULL;
 
+  KdPrint((__DRIVER_NAME "     About to call IoGetAttachedDeviceReference\n"));
   curr = IoGetAttachedDeviceReference(xen_dma_adapter->xppdd->common.pdo);
+  KdPrint((__DRIVER_NAME "     Before start of loop - curr = %p\n", curr));
   while (curr != NULL)
   {
     fdo_driver_object = curr->DriverObject;
@@ -1802,8 +3780,9 @@ XenPci_BIS_GetDmaAdapter(PVOID context, PDEVICE_DESCRIPTION device_descriptor, P
     curr = IoGetLowerDeviceObject(curr);
     ObDereferenceObject(prev);
   }
+  KdPrint((__DRIVER_NAME "     End of loop\n"));
 
-  *number_of_map_registers = 1024; /* why not... */
+  *number_of_map_registers = 1024; //1024; /* why not... */
 
   FUNCTION_EXIT();
 
@@ -2280,3 +4259,4 @@ XenPci_SystemControl_Pdo(PDEVICE_OBJECT device_object, PIRP irp)
 
   return status;
 }
+#endif

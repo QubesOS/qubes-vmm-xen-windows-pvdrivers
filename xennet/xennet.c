@@ -122,18 +122,20 @@ XenNet_ConnectBackend(struct xennet_info *xi)
 {
   PUCHAR ptr;
   UCHAR type;
-  PCHAR setting, value;
+  PCHAR setting, value, value2;
   UINT i;
 
+  FUNCTION_ENTER();
+  
   ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   ptr = xi->config_page;
-  while((type = GET_XEN_INIT_RSP(&ptr, (PVOID)&setting, (PVOID)&value)) != XEN_INIT_TYPE_END)
+  while((type = GET_XEN_INIT_RSP(&ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
   {
     switch(type)
     {
     case XEN_INIT_TYPE_RING: /* frontend ring */
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, value));
       if (strcmp(setting, "tx-ring-ref") == 0)
       {
         FRONT_RING_INIT(&xi->tx, (netif_tx_sring_t *)value, PAGE_SIZE);
@@ -171,7 +173,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       }
       break;
     case XEN_INIT_TYPE_VECTORS:
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
       if (((PXENPCI_VECTORS)value)->length != sizeof(XENPCI_VECTORS) ||
         ((PXENPCI_VECTORS)value)->magic != XEN_DATA_MAGIC)
       {
@@ -184,7 +186,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
         memcpy(&xi->vectors, value, sizeof(XENPCI_VECTORS));
       break;
     case XEN_INIT_TYPE_STATE_PTR:
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
       xi->device_state = (PXENPCI_DEVICE_STATE)value;
       break;
     default:
@@ -192,6 +194,8 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       break;
     }
   }
+  FUNCTION_EXIT();
+  
   return NDIS_STATUS_SUCCESS;
 }
 
@@ -202,12 +206,20 @@ XenNet_Resume(PDEVICE_OBJECT device_object, PVOID context)
   
   UNREFERENCED_PARAMETER(device_object);
   
-  XenNet_RxResumeStart(xi);
+  FUNCTION_ENTER();
+  
   XenNet_TxResumeStart(xi);
+  XenNet_RxResumeStart(xi);
   XenNet_ConnectBackend(xi);
-  xi->device_state->resume_state = RESUME_STATE_RUNNING;
   XenNet_RxResumeEnd(xi);
   XenNet_TxResumeEnd(xi);
+  KdPrint((__DRIVER_NAME "     *Setting suspend_resume_state_fdo = %d\n", xi->device_state->suspend_resume_state_pdo));
+  xi->device_state->suspend_resume_state_fdo = xi->device_state->suspend_resume_state_pdo;
+  KdPrint((__DRIVER_NAME "     *Notifying event channel %d\n", xi->device_state->pdo_event_channel));
+  xi->vectors.EvtChn_Notify(xi->vectors.context, xi->device_state->pdo_event_channel);
+
+  FUNCTION_EXIT();
+
 }
 
 static VOID
@@ -215,6 +227,7 @@ XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 {
   struct xennet_info *xi = context;
   PIO_WORKITEM work_item;
+  KIRQL old_irql;
 
   UNREFERENCED_PARAMETER(dpc);
   UNREFERENCED_PARAMETER(arg1);
@@ -222,26 +235,31 @@ XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 
   FUNCTION_ENTER();
   
-  switch (xi->device_state->resume_state)
+  switch (xi->device_state->suspend_resume_state_pdo)
   {
-  case RESUME_STATE_SUSPENDING:
+  case SR_STATE_SUSPENDING:
     KdPrint((__DRIVER_NAME "     New state SUSPENDING\n"));
-    // there should be a better way to synchronise with rx and tx...
-    KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
-    KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
-    KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
-    KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
+    KeAcquireSpinLock(&xi->rx_lock, &old_irql);
+    if (xi->tx_id_free == NET_TX_RING_SIZE)
+    {  
+      xi->device_state->suspend_resume_state_fdo = SR_STATE_SUSPENDING;
+      KdPrint((__DRIVER_NAME "     Notifying event channel %d\n", xi->device_state->pdo_event_channel));
+      xi->vectors.EvtChn_Notify(xi->vectors.context, xi->device_state->pdo_event_channel);
+    }
+    KeReleaseSpinLock(&xi->rx_lock, old_irql);
     break;
-  case RESUME_STATE_FRONTEND_RESUME:
-    KdPrint((__DRIVER_NAME "     New state RESUME_STATE_FRONTEND_RESUME\n"));
+  case SR_STATE_RESUMING:
+    KdPrint((__DRIVER_NAME "     New state SR_STATE_RESUMING\n"));
     work_item = IoAllocateWorkItem(xi->fdo);
     IoQueueWorkItem(work_item, XenNet_Resume, DelayedWorkQueue, xi);
     break;
   default:
-    KdPrint((__DRIVER_NAME "     New state %d\n", xi->device_state->resume_state));
+    KdPrint((__DRIVER_NAME "     New state %d\n", xi->device_state->suspend_resume_state_fdo));
+    xi->device_state->suspend_resume_state_fdo = xi->device_state->suspend_resume_state_pdo;
+    KdPrint((__DRIVER_NAME "     Notifying event channel %d\n", xi->device_state->pdo_event_channel));
+    xi->vectors.EvtChn_Notify(xi->vectors.context, xi->device_state->pdo_event_channel);
     break;
   }
-  xi->device_state->resume_state_ack = xi->device_state->resume_state;
   KeMemoryBarrier();
   
   FUNCTION_EXIT();
@@ -251,16 +269,21 @@ static DDKAPI BOOLEAN
 XenNet_HandleEvent(PVOID context)
 {
   struct xennet_info *xi = context;
+  ULONG suspend_resume_state_pdo;
   
   //FUNCTION_ENTER();
-  if (xi->device_state->resume_state != xi->device_state->resume_state_ack)
+  suspend_resume_state_pdo = xi->device_state->suspend_resume_state_pdo;
+  KeMemoryBarrier();
+//  KdPrint((__DRIVER_NAME "     connected = %d, inactive = %d, suspend_resume_state_pdo = %d\n",
+//    xi->connected, xi->inactive, suspend_resume_state_pdo));
+  if (suspend_resume_state_pdo != xi->device_state->suspend_resume_state_fdo)
   {
     KeInsertQueueDpc(&xi->suspend_dpc, NULL, NULL);
   }
-  else if (xi->connected && !xi->inactive && xi->device_state->resume_state == RESUME_STATE_RUNNING)
+  else if (xi->connected && !xi->inactive && suspend_resume_state_pdo != SR_STATE_RESUMING)
   {
     KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
-    KeInsertQueueDpc(&xi->rx_dpc, UlongToPtr(FALSE), NULL);
+    KeInsertQueueDpc(&xi->rx_dpc, NULL, NULL);
   }
   //FUNCTION_EXIT();
   return TRUE;
@@ -292,7 +315,7 @@ XenNet_Init(
   ULONG i;
   PUCHAR ptr;
   UCHAR type;
-  PCHAR setting, value;
+  PCHAR setting, value, value2;
   ULONG length;
   CHAR buf[128];
   PVOID network_address;
@@ -410,15 +433,6 @@ XenNet_Init(
 
   KeInitializeDpc(&xi->suspend_dpc, XenNet_SuspendResume, xi);
 
-  NdisAllocatePacketPool(&status, &xi->packet_pool, XN_RX_QUEUE_LEN * 8,
-    PROTOCOL_RESERVED_SIZE_IN_PACKET);
-  if (status != NDIS_STATUS_SUCCESS)
-  {
-    KdPrint(("NdisAllocatePacketPool failed with 0x%x\n", status));
-    status = NDIS_STATUS_RESOURCES;
-    goto err;
-  }
-
   NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
     &xi->lower_do, NULL, NULL);
   xi->packet_filter = NDIS_PACKET_TYPE_PROMISCUOUS;
@@ -433,7 +447,7 @@ XenNet_Init(
   }
 
   ptr = xi->config_page;
-  while((type = GET_XEN_INIT_RSP(&ptr, (PVOID)&setting, (PVOID)&value)) != XEN_INIT_TYPE_END)
+  while((type = GET_XEN_INIT_RSP(&ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value)) != XEN_INIT_TYPE_END)
   {
     switch(type)
     {
@@ -455,6 +469,7 @@ XenNet_Init(
       xi->device_state = (PXENPCI_DEVICE_STATE)value;
       break;
     case XEN_INIT_TYPE_ACTIVE:
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_ACTIVE\n"));
       xi->inactive = FALSE;
       break;
     default:
@@ -462,7 +477,7 @@ XenNet_Init(
       break;
     }
   }
-  
+
   // now build config page
   
   NdisOpenConfiguration(&status, &config_handle, WrapperConfigurationContext);
@@ -577,22 +592,21 @@ XenNet_Init(
 
   ptr = xi->config_page;
   // two XEN_INIT_TYPE_RUNs means go straight to XenbusStateConnected - skip XenbusStateInitialised
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "tx-ring-ref", NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL);
-  //ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL, "event-channel", NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "tx-ring-ref", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL, "event-channel", XenNet_HandleEvent, xi);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL, NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", buf);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1", NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1", NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", buf, NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", (int)xi->config_sg);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", buf);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", buf, NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !!xi->config_gso);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-gso-tcpv4", buf);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1");
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1");
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-gso-tcpv4", buf, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
   
   status = xi->vectors.XenPci_XenConfigDevice(xi->vectors.context);
   if (!NT_SUCCESS(status))
@@ -636,7 +650,7 @@ XenNet_Init(
     goto err;
   }
   #endif
-  xi->vectors.EvtChn_Bind(xi->vectors.context, xi->event_channel, XenNet_HandleEvent, xi);
+  //xi->vectors.EvtChn_Bind(xi->vectors.context, xi->event_channel, XenNet_HandleEvent, xi);
 
   FUNCTION_EXIT();
 
@@ -701,8 +715,6 @@ XenNet_Halt(
 
   XenNet_TxShutdown(xi);
   XenNet_RxShutdown(xi);
-
-  NdisFreePacketPool(xi->packet_pool);
 
   NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL
 

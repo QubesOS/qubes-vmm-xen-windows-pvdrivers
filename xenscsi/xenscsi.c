@@ -232,14 +232,16 @@ XenScsi_WaitPause(PVOID DeviceExtension)
   LARGE_INTEGER wait_time;
 
   FUNCTION_ENTER();
-  xsdd->vectors.EvtChn_Notify(xsdd->vectors.context, xsdd->vectors.pdo_event_channel);
+#if 0
+  xsdd->vectors.EvtChn_Notify(xsdd->vectors.context, xsdd->device_state->pdo_event_channel);
   while (xsdd->pause_ack != xsdd->pause_req)
   {
     KdPrint((__DRIVER_NAME "     Waiting...\n"));
     wait_time.QuadPart = -1 * 1000 * 10; /* 1ms */
     KeDelayExecutionThread(KernelMode, FALSE, &wait_time);
-    xsdd->vectors.EvtChn_Notify(xsdd->vectors.context, xsdd->vectors.pdo_event_channel);
+    xsdd->vectors.EvtChn_Notify(xsdd->vectors.context, xsdd->device_state->pdo_event_channel);
   }  
+#endif
   FUNCTION_EXIT();
 }
 
@@ -382,7 +384,7 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
   PACCESS_RANGE access_range;
   PUCHAR ptr;
   USHORT type;
-  PCHAR setting, value;
+  PCHAR setting, value, value2;
   vscsiif_sring_t *sring;
   CHAR path[128];
 
@@ -431,7 +433,7 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
   }
   sring = NULL;
   xsdd->event_channel = 0;
-  while((type = GET_XEN_INIT_RSP(&ptr, &setting, &value)) != XEN_INIT_TYPE_END)
+  while((type = GET_XEN_INIT_RSP(&ptr, &setting, &value, &value2)) != XEN_INIT_TYPE_END)
   {
     switch(type)
     {
@@ -806,11 +808,11 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_INIT_DRIVER_EXTENSION_MAGIC), PAGE_SIZE, &driver_extension);
   ptr = driver_extension;
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, NULL, UlongToPtr(144));
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL);       
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, NULL, UlongToPtr(144), NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
   /* RegistryPath == NULL when we are invoked as a crash dump driver */
   if (!RegistryPath)
   {

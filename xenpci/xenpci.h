@@ -26,18 +26,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <ntifs.h>
 #include <ntddk.h>
 
-#ifdef __MINGW32__
-#include "../mingw/mingw_extras.h"
-#else
 #define DDKAPI
-#include <wdm.h>
-//#include <wdf.h>
+//#include <wdm.h>
+#include <wdf.h>
 #include <initguid.h>
 #include <wdmguid.h>
 #include <errno.h>
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
-#endif
 
 #define __DRIVER_NAME "XenPCI"
 
@@ -49,7 +45,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <hvm/hvm_op.h>
 #include <sched.h>
 #include <io/xenbus.h>
-#include "io/xs_wire.h"
+#include <io/xs_wire.h>
 
 #include <xen_public.h>
 
@@ -113,6 +109,7 @@ typedef struct _XENBUS_WATCH_ENTRY {
 #define CHILD_STATE_DELETED 1
 #define CHILD_STATE_ADDED 2
 
+#if 0
 // TODO: tidy up & organize this struct
 
 typedef enum {
@@ -126,6 +123,7 @@ typedef enum {
     Removed
 } DEVICE_PNP_STATE;
 
+#if 0
 typedef struct
 {
   PDEVICE_OBJECT fdo;
@@ -141,6 +139,7 @@ typedef struct
   ULONG device_usage_dump;
   ULONG device_usage_hibernation;
 } XENPCI_COMMON, *PXENPCI_COMMON;
+#endif
 
 static __inline void INIT_PNP_STATE(PXENPCI_COMMON common)
 {
@@ -158,6 +157,7 @@ static __inline void REVERT_PNP_STATE(PXENPCI_COMMON common)
 {
   common->current_pnp_state = common->previous_pnp_state;
 }
+#endif
 
 #define SHUTDOWN_RING_SIZE 128
 
@@ -167,11 +167,13 @@ static __inline void REVERT_PNP_STATE(PXENPCI_COMMON common)
 #define SUSPEND_STATE_RESUMING  3 /* we are the other side of the suspend and things are starting to get back to normal */
 
 typedef struct {  
-  XENPCI_COMMON common;
+  //XENPCI_COMMON common;
   
   BOOLEAN XenBus_ShuttingDown;
+  
+  BOOLEAN tpr_patched;
 
-  PKINTERRUPT interrupt;
+  WDFINTERRUPT interrupt;
   ULONG irq_number;
   ULONG irq_vector;
   KIRQL irq_level;
@@ -183,6 +185,7 @@ typedef struct {
   xen_ulong_t evtchn_pending_pvt[sizeof(xen_ulong_t) * 8];
   xen_ulong_t evtchn_pending_suspend[sizeof(xen_ulong_t) * 8];
   evtchn_port_t pdo_event_channel;
+  KEVENT pdo_suspend_event;
   BOOLEAN interrupts_masked;
   
   PHYSICAL_ADDRESS platform_mmio_addr;
@@ -200,13 +203,12 @@ typedef struct {
 
   /* grant related */
   grant_entry_t *gnttab_table;
+  grant_entry_t *gnttab_table_copy;
   PHYSICAL_ADDRESS gnttab_table_physical;
   grant_ref_t *gnttab_list;
   int gnttab_list_free;
   KSPIN_LOCK grant_lock;
-  /* this is the maximum number of grant frames we have memory allocated for */
-  /* after a resume it may not be the actual number of grant frames we have though */
-  ULONG max_grant_frames;
+  ULONG grant_frames;
 
   ev_action_t ev_actions[NR_EVENTS];
 //  unsigned long bound_ports[NR_EVENTS/(8*sizeof(unsigned long))];
@@ -229,28 +231,40 @@ typedef struct {
   KEVENT xb_request_complete_event;
   struct xsd_sockmsg *xb_reply;
   
-  LIST_ENTRY child_list;
+  WDFCHILDLIST child_list;
   
   int suspend_state;
   
   UNICODE_STRING legacy_interface_name;
   UNICODE_STRING interface_name;
   BOOLEAN interface_open;
-  
+
+  WDFQUEUE io_queue;
+#if 0
   KSPIN_LOCK shutdown_ring_lock;
   CHAR shutdown_ring[SHUTDOWN_RING_SIZE];
   ULONG shutdown_prod;
   ULONG shutdown_cons;
   ULONG shutdown_start; /* the start of the most recent message on the ring */
   PIRP shutdown_irp;
+#endif
 
-  BOOLEAN log_interrupts;
+#if 0
+  KSPIN_LOCK mmio_freelist_lock;
+  PPFN_NUMBER mmio_freelist_base;
+  ULONG mmio_freelist_free;
+#endif
+
 } XENPCI_DEVICE_DATA, *PXENPCI_DEVICE_DATA;
 
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_DATA, GetXpdd)
+
 typedef struct {  
-  XENPCI_COMMON common;
-  PDEVICE_OBJECT bus_pdo;
-  PDEVICE_OBJECT bus_fdo;
+//  XENPCI_COMMON common;
+  WDFDEVICE wdf_device;
+  WDFDEVICE wdf_device_bus_fdo;
+  //PDEVICE_OBJECT bus_pdo;
+  //PDEVICE_OBJECT bus_fdo;
   BOOLEAN reported_missing;
   char path[128];
   char device[128];
@@ -273,21 +287,32 @@ typedef struct {
   
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_PDO_DEVICE_DATA, GetXppdd)
+
+typedef struct {
+  WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER header;
+  CHAR path[128];
+  CHAR device[128];
+  ULONG index;
+} XENPCI_PDO_IDENTIFICATION_DESCRIPTION, *PXENPCI_PDO_IDENTIFICATION_DESCRIPTION;
+
 typedef struct {
   DMA_ADAPTER dma_adapter;
-  DMA_OPERATIONS dma_operations;
+  //DMA_OPERATIONS dma_operations;
   PXENPCI_PDO_DEVICE_DATA xppdd;
   dma_driver_extension_t *dma_extension;
   //ULONG map_register_count;
   //map_register_t *map_registers;
 } xen_dma_adapter_t;
 
+#if 0
 typedef struct
 {
   LIST_ENTRY entry;
   int state;
   PXENPCI_PDO_DEVICE_DATA context;
 } XEN_CHILD, *PXEN_CHILD;
+#endif
 
 #define XEN_INTERFACE_VERSION 1
 
@@ -303,26 +328,45 @@ typedef struct {
     UCHAR buffer[PAGE_SIZE];
   } u;
   LIST_ENTRY read_list_head;
-  PIRP pending_read_irp;
-} device_interface_xenbus_context_t;
+  LIST_ENTRY watch_list_head;
+  WDFQUEUE io_queue;
+
+  //PIRP pending_read_irp;
+} XENPCI_DEVICE_INTERFACE_DATA, *PXENPCI_DEVICE_INTERFACE_DATA;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_INTERFACE_DATA, GetXpdid)
+
+EVT_WDF_DEVICE_FILE_CREATE XenPci_EvtDeviceFileCreate;
+EVT_WDF_FILE_CLOSE XenPci_EvtFileClose;
+EVT_WDF_FILE_CLEANUP XenPci_EvtFileCleanup;
+EVT_WDF_IO_QUEUE_IO_READ XenPci_EvtIoRead;
+EVT_WDF_IO_QUEUE_IO_WRITE XenPci_EvtIoWrite;
 
 #include "hypercall.h"
 
 #define XBT_NIL ((xenbus_transaction_t)0)
-
-#if 0
-static __inline VOID
-XenPci_FreeMem(PVOID Ptr)
-{
-  ExFreePoolWithTag(Ptr, XENPCI_POOL_TAG);
-}
-#endif
 
 NTSTATUS
 hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
 hvm_free_stubs(PXENPCI_DEVICE_DATA xpdd);
 
+EVT_WDF_DEVICE_PREPARE_HARDWARE XenPci_EvtDevicePrepareHardware;
+EVT_WDF_DEVICE_RELEASE_HARDWARE XenPci_EvtDeviceReleaseHardware;
+EVT_WDF_DEVICE_D0_ENTRY XenPci_EvtDeviceD0Entry;
+EVT_WDF_DEVICE_D0_ENTRY_POST_INTERRUPTS_ENABLED XenPci_EvtDeviceD0EntryPostInterruptsEnabled;
+EVT_WDF_DEVICE_D0_EXIT XenPci_EvtDeviceD0Exit;
+EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED XenPci_EvtDeviceD0ExitPreInterruptsDisabled;
+NTSTATUS
+XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list, PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER description_header, PWDFDEVICE_INIT child_init);
+VOID
+XenPci_EvtChildListScanForChildren(WDFCHILDLIST child_list);
+
+VOID
+XenPci_HideQemuDevices();
+extern ULONG qemu_filtered_by_qemu;
+
+#if 0
 NTSTATUS
 XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
@@ -371,11 +415,12 @@ NTSTATUS
 XenPci_Irp_Cleanup_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
 NTSTATUS
 XenPci_SystemControl_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
+#endif
 
 NTSTATUS
-XenPci_Pdo_Suspend(PDEVICE_OBJECT device_object);
+XenPci_Pdo_Suspend(WDFDEVICE device);
 NTSTATUS
-XenPci_Pdo_Resume(PDEVICE_OBJECT device_object);
+XenPci_Pdo_Resume(WDFDEVICE device);
 
 VOID
 XenPci_DumpPdoConfig(PDEVICE_OBJECT device_object);
@@ -427,12 +472,16 @@ XenBus_StopThreads(PXENPCI_DEVICE_DATA xpdd);
 PHYSICAL_ADDRESS
 XenPci_AllocMMIO(PXENPCI_DEVICE_DATA xpdd, ULONG len);
 
+EVT_WDF_INTERRUPT_ISR EvtChn_EvtInterruptIsr;
+EVT_WDF_INTERRUPT_ENABLE EvtChn_EvtInterruptEnable;
+EVT_WDF_INTERRUPT_DISABLE EvtChn_EvtInterruptDisable;
+
 NTSTATUS
 EvtChn_Init(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
-EvtChn_ConnectInterrupt(PXENPCI_DEVICE_DATA xpdd);
+EvtChn_Suspend(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
-EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd);
+EvtChn_Resume(PXENPCI_DEVICE_DATA xpdd);
 
 NTSTATUS
 EvtChn_Mask(PVOID Context, evtchn_port_t Port);
@@ -460,7 +509,9 @@ EvtChn_AckEvent(PVOID context, evtchn_port_t port);
 VOID
 GntTbl_Init(PXENPCI_DEVICE_DATA xpdd);
 VOID
-GntTbl_InitMap(PXENPCI_DEVICE_DATA xpdd);
+GntTbl_Suspend(PXENPCI_DEVICE_DATA xpdd);
+VOID
+GntTbl_Resume(PXENPCI_DEVICE_DATA xpdd);
 grant_ref_t
 GntTbl_GrantAccess(PVOID Context, domid_t domid, uint32_t, int readonly, grant_ref_t ref);
 BOOLEAN
@@ -469,6 +520,9 @@ VOID
 GntTbl_PutRef(PVOID Context, grant_ref_t ref);
 grant_ref_t
 GntTbl_GetRef(PVOID Context);
+#if 0
 int 
 GntTbl_Map(PVOID Context, unsigned int start_idx, unsigned int end_idx);
+#endif
+
 #endif

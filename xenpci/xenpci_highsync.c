@@ -24,6 +24,7 @@ struct {
   volatile LONG         nr_spinning;
   KDPC                  dpcs[MAX_VIRT_CPUS];
   KEVENT                highsync_complete_event;
+  KIRQL                 sync_level;
   PXENPCI_HIGHSYNC_FUNCTION function0;
   PXENPCI_HIGHSYNC_FUNCTION functionN;  
   PVOID                 context;
@@ -45,23 +46,17 @@ XenPci_HighSyncCallFunction0(
   UNREFERENCED_PARAMETER(SystemArgument2);
 
   FUNCTION_ENTER();
-  FUNCTION_MSG("(CPU = %d)\n", KeGetCurrentProcessorNumber());
-
   ActiveProcessorCount = (ULONG)KeNumberProcessors;
-
-  KeRaiseIrql(HIGH_LEVEL, &old_irql);
+  __asm cli;  
+  KeRaiseIrql(highsync_info->sync_level, &old_irql);
   while (highsync_info->nr_spinning < (LONG)ActiveProcessorCount - 1)
   {
     KeStallExecutionProcessor(1);
     KeMemoryBarrier();
   }
-
-  KdPrint((__DRIVER_NAME "     A\n"));
   highsync_info->function0(highsync_info->context);
-  KdPrint((__DRIVER_NAME  "     B\n"));
   KeLowerIrql(old_irql);
-  KdPrint((__DRIVER_NAME  "     C\n"));
-  
+  __asm sti;
   highsync_info->do_spin = FALSE;
   KeMemoryBarrier();  
   
@@ -71,8 +66,6 @@ XenPci_HighSyncCallFunction0(
     KeStallExecutionProcessor(1);
     KeMemoryBarrier();
   }
-  KdPrint((__DRIVER_NAME  "     D\n"));
-
   KeSetEvent(&highsync_info->highsync_complete_event, IO_NO_INCREMENT, FALSE);
 
   FUNCTION_EXIT();
@@ -96,7 +89,7 @@ XenPci_HighSyncCallFunctionN(
   FUNCTION_MSG("(CPU = %d)\n", KeGetCurrentProcessorNumber());
 
   KdPrint((__DRIVER_NAME "     CPU %d spinning...\n", KeGetCurrentProcessorNumber()));
-  KeRaiseIrql(HIGH_LEVEL, &old_irql);
+  KeRaiseIrql(highsync_info->sync_level, &old_irql);
   InterlockedIncrement(&highsync_info->nr_spinning);
   while(highsync_info->do_spin)
   {
@@ -127,11 +120,12 @@ XenPci_HighSync(PXENPCI_HIGHSYNC_FUNCTION function0, PXENPCI_HIGHSYNC_FUNCTION f
   highsync_info->function0 = function0;
   highsync_info->functionN = functionN;
   highsync_info->context = context;
+  highsync_info->sync_level = HIGH_LEVEL;
 
   ActiveProcessorCount = (ULONG)KeNumberProcessors;
 
   /* Go to HIGH_LEVEL to prevent any races with Dpc's on the current processor */
-  KeRaiseIrql(HIGH_LEVEL, &old_irql);
+  KeRaiseIrql(highsync_info->sync_level, &old_irql);
 
   highsync_info->do_spin = TRUE;
   for (i = 0; i < ActiveProcessorCount; i++)
@@ -146,6 +140,7 @@ XenPci_HighSync(PXENPCI_HIGHSYNC_FUNCTION function0, PXENPCI_HIGHSYNC_FUNCTION f
     KeInsertQueueDpc(&highsync_info->dpcs[i], NULL, NULL);
   }
   KdPrint((__DRIVER_NAME "     All Dpc's queued\n"));
+
   KeMemoryBarrier();
   KeLowerIrql(old_irql);
 

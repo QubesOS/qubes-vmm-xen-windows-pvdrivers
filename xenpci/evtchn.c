@@ -48,7 +48,7 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
 
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  if (action->type == EVT_ACTION_TYPE_DPC)
+  if (action->type != EVT_ACTION_TYPE_EMPTY)
   {
     action->ServiceRoutine(action->ServiceContext);
   }
@@ -73,8 +73,8 @@ EvtChn_AckEvent(PVOID context, evtchn_port_t port)
   return (BOOLEAN)!!val;
 }
 
-static DDKAPI BOOLEAN
-EvtChn_Interrupt(PKINTERRUPT Interrupt, PVOID Context)
+BOOLEAN
+EvtChn_EvtInterruptIsr(WDFINTERRUPT interrupt, ULONG message_id)
 {
 /*
 For HVM domains, Xen always triggers the event on CPU0. Because the
@@ -83,7 +83,7 @@ to CPU != 0, but we should always use vcpu_info[0]
 */
   int cpu = 0;
   vcpu_info_t *vcpu_info;
-  PXENPCI_DEVICE_DATA xpdd = (PXENPCI_DEVICE_DATA)Context;
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(WdfInterruptGetDevice(interrupt));
   shared_info_t *shared_info_area = xpdd->shared_info_area;
   xen_ulong_t evt_words;
   unsigned long evt_word;
@@ -94,12 +94,12 @@ to CPU != 0, but we should always use vcpu_info[0]
   BOOLEAN deferred = FALSE;
   int i;
 
-  if (xpdd->log_interrupts)
-  {
-    KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (cpu = %d)\n", KeGetCurrentProcessorNumber()));
-  }
+  UNREFERENCED_PARAMETER(message_id);
 
-  UNREFERENCED_PARAMETER(Interrupt);
+  if (xpdd->interrupts_masked)
+  {
+    KdPrint((__DRIVER_NAME "     unhandled interrupt\n"));
+  }
 
   for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt); i++)
   {
@@ -116,7 +116,6 @@ to CPU != 0, but we should always use vcpu_info[0]
 
   if (xpdd->interrupts_masked)
   {
-    KdPrint((__DRIVER_NAME "     unhandled interrupt\n"));
     return TRUE;
   }
   
@@ -148,7 +147,7 @@ to CPU != 0, but we should always use vcpu_info[0]
         KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
         break;
       case EVT_ACTION_TYPE_SUSPEND:
-        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_SUSPEND\n"));
+        KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_SUSPEND\n"));
         for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt); i++)
         {
           if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_IRQ)
@@ -162,6 +161,7 @@ to CPU != 0, but we should always use vcpu_info[0]
             xpdd->ev_actions[i].ServiceRoutine(xpdd->ev_actions[i].ServiceContext);
           }
         }
+        KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
         deferred = TRUE;
         break;
       default:
@@ -171,12 +171,35 @@ to CPU != 0, but we should always use vcpu_info[0]
     }
   }
 
-  if (xpdd->log_interrupts)
-  {
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-  }
-
   return handled && !deferred;
+}
+
+NTSTATUS
+EvtChn_EvtInterruptEnable(WDFINTERRUPT interrupt, WDFDEVICE device)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  
+  UNREFERENCED_PARAMETER(interrupt);
+  UNREFERENCED_PARAMETER(device);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+
+  return status;
+}
+
+NTSTATUS
+EvtChn_EvtInterruptDisable(WDFINTERRUPT interrupt, WDFDEVICE device)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  
+  UNREFERENCED_PARAMETER(interrupt);
+  UNREFERENCED_PARAMETER(device);
+
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+
+  return status;
 }
 
 NTSTATUS
@@ -346,9 +369,20 @@ EvtChn_Close(PVOID Context, evtchn_port_t port )
   return;
 }
 
+VOID
+EvtChn_PdoEventChannelDpc(PVOID context)
+{
+  PXENPCI_DEVICE_DATA xpdd = context;
+  
+  FUNCTION_ENTER();
+  KeSetEvent(&xpdd->pdo_suspend_event, IO_NO_INCREMENT, FALSE);
+  FUNCTION_EXIT();
+}
+
 NTSTATUS
 EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 {
+  ULONGLONG result;
   int i;
 
   FUNCTION_ENTER();
@@ -374,16 +408,18 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 
   KeMemoryBarrier();
 
-  hvm_set_parameter(xpdd, HVM_PARAM_CALLBACK_IRQ, xpdd->irq_number);
+  result = hvm_set_parameter(xpdd, HVM_PARAM_CALLBACK_IRQ, xpdd->irq_number);
+  KdPrint((__DRIVER_NAME "     hvm_set_parameter(HVM_PARAM_CALLBACK_IRQ, %d) = %d\n", xpdd->irq_number, (ULONG)result));
 
   for (i = 0; i < MAX_VIRT_CPUS; i++)
     xpdd->shared_info_area->vcpu_info[i].evtchn_upcall_mask = 0;  
   xpdd->interrupts_masked = FALSE;
   KeMemoryBarrier();
 
+  KeInitializeEvent(&xpdd->pdo_suspend_event, SynchronizationEvent, FALSE);
   xpdd->pdo_event_channel = EvtChn_AllocIpi(xpdd, 0);
-  xpdd->ev_actions[xpdd->pdo_event_channel].type = EVT_ACTION_TYPE_SUSPEND;
-  EvtChn_Unmask(xpdd, xpdd->pdo_event_channel);
+  EvtChn_BindDpc(xpdd, xpdd->pdo_event_channel, EvtChn_PdoEventChannelDpc, xpdd);
+  xpdd->ev_actions[xpdd->pdo_event_channel].type = EVT_ACTION_TYPE_SUSPEND; /* override dpc type */
   
   KdPrint((__DRIVER_NAME "     pdo_event_channel = %d\n", xpdd->pdo_event_channel));
 
@@ -393,36 +429,7 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 }
 
 NTSTATUS
-EvtChn_ConnectInterrupt(PXENPCI_DEVICE_DATA xpdd)
-{
-  NTSTATUS status = STATUS_SUCCESS;
-  
-  ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
-
-  status = IoConnectInterrupt(
-    &xpdd->interrupt,
-  	EvtChn_Interrupt,
-  	xpdd,
-  	NULL,
-  	xpdd->irq_vector,
-  	xpdd->irq_level,
-  	xpdd->irq_level,
-  	xpdd->irq_mode, //LevelSensitive,
-  	TRUE,
-  	xpdd->irq_affinity,
-  	FALSE);
-  
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     IoConnectInterrupt failed 0x%08x\n", status));
-    return status;
-  }
-
-  return status;
-}
-
-NTSTATUS
-EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd)
+EvtChn_Suspend(PXENPCI_DEVICE_DATA xpdd)
 {
   int i;
 //  LARGE_INTEGER wait_time;
@@ -445,4 +452,10 @@ EvtChn_Shutdown(PXENPCI_DEVICE_DATA xpdd)
 #endif
 
   return STATUS_SUCCESS;
+}
+
+NTSTATUS
+EvtChn_Resume(PXENPCI_DEVICE_DATA xpdd)
+{
+  return EvtChn_Init(xpdd);
 }

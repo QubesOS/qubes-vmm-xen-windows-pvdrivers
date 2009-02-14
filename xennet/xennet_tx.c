@@ -36,24 +36,26 @@ put_id_on_freelist(struct xennet_info *xi, USHORT id)
   xi->tx_id_free++;
 }
 
-static shared_buffer_t *
-get_sb_from_freelist(struct xennet_info *xi)
+static __inline shared_buffer_t *
+get_hb_from_freelist(struct xennet_info *xi)
 {
-  if (xi->tx_sb_free == 0)
+  shared_buffer_t *hb;
+  
+  if (xi->tx_hb_free == 0)
   {
-    KdPrint((__DRIVER_NAME "     Out of sb's\n"));    
     return NULL;
   }
-  xi->tx_sb_free--;
+  xi->tx_hb_free--;
 
-  return &xi->tx_sbs[xi->tx_sb_list[xi->tx_sb_free]];
+  hb = &xi->tx_hbs[xi->tx_hb_list[xi->tx_hb_free]];
+  return hb;
 }
 
-static VOID
-put_sb_on_freelist(struct xennet_info *xi, shared_buffer_t *sb)
+static __inline VOID
+put_hb_on_freelist(struct xennet_info *xi, shared_buffer_t *hb)
 {
-  xi->tx_sb_list[xi->tx_sb_free] = sb->id;
-  xi->tx_sb_free++;
+  xi->tx_hb_list[xi->tx_hb_free] = hb->id;
+  xi->tx_hb_free++;
 }
 
 #define SWAP_USHORT(x) (USHORT)((((x & 0xFF) << 8)|((x >> 8) & 0xFF)))
@@ -80,24 +82,13 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   ULONG sg_element = 0;
   ULONG sg_offset = 0;
   ULONG parse_result;
-  shared_buffer_t *shared_buf = NULL;
-  ULONG i;
+  shared_buffer_t *header_buf = NULL;
   
   //FUNCTION_ENTER();
   
   XenNet_ClearPacketInfo(&pi);
-  NdisQueryPacket(packet, NULL, (PUINT)&pi.mdl_count, &pi.mdls[0], (PUINT)&pi.total_length);
+  NdisQueryPacket(packet, NULL, (PUINT)&pi.mdl_count, &pi.first_buffer, (PUINT)&pi.total_length);
   //KdPrint((__DRIVER_NAME "     A - packet = %p, mdl_count = %d, total_length = %d\n", packet, pi.mdl_count, pi.total_length));
-  for (i = 1; i < pi.mdl_count; i++)
-  {
-    NdisGetNextBuffer(pi.mdls[i - 1], &pi.mdls[i])
-  }
-#if 0
-  for (i = 0; i < pi.mdl_count; i++)
-  {
-    KdPrint((__DRIVER_NAME "     Aa - mdl[%d] va = %p, length = %d\n", i, MmGetMdlVirtualAddress(pi.mdls[i]), MmGetMdlByteCount(pi.mdls[i])));
-  }
-#endif
 
   parse_result = XenNet_ParsePacketHeader(&pi);  
   //KdPrint((__DRIVER_NAME "     B\n"));
@@ -174,6 +165,20 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     return FALSE;
   }
 
+  sg = (PSCATTER_GATHER_LIST)NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
+  ASSERT(sg != NULL);
+
+  if (ndis_lso || (pi.header_length && pi.header_length > sg->Elements[sg_element].Length && pi.header == pi.header_data))
+  {
+    // why is a hb being used for icmp???
+    header_buf = get_hb_from_freelist(xi);
+    if (!header_buf)
+    {
+      KdPrint((__DRIVER_NAME "     Full on send - no free hb's\n"));
+      return FALSE;
+    }
+  }
+  
   if (ndis_lso)
   {    
     if (parse_result == PARSE_OK)
@@ -195,14 +200,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     }
   }
 
-  sg = (PSCATTER_GATHER_LIST)NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
-  ASSERT(sg != NULL);
-#if 0
-  for (i = 0; i < sg->NumberOfElements; i++)
-  {
-    KdPrint((__DRIVER_NAME "     Ba - sg->Elements[%d] length = %d\n", i, sg->Elements[i].Length));
-  }
-#endif
 /*
 * See io/netif.h. Must put (A) 1st request, then (B) optional extra_info, then
 * (C) rest of requests on the ring. Only (A) has csum flags.
@@ -213,16 +210,16 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 // if we coalesced the header then we want to put that on first, otherwise we put on the first sg element
   tx0 = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
   tx0->id = 0xFFFF;
-  if (ndis_lso || (pi.header_length && pi.header_length > sg->Elements[sg_element].Length && pi.header == pi.header_data))
+  if (header_buf)
   {
     ULONG remaining = pi.header_length;
-    ASSERT(pi.header_length < TX_SHARED_BUFFER_SIZE);
+    ASSERT(pi.header_length < TX_HEADER_BUFFER_SIZE);
     //KdPrint((__DRIVER_NAME "     D - header_length = %d\n", pi.header_length));
-    shared_buf = get_sb_from_freelist(xi);
-    memcpy(shared_buf->virtual, pi.header, pi.header_length);
-    XenNet_SumIpHeader(shared_buf->virtual, pi.ip4_header_length);
-    tx0->gref = (grant_ref_t)(shared_buf->logical.QuadPart >> PAGE_SHIFT);
-    tx0->offset = (USHORT)shared_buf->logical.LowPart & (PAGE_SIZE - 1);
+    memcpy(header_buf->virtual, pi.header, pi.header_length);
+    /* even though we haven't reported that we are capable of it, LSO demands that we calculate the IP Header checksum */
+    XenNet_SumIpHeader(header_buf->virtual, pi.ip4_header_length);
+    tx0->gref = (grant_ref_t)(header_buf->logical.QuadPart >> PAGE_SHIFT);
+    tx0->offset = (USHORT)header_buf->logical.LowPart & (PAGE_SIZE - 1);
     tx0->size = (USHORT)pi.header_length;
     ASSERT(tx0->offset + tx0->size <= PAGE_SIZE);
     ASSERT(tx0->size);
@@ -297,7 +294,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   txN->id = get_id_from_freelist(xi);
 //KdPrint((__DRIVER_NAME "     send - id = %d\n", tx0->id));
   xi->tx_shadows[txN->id].packet = packet;
-  xi->tx_shadows[txN->id].sb = shared_buf;
+  xi->tx_shadows[txN->id].hb = header_buf;
 
   if (ndis_lso)
   {
@@ -322,6 +319,9 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   int notify;
 
   //FUNCTION_ENTER();
+
+  if (xi->device_state->suspend_resume_state_pdo != SR_STATE_RUNNING)
+    return;
 
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   /* if empty, the above returns head*, not NULL */
@@ -377,10 +377,10 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
       if (txrsp->status == NETIF_RSP_NULL || txrsp->id == 0xFFFF)
         continue;
 
-      if (xi->tx_shadows[txrsp->id].sb)
+      if (xi->tx_shadows[txrsp->id].hb)
       {
-        put_sb_on_freelist(xi, xi->tx_shadows[txrsp->id].sb);
-        xi->tx_shadows[txrsp->id].sb = NULL;
+        put_hb_on_freelist(xi, xi->tx_shadows[txrsp->id].hb);
+        xi->tx_shadows[txrsp->id].hb = NULL;
       }
       
       if (xi->tx_shadows[txrsp->id].packet)
@@ -415,6 +415,17 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_SUCCESS);
   }
 //KdPrint((__DRIVER_NAME "     packets_outstanding = %d\n", packets_outstanding));
+
+  if (xi->device_state->suspend_resume_state_pdo == SR_STATE_SUSPENDING
+    && xi->device_state->suspend_resume_state_fdo != SR_STATE_SUSPENDING
+    && xi->tx_id_free == NET_TX_RING_SIZE)
+  {
+    KdPrint((__DRIVER_NAME "     Setting SR_STATE_SUSPENDING\n"));
+    xi->device_state->suspend_resume_state_fdo = SR_STATE_SUSPENDING;
+    KdPrint((__DRIVER_NAME "     Notifying event channel %d\n", xi->device_state->pdo_event_channel));
+    xi->vectors.EvtChn_Notify(xi->vectors.context, xi->device_state->pdo_event_channel);
+  }
+
   //FUNCTION_EXIT();
 }
 
@@ -457,8 +468,7 @@ XenNet_SendPackets(
     InsertTailList(&xi->tx_waiting_pkt_list, entry);
   }
 
-  if (xi->device_state->resume_state == RESUME_STATE_RUNNING)
-    XenNet_SendQueuedPackets(xi);
+  XenNet_SendQueuedPackets(xi);
 
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
   
@@ -469,26 +479,10 @@ VOID
 XenNet_TxResumeStart(xennet_info_t *xi)
 {
   UNREFERENCED_PARAMETER(xi);
-#if 0
-  int i;
-  KIRQL old_irql;
 
-  KeAcquireSpinLock(&xi->tx_lock, &old_irql);
-  for (i = 0; i < NET_TX_RING_SIZE; i++)
-  {
-    if (xi->tx_mdls[i])
-    {
-      NdisAdjustBufferLength(xi->tx_mdls[i], PAGE_SIZE);
-      XenFreelist_PutPage(&xi->tx_freelist, xi->tx_mdls[i]);
-      xi->tx_mdls[i] = NULL;
-    }
-  }
-  xi->tx_id_free = 0;
-  xi->tx_no_id_used = 0;
-  for (i = 0; i < NET_TX_RING_SIZE; i++)
-    put_id_on_freelist(xi, (USHORT)i);
-  KeReleaseSpinLock(&xi->tx_lock, old_irql);
-#endif
+  FUNCTION_ENTER();
+    /* nothing to do here - all packets were already sent */
+  FUNCTION_EXIT();
 }
 
 VOID
@@ -496,9 +490,13 @@ XenNet_TxResumeEnd(xennet_info_t *xi)
 {
   KIRQL old_irql;
 
+  FUNCTION_ENTER();
+
   KeAcquireSpinLock(&xi->tx_lock, &old_irql);
   XenNet_SendQueuedPackets(xi);
   KeReleaseSpinLock(&xi->tx_lock, old_irql);
+
+  FUNCTION_EXIT();
 }
 
 BOOLEAN
@@ -514,7 +512,7 @@ XenNet_TxInit(xennet_info_t *xi)
   //KeSetImportanceDpc(&xi->tx_dpc, HighImportance);
   InitializeListHead(&xi->tx_waiting_pkt_list);
 
-  NdisAllocateBufferPool(&status, &xi->tx_buffer_pool, TX_SHARED_BUFFERS);
+  NdisAllocateBufferPool(&status, &xi->tx_buffer_pool, TX_HEADER_BUFFERS);
   if (status != NDIS_STATUS_SUCCESS)
   {
     KdPrint(("NdisAllocateBufferPool failed with 0x%x\n", status));
@@ -523,19 +521,19 @@ XenNet_TxInit(xennet_info_t *xi)
 
   xi->tx_ring_free = NET_TX_RING_SIZE;
 
-  for (i = 0; i < TX_SHARED_BUFFERS / (PAGE_SIZE / TX_SHARED_BUFFER_SIZE); i++)
+  for (i = 0; i < TX_HEADER_BUFFERS / (PAGE_SIZE / TX_HEADER_BUFFER_SIZE); i++)
   {
     PVOID virtual;
     NDIS_PHYSICAL_ADDRESS logical;
     NdisMAllocateSharedMemory(xi->adapter_handle, PAGE_SIZE, TRUE, &virtual, &logical);
-    KdPrint((__DRIVER_NAME "     Allocated SharedMemory at %p\n", virtual));
-    for (j = 0; j < PAGE_SIZE / TX_SHARED_BUFFER_SIZE; j++)
+    //KdPrint((__DRIVER_NAME "     Allocated SharedMemory at %p\n", virtual));
+    for (j = 0; j < PAGE_SIZE / TX_HEADER_BUFFER_SIZE; j++)
     {
-      ULONG index = i * (PAGE_SIZE / TX_SHARED_BUFFER_SIZE) + j;
-      xi->tx_sbs[index].id = index;
-      xi->tx_sbs[index].virtual = (PUCHAR)virtual + j * TX_SHARED_BUFFER_SIZE;
-      xi->tx_sbs[index].logical.QuadPart = logical.QuadPart + j * TX_SHARED_BUFFER_SIZE;
-      put_sb_on_freelist(xi, &xi->tx_sbs[index]);
+      USHORT index = i * (PAGE_SIZE / TX_HEADER_BUFFER_SIZE) + j;
+      xi->tx_hbs[index].id = index;
+      xi->tx_hbs[index].virtual = (PUCHAR)virtual + j * TX_HEADER_BUFFER_SIZE;
+      xi->tx_hbs[index].logical.QuadPart = logical.QuadPart + j * TX_HEADER_BUFFER_SIZE;
+      put_hb_on_freelist(xi, &xi->tx_hbs[index]);
     }
   }
 

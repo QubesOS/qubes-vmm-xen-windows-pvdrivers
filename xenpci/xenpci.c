@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define SHUTDOWN_PATH "control/shutdown"
 #define BALLOON_PATH "memory/target"
 
+#if 0
 #ifdef ALLOC_PRAGMA
 DRIVER_INITIALIZE DriverEntry;
 #pragma alloc_text (INIT, DriverEntry)
@@ -164,22 +165,109 @@ XenPci_Dummy(PDEVICE_OBJECT device_object, PIRP irp)
   
   return status;
 }
+#endif
 
-static DDKAPI NTSTATUS
-XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObject)
+static NTSTATUS
+XenPci_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
 {
   NTSTATUS status;
-  PDEVICE_OBJECT fdo = NULL;
+//  PDEVICE_OBJECT fdo = NULL;
 //  PNP_BUS_INFORMATION busInfo;
 //  DECLARE_CONST_UNICODE_STRING(DeviceName, L"\\Device\\XenShutdown");
 //  DECLARE_CONST_UNICODE_STRING(SymbolicName, L"\\DosDevices\\XenShutdown");
-//  WDFDEVICE Device;
+  WDF_CHILD_LIST_CONFIG child_list_config;
+  WDFDEVICE device;
   PXENPCI_DEVICE_DATA xpdd;
   UNICODE_STRING reference;
-  //PWSTR InterfaceList;
+  WDF_OBJECT_ATTRIBUTES device_attributes;
+  PNP_BUS_INFORMATION pbi;
+  WDF_PNPPOWER_EVENT_CALLBACKS pnp_power_callbacks;
+  WDF_INTERRUPT_CONFIG interrupt_config;
+  WDF_OBJECT_ATTRIBUTES file_attributes;
+  WDF_FILEOBJECT_CONFIG file_config;
+  WDF_IO_QUEUE_CONFIG queue_config;
+  
+  UNREFERENCED_PARAMETER(driver);
 
   FUNCTION_ENTER();
 
+  WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp_power_callbacks);
+  pnp_power_callbacks.EvtDeviceD0Entry = XenPci_EvtDeviceD0Entry;
+  pnp_power_callbacks.EvtDeviceD0EntryPostInterruptsEnabled = XenPci_EvtDeviceD0EntryPostInterruptsEnabled;
+  pnp_power_callbacks.EvtDeviceD0Exit = XenPci_EvtDeviceD0Exit;
+  pnp_power_callbacks.EvtDeviceD0ExitPreInterruptsDisabled = XenPci_EvtDeviceD0ExitPreInterruptsDisabled;
+  pnp_power_callbacks.EvtDevicePrepareHardware = XenPci_EvtDevicePrepareHardware;
+  pnp_power_callbacks.EvtDeviceReleaseHardware = XenPci_EvtDeviceReleaseHardware;
+  WdfDeviceInitSetPnpPowerEventCallbacks(device_init, &pnp_power_callbacks);
+
+  WdfDeviceInitSetDeviceType(device_init, FILE_DEVICE_BUS_EXTENDER);
+  WdfDeviceInitSetExclusive(device_init, FALSE);
+
+  WDF_CHILD_LIST_CONFIG_INIT(&child_list_config, sizeof(XENPCI_PDO_IDENTIFICATION_DESCRIPTION), XenPci_EvtChildListCreateDevice);
+  child_list_config.EvtChildListScanForChildren = XenPci_EvtChildListScanForChildren;
+  WdfFdoInitSetDefaultChildListConfig(device_init, &child_list_config, WDF_NO_OBJECT_ATTRIBUTES);
+
+  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&file_attributes, XENPCI_DEVICE_INTERFACE_DATA);
+  WDF_FILEOBJECT_CONFIG_INIT(&file_config, XenPci_EvtDeviceFileCreate, XenPci_EvtFileClose, XenPci_EvtFileCleanup);
+  WdfDeviceInitSetFileObjectConfig(device_init, &file_config, &file_attributes);
+  
+  WdfDeviceInitSetIoType(device_init, WdfDeviceIoBuffered);
+  
+  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&device_attributes, XENPCI_DEVICE_DATA);
+  status = WdfDeviceCreate(&device_init, &device_attributes, &device);
+  if (!NT_SUCCESS(status)) {
+      KdPrint(("Error creating device 0x%x\n", status));
+      return status;
+  }
+
+  xpdd = GetXpdd(device);
+
+  WdfDeviceSetSpecialFileSupport(device, WdfSpecialFilePaging, TRUE);
+  WdfDeviceSetSpecialFileSupport(device, WdfSpecialFileHibernation, TRUE);
+  WdfDeviceSetSpecialFileSupport(device, WdfSpecialFileDump, TRUE);
+
+  WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queue_config, WdfIoQueueDispatchParallel);
+  queue_config.EvtIoRead = XenPci_EvtIoRead;
+  queue_config.EvtIoWrite = XenPci_EvtIoWrite;
+  status = WdfIoQueueCreate(device, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &xpdd->io_queue);
+  if (!NT_SUCCESS(status)) {
+      KdPrint(("Error creating queue 0x%x\n", status));
+      return status;
+  }
+  
+  WDF_INTERRUPT_CONFIG_INIT(&interrupt_config, EvtChn_EvtInterruptIsr, NULL);
+  interrupt_config.EvtInterruptEnable  = EvtChn_EvtInterruptEnable;
+  interrupt_config.EvtInterruptDisable = EvtChn_EvtInterruptDisable;
+
+  status = WdfInterruptCreate(device, &interrupt_config, WDF_NO_OBJECT_ATTRIBUTES, &xpdd->interrupt);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Error creating interrupt 0x%x\n", status));
+    return status;
+  }
+  
+  RtlInitUnicodeString(&reference, L"xenbus");
+  status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_XENBUS, &reference);
+  if (!NT_SUCCESS(status)) {
+      KdPrint(("Error registering device interface 0x%x\n", status));
+      return status;
+  }
+
+  pbi.BusTypeGuid = GUID_BUS_TYPE_XEN;
+  pbi.LegacyBusType = PNPBus;
+  pbi.BusNumber = 0;
+  WdfDeviceSetBusInformationForChildren(device, &pbi);
+
+#if 0
+  xpdd->shutdown_prod = 0;
+  xpdd->shutdown_cons = 0;
+  KeInitializeSpinLock(&xpdd->shutdown_ring_lock);
+#endif
+
+  FUNCTION_EXIT();
+  return status;
+  
+#if 0                                
   status = IoCreateDevice(DriverObject,
     sizeof(XENPCI_DEVICE_DATA),
     NULL,
@@ -254,103 +342,53 @@ XenPci_AddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObjec
 
   FUNCTION_EXIT();
   return status;
+#endif
 }
 
 ULONG qemu_filtered;
+ULONG qemu_filtered_by_qemu;
 ULONG qemu_protocol_version;
 ULONG tpr_patch_requested;
 extern PULONG InitSafeBootMode;
 
-static VOID
-TestStuff()
+VOID
+XenPci_HideQemuDevices()
 {
-  int j;
-  int i;
-  PVOID page, page2;
-  PMDL mdl;
-  LARGE_INTEGER start_time, end_time;
-  KIRQL old_irql;
-  KSPIN_LOCK lock;
-  NPAGED_LOOKASIDE_LIST la_list;
-
-  for (j = 0; j < 10; j++)
+  qemu_filtered_by_qemu = FALSE;
+  if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0x49d2)
   {
-    KeQuerySystemTime(&start_time);
-    for (i = 0; i < 1000000; i++)
+    qemu_protocol_version = READ_PORT_UCHAR(XEN_IOPORT_VERSION);
+    KdPrint((__DRIVER_NAME "     Version = %d\n", qemu_protocol_version));
+    switch(qemu_protocol_version)
     {
-      page = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
-      page2 = ExAllocatePoolWithTag(NonPagedPool, sizeof(mdl) + 64, XENPCI_POOL_TAG);
-      ExFreePoolWithTag(page, XENPCI_POOL_TAG);
-      ExFreePoolWithTag(page2, XENPCI_POOL_TAG);
+    case 1:
+      WRITE_PORT_USHORT(XEN_IOPORT_PRODUCT, XEN_PV_PRODUCT_NUMBER);
+      WRITE_PORT_ULONG(XEN_IOPORT_BUILD, XEN_PV_PRODUCT_BUILD);
+      if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) != 0x49d2)
+      {
+        KdPrint((__DRIVER_NAME "     Blacklisted\n"));
+        break;
+      }
+      /* fall through */
+    case 0:
+      qemu_filtered = TRUE;
+      qemu_filtered_by_qemu = TRUE;
+      WRITE_PORT_USHORT(XEN_IOPORT_DEVICE_MASK, QEMU_UNPLUG_ALL_IDE_DISKS|QEMU_UNPLUG_ALL_NICS);
+      KdPrint((__DRIVER_NAME "     Disabled qemu devices\n"));
+      break;
+    default:
+      KdPrint((__DRIVER_NAME "     Unknown qemu version %d\n", qemu_protocol_version));
+      break;
     }
-    KeQuerySystemTime(&end_time);
-    KdPrint(("ExAllocatePoolWithTag+ExFreePoolWithTag ran in %d ms\n", (end_time.QuadPart - start_time.QuadPart) / 10000));
   }
-  for (j = 0; j < 10; j++)
-  {
-    KeQuerySystemTime(&start_time);
-    for (i = 0; i < 1000000; i++)
-    {
-      mdl = AllocatePage();
-      FreePages(mdl);
-    }
-    KeQuerySystemTime(&end_time);
-    KdPrint(("AllocatePage+FreePages ran in %d ms\n", (end_time.QuadPart - start_time.QuadPart) / 10000));
-  }
-  KeInitializeSpinLock(&lock);
-  for (j = 0; j < 10; j++)
-  {
-    KeRaiseIrql(DISPATCH_LEVEL, &old_irql);
-    KeQuerySystemTime(&start_time);
-    for (i = 0; i < 1000000; i++)
-    {
-      KeAcquireSpinLockAtDpcLevel(&lock);
-      KeReleaseSpinLockFromDpcLevel(&lock);
-      KeAcquireSpinLockAtDpcLevel(&lock);
-      KeReleaseSpinLockFromDpcLevel(&lock);
-    }
-    KeQuerySystemTime(&end_time);
-    KeLowerIrql(old_irql);
-    KdPrint(("KeAcquireSpinLockAtDpcLevel+KeReleaseSpinLockFromDpcLevel x 2 ran in %d ms\n", (end_time.QuadPart - start_time.QuadPart) / 10000));
-  }
-  
-  ExInitializeNPagedLookasideList(&la_list, NULL, NULL, 0, PAGE_SIZE, XENPCI_POOL_TAG, 0);
-  for (j = 0; j < 10; j++)
-  {
-    KeRaiseIrql(DISPATCH_LEVEL, &old_irql);
-    KeQuerySystemTime(&start_time);
-    for (i = 0; i < 1000000; i++)
-    {
-      page = ExAllocateFromNPagedLookasideList(&la_list);
-      page2 = ExAllocateFromNPagedLookasideList(&la_list);
-      ExFreeToNPagedLookasideList(&la_list, page);
-      ExFreeToNPagedLookasideList(&la_list, page2);
-    }
-    KeQuerySystemTime(&end_time);
-    KeLowerIrql(old_irql);
-    KdPrint(("ExAllocateFromNPagedLookasideList+ExFreeToNPagedLookasideList ran in %d ms\n", (end_time.QuadPart - start_time.QuadPart) / 10000));
-  }
-  ExDeleteNPagedLookasideList(&la_list);
-
-    for (j = 0; j < 10; j++)
-  {
-    KeRaiseIrql(DISPATCH_LEVEL, &old_irql);
-    KeQuerySystemTime(&start_time);
-    for (i = 0; i < 1000000; i++)
-    {
-      KeMemoryBarrier();
-    }
-    KeQuerySystemTime(&end_time);
-    KeLowerIrql(old_irql);
-    KdPrint(("'Nothing ran in %d ms\n", (end_time.QuadPart - start_time.QuadPart) / 10000));
-  }
-
 }
 
-NTSTATUS DDKAPI
+NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
   NTSTATUS status = STATUS_SUCCESS;
+  WDF_DRIVER_CONFIG config;
+  WDFDRIVER driver;
   PCONFIGURATION_INFORMATION conf_info;
   WCHAR *SystemStartOptions;
   UNICODE_STRING RegKeyName;
@@ -385,7 +423,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   KeyPartialValue = (PKEY_VALUE_PARTIAL_INFORMATION)Buf;
   SystemStartOptions = (WCHAR *)KeyPartialValue->Data;
 
-  KdPrint((__DRIVER_NAME "     SystemStartOptions = %s\n", SystemStartOptions));
+  KdPrint((__DRIVER_NAME "     SystemStartOptions = %S\n", SystemStartOptions));
   
   if (wcsstr(SystemStartOptions, L"PATCHTPR"))
   {
@@ -401,35 +439,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
       && !*InitSafeBootMode)
   {
     /* see if the qemu method of disabling the PCI devices exists */
-    if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0x49d2)
-    {
-      qemu_protocol_version = READ_PORT_UCHAR(XEN_IOPORT_VERSION);
-      KdPrint((__DRIVER_NAME "     Version = %d\n", qemu_protocol_version));
-      switch(qemu_protocol_version)
-      {
-      case 1:
-        WRITE_PORT_USHORT(XEN_IOPORT_PRODUCT, XEN_PV_PRODUCT_NUMBER);
-        WRITE_PORT_ULONG(XEN_IOPORT_BUILD, XEN_PV_PRODUCT_BUILD);
-        if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) != 0x49d2)
-        {
-          KdPrint((__DRIVER_NAME "     Blacklisted\n"));
-          break;
-        }
-        /* fall through */
-      case 0:
-        qemu_filtered = TRUE;
-        WRITE_PORT_USHORT(XEN_IOPORT_DEVICE_MASK, QEMU_UNPLUG_ALL_IDE_DISKS|QEMU_UNPLUG_ALL_NICS);
-        KdPrint((__DRIVER_NAME "     Disabled qemu devices\n"));
-        break;
-      default:
-        KdPrint((__DRIVER_NAME "     Unknown qemu version %d\n", qemu_protocol_version));
-        break;
-      }
-    }
-    else
-    {
-      KdPrint((__DRIVER_NAME "     Missing XEN signature\n"));
-    }
+    XenPci_HideQemuDevices();
     /* if not, tell the filter to deny the pci devices their resources */
     if (!qemu_filtered)
     {
@@ -451,6 +461,14 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     }
   }
 
+  WDF_DRIVER_CONFIG_INIT(&config, XenPci_EvtDeviceAdd);
+  status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, &driver);
+
+  if (!NT_SUCCESS(status)) {
+    KdPrint( ("WdfDriverCreate failed with status 0x%x\n", status));
+  }
+
+#if 0
   DriverObject->DriverExtension->AddDevice = XenPci_AddDevice;
   DriverObject->MajorFunction[IRP_MJ_PNP] = XenPci_Pnp;
   DriverObject->MajorFunction[IRP_MJ_POWER] = XenPci_Power;
@@ -461,6 +479,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   DriverObject->MajorFunction[IRP_MJ_READ] = XenPci_Irp_Read;
   DriverObject->MajorFunction[IRP_MJ_WRITE] = XenPci_Irp_Write;
   DriverObject->MajorFunction[IRP_MJ_SYSTEM_CONTROL] = XenPci_SystemControl;
+#endif
 
   FUNCTION_EXIT();
 
