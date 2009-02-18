@@ -19,7 +19,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 
-
 typedef struct {
   LIST_ENTRY entry;
   PVOID data;
@@ -69,7 +68,7 @@ XenPci_ProcessReadRequest(WDFQUEUE queue, WDFREQUEST request, size_t length)
   NTSTATUS status;
   WDFFILEOBJECT file_object = WdfRequestGetFileObject(request);
   PXENPCI_DEVICE_INTERFACE_DATA xpdid = GetXpdid(file_object);
-  ULONG dst_length = length;
+  ULONG dst_length = (ULONG)length;
   ULONG dst_offset = 0;
   ULONG copy_length;
   xenbus_read_queue_item_t *list_entry;
@@ -94,8 +93,8 @@ XenPci_ProcessReadRequest(WDFQUEUE queue, WDFREQUEST request, size_t length)
     dst_offset += copy_length;
     if (list_entry->offset == list_entry->length)
     {
-      // free the list entry
-      // free the data
+      ExFreePoolWithTag(list_entry->data, XENPCI_POOL_TAG);
+      ExFreePoolWithTag(list_entry, XENPCI_POOL_TAG);
     }
     else
     {
@@ -117,19 +116,23 @@ XenPci_IoWatch(char *path, PVOID context)
   KIRQL old_irql;
   struct xsd_sockmsg *rep;
   xenbus_read_queue_item_t *list_entry;
+  size_t remaining;
   WDFREQUEST request;
 
   FUNCTION_ENTER();
   
   KeAcquireSpinLock(&xpdid->lock, &old_irql);
   
+  remaining = sizeof(struct xsd_sockmsg) + strlen(path) + 1 + strlen(watch_context->token) + 1;
   rep = ExAllocatePoolWithTag(NonPagedPool, sizeof(struct xsd_sockmsg) + strlen(path) + 1 + strlen(watch_context->token) + 1, XENPCI_POOL_TAG);
   rep->type = XS_WATCH_EVENT;
   rep->req_id = 0;
   rep->tx_id = 0;
-  rep->len = strlen(path) + 1 + strlen(watch_context->token) + 1;
-  strcpy((PCHAR)(rep + 1), path);
-  strcpy((PCHAR)(rep + 1) + strlen(path) + 1, watch_context->token);
+  rep->len = (ULONG)(strlen(path) + 1 + strlen(watch_context->token) + 1);
+  remaining -= sizeof(struct xsd_sockmsg);
+  RtlStringCbCopyA((PCHAR)(rep + 1), remaining, path);
+  remaining -= strlen(path) + 1;
+  RtlStringCbCopyA((PCHAR)(rep + 1) + strlen(path) + 1, remaining, watch_context->token);
   
   list_entry = (xenbus_read_queue_item_t *)ExAllocatePoolWithTag(NonPagedPool, sizeof(xenbus_read_queue_item_t), XENPCI_POOL_TAG);
   list_entry->data = rep;
@@ -207,6 +210,8 @@ XenPci_EvtIoRead(WDFQUEUE queue, WDFREQUEST request, size_t length)
   PXENPCI_DEVICE_INTERFACE_DATA xpdid = GetXpdid(file_object);
   KIRQL old_irql;
 
+  UNREFERENCED_PARAMETER(queue);
+  
   FUNCTION_ENTER();
   status = WdfRequestForwardToIoQueue(request, xpdid->io_queue);
   if (!NT_SUCCESS(status))
@@ -266,7 +271,7 @@ XenPci_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
   ASSERT(NT_SUCCESS(status));
   
   src_ptr = (PUCHAR)buffer;
-  src_len = length;
+  src_len = (ULONG)length;
   dst_ptr = xpdid->u.buffer + xpdid->len;
   while (src_len != 0)
   {
@@ -310,10 +315,10 @@ XenPci_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
     case XS_UNWATCH:
       KeAcquireSpinLock(&xpdid->lock, &old_irql);
       watch_context = (watch_context_t *)ExAllocatePoolWithTag(NonPagedPool, sizeof(watch_context_t), XENPCI_POOL_TAG);
-      watch_path = xpdid->u.buffer + sizeof(struct xsd_sockmsg);
-      watch_token = xpdid->u.buffer + sizeof(struct xsd_sockmsg) + strlen(watch_path) + 1;
-      strcpy(watch_context->path, watch_path);
-      strcpy(watch_context->token, watch_token);
+      watch_path = (PCHAR)(xpdid->u.buffer + sizeof(struct xsd_sockmsg));
+      watch_token = (PCHAR)(xpdid->u.buffer + sizeof(struct xsd_sockmsg) + strlen(watch_path) + 1);
+      RtlStringCbCopyA(watch_context->path, ARRAY_SIZE(watch_context->path), watch_path);
+      RtlStringCbCopyA(watch_context->token, ARRAY_SIZE(watch_context->path), watch_token);
       watch_context->file_object = file_object;
       if (xpdid->u.msg.type == XS_WATCH)
         InsertTailList(&xpdid->watch_list_head, &watch_context->entry);
@@ -329,8 +334,8 @@ XenPci_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
         rep->type = XS_ERROR;
         rep->req_id = xpdid->u.msg.req_id;
         rep->tx_id = xpdid->u.msg.tx_id;
-        rep->len = strlen(msg) + 0;
-        strcpy((PCHAR)(rep + 1), msg);
+        rep->len = (ULONG)(strlen(msg) + 0);
+        RtlStringCbCopyA((PCHAR)(rep + 1), strlen(msg) + 1, msg);
         if (xpdid->u.msg.type == XS_WATCH)
           RemoveEntryList(&watch_context->entry);
       }
@@ -372,289 +377,3 @@ XenPci_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
 
   FUNCTION_EXIT();
 }
-
-#if 0
-NTSTATUS
-XenPci_Irp_Create_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
-{
-  NTSTATUS status;
-  PIO_STACK_LOCATION stack;
-  PFILE_OBJECT file;
-  device_interface_xenbus_context_t *dixc;
-  
-  FUNCTION_ENTER();
-  
-  UNREFERENCED_PARAMETER(device_object);
-  stack = IoGetCurrentIrpStackLocation(irp);
-  file = stack->FileObject;
-  dixc = (device_interface_xenbus_context_t *)ExAllocatePoolWithTag(NonPagedPool, sizeof(device_interface_xenbus_context_t), XENPCI_POOL_TAG);
-  dixc->type = DEVICE_INTERFACE_TYPE_XENBUS;
-  KeInitializeSpinLock(&dixc->lock);
-  InitializeListHead(&dixc->read_list_head);
-  dixc->len = 0;
-  file->FsContext = dixc;
-  status = STATUS_SUCCESS;    
-  dixc->pending_read_irp = NULL;
-  irp->IoStatus.Status = status;
-  IoCompleteRequest(irp, IO_NO_INCREMENT);
-  
-  FUNCTION_EXIT();
-  
-  return status;
-}
-
-NTSTATUS
-XenPci_Irp_Close_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
-{
-  PXENPCI_DEVICE_DATA xpdd;
-  NTSTATUS status;
-
-  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
-  status = STATUS_SUCCESS;    
-  irp->IoStatus.Status = status;
-  IoCompleteRequest(irp, IO_NO_INCREMENT);
-  // cleanup dixc here
-  
-  return status;
-}
-
-static NTSTATUS
-XenPci_Irp_Read_XenBus_Complete(device_interface_xenbus_context_t *dixc, PIRP irp)
-{
-  KIRQL old_irql;
-  ULONG dst_length;
-  ULONG dst_offset;
-  ULONG copy_length;
-  xenbus_read_queue_item_t *list_entry;
-  PIO_STACK_LOCATION stack;
-  NTSTATUS status;
-
-  FUNCTION_ENTER();
-  
-KdPrint((__DRIVER_NAME "     A - dixc = %p, irp = %p\n", dixc, irp));
-  stack = IoGetCurrentIrpStackLocation(irp);
-KdPrint((__DRIVER_NAME "     Aa\n"));
-  dst_length = stack->Parameters.Read.Length;
-KdPrint((__DRIVER_NAME "     B - dst_length = %d\n", dst_length));
-  dst_offset = 0;
-KdPrint((__DRIVER_NAME "     C\n"));
-  KeAcquireSpinLock(&dixc->lock, &old_irql);
-KdPrint((__DRIVER_NAME "     D"));
-  while(dst_offset < dst_length && (list_entry = (xenbus_read_queue_item_t *)RemoveHeadList(&dixc->read_list_head)) != (xenbus_read_queue_item_t *)&dixc->read_list_head)
-  {
-KdPrint((__DRIVER_NAME "     E\n"));
-    copy_length = min(list_entry->length - list_entry->offset, dst_length - dst_offset);
-    KdPrint((__DRIVER_NAME "     copying %d bytes\n", copy_length));
-    memcpy((PUCHAR)irp->AssociatedIrp.SystemBuffer + dst_offset, (PUCHAR)list_entry->data + list_entry->offset, copy_length);
-    list_entry->offset += copy_length;
-    dst_offset += copy_length;
-    if (list_entry->offset == list_entry->length)
-    {
-      // free the list entry
-      // free the data
-    }
-    else
-    {
-      InsertHeadList(&dixc->read_list_head, (PLIST_ENTRY)list_entry);
-    }      
-  }
-  KeReleaseSpinLock(&dixc->lock, old_irql);
-KdPrint((__DRIVER_NAME "     F\n"));
-  
-  if (dst_offset > 0)
-  {
-    KdPrint((__DRIVER_NAME "     completing request\n"));
-    status = STATUS_SUCCESS;
-    irp->IoStatus.Status = status;
-    irp->IoStatus.Information = dst_offset;
-    IoSetCancelRoutine(irp, NULL);
-    IoCompleteRequest(irp, IO_NO_INCREMENT);
-  }
-  else
-  {
-    KdPrint((__DRIVER_NAME "     pending request\n"));
-    status = STATUS_PENDING;
-  }
-
-  FUNCTION_EXIT();
-
-  return status;
-}
-
-static VOID
-XenPci_Irp_Read_Cancel(PDEVICE_OBJECT device_object, PIRP irp)
-{
-  PIO_STACK_LOCATION stack;
-  PFILE_OBJECT file;
-  device_interface_xenbus_context_t *dixc;
-  KIRQL old_irql;
-
-  FUNCTION_ENTER();
-
-  UNREFERENCED_PARAMETER(device_object);
-
-  stack = IoGetCurrentIrpStackLocation(irp);
-  file = stack->FileObject;
-  dixc = file->FsContext;
-  IoReleaseCancelSpinLock(irp->CancelIrql);
-  KeAcquireSpinLock(&dixc->lock, &old_irql);
-  if (irp != dixc->pending_read_irp)
-  {
-    KdPrint((__DRIVER_NAME "     Not the current irp???\n"));
-  }
-  dixc->pending_read_irp = NULL;
-  irp->IoStatus.Status = STATUS_CANCELLED;
-  irp->IoStatus.Information = 0;
-  KeReleaseSpinLock(&dixc->lock, old_irql);
-  IoCompleteRequest(irp, IO_NO_INCREMENT);
-
-  FUNCTION_EXIT();
-}
-
-NTSTATUS
-XenPci_Irp_Read_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
-{
-  NTSTATUS status;
-  PIO_STACK_LOCATION stack;
-  PFILE_OBJECT file;
-  device_interface_xenbus_context_t *dixc;
-  KIRQL old_irql;
-
-  UNREFERENCED_PARAMETER(device_object);
-
-  stack = IoGetCurrentIrpStackLocation(irp);
-  file = stack->FileObject;
-  dixc = file->FsContext;
-
-  ASSERT(!dixc->pending_read_irp);
-  
-  if (stack->Parameters.Read.Length == 0)
-  {
-    status = STATUS_SUCCESS;    
-    irp->IoStatus.Status = status;
-    irp->IoStatus.Information = 0;
-    IoCompleteRequest(irp, IO_NO_INCREMENT);
-  }
-  else 
-  {
-    status = XenPci_Irp_Read_XenBus_Complete(dixc, irp);
-    if (status == STATUS_PENDING)
-    {
-      IoMarkIrpPending(irp);
-      KeAcquireSpinLock(&dixc->lock, &old_irql);
-      dixc->pending_read_irp = irp;
-      KeReleaseSpinLock(&dixc->lock, old_irql);
-      IoSetCancelRoutine(irp, XenPci_Irp_Read_Cancel);
-    }
-  }
-  return status;
-}
-
-NTSTATUS
-XenPci_Irp_Write_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
-{
-  NTSTATUS status;
-  PIO_STACK_LOCATION stack;
-  PFILE_OBJECT file;
-  device_interface_xenbus_context_t *dixc;
-  PUCHAR src_ptr;
-  ULONG src_len;
-  PUCHAR dst_ptr;
-  ULONG copy_len;
-  struct xsd_sockmsg *rep;
-  PXENPCI_DEVICE_DATA xpdd;
-  KIRQL old_irql;
-  xenbus_read_queue_item_t *list_entry;
-  PIRP read_irp;
-  NTSTATUS read_status;
-  
-  FUNCTION_ENTER();
-  
-  xpdd = device_object->DeviceExtension;
-  stack = IoGetCurrentIrpStackLocation(irp);
-  file = stack->FileObject;
-  dixc = file->FsContext;
-  
-  KdPrint((__DRIVER_NAME "     write length = %d\n", stack->Parameters.Write.Length));
-  
-  src_ptr = (PUCHAR)irp->AssociatedIrp.SystemBuffer;
-  src_len = stack->Parameters.Write.Length;
-  dst_ptr = dixc->u.buffer + dixc->len;
-  while (src_len != 0)
-  {
-    /* get a complete msg header */
-    if (dixc->len < sizeof(dixc->u.msg))
-    {
-      copy_len = min(sizeof(dixc->u.msg) - dixc->len, src_len);
-      if (!copy_len)
-        continue;
-      memcpy(dst_ptr, src_ptr, copy_len);
-      dst_ptr += copy_len;
-      src_ptr += copy_len;
-      src_len -= copy_len;
-      dixc->len += copy_len;
-    }
-    /* exit if we can't get that */
-    if (dixc->len < sizeof(dixc->u.msg))
-      continue;
-    /* get a complete msg body */
-    if (dixc->len < sizeof(dixc->u.msg) + dixc->u.msg.len)
-    {
-      copy_len = min(sizeof(dixc->u.msg) + dixc->u.msg.len - dixc->len, src_len);
-      if (!copy_len)
-        continue;
-      memcpy(dst_ptr, src_ptr, copy_len);
-      dst_ptr += copy_len;
-      src_ptr += copy_len;
-      src_len -= copy_len;
-      dixc->len += copy_len;
-    }
-    /* exit if we can't get that */
-    if (dixc->len < sizeof(dixc->u.msg) + dixc->u.msg.len)
-    {
-      continue;
-    }
-    
-    rep = XenBus_Raw(xpdd, &dixc->u.msg);
-    KeAcquireSpinLock(&dixc->lock, &old_irql);
-    list_entry = (xenbus_read_queue_item_t *)ExAllocatePoolWithTag(NonPagedPool, sizeof(xenbus_read_queue_item_t), XENPCI_POOL_TAG);
-    list_entry->data = rep;
-    list_entry->length = sizeof(*rep) + rep->len;
-    list_entry->offset = 0;
-    InsertTailList(&dixc->read_list_head, (PLIST_ENTRY)list_entry);
-    read_irp = dixc->pending_read_irp;
-    dixc->pending_read_irp = NULL;
-    KeReleaseSpinLock(&dixc->lock, old_irql);
-    if (read_irp)
-    {
-      read_status = XenPci_Irp_Read_XenBus_Complete(dixc, read_irp);
-      ASSERT(read_status == STATUS_SUCCESS);
-    }
-  }
-  status = STATUS_SUCCESS;    
-  irp->IoStatus.Status = status;
-  irp->IoStatus.Information = stack->Parameters.Write.Length;
-
-  KdPrint((__DRIVER_NAME "     Information = %d\n", irp->IoStatus.Information));
-
-  IoCompleteRequest(irp, IO_NO_INCREMENT);
-
-  FUNCTION_EXIT();
-
-  return status;
-}
-
-NTSTATUS
-XenPci_Irp_Cleanup_XenBus(PDEVICE_OBJECT device_object, PIRP irp)
-{
-  PXENPCI_DEVICE_DATA xpdd;
-  NTSTATUS status;
-
-  xpdd = (PXENPCI_DEVICE_DATA)device_object->DeviceExtension;
-  status = STATUS_SUCCESS;    
-  irp->IoStatus.Status = status;
-  IoCompleteRequest(irp, IO_NO_INCREMENT);
-
-  return status;
-}
-#endif

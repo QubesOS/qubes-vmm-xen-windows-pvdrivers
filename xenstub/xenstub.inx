@@ -12,15 +12,10 @@ DefaultDestDir = 12
 ExcludeFromSelect=*
 
 [Manufacturer]
-%XenGplPv%=XenGplPv,NTx86
-%XenGplPv%=XenGplPv,NTamd64
+%XenGplPv%=XenGplPv,NT$ARCH$
+%XenGplPv%=XenGplPv,NT$ARCH$
 
-[XenGplPv.NTx86]
-%XenStub.DRVDESC.CONSOLE%=XenStub_Inst, XEN\CONSOLE
-%XenStub.DRVDESC.VFB%=XenStub_Inst, XEN\VFB
-%XenStub.DRVDESC.VKBD%=XenStub_Inst, XEN\VKBD
-
-[XenGplPv.NTamd64]
+[XenGplPv.NT$ARCH$]
 %XenStub.DRVDESC.CONSOLE%=XenStub_Inst, XEN\CONSOLE
 %XenStub.DRVDESC.VFB%=XenStub_Inst, XEN\VFB
 %XenStub.DRVDESC.VKBD%=XenStub_Inst, XEN\VKBD
@@ -34,11 +29,8 @@ xenstub.sys
 [SourceDisksFiles]
 xenstub.sys=1
 
-[SourceDisksNames.x86]
-1 = %DISK_NAME%,,,.\i386
-
-[SourceDisksNames.amd64]
-1 = %DISK_NAME%,,,.\amd64
+[SourceDisksNames]
+1 = %DISK_NAME%
 
 [XenStub_Inst.Services]
 AddService=XenStub,2,XenStub_Service 

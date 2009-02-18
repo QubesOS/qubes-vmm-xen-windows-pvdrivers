@@ -4,6 +4,8 @@ Class=System
 ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider=%XenGplPv%
 CatalogFile="XenGPLPV.cat"
+DriverPackageType=PlugAndPlay
+DriverPackageDisplayName=%XenPCI.DRVDESC%
 
 [DestinationDirs]
 DefaultDestDir = 12
@@ -12,14 +14,9 @@ DefaultDestDir = 12
 ExcludeFromSelect=*
 
 [Manufacturer]
-%XenGplPv%=XenPCI,NTx86
-%XenGplPv%=XenPCI,NTamd64
-%XenGplPv%=XenPCI
+%XenGplPv%=XenPCI,NT$ARCH$
 
-[XenPCI.NTx86]
-%XenPCI.DRVDESC%=XenPCI_Device, PCI\VEN_5853&DEV_0001
-
-[XenPCI.NTAMD64]
+[XenPCI.NT$ARCH$]
 %XenPCI.DRVDESC%=XenPCI_Device, PCI\VEN_5853&DEV_0001
 
 [XenPCI]
@@ -36,14 +33,8 @@ xenhide.sys
 xenpci.sys=1
 xenhide.sys=1
 
-[SourceDisksNames.x86]
-1 = %DISK_NAME%,,,.\i386
-
-[SourceDisksNames.amd64]
-1 = %DISK_NAME%,,,.\amd64
-
 [SourceDisksNames]
-1 = %DISK_NAME%,,,.\i386
+1 = %DISK_NAME%,,,.
 
 [XenPCI_Device.NT.Services]
 AddService=XenPCI,3,XenPCI_Service

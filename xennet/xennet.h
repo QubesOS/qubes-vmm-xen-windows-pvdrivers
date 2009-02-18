@@ -270,6 +270,9 @@ struct xennet_info
 #define TX_HEADER_BUFFER_SIZE 512
 //#define TX_HEADER_BUFFERS (NET_TX_RING_SIZE >> 2)
 #define TX_HEADER_BUFFERS (NET_TX_RING_SIZE)
+  BOOLEAN tx_shutting_down;
+  KEVENT tx_idle_event;
+  ULONG tx_outstanding;
   ULONG tx_id_free;
   USHORT tx_id_list[NET_TX_RING_SIZE];
   ULONG tx_hb_free;
@@ -305,7 +308,7 @@ struct xennet_info
   ULONG rx_min_target;
 
   /* how many packets are in the net stack atm */
-  LONG rx_outstanding;
+  ULONG rx_outstanding;
 
   /* config vars from registry */
   ULONG config_sg;

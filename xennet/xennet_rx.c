@@ -61,8 +61,6 @@ put_pb_on_freelist(struct xennet_info *xi, shared_buffer_t *pb)
   }
 }
 
-BOOLEAN ___restored = FALSE;
-
 // Called at DISPATCH_LEVEL with rx lock held
 static NDIS_STATUS
 XenNet_FillRing(struct xennet_info *xi)
@@ -102,8 +100,6 @@ XenNet_FillRing(struct xennet_info *xi)
     req->id = id;
     req->gref = (grant_ref_t)(page_buf->logical.QuadPart >> PAGE_SHIFT);
     ASSERT(req->gref != INVALID_GRANT_REF);
-    //if (___restored)
-    //  KdPrint((__DRIVER_NAME "     putting page_buf %p with id %d and gref %d and physical %p on ring at id %d\n", page_buf, page_buf->id, req->gref, page_buf->logical.LowPart, id));
   }
   KeMemoryBarrier();
   xi->rx.req_prod_pvt = req_prod + i;
@@ -910,7 +906,6 @@ XenNet_RxResumeStart(xennet_info_t *xi)
 
   FUNCTION_ENTER();
 
-  ___restored = TRUE;  
   KeAcquireSpinLock(&xi->rx_lock, &old_irql);
   XenNet_PurgeRing(xi);
   KeReleaseSpinLock(&xi->rx_lock, old_irql);
@@ -1026,6 +1021,8 @@ XenNet_RxShutdown(xennet_info_t *xi)
   packet_freelist_dispose(xi);
 
   NdisFreePacketPool(xi->rx_packet_pool);
+
+  NdisDeleteNPagedLookasideList(&xi->rx_lookaside_list);
 
   KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 

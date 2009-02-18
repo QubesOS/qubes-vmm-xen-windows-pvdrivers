@@ -36,12 +36,10 @@ DRIVER_INITIALIZE DriverEntry;
 #endif
 
 #if defined(__x86_64__)
-  #define GET_PAGE_ALIGNED(ptr) ((PVOID)(((ULONGLONG)ptr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1)))
+  #define LongLongToPtr(x) (PVOID)(x)
 #else
-  #define GET_PAGE_ALIGNED(ptr) UlongToPtr((PtrToUlong(ptr) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1))
+  #define LongLongToPtr(x) UlongToPtr(x)
 #endif
-
-#define LongLongToPtr(x) ((PVOID)(ULONG)(x))
 
 static BOOLEAN dump_mode = FALSE;
 
@@ -96,13 +94,6 @@ XenVbd_PutRequest(PXENVBD_DEVICE_DATA xvdd, blkif_request_t *req)
 {
   blkif_other_request_t *other_req;
 
-  if (dump_mode)
-  {
-    KdPrint((__DRIVER_NAME "     ring.sring->rsp_prod = %d\n", xvdd->ring.sring->rsp_prod));
-    KdPrint((__DRIVER_NAME "     ring.sring->rsp_event = %d\n", xvdd->ring.sring->rsp_event));
-    KdPrint((__DRIVER_NAME "     ring.rsp_cons = %d\n", xvdd->ring.rsp_cons));
-    KdPrint((__DRIVER_NAME "     ring.req_prod_pvt = %d\n", xvdd->ring.req_prod_pvt));
-  }
   if (!xvdd->use_other)
   {
     *RING_GET_REQUEST(&xvdd->ring, xvdd->ring.req_prod_pvt) = *req;
@@ -118,10 +109,6 @@ XenVbd_PutRequest(PXENVBD_DEVICE_DATA xvdd, blkif_request_t *req)
     memcpy(other_req->seg, req->seg, sizeof(struct blkif_request_segment) * req->nr_segments);
   }
   xvdd->ring.req_prod_pvt++;
-  //KdPrint((__DRIVER_NAME "     ring.sring->rsp_prod = %d\n", xvdd->ring.sring->rsp_prod));
-  //KdPrint((__DRIVER_NAME "     ring.sring->rsp_event = %d\n", xvdd->ring.sring->rsp_event));
-  //KdPrint((__DRIVER_NAME "     ring.rsp_cons = %d\n", xvdd->ring.rsp_cons));
-  //KdPrint((__DRIVER_NAME "     ring.req_prod_pvt = %d\n", xvdd->ring.req_prod_pvt));
 }
 
 static ULONG
@@ -408,7 +395,27 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
       PHYSICAL_ADDRESS physical_address;
       physical_address = ScsiPortGetPhysicalAddress(xvdd, srb, ptr, &length);
       offset = physical_address.LowPart & (PAGE_SIZE - 1);
+      if (offset & 511)
+      {
+        KdPrint((__DRIVER_NAME "     DataTransferLength = %d, remaining = %d, block_count = %d, offset = %d, ptr = %p, srb->DataBuffer = %p\n",
+          srb->DataTransferLength, remaining, block_count, offset, ptr, srb->DataBuffer));
+        ptr = srb->DataBuffer;
+        block_count = decode_cdb_length(srb);;
+        block_count *= xvdd->bytes_per_sector / 512;
+        remaining = block_count * 512;
+        while (remaining > 0)
+        {
+          physical_address = ScsiPortGetPhysicalAddress(xvdd, srb, ptr, &length);
+          KdPrint((__DRIVER_NAME "     ptr = %p, physical_address = %08x:%08x, length = %d\n",
+            ptr, physical_address.HighPart, physical_address.LowPart, length));
+          remaining -= length;
+          ptr += length;
+          KdPrint((__DRIVER_NAME "     remaining = %d\n", remaining));
+        }
+      }
+      
       ASSERT((offset & 511) == 0);
+      ASSERT((length & 511) == 0);
       //length = min(PAGE_SIZE - offset, remaining);
       //KdPrint((__DRIVER_NAME "     length(a) = %d\n", length));
       shadow->req.seg[shadow->req.nr_segments].gref = (grant_ref_t)(physical_address.QuadPart >> PAGE_SHIFT);
@@ -873,8 +880,6 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         ScsiPortNotification(NextRequest, DeviceExtension);
         break;
       case 2:
-        if (dump_mode)
-          KdPrint((__DRIVER_NAME "     rep->id = %d\n", rep->id));
         shadow = &xvdd->shadows[rep->id];
         srb = shadow->srb;
         ASSERT(srb != NULL);
@@ -938,10 +943,6 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     }
     FUNCTION_EXIT();
   }
-  //KdPrint((__DRIVER_NAME "     ring.sring->rsp_prod = %d\n", xvdd->ring.sring->rsp_prod));
-  //KdPrint((__DRIVER_NAME "     ring.sring->rsp_event = %d\n", xvdd->ring.sring->rsp_event));
-  //KdPrint((__DRIVER_NAME "     ring.rsp_cons = %d\n", xvdd->ring.rsp_cons));
-  //KdPrint((__DRIVER_NAME "     ring.req_prod_pvt = %d\n", xvdd->ring.req_prod_pvt));
 
   return FALSE; /* always fall through to the next ISR... */
 }
@@ -1317,8 +1318,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
     break;
   }
 
-  if (dump_mode)
-    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //FUNCTION_EXIT();
   return TRUE;
 }
 

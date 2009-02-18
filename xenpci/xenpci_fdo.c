@@ -93,6 +93,21 @@ XenPci_AllocMMIO(PXENPCI_DEVICE_DATA xpdd, ULONG len)
 
 extern ULONG tpr_patch_requested;
 
+NTSTATUS
+XenPci_EvtDeviceQueryRemove(WDFDEVICE device)
+{
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(device);
+  NTSTATUS status;
+  
+  FUNCTION_ENTER();
+  if (xpdd->removable)
+    status = STATUS_SUCCESS;
+  else
+    status = STATUS_UNSUCCESSFUL;
+  FUNCTION_EXIT();
+  return status;
+}
+
 static NTSTATUS
 XenPci_Init(PXENPCI_DEVICE_DATA xpdd)
 {

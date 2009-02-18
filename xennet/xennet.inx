@@ -12,13 +12,9 @@ DefaultDestDir = 12
 ExcludeFromSelect=*
 
 [Manufacturer]
-%XenGplPv%=XenGplPv,NTx86
-%XenGplPv%=XenGplPv,NTamd64
+%XenGplPv%=XenGplPv,NT$ARCH$
 
-[XenGplPv.NTx86]
-%XenNet.DRVDESC%=XenNet_Inst, XEN\VIF
-
-[XenGplPv.NTamd64]
+[XenGplPv.NT$ARCH$]
 %XenNet.DRVDESC%=XenNet_Inst, XEN\VIF
 
 [XenNet_Inst.NT]
@@ -86,11 +82,8 @@ xennet.sys
 [SourceDisksFiles]
 xennet.sys=1
 
-[SourceDisksNames.x86]
-1 = %DISK_NAME%,,,\i386
-
-[SourceDisksNames.amd64]
-1 = %DISK_NAME%,,,\amd64
+[SourceDisksNames]
+1 = %DISK_NAME%
 
 [XenNet_Inst.Services]
 AddService=XenNet,2,XenNet_Service 

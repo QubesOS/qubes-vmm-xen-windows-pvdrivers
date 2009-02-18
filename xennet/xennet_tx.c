@@ -306,6 +306,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 
   //NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   //FUNCTION_EXIT();
+  xi->tx_outstanding++;
   return TRUE;
 }
 
@@ -410,11 +411,12 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   while (head)
   {
     packet = (PNDIS_PACKET)head;
-//KdPrint(("-packet = %p\n", packet));
     head = *(PNDIS_PACKET *)&packet->MiniportReservedEx[0];
     NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_SUCCESS);
+    xi->tx_outstanding--;
+    if (!xi->tx_outstanding && xi->tx_shutting_down)
+      KeSetEvent(&xi->tx_idle_event, IO_NO_INCREMENT, FALSE);
   }
-//KdPrint((__DRIVER_NAME "     packets_outstanding = %d\n", packets_outstanding));
 
   if (xi->device_state->suspend_resume_state_pdo == SR_STATE_SUSPENDING
     && xi->device_state->suspend_resume_state_fdo != SR_STATE_SUSPENDING
@@ -502,7 +504,6 @@ XenNet_TxResumeEnd(xennet_info_t *xi)
 BOOLEAN
 XenNet_TxInit(xennet_info_t *xi)
 {
-  NDIS_STATUS status;
   USHORT i, j;
 
   KeInitializeSpinLock(&xi->tx_lock);
@@ -512,13 +513,9 @@ XenNet_TxInit(xennet_info_t *xi)
   //KeSetImportanceDpc(&xi->tx_dpc, HighImportance);
   InitializeListHead(&xi->tx_waiting_pkt_list);
 
-  NdisAllocateBufferPool(&status, &xi->tx_buffer_pool, TX_HEADER_BUFFERS);
-  if (status != NDIS_STATUS_SUCCESS)
-  {
-    KdPrint(("NdisAllocateBufferPool failed with 0x%x\n", status));
-    return FALSE;
-  }
-
+  KeInitializeEvent(&xi->tx_idle_event, SynchronizationEvent, FALSE);
+  xi->tx_shutting_down = FALSE;
+  xi->tx_outstanding = 0;
   xi->tx_ring_free = NET_TX_RING_SIZE;
 
   for (i = 0; i < TX_HEADER_BUFFERS / (PAGE_SIZE / TX_HEADER_BUFFER_SIZE); i++)
@@ -526,6 +523,8 @@ XenNet_TxInit(xennet_info_t *xi)
     PVOID virtual;
     NDIS_PHYSICAL_ADDRESS logical;
     NdisMAllocateSharedMemory(xi->adapter_handle, PAGE_SIZE, TRUE, &virtual, &logical);
+    if (virtual == NULL)
+      continue;
     //KdPrint((__DRIVER_NAME "     Allocated SharedMemory at %p\n", virtual));
     for (j = 0; j < PAGE_SIZE / TX_HEADER_BUFFER_SIZE; j++)
     {
@@ -536,6 +535,8 @@ XenNet_TxInit(xennet_info_t *xi)
       put_hb_on_freelist(xi, &xi->tx_hbs[index]);
     }
   }
+  if (i == 0)
+    KdPrint((__DRIVER_NAME "     Unable to allocate any SharedMemory buffers\n"));
 
   xi->tx_id_free = 0;
   for (i = 0; i < NET_TX_RING_SIZE; i++)
@@ -559,12 +560,15 @@ XenNet_TxShutdown(xennet_info_t *xi)
   //PMDL mdl;
   //ULONG i;
   KIRQL OldIrql;
+  shared_buffer_t *hb;
 
   FUNCTION_ENTER();
 
   ASSERT(!xi->connected);
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
+
+  xi->tx_shutting_down = TRUE;
 
   /* Free packets in tx queue */
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
@@ -575,19 +579,22 @@ XenNet_TxShutdown(xennet_info_t *xi)
     entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   }
   
-#if 0
-  /* free sent-but-not-completed packets */
-  for (i = 0; i < NET_TX_RING_SIZE; i++)
+  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
+
+  while (xi->tx_outstanding)
   {
-    mdl = xi->tx_mdls[i];
-    if (mdl)
-    {
-      NdisAdjustBufferLength(xi->tx_mdls[i], PAGE_SIZE);
-      //XenFreelist_PutPage(&xi->tx_freelist, xi->tx_mdls[i]);
-    }
+    KdPrint((__DRIVER_NAME "     Waiting for all packets to be sent\n"));
+    KeWaitForSingleObject(&xi->tx_idle_event, Executive, KernelMode, FALSE, NULL);
   }
-#endif
-  NdisFreeBufferPool(xi->tx_buffer_pool);
+
+  KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
+
+  while((hb = get_hb_from_freelist(xi)) != NULL)
+  {
+    /* only free the actual buffers which were aligned on a page boundary */
+    if ((PtrToUlong(hb->virtual) & (PAGE_SIZE - 1)) == 0)
+      NdisMFreeSharedMemory(xi->adapter_handle, PAGE_SIZE, TRUE, hb->virtual, hb->logical);
+  }
 
   KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 

@@ -1,0 +1,116 @@
+<?xml version='1.0' encoding='windows-1252'?>
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi' xmlns:difx='http://schemas.microsoft.com/wix/DifxAppExtension' xmlns:iis='http://schemas.microsoft.com/wix/IIsExtension'>
+  <?if $(env._BUILDARCH) = x86 ?>
+    <?define ARCHDIR = i386 ?>
+  <?elseif $(env._BUILDARCH) = AMD64 ?>
+    <?define ARCHDIR = amd64 ?>
+  <?endif ?>
+
+  <Product Name='GPL PV Drivers for Windows' Id='915B4C12-093D-419d-8FEC-63DCFD8B820D'
+    UpgradeCode='4EDE5DEC-3208-4a1e-8E52-DAC44F7D7062'
+    Language='1033' Codepage='1252' Version='1.0.0' Manufacturer='James Harper'>
+
+    <Package Id='*' Keywords='Installer' Description="GPL PV Drivers for Windows"
+      Comments='no comment' Manufacturer='James Harper'
+      InstallerVersion='100' Languages='1033' Compressed='yes' SummaryCodepage='1252' />
+
+    <UIRef Id="WixUI_Mondo" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+    
+    <Media Id='1' Cabinet='gplpv.cab' EmbedCab='yes' />
+
+    <Directory Id='TARGETDIR' Name='SourceDir'>
+      <Directory Id='ProgramFilesFolder' Name='PFiles'>
+        <Directory Id='XenProgramFilesDir' Name='Xen PV Drivers'>
+          <Directory Id='BinDir' Name='bin'>
+            <Component Id='ShutdownMon' Guid='BF8DC887-4B46-4e77-ACD3-125E8A2BAB8E'>
+              <File Id='shutdownmon.exe' Name='shutdownmon.exe' DiskId='1' Source='shutdownmon\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\shutdownmon.exe' />
+            </Component>
+            <Component Id='CopyConfig' Guid='C01F8A97-1410-41ce-A16E-76E6072FDFF8'>
+              <File Id='copyconfig.exe' Name='copyconfig.exe' DiskId='1' Source='copyconfig\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\copyconfig.exe' />
+            </Component>
+          </Directory>  
+          <Directory Id='DocDir' Name='doc'>
+          </Directory>
+          <Directory Id='DriversDir' Name='drivers'>
+            <Directory Id='XenPciDir' Name='xenpci'>
+              <Component Id='XenPci' Guid='D6BB9B5F-61F9-4b6e-8FAD-289706F5EBEB'>
+                <File Id='xenpci.inf' Name='xenpci.inf' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenpci.inf' />
+                <File Id='xenpci.sys' Name='xenpci.sys' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenpci.sys' />
+                <File Id='xenhide.sys' Name='xenhide.sys' DiskId='1' Source='xenhide\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenhide.sys' />
+                <File Id='WdfCoInstaller01007.dll' Name='WdfCoInstaller01007.dll' DiskId='1' Source='$(env.BASEDIR)\redist\wdf\$(env.CPU)\WdfCoInstaller01007.dll' />
+                <difx:Driver Sequence='99' Legacy='yes' />
+              </Component>
+            </Directory>
+            <Directory Id='XenVbdDir' Name='xenvbd'>
+              <Component Id='XenVbd' Guid='1F05DC54-974C-40f6-BF41-0EFDB3EBD1DC'>
+                <File Id='xenvbd.inf' Name='xenvbd.inf' DiskId='1' Source='xenvbd\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenvbd.inf' />
+                <File Id='xenvbd.sys' Name='xenvbd.sys' DiskId='1' Source='xenvbd\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenvbd.sys' />
+                <difx:Driver Sequence='1' Legacy='yes' />
+              </Component>
+            </Directory>
+            <Directory Id='XenScsiDir' Name='xenscsi'>
+              <Component Id='XenScsi' Guid='47C9AB48-3A7D-42b2-AE2C-7F9235C8B7B4'>
+                <File Id='xenscsi.inf' Name='xenscsi.inf' DiskId='1' Source='xenscsi\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenscsi.inf' />
+                <File Id='xenscsi.sys' Name='xenscsi.sys' DiskId='1' Source='xenscsi\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenscsi.sys' />
+                <difx:Driver Sequence='1' Legacy='yes' />
+              </Component>
+            </Directory>
+            <Directory Id='XenNetDir' Name='xennet'>
+              <Component Id='XenNet' Guid='F16B1EC7-35B1-42c2-9017-22DC23D80BE7'>
+                <File Id='xennet.inf' Name='xennet.inf' DiskId='1' Source='xennet\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xennet.inf' />
+                <File Id='xennet.sys' Name='xennet.sys' DiskId='1' Source='xennet\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xennet.sys' />
+                <difx:Driver Sequence='3' Legacy='yes' />
+              </Component>
+            </Directory>
+            <Directory Id='XenStubDir' Name='xenstub'>
+              <Component Id='XenStub' Guid='71794E97-D0CD-409b-BF7C-2FCEEEBD3D13'>
+                <File Id='xenstub.inf' Name='xenstub.inf' DiskId='1' Source='xenstub\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenstub.inf' />
+                <File Id='xenstub.sys' Name='xenstub.sys' DiskId='1' Source='xenstub\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenstub.sys' />
+                <difx:Driver Sequence='4' Legacy='yes' />
+              </Component>
+            </Directory>
+          </Directory>
+        </Directory>
+        <Component Id='Cert' Guid='11112EC8-8635-45fb-9AE8-C22310F1E82D'>
+          <File Id='ca.cer' Name='ca.cer' DiskId='1' Source='ca.cer' />
+          <iis:Certificate Id='ca.cer' Name='ca.cer' Request='no' BinaryKey='ca.cer' StoreLocation='localMachine' StoreName='root' Overwrite='no' />
+        </Component>
+      </Directory>
+    </Directory>
+
+    <Binary Id='ca.cer' SourceFile='ca.cer' />    
+
+    <Feature Id='Cert' Title='Install Certificate' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+      <ComponentRef Id='Cert' />
+    </Feature>
+    <Feature Id='Drivers' Title='Drivers' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+      <Feature Id='XenPci' Title='XenPci Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='disallow'>
+        <ComponentRef Id='XenPci' />
+      </Feature>
+      <Feature Id='XenVbd' Title='XenVbd Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+        <ComponentRef Id='XenVbd' />
+      </Feature>
+      <Feature Id='XenScsi' Title='XenVbd Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+        <ComponentRef Id='XenScsi' />
+      </Feature>
+      <Feature Id='XenNet' Title='XenNet Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+        <ComponentRef Id='XenNet' />
+      </Feature>
+      <Feature Id='XenStub' Title='XenNet Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+        <ComponentRef Id='XenStub' />
+      </Feature>
+    </Feature>
+    <Feature Id='ShutdownMon' Title='Shutdown Monitor' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+      <ComponentRef Id='ShutdownMon' />
+    </Feature>
+    <Feature Id='CopyConfig' Title='Copy Network Config' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+      <ComponentRef Id='CopyConfig' />
+    </Feature>
+
+    <InstallExecuteSequence>
+      <ScheduleReboot After='InstallFinalize' />
+    </InstallExecuteSequence>
+
+  </Product>
+</Wix>

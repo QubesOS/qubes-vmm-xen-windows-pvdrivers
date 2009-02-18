@@ -228,9 +228,10 @@ XenScsi_ParseBackendDevice(scsi_dev_t *dev, PCHAR value)
 static VOID
 XenScsi_WaitPause(PVOID DeviceExtension)
 {
-  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
-  LARGE_INTEGER wait_time;
+  //PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
+  //LARGE_INTEGER wait_time;
 
+  UNREFERENCED_PARAMETER(DeviceExtension);
   FUNCTION_ENTER();
 #if 0
   xsdd->vectors.EvtChn_Notify(xsdd->vectors.context, xsdd->device_state->pdo_event_channel);

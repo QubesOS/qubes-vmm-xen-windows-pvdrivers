@@ -397,6 +397,8 @@ XenPci_PatchKernel(PXENPCI_DEVICE_DATA xpdd, PVOID base, ULONG length)
     
   XenPci_HighSync(XenPci_DoPatchKernel0, XenPci_DoPatchKernelN, &patch_info);
   
+  xpdd->removable = FALSE;
+  
   FUNCTION_EXIT();
 }
 

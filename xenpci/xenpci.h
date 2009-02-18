@@ -109,58 +109,6 @@ typedef struct _XENBUS_WATCH_ENTRY {
 #define CHILD_STATE_DELETED 1
 #define CHILD_STATE_ADDED 2
 
-#if 0
-// TODO: tidy up & organize this struct
-
-typedef enum {
-    Unknown = 0,
-    NotStarted,
-    Started,
-    StopPending,
-    Stopped,
-    RemovePending,
-    SurpriseRemovePending,
-    Removed
-} DEVICE_PNP_STATE;
-
-#if 0
-typedef struct
-{
-  PDEVICE_OBJECT fdo;
-  PDEVICE_OBJECT pdo;
-  PDEVICE_OBJECT lower_do;
-  
-  DEVICE_PNP_STATE current_pnp_state;
-  DEVICE_PNP_STATE previous_pnp_state;
-  DEVICE_POWER_STATE device_power_state;
-  SYSTEM_POWER_STATE system_power_state;
-  
-  ULONG device_usage_paging;
-  ULONG device_usage_dump;
-  ULONG device_usage_hibernation;
-} XENPCI_COMMON, *PXENPCI_COMMON;
-#endif
-
-static __inline void INIT_PNP_STATE(PXENPCI_COMMON common)
-{
-  common->current_pnp_state = NotStarted;
-  common->previous_pnp_state = NotStarted;
-}
-
-static __inline void SET_PNP_STATE(PXENPCI_COMMON common, DEVICE_PNP_STATE state)
-{
-  common->previous_pnp_state = common->current_pnp_state;
-  common->current_pnp_state = state;
-}
-
-static __inline void REVERT_PNP_STATE(PXENPCI_COMMON common)
-{
-  common->current_pnp_state = common->previous_pnp_state;
-}
-#endif
-
-#define SHUTDOWN_RING_SIZE 128
-
 #define SUSPEND_STATE_NONE      0 /* no suspend in progress */
 #define SUSPEND_STATE_SCHEDULED 1 /* suspend scheduled */
 #define SUSPEND_STATE_HIGH_IRQL 2 /* all processors are at high IRQL and spinning */
@@ -239,15 +187,9 @@ typedef struct {
   UNICODE_STRING interface_name;
   BOOLEAN interface_open;
 
+  BOOLEAN removable;
+  
   WDFQUEUE io_queue;
-#if 0
-  KSPIN_LOCK shutdown_ring_lock;
-  CHAR shutdown_ring[SHUTDOWN_RING_SIZE];
-  ULONG shutdown_prod;
-  ULONG shutdown_cons;
-  ULONG shutdown_start; /* the start of the most recent message on the ring */
-  PIRP shutdown_irp;
-#endif
 
 #if 0
   KSPIN_LOCK mmio_freelist_lock;
@@ -298,11 +240,9 @@ typedef struct {
 
 typedef struct {
   DMA_ADAPTER dma_adapter;
-  //DMA_OPERATIONS dma_operations;
   PXENPCI_PDO_DEVICE_DATA xppdd;
   dma_driver_extension_t *dma_extension;
-  //ULONG map_register_count;
-  //map_register_t *map_registers;
+  PDRIVER_OBJECT dma_extension_driver; /* to deference it */
 } xen_dma_adapter_t;
 
 #if 0
@@ -357,6 +297,8 @@ EVT_WDF_DEVICE_D0_ENTRY XenPci_EvtDeviceD0Entry;
 EVT_WDF_DEVICE_D0_ENTRY_POST_INTERRUPTS_ENABLED XenPci_EvtDeviceD0EntryPostInterruptsEnabled;
 EVT_WDF_DEVICE_D0_EXIT XenPci_EvtDeviceD0Exit;
 EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED XenPci_EvtDeviceD0ExitPreInterruptsDisabled;
+EVT_WDF_DEVICE_QUERY_REMOVE XenPci_EvtDeviceQueryRemove;
+
 NTSTATUS
 XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list, PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER description_header, PWDFDEVICE_INIT child_init);
 VOID

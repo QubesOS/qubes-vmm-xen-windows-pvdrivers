@@ -262,7 +262,7 @@ xb_add_watch(HANDLE handle, char *path)
   msg->type = XS_WATCH;
   msg->req_id = 0;
   msg->tx_id = 0;
-  msg->len = strlen(path) + 1 + strlen(token) + 1;
+  msg->len = (ULONG)(strlen(path) + 1 + strlen(token) + 1);
   strcpy(buf + sizeof(*msg), path);
   strcpy(buf + sizeof(*msg) + strlen(path) + 1, token);
 
@@ -319,7 +319,7 @@ printf("read start\n");
   msg->type = XS_READ;
   msg->req_id = 0;
   msg->tx_id = 0;
-  msg->len = strlen(path) + 1;
+  msg->len = (ULONG)(strlen(path) + 1);
   strcpy(buf + sizeof(*msg), path);
   if (!WriteFile(handle, buf, sizeof(*msg) + msg->len, &bytes_written, NULL))
   {

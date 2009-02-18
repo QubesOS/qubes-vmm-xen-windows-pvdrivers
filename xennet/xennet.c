@@ -315,7 +315,7 @@ XenNet_Init(
   ULONG i;
   PUCHAR ptr;
   UCHAR type;
-  PCHAR setting, value, value2;
+  PCHAR setting, value;
   ULONG length;
   CHAR buf[128];
   PVOID network_address;
@@ -596,7 +596,8 @@ XenNet_Init(
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "tx-ring-ref", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL, "event-channel", XenNet_HandleEvent, xi);
+  #pragma warning(suppress:4054)
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL, "event-channel", (PVOID)XenNet_HandleEvent, xi);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL, NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1", NULL);

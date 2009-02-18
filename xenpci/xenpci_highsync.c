@@ -19,6 +19,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 
+/*
+we need these intrinsics as even going to HIGH_LEVEL doesn't ensure that interrupts are completely disabled
+*/
+#pragma intrinsic(_disable)
+#pragma intrinsic(_enable)
+
 struct {
   volatile ULONG        do_spin;
   volatile LONG         nr_spinning;
@@ -47,7 +53,7 @@ XenPci_HighSyncCallFunction0(
 
   FUNCTION_ENTER();
   ActiveProcessorCount = (ULONG)KeNumberProcessors;
-  __asm cli;  
+  _disable(); //__asm cli;  
   KeRaiseIrql(highsync_info->sync_level, &old_irql);
   while (highsync_info->nr_spinning < (LONG)ActiveProcessorCount - 1)
   {
@@ -56,7 +62,7 @@ XenPci_HighSyncCallFunction0(
   }
   highsync_info->function0(highsync_info->context);
   KeLowerIrql(old_irql);
-  __asm sti;
+  _enable(); //__asm sti;
   highsync_info->do_spin = FALSE;
   KeMemoryBarrier();  
   
