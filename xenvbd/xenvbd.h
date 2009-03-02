@@ -133,7 +133,7 @@ struct
   XENPCI_VECTORS vectors;
   PXENPCI_DEVICE_STATE device_state;
   PSCSI_REQUEST_BLOCK pending_srb;
-  grant_ref_t dump_grant_ref;
+  grant_ref_t dump_grant_refs[BLKIF_MAX_SEGMENTS_PER_REQUEST - 1];
 /*  
   ULONGLONG interrupts;
   ULONGLONG aligned_requests;

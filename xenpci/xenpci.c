@@ -27,6 +27,32 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #pragma warning(disable : 4200) // zero-sized array
 
+static VOID
+XenPci_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE notification_type, BOOLEAN is_in_notification_path)
+{
+  FUNCTION_ENTER();
+  
+  UNREFERENCED_PARAMETER(device);
+
+  switch (notification_type)
+  {
+  case WdfSpecialFilePaging:
+    KdPrint((__DRIVER_NAME "     notification_type = Paging, flag = %d\n", is_in_notification_path));
+    break;
+  case WdfSpecialFileHibernation:
+    KdPrint((__DRIVER_NAME "     notification_type = Hibernation, flag = %d\n", is_in_notification_path));
+    break;
+  case WdfSpecialFileDump:
+    KdPrint((__DRIVER_NAME "     notification_type = Dump, flag = %d\n", is_in_notification_path));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     notification_type = %d, flag = %d\n", notification_type, is_in_notification_path));
+    break;
+  }
+
+  FUNCTION_EXIT();  
+}
+
 static NTSTATUS
 XenPci_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
 {
@@ -46,6 +72,9 @@ XenPci_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   WDF_OBJECT_ATTRIBUTES file_attributes;
   WDF_FILEOBJECT_CONFIG file_config;
   WDF_IO_QUEUE_CONFIG queue_config;
+  WDFKEY param_key;
+  DECLARE_CONST_UNICODE_STRING(veto_devices_name, L"veto_devices");
+  WDF_DEVICE_POWER_CAPABILITIES power_capabilities;
   
   UNREFERENCED_PARAMETER(driver);
 
@@ -59,7 +88,8 @@ XenPci_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   pnp_power_callbacks.EvtDevicePrepareHardware = XenPci_EvtDevicePrepareHardware;
   pnp_power_callbacks.EvtDeviceReleaseHardware = XenPci_EvtDeviceReleaseHardware;
   pnp_power_callbacks.EvtDeviceQueryRemove = XenPci_EvtDeviceQueryRemove;
-  
+  pnp_power_callbacks.EvtDeviceUsageNotification = XenPci_EvtDeviceUsageNotification;
+
   WdfDeviceInitSetPnpPowerEventCallbacks(device_init, &pnp_power_callbacks);
 
   WdfDeviceInitSetDeviceType(device_init, FILE_DEVICE_BUS_EXTENDER);
@@ -74,15 +104,46 @@ XenPci_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   WdfDeviceInitSetFileObjectConfig(device_init, &file_config, &file_attributes);
   
   WdfDeviceInitSetIoType(device_init, WdfDeviceIoBuffered);
+
+  WdfDeviceInitSetPowerNotPageable(device_init);
   
   WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&device_attributes, XENPCI_DEVICE_DATA);
   status = WdfDeviceCreate(&device_init, &device_attributes, &device);
-  if (!NT_SUCCESS(status)) {
-      KdPrint(("Error creating device 0x%x\n", status));
-      return status;
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Error creating device %08x\n", status));
+    return status;
   }
 
   xpdd = GetXpdd(device);
+
+  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &xpdd->veto_devices);
+  status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &param_key);
+  if (NT_SUCCESS(status))
+  {
+    status = WdfRegistryQueryMultiString(param_key, &veto_devices_name, WDF_NO_OBJECT_ATTRIBUTES, xpdd->veto_devices);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint(("Error reading parameters/veto_devices value %08x\n", status));
+    }
+    WdfRegistryClose(param_key);
+  }
+  else
+  {
+    KdPrint(("Error opening parameters key %08x\n", status));
+  }
+  
+  WDF_DEVICE_POWER_CAPABILITIES_INIT(&power_capabilities);
+  power_capabilities.DeviceD1 = WdfTrue;
+  power_capabilities.WakeFromD1 = WdfTrue;
+  power_capabilities.DeviceWake = PowerDeviceD1;
+  power_capabilities.DeviceState[PowerSystemWorking]   = PowerDeviceD1;
+  power_capabilities.DeviceState[PowerSystemSleeping1] = PowerDeviceD1;
+  power_capabilities.DeviceState[PowerSystemSleeping2] = PowerDeviceD2;
+  power_capabilities.DeviceState[PowerSystemSleeping3] = PowerDeviceD2;
+  power_capabilities.DeviceState[PowerSystemHibernate] = PowerDeviceD3;
+  power_capabilities.DeviceState[PowerSystemShutdown]  = PowerDeviceD3;
+  WdfDeviceSetPowerCapabilities(device, &power_capabilities);  
 
   WdfDeviceSetSpecialFileSupport(device, WdfSpecialFilePaging, TRUE);
   WdfDeviceSetSpecialFileSupport(device, WdfSpecialFileHibernation, TRUE);
@@ -179,10 +240,84 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   char Buf[300];// Sometimes bigger then 200 if system reboot from crash
   ULONG BufLen = 300;
   PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
+  WDFCOLLECTION old_load_order, new_load_order;
+  DECLARE_CONST_UNICODE_STRING(sgo_name, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Control\\ServiceGroupOrder");
+  DECLARE_CONST_UNICODE_STRING(list_name, L"List");
+  WDFKEY sgo_key;
 
   UNREFERENCED_PARAMETER(RegistryPath);
 
   FUNCTION_ENTER();
+
+  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &old_load_order);
+  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &new_load_order);
+  status = WdfRegistryOpenKey(NULL, &sgo_name, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &sgo_key);
+  if (NT_SUCCESS(status))
+  {
+    status = WdfRegistryQueryMultiString(sgo_key, &list_name, WDF_NO_OBJECT_ATTRIBUTES, old_load_order);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint((__DRIVER_NAME "     Error reading ServiceGroupOrder\\List value %08x\n", status));
+    }
+    else
+    {
+      ULONG i;
+      LONG boot_bus_extender_index = -1;
+      LONG wdf_load_group_index = -1;
+      DECLARE_CONST_UNICODE_STRING(wdf_load_group_name, L"WdfLoadGroup");
+      DECLARE_CONST_UNICODE_STRING(boot_bus_extender_name, L"Boot Bus Extender");
+      KdPrint((__DRIVER_NAME "     Current Order:\n"));        
+      for (i = 0; i < WdfCollectionGetCount(old_load_order); i++)
+      {
+        WDFOBJECT ws = WdfCollectionGetItem(old_load_order, i);
+        UNICODE_STRING val;
+        WdfStringGetUnicodeString(ws, &val);
+        if (!RtlCompareUnicodeString(&val, &wdf_load_group_name, TRUE))
+          wdf_load_group_index = (ULONG)i;
+        if (!RtlCompareUnicodeString(&val, &boot_bus_extender_name, TRUE))
+          boot_bus_extender_index = (ULONG)i;         
+        KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
+      }
+      KdPrint((__DRIVER_NAME "     wdf_load_group_index = %d\n", wdf_load_group_index));
+      KdPrint((__DRIVER_NAME "     boot_bus_extender_index = %d\n", boot_bus_extender_index));
+      if (boot_bus_extender_index >= 0 && wdf_load_group_index >= 0
+          && boot_bus_extender_index < wdf_load_group_index)
+      {
+        for (i = 0; i < WdfCollectionGetCount(old_load_order); i++)
+        {
+          UNICODE_STRING val;
+          WDFOBJECT ws;
+          if (i == (ULONG)wdf_load_group_index)
+            continue;
+          ws = WdfCollectionGetItem(old_load_order, i);
+          WdfStringGetUnicodeString(ws, &val);
+          if (i == (ULONG)boot_bus_extender_index)
+          {
+            WDFSTRING wdf_load_group_val;
+            WdfStringCreate(&wdf_load_group_name, WDF_NO_OBJECT_ATTRIBUTES, &wdf_load_group_val);
+            WdfCollectionAdd(new_load_order, wdf_load_group_val);
+          }
+          WdfCollectionAdd(new_load_order, ws);
+        }
+        KdPrint((__DRIVER_NAME "     New Order:\n"));        
+        for (i = 0; i < WdfCollectionGetCount(new_load_order); i++)
+        {
+          WDFOBJECT ws = WdfCollectionGetItem(new_load_order, i);
+          UNICODE_STRING val;
+          WdfStringGetUnicodeString(ws, &val);
+          KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
+        }
+        WdfRegistryAssignMultiString(sgo_key, &list_name, new_load_order);
+      }
+    }
+    WdfRegistryClose(sgo_key);
+  }
+  else
+  {
+    KdPrint((__DRIVER_NAME "     Error opening ServiceGroupOrder key %08x\n", status));
+  }
+  WdfObjectDelete(new_load_order);
+  WdfObjectDelete(old_load_order);
 
   //TestStuff();  
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");

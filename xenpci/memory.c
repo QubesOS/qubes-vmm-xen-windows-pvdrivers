@@ -5,20 +5,31 @@
 NTSTATUS
 hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
 {
+  ULONG base;
   DWORD32 cpuid_output[4];
   char xensig[13];
   ULONG i;
   ULONG pages;
-  ULONG msr;  
+  ULONG msr;
 
-  __cpuid(cpuid_output, 0x40000000);
-  *(ULONG*)(xensig + 0) = cpuid_output[1];
-  *(ULONG*)(xensig + 4) = cpuid_output[2];
-  *(ULONG*)(xensig + 8) = cpuid_output[3];
-  xensig[12] = '\0';
-  KdPrint((__DRIVER_NAME "     Xen Signature = %s, EAX = 0x%08x\n", xensig, cpuid_output[0]));
+  for (base = 0x40000000; base < 0x40001000; base += 0x100)
+  {
+    __cpuid(cpuid_output, 0x40000000);
+    *(ULONG*)(xensig + 0) = cpuid_output[1];
+    *(ULONG*)(xensig + 4) = cpuid_output[2];
+    *(ULONG*)(xensig + 8) = cpuid_output[3];
+    xensig[12] = '\0';
+    KdPrint((__DRIVER_NAME "     base = 0x%08x, Xen Signature = %s, EAX = 0x%08x\n", base, xensig, cpuid_output[0]));
+    if (!strncmp("XenVMMXenVMM", xensig, 12) && ((cpuid_output[0] - base) >= 2))
+      break;
+  }
+  if (base >= 0x40001000)
+  {
+    KdPrint((__DRIVER_NAME "     Cannot find Xen signature\n"));
+    return STATUS_UNSUCCESSFUL;
+  }
 
-  __cpuid(cpuid_output, 0x40000002);
+  __cpuid(cpuid_output, base + 2);
   pages = cpuid_output[0];
   msr = cpuid_output[1];
 

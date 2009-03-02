@@ -1,4 +1,6 @@
-VERSION=0.9.11.16
+!IFNDEF VERSION
+GPLPV_VERSION=0.0.0.0
+!ENDIF
 #TARGETPATH=..\Target\$(DDK_TARGET_OS)
 MSC_WARNING_LEVEL=/W4
 INCLUDES = ..\common\include;..\common\include\public

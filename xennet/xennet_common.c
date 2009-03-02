@@ -147,7 +147,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi)
     {
       if (!XenNet_BuildHeader(pi, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)))
       {
-        KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header)\n"));
+        //KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header)\n"));
         return PARSE_TOO_SMALL;
       }
     }

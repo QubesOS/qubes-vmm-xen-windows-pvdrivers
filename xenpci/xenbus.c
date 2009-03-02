@@ -731,25 +731,14 @@ XenBus_RemWatch(
 
   for (i = 0; i < MAX_WATCH_ENTRIES; i++)
   {
-#if 0
-    if (xpdd->XenBus_WatchEntries[i].Active)
-    {
-    KdPrint((__DRIVER_NAME "     (%d == 1) = %d\n", xpdd->XenBus_WatchEntries[i].Active, xpdd->XenBus_WatchEntries[i].Active == 1));
-    KdPrint((__DRIVER_NAME "     strcmp(%s, %s) = %d\n", xpdd->XenBus_WatchEntries[i].Path, Path, strcmp(xpdd->XenBus_WatchEntries[i].Path, Path)));
-    KdPrint((__DRIVER_NAME "     (%p == %p) = %d\n", xpdd->XenBus_WatchEntries[i].ServiceRoutine, ServiceRoutine, xpdd->XenBus_WatchEntries[i].ServiceRoutine == ServiceRoutine));
-    KdPrint((__DRIVER_NAME "     (%p == %p) = %d\n", xpdd->XenBus_WatchEntries[i].ServiceContext, ServiceContext, xpdd->XenBus_WatchEntries[i].ServiceContext == ServiceContext));
-#endif
-    if (xpdd->XenBus_WatchEntries[i].Active == 1
-      && strcmp(xpdd->XenBus_WatchEntries[i].Path, Path) == 0
+    if (xpdd->XenBus_WatchEntries[i].Active
+      && !strcmp(xpdd->XenBus_WatchEntries[i].Path, Path)
       && xpdd->XenBus_WatchEntries[i].ServiceRoutine == ServiceRoutine
       && xpdd->XenBus_WatchEntries[i].ServiceContext == ServiceContext)
     {
       KdPrint((__DRIVER_NAME "     Match\n"));
       break;
     }
-#if 0
-    }
-#endif
   }
 
   if (i == MAX_WATCH_ENTRIES)

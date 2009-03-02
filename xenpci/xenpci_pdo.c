@@ -77,7 +77,7 @@ XenPci_DOP_PutDmaAdapter(PDMA_ADAPTER dma_adapter)
 
   if (xen_dma_adapter->dma_extension)
     ObDereferenceObject(xen_dma_adapter->dma_extension_driver);
-  ExFreePoolWithTag(xen_dma_adapter->dma_adapter.DmaOperations, XENPCI_POOL_TAG);
+  ExFreePoolWithTag(xen_dma_adapter->adapter_object.DmaHeader.DmaOperations, XENPCI_POOL_TAG);
   ExFreePoolWithTag(xen_dma_adapter, XENPCI_POOL_TAG);
   
   FUNCTION_EXIT();
@@ -109,11 +109,12 @@ XenPci_DOP_AllocateCommonBuffer(
   //KdPrint((__DRIVER_NAME "     Length = %d\n", Length));
   
   buffer = ExAllocatePoolWithTag(NonPagedPool, Length, XENPCI_POOL_TAG);
+  ASSERT(buffer); /* lazy */
 
   pfn = (PFN_NUMBER)(MmGetPhysicalAddress(buffer).QuadPart >> PAGE_SHIFT);
-  ASSERT(pfn);
+  ASSERT(pfn); /* lazy */
   gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, INVALID_GRANT_REF);
-  ASSERT(gref);
+  ASSERT(gref); /* lazy */
   LogicalAddress->QuadPart = (gref << PAGE_SHIFT) | (PtrToUlong(buffer) & (PAGE_SIZE - 1));
   
   //FUNCTION_EXIT();
@@ -170,7 +171,7 @@ XenPci_DOP_AllocateAdapterChannel(
   if (!map_register_base)
   {
     KdPrint((__DRIVER_NAME "     Cannot allocate memory for map_register_base\n"));
-    FUNCTION_EXIT();
+    //FUNCTION_EXIT();
     return STATUS_INSUFFICIENT_RESOURCES;
   }
   /* we should also allocate a single page of memory here for remap purposes as once we allocate the map registers there is no failure allowed */
@@ -380,6 +381,7 @@ XenPci_DOP_MapTransfer(
     break;
   }
   
+  //KdPrint((__DRIVER_NAME "     logical = %08x:%08x\n", map_register->logical.HighPart, map_register->logical.LowPart));
   //FUNCTION_EXIT();
   return map_register->logical;
 }
@@ -554,6 +556,8 @@ XenPci_DOP_BuildScatterGatherList(
   grant_ref_t gref;
   //PUCHAR StartVa;
   
+  //FUNCTION_ENTER();
+  
   ASSERT(MmGetMdlVirtualAddress(Mdl) == CurrentVa);
 
   xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
@@ -718,38 +722,93 @@ XenPci_BIS_GetDmaAdapter(PVOID context, PDEVICE_DESCRIPTION device_description, 
   KdPrint((__DRIVER_NAME "      MaximumLength = %d\n", device_description->MaximumLength));
   KdPrint((__DRIVER_NAME "      DmaPort = %d\n", device_description->DmaPort));
   
+  if (!device_description->Master)
+    return NULL;
 /*
 we have to allocate PAGE_SIZE bytes here because Windows thinks this is
 actually an ADAPTER_OBJECT, and then the verifier crashes because
 Windows accessed beyond the end of the structure :(
 */
   xen_dma_adapter = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+  ASSERT(xen_dma_adapter);
   RtlZeroMemory(xen_dma_adapter, PAGE_SIZE);
-  xen_dma_adapter->dma_adapter.Version = 2;
-  xen_dma_adapter->dma_adapter.Size = sizeof(DMA_ADAPTER); //xen_dma_adapter_t);
-  xen_dma_adapter->dma_adapter.DmaOperations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DMA_OPERATIONS), XENPCI_POOL_TAG);
-  xen_dma_adapter->dma_adapter.DmaOperations->Size = sizeof(DMA_OPERATIONS);
-  xen_dma_adapter->dma_adapter.DmaOperations->PutDmaAdapter = XenPci_DOP_PutDmaAdapter;
-  xen_dma_adapter->dma_adapter.DmaOperations->AllocateCommonBuffer = XenPci_DOP_AllocateCommonBuffer;
-  xen_dma_adapter->dma_adapter.DmaOperations->FreeCommonBuffer = XenPci_DOP_FreeCommonBuffer;
-  xen_dma_adapter->dma_adapter.DmaOperations->AllocateAdapterChannel = XenPci_DOP_AllocateAdapterChannel;
-  xen_dma_adapter->dma_adapter.DmaOperations->FlushAdapterBuffers = XenPci_DOP_FlushAdapterBuffers;
-  xen_dma_adapter->dma_adapter.DmaOperations->FreeAdapterChannel = XenPci_DOP_FreeAdapterChannel;
-  xen_dma_adapter->dma_adapter.DmaOperations->FreeMapRegisters = XenPci_DOP_FreeMapRegisters;
-  xen_dma_adapter->dma_adapter.DmaOperations->MapTransfer = XenPci_DOP_MapTransfer;
-  xen_dma_adapter->dma_adapter.DmaOperations->GetDmaAlignment = XenPci_DOP_GetDmaAlignment;
-  xen_dma_adapter->dma_adapter.DmaOperations->ReadDmaCounter = XenPci_DOP_ReadDmaCounter;
-  xen_dma_adapter->dma_adapter.DmaOperations->GetScatterGatherList = XenPci_DOP_GetScatterGatherList;
-  xen_dma_adapter->dma_adapter.DmaOperations->PutScatterGatherList = XenPci_DOP_PutScatterGatherList;
-  xen_dma_adapter->dma_adapter.DmaOperations->CalculateScatterGatherList = XenPci_DOP_CalculateScatterGatherList;
-  xen_dma_adapter->dma_adapter.DmaOperations->BuildScatterGatherList = XenPci_DOP_BuildScatterGatherList;
-  xen_dma_adapter->dma_adapter.DmaOperations->BuildMdlFromScatterGatherList = XenPci_DOP_BuildMdlFromScatterGatherList;
+  
+  switch(device_description->Version)
+  {
+  case DEVICE_DESCRIPTION_VERSION1:
+    xen_dma_adapter->adapter_object.DmaHeader.Version = 1;
+    break;
+  case DEVICE_DESCRIPTION_VERSION: /* ignore what the docs say here - DEVICE_DESCRIPTION_VERSION appears to mean the latest version */
+  case DEVICE_DESCRIPTION_VERSION2:
+    xen_dma_adapter->adapter_object.DmaHeader.Version = 2;
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     Unsupported device description version %d\n", device_description->Version));
+    ExFreePoolWithTag(xen_dma_adapter, XENPCI_POOL_TAG);
+    return NULL;
+  }
+    
+
+  xen_dma_adapter->adapter_object.DmaHeader.Size = sizeof(X_ADAPTER_OBJECT); //xen_dma_adapter_t);
+  xen_dma_adapter->adapter_object.MasterAdapter = NULL;
+  xen_dma_adapter->adapter_object.MapRegistersPerChannel = 1024;
+  xen_dma_adapter->adapter_object.AdapterBaseVa = NULL;
+  xen_dma_adapter->adapter_object.MapRegisterBase = NULL;
+  xen_dma_adapter->adapter_object.NumberOfMapRegisters = 0;
+  xen_dma_adapter->adapter_object.CommittedMapRegisters = 0;
+  xen_dma_adapter->adapter_object.CurrentWcb = NULL;
+  KeInitializeDeviceQueue(&xen_dma_adapter->adapter_object.ChannelWaitQueue);
+  xen_dma_adapter->adapter_object.RegisterWaitQueue = NULL;
+  InitializeListHead(&xen_dma_adapter->adapter_object.AdapterQueue);
+  KeInitializeSpinLock(&xen_dma_adapter->adapter_object.SpinLock);
+  xen_dma_adapter->adapter_object.MapRegisters = NULL;
+  xen_dma_adapter->adapter_object.PagePort = NULL;
+  xen_dma_adapter->adapter_object.ChannelNumber = 0xff;
+  xen_dma_adapter->adapter_object.AdapterNumber = 0;
+  xen_dma_adapter->adapter_object.DmaPortAddress = 0;
+  xen_dma_adapter->adapter_object.AdapterMode = 0;
+  xen_dma_adapter->adapter_object.NeedsMapRegisters = FALSE; /* when true this causes a crash in the crash dump path */
+  xen_dma_adapter->adapter_object.MasterDevice = 1;
+  xen_dma_adapter->adapter_object.Width16Bits = 0;
+  xen_dma_adapter->adapter_object.ScatterGather = device_description->ScatterGather;
+  xen_dma_adapter->adapter_object.IgnoreCount = device_description->IgnoreCount;
+  xen_dma_adapter->adapter_object.Dma32BitAddresses = device_description->Dma32BitAddresses;
+  xen_dma_adapter->adapter_object.Dma64BitAddresses = device_description->Dma64BitAddresses;
+  InitializeListHead(&xen_dma_adapter->adapter_object.AdapterList);  
+  
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations = ExAllocatePoolWithTag(NonPagedPool, sizeof(DMA_OPERATIONS), XENPCI_POOL_TAG);
+  ASSERT(xen_dma_adapter->adapter_object.DmaHeader.DmaOperations);
+  if (xen_dma_adapter->adapter_object.DmaHeader.Version == 1)
+  {
+    xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->Size = FIELD_OFFSET(DMA_OPERATIONS, CalculateScatterGatherList);
+  }
+  else
+  {
+    xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->Size = sizeof(DMA_OPERATIONS);
+  }
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->PutDmaAdapter = XenPci_DOP_PutDmaAdapter;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->AllocateCommonBuffer = XenPci_DOP_AllocateCommonBuffer;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->FreeCommonBuffer = XenPci_DOP_FreeCommonBuffer;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->AllocateAdapterChannel = XenPci_DOP_AllocateAdapterChannel;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->FlushAdapterBuffers = XenPci_DOP_FlushAdapterBuffers;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->FreeAdapterChannel = XenPci_DOP_FreeAdapterChannel;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->FreeMapRegisters = XenPci_DOP_FreeMapRegisters;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->MapTransfer = XenPci_DOP_MapTransfer;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->GetDmaAlignment = XenPci_DOP_GetDmaAlignment;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->ReadDmaCounter = XenPci_DOP_ReadDmaCounter;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->GetScatterGatherList = XenPci_DOP_GetScatterGatherList;
+  xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->PutScatterGatherList = XenPci_DOP_PutScatterGatherList;
+  if (xen_dma_adapter->adapter_object.DmaHeader.Version == 2)
+  {
+    xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->CalculateScatterGatherList = XenPci_DOP_CalculateScatterGatherList;
+    xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->BuildScatterGatherList = XenPci_DOP_BuildScatterGatherList;
+    xen_dma_adapter->adapter_object.DmaHeader.DmaOperations->BuildMdlFromScatterGatherList = XenPci_DOP_BuildMdlFromScatterGatherList;
+  }
   xen_dma_adapter->xppdd = context;
   xen_dma_adapter->dma_extension = NULL;
 
   KdPrint((__DRIVER_NAME "     About to call IoGetAttachedDeviceReference\n"));
   curr = IoGetAttachedDeviceReference(WdfDeviceWdmGetDeviceObject(xen_dma_adapter->xppdd->wdf_device));
-  //curr = WdfDeviceWdmGetAttachedDevice(xen_dma_adapter->xppdd->wdf_device);
   KdPrint((__DRIVER_NAME "     Before start of loop - curr = %p\n", curr));
   while (curr != NULL)
   {
@@ -780,7 +839,7 @@ Windows accessed beyond the end of the structure :(
 
   FUNCTION_EXIT();
 
-  return &xen_dma_adapter->dma_adapter;
+  return &xen_dma_adapter->adapter_object.DmaHeader;
 }
 
 static ULONG
@@ -897,33 +956,11 @@ XenPci_BackEndStateHandler(char *path, PVOID context)
     break;
 
   case XenbusStateClosing:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing (%s)\n", path));  
-    if (xpdd->suspend_state == SUSPEND_STATE_NONE)
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing (%s)\n", path));
+    if (xppdd->frontend_state == XenbusStateConnected)
     {
+      KdPrint((__DRIVER_NAME "     Requesting eject\n"));
       WdfPdoRequestEject(device);
-#if 0
-      if (xppdd->common.device_usage_paging
-        || xppdd->common.device_usage_dump
-        || xppdd->common.device_usage_hibernation)
-      {
-        KdPrint((__DRIVER_NAME "     Not closing device because it is in use\n"));
-        /* in use by page file, dump file, or hiber file - can't close */
-        /* we should probably re-check if the device usage changes in the future */
-      }
-      else
-      {
-        
-        if (xppdd->common.current_pnp_state == Started)
-        {
-          KdPrint((__DRIVER_NME "     Sending RequestDeviceEject\n"));
-          WdfPdoRequestEject(device);
-        }
-        else
-        {
-          KdPrint((__DRIVER_NAME "     Not closing device because it is not started\n"));
-        }
-      }
-#endif
     }
     break;
 
@@ -1257,6 +1294,8 @@ XenPci_ChangeFrontendState(WDFDEVICE device, ULONG frontend_state_set, ULONG bac
   char path[128];
   
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  
+  xppdd->frontend_state = frontend_state_set;
 
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
   XenBus_Printf(xpdd, XBT_NIL, path, "%d", frontend_state_set);
@@ -1678,7 +1717,7 @@ XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
         if (!NT_SUCCESS(status))
         {
           RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-          XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);
+          XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, device);
           FUNCTION_ERROR_EXIT();
           return status;
         }
@@ -1721,7 +1760,7 @@ XenPciPdo_EvtDeviceResourceRequirementsQuery(WDFDEVICE device, WDFIORESREQLIST r
   WDFIORESLIST res_list;
   IO_RESOURCE_DESCRIPTOR ird;
 
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
   
   WdfIoResourceRequirementsListSetInterfaceType(requirements_list, PNPBus);
   
@@ -1748,9 +1787,164 @@ XenPciPdo_EvtDeviceResourceRequirementsQuery(WDFDEVICE device, WDFIORESREQLIST r
   
   WdfIoResourceRequirementsListAppendIoResList(requirements_list, res_list);
 
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
   
   return STATUS_SUCCESS;
+}
+
+NTSTATUS
+XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  
+  UNREFERENCED_PARAMETER(device);
+  UNREFERENCED_PARAMETER(previous_state);
+  
+  FUNCTION_ENTER();
+
+  switch (previous_state)
+  {
+  case WdfPowerDeviceD0:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD1\n"));
+    break;
+  case WdfPowerDeviceD1:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD1\n"));
+    break;
+  case WdfPowerDeviceD2:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD2\n"));
+    break;
+  case WdfPowerDeviceD3:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3\n"));
+    break;
+  case WdfPowerDeviceD3Final:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3Final\n"));
+    break;
+  case WdfPowerDevicePrepareForHibernation:
+    KdPrint((__DRIVER_NAME "     WdfPowerDevicePrepareForHibernation\n"));
+    break;  
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", previous_state));
+    break;  
+  }
+
+  FUNCTION_EXIT();
+  
+  return status;
+}
+
+NTSTATUS
+XenPciPdo_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  char path[128];
+  
+  UNREFERENCED_PARAMETER(device);
+  UNREFERENCED_PARAMETER(target_state);
+  
+  FUNCTION_ENTER();
+
+  KdPrint((__DRIVER_NAME "     path = %s\n", xppdd->path));
+
+  
+  switch (target_state)
+  {
+  case WdfPowerDeviceD0:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD1\n"));
+    break;
+  case WdfPowerDeviceD1:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD1\n"));
+    break;
+  case WdfPowerDeviceD2:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD2\n"));
+    break;
+  case WdfPowerDeviceD3:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3\n"));
+    break;
+  case WdfPowerDeviceD3Final:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3Final\n"));
+    break;
+  case WdfPowerDevicePrepareForHibernation:
+    KdPrint((__DRIVER_NAME "     WdfPowerDevicePrepareForHibernation\n"));
+    break;  
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", target_state));
+    break;  
+  }
+  
+  if (target_state == WdfPowerDevicePrepareForHibernation
+      || (target_state == WdfPowerDeviceD3 && xppdd->hiber_usage_kludge))
+  {
+    KdPrint((__DRIVER_NAME "     not powering down as we are hibernating\n"));
+  }
+  else
+  {
+    status = XenPci_XenShutdownDevice(device);
+    /* Remove watch on backend state */
+    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, device);
+  }
+  FUNCTION_EXIT();
+  
+  return status;
+}
+
+NTSTATUS
+XenPciPdo_EvtDevicePrepareHardware (WDFDEVICE device, WDFCMRESLIST resources_raw, WDFCMRESLIST resources_translated)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  
+  UNREFERENCED_PARAMETER(device);
+  UNREFERENCED_PARAMETER(resources_raw);
+  UNREFERENCED_PARAMETER(resources_translated);
+  
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  
+  return status;
+}
+
+NTSTATUS
+XenPciPdo_EvtDeviceReleaseHardware(WDFDEVICE device, WDFCMRESLIST resources_translated)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  
+  UNREFERENCED_PARAMETER(device);
+  UNREFERENCED_PARAMETER(resources_translated);
+  
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  
+  return status;
+}
+
+static VOID
+XenPciPdo_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE notification_type, BOOLEAN is_in_notification_path)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+
+  FUNCTION_ENTER();
+  
+  KdPrint((__DRIVER_NAME "     path = %s\n", xppdd->path));
+  switch (notification_type)
+  {
+  case WdfSpecialFilePaging:
+    KdPrint((__DRIVER_NAME "     notification_type = Paging, flag = %d\n", is_in_notification_path));
+    break;
+  case WdfSpecialFileHibernation:
+    xppdd->hiber_usage_kludge = is_in_notification_path;
+    KdPrint((__DRIVER_NAME "     notification_type = Hibernation, flag = %d\n", is_in_notification_path));
+    break;
+  case WdfSpecialFileDump:
+    KdPrint((__DRIVER_NAME "     notification_type = Dump, flag = %d\n", is_in_notification_path));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     notification_type = %d, flag = %d\n", notification_type, is_in_notification_path));
+    break;
+  }
+
+  FUNCTION_EXIT();  
 }
 
 NTSTATUS
@@ -1770,22 +1964,24 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   WDF_QUERY_INTERFACE_CONFIG interface_config;
   BUS_INTERFACE_STANDARD bus_interface;
   WDF_PDO_EVENT_CALLBACKS pdo_callbacks;
+  WDF_PNPPOWER_EVENT_CALLBACKS child_pnp_power_callbacks;
   UCHAR pnp_minor_functions[] = { IRP_MN_START_DEVICE };
+  WDF_DEVICE_POWER_CAPABILITIES child_power_capabilities;
   
   FUNCTION_ENTER();
 
   WdfDeviceInitSetDeviceType(child_init, FILE_DEVICE_UNKNOWN);
   
-/*
   WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&child_pnp_power_callbacks);
   child_pnp_power_callbacks.EvtDeviceD0Entry = XenPciPdo_EvtDeviceD0Entry;
-  child_pnp_power_callbacks.EvtDeviceD0EntryPostInterruptsEnabled = XenPciPdo_EvtDeviceD0EntryPostInterruptsEnabled;
+  //child_pnp_power_callbacks.EvtDeviceD0EntryPostInterruptsEnabled = XenPciPdo_EvtDeviceD0EntryPostInterruptsEnabled;
   child_pnp_power_callbacks.EvtDeviceD0Exit = XenPciPdo_EvtDeviceD0Exit;
-  child_pnp_power_callbacks.EvtDeviceD0ExitPreInterruptsDisabled = XenPciPdo_EvtDeviceD0ExitPreInterruptsDisabled;
+  //child_pnp_power_callbacks.EvtDeviceD0ExitPreInterruptsDisabled = XenPciPdo_EvtDeviceD0ExitPreInterruptsDisabled;
   child_pnp_power_callbacks.EvtDevicePrepareHardware = XenPciPdo_EvtDevicePrepareHardware;
   child_pnp_power_callbacks.EvtDeviceReleaseHardware = XenPciPdo_EvtDeviceReleaseHardware;
+  child_pnp_power_callbacks.EvtDeviceUsageNotification = XenPciPdo_EvtDeviceUsageNotification;
   WdfDeviceInitSetPnpPowerEventCallbacks(child_init, &child_pnp_power_callbacks);
-*/
+
   KdPrint((__DRIVER_NAME "     device = '%s', index = '%d', path = '%s'\n",
     identification->device, identification->index, identification->path));
   
@@ -1834,6 +2030,8 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
     return status;
   }
   WdfPdoInitSetDefaultLocale(child_init, 0x0409);
+
+  WdfDeviceInitSetPowerNotPageable(child_init);
   
   WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&child_attributes, XENPCI_PDO_DEVICE_DATA);
   status = WdfDeviceCreate(&child_init, &child_attributes, &child_device);
@@ -1867,8 +2065,17 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   child_pnp_capabilities.HardwareDisabled = WdfFalse;
   WdfDeviceSetPnpCapabilities(child_device, &child_pnp_capabilities);
 
-  //WDF_DEVICE_POWER_CAPABILITIES_INIT(&child_power_capabilities);
-  //WdfDeviceSetPowerCapabilities(child_device, &child_power_capabilities);  
+  WDF_DEVICE_POWER_CAPABILITIES_INIT(&child_power_capabilities);
+  child_power_capabilities.DeviceD1 = WdfTrue;
+  child_power_capabilities.WakeFromD1 = WdfTrue;
+  child_power_capabilities.DeviceWake = PowerDeviceD1;
+  child_power_capabilities.DeviceState[PowerSystemWorking]   = PowerDeviceD1;
+  child_power_capabilities.DeviceState[PowerSystemSleeping1] = PowerDeviceD1;
+  child_power_capabilities.DeviceState[PowerSystemSleeping2] = PowerDeviceD2;
+  child_power_capabilities.DeviceState[PowerSystemSleeping3] = PowerDeviceD2;
+  child_power_capabilities.DeviceState[PowerSystemHibernate] = PowerDeviceD3;
+  child_power_capabilities.DeviceState[PowerSystemShutdown]  = PowerDeviceD3;
+  WdfDeviceSetPowerCapabilities(child_device, &child_power_capabilities);  
 
   bus_interface.Size = sizeof(BUS_INTERFACE_STANDARD);
   bus_interface.Version = 1; //BUS_INTERFACE_STANDARD_VERSION;
@@ -1891,6 +2098,7 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   xppdd->index = identification->index;
   KeInitializeEvent(&xppdd->backend_state_event, SynchronizationEvent, FALSE);
   xppdd->backend_state = XenbusStateUnknown;
+  xppdd->frontend_state = XenbusStateUnknown;
   xppdd->backend_path[0] = '\0';
     
   FUNCTION_EXIT();

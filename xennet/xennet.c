@@ -327,6 +327,8 @@ XenNet_Init(
 
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
+  length = NdisReadPciSlotInformation(MiniportAdapterHandle, 0, 0, &buf, 128);
+  KdPrint((__DRIVER_NAME "     NdisReadPciSlotInformation = %d\n", length));
   /* deal with medium stuff */
   for (i = 0; i < MediumArraySize; i++)
   {
@@ -638,21 +640,6 @@ XenNet_Init(
 
   KeMemoryBarrier(); // packets could be received anytime after we set Frontent to Connected
 
-  #if 0
-  status = NdisMRegisterInterrupt(&xi->interrupt, MiniportAdapterHandle, irq_vector, irq_level,
-    TRUE, TRUE, irq_mode);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint(("NdisMRegisterInterrupt failed with 0x%x\n", status));
-    status = NDIS_STATUS_RESOURCES;
-    xi->connected = FALSE;
-    XenNet_TxShutdown(xi);
-    XenNet_RxShutdown(xi);
-    goto err;
-  }
-  #endif
-  //xi->vectors.EvtChn_Bind(xi->vectors.context, xi->event_channel, XenNet_HandleEvent, xi);
-
   FUNCTION_EXIT();
 
   return NDIS_STATUS_SUCCESS;
@@ -688,10 +675,8 @@ XenNet_Shutdown(
 {
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
 
+  /* remember we are called at >= DIRQL here */
   FUNCTION_CALLED();
-
-  /* can't do this as shutdown might be called at DIRQL or higher */
-  /* NdisMDeregisterInterrupt(&xi->interrupt); */
 }
 
 /* Opposite of XenNet_Init */
@@ -705,17 +690,15 @@ XenNet_Halt(
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
-  NdisMDeregisterInterrupt(&xi->interrupt);
-
-  xi->vectors.XenPci_XenShutdownDevice(xi->vectors.context);
-
   xi->connected = FALSE;
   KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
 
-  // TODO: remove event channel xenbus entry (how?)
-
   XenNet_TxShutdown(xi);
   XenNet_RxShutdown(xi);
+
+  xi->vectors.XenPci_XenShutdownDevice(xi->vectors.context);
+
+  // TODO: remove event channel xenbus entry (how?)
 
   NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL
 

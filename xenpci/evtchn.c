@@ -101,6 +101,11 @@ to CPU != 0, but we should always use vcpu_info[0]
     KdPrint((__DRIVER_NAME "     unhandled interrupt\n"));
   }
 
+  if (xpdd->hibernated)
+  {
+    KdPrint((__DRIVER_NAME "     interrupt while hibernated\n"));
+  }
+
   for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt); i++)
   {
     if (xpdd->evtchn_pending_pvt[i])

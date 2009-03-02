@@ -363,7 +363,7 @@ XenPci_DeviceWatchHandler(char *path, PVOID context)
   char *value;
   PXENPCI_DEVICE_DATA xpdd = context;
 
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
 
   bits = SplitString(path, '/', 4, &count);
   if (count == 3)
@@ -384,7 +384,7 @@ XenPci_DeviceWatchHandler(char *path, PVOID context)
   }
   FreeSplitString(bits, count);
 
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
 }
 
 NTSTATUS
@@ -467,9 +467,34 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
   NTSTATUS status = STATUS_SUCCESS;
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(device);
 
-  UNREFERENCED_PARAMETER(previous_state);
-
   FUNCTION_ENTER();
+
+  xpdd->hibernated = FALSE;
+
+  switch (previous_state)
+  {
+  case WdfPowerDeviceD0:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD1\n"));
+    break;
+  case WdfPowerDeviceD1:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD1\n"));
+    break;
+  case WdfPowerDeviceD2:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD2\n"));
+    break;
+  case WdfPowerDeviceD3:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3\n"));
+    break;
+  case WdfPowerDeviceD3Final:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3Final\n"));
+    break;
+  case WdfPowerDevicePrepareForHibernation:
+    KdPrint((__DRIVER_NAME "     WdfPowerDevicePrepareForHibernation\n"));
+    break;  
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", previous_state));
+    break;  
+  }
   
   XenPci_Init(xpdd);
   if (tpr_patch_requested && !xpdd->tpr_patched)
@@ -534,9 +559,34 @@ XenPci_EvtDeviceD0ExitPreInterruptsDisabled(WDFDEVICE device, WDF_POWER_DEVICE_S
   NTSTATUS status = STATUS_SUCCESS;
   
   UNREFERENCED_PARAMETER(device);
-  UNREFERENCED_PARAMETER(target_state);
   
   FUNCTION_ENTER();
+  
+  switch (target_state)
+  {
+  case WdfPowerDeviceD0:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD1\n"));
+    break;
+  case WdfPowerDeviceD1:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD1\n"));
+    break;
+  case WdfPowerDeviceD2:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD2\n"));
+    break;
+  case WdfPowerDeviceD3:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3\n"));
+    break;
+  case WdfPowerDeviceD3Final:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3Final\n"));
+    break;
+  case WdfPowerDevicePrepareForHibernation:
+    KdPrint((__DRIVER_NAME "     WdfPowerDevicePrepareForHibernation\n"));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", target_state));
+    break;  
+  }
+  
   FUNCTION_EXIT();
   
   return status;
@@ -546,11 +596,36 @@ NTSTATUS
 XenPci_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
 {
   NTSTATUS status = STATUS_SUCCESS;
-  
-  UNREFERENCED_PARAMETER(device);
-  UNREFERENCED_PARAMETER(target_state);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(device);
   
   FUNCTION_ENTER();
+
+  switch (target_state)
+  {
+  case WdfPowerDeviceD0:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD1\n"));
+    break;
+  case WdfPowerDeviceD1:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD1\n"));
+    break;
+  case WdfPowerDeviceD2:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD2\n"));
+    break;
+  case WdfPowerDeviceD3:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3\n"));
+    break;
+  case WdfPowerDeviceD3Final:
+    KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3Final\n"));
+    break;
+  case WdfPowerDevicePrepareForHibernation:
+    KdPrint((__DRIVER_NAME "     WdfPowerDevicePrepareForHibernation\n"));
+    xpdd->hibernated = TRUE;
+    break;  
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", target_state));
+    break;  
+  }
+
   FUNCTION_EXIT();
   
   return status;
@@ -578,7 +653,7 @@ XenPci_EvtChildListScanForChildren(WDFCHILDLIST child_list)
   char *msg;
   char **devices;
   char **instances;
-  int i, j;
+  ULONG i, j;
   CHAR path[128];
   XENPCI_PDO_IDENTIFICATION_DESCRIPTION child_description;
   
@@ -592,6 +667,27 @@ XenPci_EvtChildListScanForChildren(WDFCHILDLIST child_list)
     for (i = 0; devices[i]; i++)
     {
       RtlStringCbPrintfA(path, ARRAY_SIZE(path), "device/%s", devices[i]);
+      
+      for (j = 0; j < WdfCollectionGetCount(xpdd->veto_devices); j++)
+      {
+        WDFOBJECT ws = WdfCollectionGetItem(xpdd->veto_devices, j);
+        UNICODE_STRING val;
+        ANSI_STRING s;
+        WdfStringGetUnicodeString(ws, &val);
+        RtlUnicodeStringToAnsiString(&s, &val, TRUE);
+        if (!strcmp(devices[i], s.Buffer))
+        {
+          RtlFreeAnsiString(&s);
+          break;
+        }
+        RtlFreeAnsiString(&s);
+      }
+      if (j < WdfCollectionGetCount(xpdd->veto_devices))
+      {
+        XenPci_FreeMem(devices[i]);
+        continue;
+      }
+    
       msg = XenBus_List(xpdd, XBT_NIL, path, &instances);
       if (!msg)
       {

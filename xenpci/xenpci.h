@@ -189,8 +189,11 @@ typedef struct {
 
   BOOLEAN removable;
   
+  BOOLEAN hibernated;
+  
   WDFQUEUE io_queue;
 
+  WDFCOLLECTION veto_devices;
 #if 0
   KSPIN_LOCK mmio_freelist_lock;
   PPFN_NUMBER mmio_freelist_base;
@@ -218,6 +221,7 @@ typedef struct {
   //PVOID xenbus_request;
   KEVENT backend_state_event;
   ULONG backend_state;
+  ULONG frontend_state;
   PHYSICAL_ADDRESS config_page_phys;
   ULONG config_page_length;
   PUCHAR requested_resources_start;
@@ -226,6 +230,8 @@ typedef struct {
   PUCHAR assigned_resources_ptr;
   XENPCI_DEVICE_STATE device_state;
   BOOLEAN restart_on_resume;
+  
+  BOOLEAN hiber_usage_kludge;
   
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
@@ -238,21 +244,79 @@ typedef struct {
   ULONG index;
 } XENPCI_PDO_IDENTIFICATION_DESCRIPTION, *PXENPCI_PDO_IDENTIFICATION_DESCRIPTION;
 
+#if 0
+kd> dt _ADAPTER_OBJECT 81e96b08 -v
+hal!_ADAPTER_OBJECT
+struct _ADAPTER_OBJECT, 26 elements, 0x64 bytes
+   +0x000 DmaHeader        : struct _DMA_ADAPTER, 3 elements, 0x8 bytes
+   +0x008 MasterAdapter    : (null) 
+   +0x00c MapRegistersPerChannel : 0x80001
+   +0x010 AdapterBaseVa    : (null) 
+   +0x014 MapRegisterBase  : (null) 
+   +0x018 NumberOfMapRegisters : 0
+   +0x01c CommittedMapRegisters : 0
+   +0x020 CurrentWcb       : (null) 
+   +0x024 ChannelWaitQueue : struct _KDEVICE_QUEUE, 5 elements, 0x14 bytes
+   +0x038 RegisterWaitQueue : (null) 
+   +0x03c AdapterQueue     : struct _LIST_ENTRY, 2 elements, 0x8 bytes
+ [ 0x0 - 0x0 ]
+   +0x044 SpinLock         : 0
+   +0x048 MapRegisters     : (null) 
+   +0x04c PagePort         : (null) 
+   +0x050 ChannelNumber    : 0xff ''
+   +0x051 AdapterNumber    : 0 ''
+   +0x052 DmaPortAddress   : 0
+   +0x054 AdapterMode      : 0 ''
+   +0x055 NeedsMapRegisters : 0 ''
+   +0x056 MasterDevice     : 0x1 ''
+   +0x057 Width16Bits      : 0 ''
+   +0x058 ScatterGather    : 0x1 ''
+   +0x059 IgnoreCount      : 0 ''
+   +0x05a Dma32BitAddresses : 0x1 ''
+   +0x05b Dma64BitAddresses : 0 ''
+   +0x05c AdapterList      : struct _LIST_ENTRY, 2 elements, 0x8 bytes
+ [ 0x806e1250 - 0x81f1b474 ]
+#endif
+
+/* need to confirm that this is the same for AMD64 too */
 typedef struct {
-  DMA_ADAPTER dma_adapter;
+  DMA_ADAPTER DmaHeader;
+  PVOID MasterAdapter;
+  ULONG MapRegistersPerChannel;
+  PVOID AdapterBaseVa;
+  PVOID MapRegisterBase;
+  ULONG NumberOfMapRegisters;
+  ULONG CommittedMapRegisters;
+  PVOID CurrentWcb;
+  KDEVICE_QUEUE ChannelWaitQueue;
+  PKDEVICE_QUEUE RegisterWaitQueue;
+  LIST_ENTRY AdapterQueue;
+  KSPIN_LOCK SpinLock;
+  PVOID MapRegisters;
+  PVOID PagePort;
+  UCHAR ChannelNumber;
+  UCHAR AdapterNumber;
+  USHORT DmaPortAddress;
+  UCHAR AdapterMode;
+  BOOLEAN NeedsMapRegisters;
+  BOOLEAN MasterDevice;
+  UCHAR Width16Bits;
+  BOOLEAN ScatterGather;
+  BOOLEAN IgnoreCount;
+  BOOLEAN Dma32BitAddresses;
+  BOOLEAN Dma64BitAddresses;
+#if (NTDDI_VERSION >= NTDDI_WS03)
+  BOOLEAN LegacyAdapter;
+#endif
+  LIST_ENTRY AdapterList;
+} X_ADAPTER_OBJECT;
+  
+typedef struct {
+  X_ADAPTER_OBJECT adapter_object;
   PXENPCI_PDO_DEVICE_DATA xppdd;
   dma_driver_extension_t *dma_extension;
   PDRIVER_OBJECT dma_extension_driver; /* to deference it */
 } xen_dma_adapter_t;
-
-#if 0
-typedef struct
-{
-  LIST_ENTRY entry;
-  int state;
-  PXENPCI_PDO_DEVICE_DATA context;
-} XEN_CHILD, *PXEN_CHILD;
-#endif
 
 #define XEN_INTERFACE_VERSION 1
 
