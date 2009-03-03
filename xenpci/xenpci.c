@@ -79,7 +79,7 @@ XenPci_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   UNREFERENCED_PARAMETER(driver);
 
   FUNCTION_ENTER();
-
+  
   WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp_power_callbacks);
   pnp_power_callbacks.EvtDeviceD0Entry = XenPci_EvtDeviceD0Entry;
   pnp_power_callbacks.EvtDeviceD0EntryPostInterruptsEnabled = XenPci_EvtDeviceD0EntryPostInterruptsEnabled;
@@ -225,6 +225,112 @@ XenPci_HideQemuDevices()
   }
 }
 
+/*
+make sure the load order is System Reserved, Dummy Group, WdfLoadGroup, Boot Bus Extender
+*/
+
+static VOID
+XenPci_FixLoadOrder()
+{
+  NTSTATUS status;
+  WDFCOLLECTION old_load_order, new_load_order;
+  DECLARE_CONST_UNICODE_STRING(sgo_name, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Control\\ServiceGroupOrder");
+  DECLARE_CONST_UNICODE_STRING(list_name, L"List");
+  WDFKEY sgo_key;
+  ULONG i;
+  LONG dummy_group_index = -1;
+  LONG boot_bus_extender_index = -1;
+  LONG wdf_load_group_index = -1;
+  DECLARE_CONST_UNICODE_STRING(dummy_group_name, L"Dummy Group");
+  DECLARE_CONST_UNICODE_STRING(wdf_load_group_name, L"WdfLoadGroup");
+  DECLARE_CONST_UNICODE_STRING(boot_bus_extender_name, L"Boot Bus Extender");
+
+  FUNCTION_ENTER();
+  
+  status = WdfRegistryOpenKey(NULL, &sgo_name, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &sgo_key);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     Error opening ServiceGroupOrder key %08x\n", status));
+    return;
+  }
+  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &old_load_order);
+  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &new_load_order);  
+  status = WdfRegistryQueryMultiString(sgo_key, &list_name, WDF_NO_OBJECT_ATTRIBUTES, old_load_order);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     Error reading ServiceGroupOrder\\List value %08x\n", status));
+    WdfObjectDelete(new_load_order);
+    WdfObjectDelete(old_load_order);
+    return;
+  }
+  KdPrint((__DRIVER_NAME "     Current Order:\n"));        
+  for (i = 0; i < WdfCollectionGetCount(old_load_order); i++)
+  {
+    WDFOBJECT ws = WdfCollectionGetItem(old_load_order, i);
+    UNICODE_STRING val;
+    WdfStringGetUnicodeString(ws, &val);
+    if (!RtlCompareUnicodeString(&val, &dummy_group_name, TRUE))
+      dummy_group_index = (ULONG)i;
+    if (!RtlCompareUnicodeString(&val, &wdf_load_group_name, TRUE))
+      wdf_load_group_index = (ULONG)i;         
+    if (!RtlCompareUnicodeString(&val, &boot_bus_extender_name, TRUE))
+      boot_bus_extender_index = (ULONG)i;         
+    KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
+  }
+  KdPrint((__DRIVER_NAME "     dummy_group_index = %d\n", dummy_group_index));
+  KdPrint((__DRIVER_NAME "     wdf_load_group_index = %d\n", wdf_load_group_index));
+  KdPrint((__DRIVER_NAME "     boot_bus_extender_index = %d\n", boot_bus_extender_index));
+  if (boot_bus_extender_index == -1)
+  {
+    WdfObjectDelete(new_load_order);
+    WdfObjectDelete(old_load_order);
+    WdfRegistryClose(sgo_key);
+    return; /* something is very wrong */
+  }
+  if (dummy_group_index == 1 && (wdf_load_group_index == -1 || (wdf_load_group_index > dummy_group_index && wdf_load_group_index < boot_bus_extender_index)))
+  {
+    return; /* our work here is done */
+  }
+  for (i = 0; i < WdfCollectionGetCount(old_load_order); i++)
+  {
+    WDFOBJECT ws;
+    if (i == 1)
+    {
+      WDFSTRING tmp_wdf_string;
+      WdfStringCreate(&dummy_group_name, WDF_NO_OBJECT_ATTRIBUTES, &tmp_wdf_string);
+      WdfCollectionAdd(new_load_order, tmp_wdf_string);
+      WdfObjectDelete(tmp_wdf_string);
+    }
+    if (i == 2 && wdf_load_group_index != -1)
+    {
+      WDFSTRING tmp_wdf_string;
+      WdfStringCreate(&wdf_load_group_name, WDF_NO_OBJECT_ATTRIBUTES, &tmp_wdf_string);
+      WdfCollectionAdd(new_load_order, tmp_wdf_string);
+      WdfObjectDelete(tmp_wdf_string);
+    }
+    if (i == (ULONG)dummy_group_index || i == (ULONG)wdf_load_group_index)
+      continue;
+    ws = WdfCollectionGetItem(old_load_order, i);
+    WdfCollectionAdd(new_load_order, ws);
+  }
+  WdfRegistryAssignMultiString(sgo_key, &list_name, new_load_order);
+  KdPrint((__DRIVER_NAME "     New Order:\n"));        
+  for (i = 0; i < WdfCollectionGetCount(new_load_order); i++)
+  {
+    WDFOBJECT ws = WdfCollectionGetItem(new_load_order, i);
+    UNICODE_STRING val;
+    WdfStringGetUnicodeString(ws, &val);
+    KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
+  }
+  WdfObjectDelete(new_load_order);
+  WdfObjectDelete(old_load_order);
+  WdfRegistryClose(sgo_key);
+  
+  FUNCTION_EXIT();
+  
+  return;
+}
+
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -240,86 +346,17 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   char Buf[300];// Sometimes bigger then 200 if system reboot from crash
   ULONG BufLen = 300;
   PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
-  WDFCOLLECTION old_load_order, new_load_order;
-  DECLARE_CONST_UNICODE_STRING(sgo_name, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Control\\ServiceGroupOrder");
-  DECLARE_CONST_UNICODE_STRING(list_name, L"List");
-  WDFKEY sgo_key;
+#if 0
+  WDF_TIMER_CONFIG  timer_config;
+  OBJECT_ATTRIBUTES timer_attributes;
+#endif
 
   UNREFERENCED_PARAMETER(RegistryPath);
 
   FUNCTION_ENTER();
+  
+  XenPci_FixLoadOrder();
 
-  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &old_load_order);
-  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &new_load_order);
-  status = WdfRegistryOpenKey(NULL, &sgo_name, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &sgo_key);
-  if (NT_SUCCESS(status))
-  {
-    status = WdfRegistryQueryMultiString(sgo_key, &list_name, WDF_NO_OBJECT_ATTRIBUTES, old_load_order);
-    if (!NT_SUCCESS(status))
-    {
-      KdPrint((__DRIVER_NAME "     Error reading ServiceGroupOrder\\List value %08x\n", status));
-    }
-    else
-    {
-      ULONG i;
-      LONG boot_bus_extender_index = -1;
-      LONG wdf_load_group_index = -1;
-      DECLARE_CONST_UNICODE_STRING(wdf_load_group_name, L"WdfLoadGroup");
-      DECLARE_CONST_UNICODE_STRING(boot_bus_extender_name, L"Boot Bus Extender");
-      KdPrint((__DRIVER_NAME "     Current Order:\n"));        
-      for (i = 0; i < WdfCollectionGetCount(old_load_order); i++)
-      {
-        WDFOBJECT ws = WdfCollectionGetItem(old_load_order, i);
-        UNICODE_STRING val;
-        WdfStringGetUnicodeString(ws, &val);
-        if (!RtlCompareUnicodeString(&val, &wdf_load_group_name, TRUE))
-          wdf_load_group_index = (ULONG)i;
-        if (!RtlCompareUnicodeString(&val, &boot_bus_extender_name, TRUE))
-          boot_bus_extender_index = (ULONG)i;         
-        KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
-      }
-      KdPrint((__DRIVER_NAME "     wdf_load_group_index = %d\n", wdf_load_group_index));
-      KdPrint((__DRIVER_NAME "     boot_bus_extender_index = %d\n", boot_bus_extender_index));
-      if (boot_bus_extender_index >= 0 && wdf_load_group_index >= 0
-          && boot_bus_extender_index < wdf_load_group_index)
-      {
-        for (i = 0; i < WdfCollectionGetCount(old_load_order); i++)
-        {
-          UNICODE_STRING val;
-          WDFOBJECT ws;
-          if (i == (ULONG)wdf_load_group_index)
-            continue;
-          ws = WdfCollectionGetItem(old_load_order, i);
-          WdfStringGetUnicodeString(ws, &val);
-          if (i == (ULONG)boot_bus_extender_index)
-          {
-            WDFSTRING wdf_load_group_val;
-            WdfStringCreate(&wdf_load_group_name, WDF_NO_OBJECT_ATTRIBUTES, &wdf_load_group_val);
-            WdfCollectionAdd(new_load_order, wdf_load_group_val);
-          }
-          WdfCollectionAdd(new_load_order, ws);
-        }
-        KdPrint((__DRIVER_NAME "     New Order:\n"));        
-        for (i = 0; i < WdfCollectionGetCount(new_load_order); i++)
-        {
-          WDFOBJECT ws = WdfCollectionGetItem(new_load_order, i);
-          UNICODE_STRING val;
-          WdfStringGetUnicodeString(ws, &val);
-          KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
-        }
-        WdfRegistryAssignMultiString(sgo_key, &list_name, new_load_order);
-      }
-    }
-    WdfRegistryClose(sgo_key);
-  }
-  else
-  {
-    KdPrint((__DRIVER_NAME "     Error opening ServiceGroupOrder key %08x\n", status));
-  }
-  WdfObjectDelete(new_load_order);
-  WdfObjectDelete(old_load_order);
-
-  //TestStuff();  
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
   InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
   status = ZwOpenKey(&RegHandle, KEY_READ, &RegObjectAttributes);
@@ -380,13 +417,13 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   if (qemu_filtered)
     KdPrint((__DRIVER_NAME "     PV Devices Active\n"));
   else
-    KdPrint((__DRIVER_NAME "     PV Devices InActive\n"));
+    KdPrint((__DRIVER_NAME "     PV Devices Inactive\n"));
   
   WDF_DRIVER_CONFIG_INIT(&config, XenPci_EvtDeviceAdd);
   status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, &driver);
 
   if (!NT_SUCCESS(status)) {
-    KdPrint( ("WdfDriverCreate failed with status 0x%x\n", status));
+    KdPrint((__DRIVER_NAME "     WdfDriverCreate failed with status 0x%x\n", status));
   }
 
   FUNCTION_EXIT();
