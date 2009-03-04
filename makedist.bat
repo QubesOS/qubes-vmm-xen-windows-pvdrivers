@@ -14,22 +14,26 @@ ECHO BUILDING %GPLPV_VERSION%
 
 CALL set_ddk_path.bat
 
-cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre WXP && CD \Projects\win-pvdrivers.hg && build -cZg && call sign.bat && call wix.bat"
+SET PV_DIR=%CD%
 
-cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre WNET && CD \Projects\win-pvdrivers.hg && build -cZg && call sign.bat && call wix.bat"
+ECHO PV_DIR=%PV_DIR%
 
-cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre x64 WNET && CD \Projects\win-pvdrivers.hg && build -cZg && call sign.bat && call wix.bat"
+cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre WXP && CD "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
 
-cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre WLH && CD \Projects\win-pvdrivers.hg && build -cZg && call sign.bat && call wix.bat"
+cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre WNET && CD "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
 
-cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre x64 WLH && CD \Projects\win-pvdrivers.hg && build -cZg && call sign.bat && call wix.bat"
+cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre x64 WNET && CD "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
 
-cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk WXP && CD \Projects\win-pvdrivers.hg && build -cZg && call sign.bat && call wix.bat"
+cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre WLH && CD "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
 
-cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk WNET && CD \Projects\win-pvdrivers.hg && build -cZg && call sign.bat && call wix.bat"
+cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre x64 WLH && CD "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
 
-cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk x64 WNET && CD \Projects\win-pvdrivers.hg && build -cZg && call sign.bat && call wix.bat"
+cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk WXP && CD "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
 
-cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk WLH && CD \Projects\win-pvdrivers.hg && build -cZg && && call sign.bat call wix.bat"
+cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk WNET && CD "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
 
-cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk x64 WLH && CD \Projects\win-pvdrivers.hg && build -cZg && call sign.bat && call wix.bat"
+cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk x64 WNET && CD "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
+
+cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk WLH && CD "%PV_DIR%" && build -cZg && && call sign.bat call wix.bat"
+
+cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk x64 WLH && CD "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
