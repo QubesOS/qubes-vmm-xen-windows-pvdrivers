@@ -3,7 +3,7 @@ Signature="$WINDOWS NT$"
 Class=System
 ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider=%XenGplPv%
-CatalogFile="XenGPLPV.cat"
+CatalogFile="xenpci.cat"
 DriverPackageType=PlugAndPlay
 DriverPackageDisplayName=%XenPCI.DRVDESC%
 
@@ -34,7 +34,7 @@ xenpci.sys=1
 xenhide.sys=1
 
 [SourceDisksNames]
-1 = %DISK_NAME%,,,.
+1 = %DISK_NAME%
 
 [XenPCI_Device.NT.Services]
 AddService=XenPCI,3,XenPCI_Service

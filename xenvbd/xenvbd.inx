@@ -3,7 +3,7 @@ Signature="$WINDOWS NT$"
 Class=SCSIAdapter
 ClassGuid={4D36E97B-E325-11CE-BFC1-08002BE10318}
 Provider=%XenGplPv%
-CatalogFile="XenGPLPV.cat"
+CatalogFile="xenvbd.cat"
 
 [DestinationDirs]
 DefaultDestDir = 12

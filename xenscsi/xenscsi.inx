@@ -3,7 +3,7 @@ Signature="$WINDOWS NT$"
 Class=SCSIAdapter
 ClassGuid={4D36E97B-E325-11CE-BFC1-08002BE10318}
 Provider=%XenGplPv%
-CatalogFile="XenGPLPV.cat"
+CatalogFile="xenscsi.cat"
 
 [DestinationDirs]
 DefaultDestDir = 12
@@ -12,13 +12,9 @@ DefaultDestDir = 12
 ExcludeFromSelect=*
 
 [Manufacturer]
-%XenGplPv%=XenGplPv,NTx86
-%XenGplPv%=XenGplPv,NTamd64
+%XenGplPv%=XenGplPv,NT$ARCH$
 
-[XenGplPv.NTx86]
-%XenScsi.DRVDESC%=XenScsi_Inst, XEN\VSCSI
-
-[XenGplPv.NTamd64]
+[XenGplPv.NT$ARCH$]
 %XenScsi.DRVDESC%=XenScsi_Inst, XEN\VSCSI
 
 [XenScsi_Inst.NT]
@@ -52,11 +48,8 @@ HKR,,TypesSupported,0x00010001,7
 [SourceDisksFiles]
 xenscsi.sys=1
 
-[SourceDisksNames.x86]
-1 = %DISK_NAME%,,,.\i386
-
-[SourceDisksNames.amd64]
-1 = %DISK_NAME%,,,.\amd64
+[SourceDisksNames]
+1 = %DISK_NAME%
 
 [Strings]
 XenGplPv = "Xen GPL PV Driver Developers"

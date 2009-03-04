@@ -3,7 +3,7 @@ Signature="$WINDOWS NT$"
 Class=Net
 ClassGuid={4D36E972-E325-11CE-BFC1-08002BE10318}
 Provider=%XenGplPv%
-CatalogFile="XenGPLPV.cat"
+CatalogFile="xennet.cat"
 
 [DestinationDirs]
 DefaultDestDir = 12
