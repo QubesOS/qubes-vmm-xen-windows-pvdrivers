@@ -301,7 +301,7 @@ XenPci_FixLoadOrder()
       WdfCollectionAdd(new_load_order, tmp_wdf_string);
       WdfObjectDelete(tmp_wdf_string);
     }
-    if (i == 2 && wdf_load_group_index != -1)
+    if (i == 1 && wdf_load_group_index != -1)
     {
       WDFSTRING tmp_wdf_string;
       WdfStringCreate(&wdf_load_group_name, WDF_NO_OBJECT_ATTRIBUTES, &tmp_wdf_string);
