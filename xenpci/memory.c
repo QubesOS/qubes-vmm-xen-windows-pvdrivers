@@ -14,7 +14,7 @@ hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
 
   for (base = 0x40000000; base < 0x40001000; base += 0x100)
   {
-    __cpuid(cpuid_output, 0x40000000);
+    __cpuid(cpuid_output, base);
     *(ULONG*)(xensig + 0) = cpuid_output[1];
     *(ULONG*)(xensig + 4) = cpuid_output[2];
     *(ULONG*)(xensig + 8) = cpuid_output[3];
