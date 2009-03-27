@@ -445,6 +445,15 @@ typedef struct {
 #define XEN_INIT_TYPE_STATE_PTR                 11
 #define XEN_INIT_TYPE_ACTIVE                    12
 #define XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION     13
+#define XEN_INIT_TYPE_MATCH_FRONT               14 /* string, value, action */
+#define XEN_INIT_TYPE_MATCH_BACK                15 /* string, value, action */
+
+#define XEN_INIT_MATCH_TYPE_IF_MATCH		0x0001
+#define XEN_INIT_MATCH_TYPE_IF_NOT_MATCH	0x0000
+#define XEN_INIT_MATCH_TYPE_ONLY_IF_QEMU_HIDE	0x0002 /* only if qemu hiding is supported */
+#define XEN_INIT_MATCH_TYPE_SET_INACTIVE	0x0100
+#define XEN_INIT_MATCH_TYPE_DONT_CONFIG		0x0200
+
 
 static __inline VOID
 __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
@@ -553,6 +562,12 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2, PVOID p3)
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p2);
     break;
+  case XEN_INIT_TYPE_MATCH_FRONT:
+  case XEN_INIT_TYPE_MATCH_BACK:
+    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
+    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p2);
+    __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p3));
+    break;
   case XEN_INIT_TYPE_RING:
   case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ:
   case XEN_INIT_TYPE_READ_STRING_FRONT:
@@ -594,6 +609,12 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
   case XEN_INIT_TYPE_WRITE_STRING:
     *p1 = __GET_XEN_INIT_STRING(ptr);
     *p2 = __GET_XEN_INIT_STRING(ptr);
+    break;
+  case XEN_INIT_TYPE_MATCH_FRONT:
+  case XEN_INIT_TYPE_MATCH_BACK:
+    *p1 = __GET_XEN_INIT_STRING(ptr);
+    *p2 = __GET_XEN_INIT_STRING(ptr);
+    *p3 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     break;
   case XEN_INIT_TYPE_RING:
   case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ:
