@@ -222,6 +222,7 @@ typedef struct {
   KEVENT backend_state_event;
   ULONG backend_state;
   ULONG frontend_state;
+  PMDL config_page_mdl;
   PHYSICAL_ADDRESS config_page_phys;
   ULONG config_page_length;
   PUCHAR requested_resources_start;

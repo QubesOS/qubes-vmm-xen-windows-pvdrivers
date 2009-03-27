@@ -239,7 +239,7 @@ XenPci_Suspend0(PVOID context)
   {
     XenPci_HideQemuDevices();
     ASSERT(qemu_filtered_by_qemu);
-  } 
+  }
 
   XenPci_Resume(xpdd);
   GntTbl_Resume(xpdd);
@@ -330,6 +330,7 @@ XenPci_ShutdownHandler(char *path, PVOID context)
   {
     KdPrint(("Error reading shutdown path - %s\n", res));
     XenPci_FreeMem(res);
+    FUNCTION_EXIT();
     return;
   }
 
@@ -495,6 +496,12 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
     KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", previous_state));
     break;  
   }
+
+  if (previous_state == WdfPowerDevicePrepareForHibernation && qemu_filtered_by_qemu)
+  {
+    XenPci_HideQemuDevices();
+    ASSERT(qemu_filtered_by_qemu);
+  } 
   
   XenPci_Init(xpdd);
   if (tpr_patch_requested && !xpdd->tpr_patched)
@@ -502,7 +509,14 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
     XenPci_MapHalThenPatchKernel(xpdd);
     xpdd->tpr_patched = TRUE;
   }
-  GntTbl_Init(xpdd);
+  if (previous_state == WdfPowerDevicePrepareForHibernation)
+  {
+    GntTbl_Resume(xpdd);
+  }
+  else
+  {
+    GntTbl_Init(xpdd);
+  }
   EvtChn_Init(xpdd);
 
   FUNCTION_EXIT();
@@ -624,6 +638,11 @@ XenPci_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
   default:
     KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", target_state));
     break;  
+  }
+  
+  if (target_state == WdfPowerDevicePrepareForHibernation)
+  {
+    GntTbl_Suspend(xpdd);
   }
 
   FUNCTION_EXIT();

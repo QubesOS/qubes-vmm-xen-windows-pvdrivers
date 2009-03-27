@@ -23,18 +23,18 @@ VOID
 GntTbl_PutRef(PVOID Context, grant_ref_t ref)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
-  KIRQL OldIrql = PASSIVE_LEVEL;
+  KIRQL old_irql = 0; /* prevents compiler warnings due to Acquire done in if statement */
 
   if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
   {
     ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-    KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
+    KeAcquireSpinLock(&xpdd->grant_lock, &old_irql);
   }
   xpdd->gnttab_list[xpdd->gnttab_list_free] = ref;
   xpdd->gnttab_list_free++;
   if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
   {
-    KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
+    KeReleaseSpinLock(&xpdd->grant_lock, old_irql);
   }
 }
 
@@ -43,27 +43,25 @@ GntTbl_GetRef(PVOID Context)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
   unsigned int ref;
-  KIRQL OldIrql = PASSIVE_LEVEL;
+  KIRQL old_irql = 0; /* prevents compiler warnings due to Acquire done in if statement */
   int suspend_state = xpdd->suspend_state;
   
-  UNREFERENCED_PARAMETER(OldIrql);
-
   if (suspend_state != SUSPEND_STATE_HIGH_IRQL)
   {
     ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-    KeAcquireSpinLock(&xpdd->grant_lock, &OldIrql);
+    KeAcquireSpinLock(&xpdd->grant_lock, &old_irql);
   }
   if (!xpdd->gnttab_list_free)
   {
     if (suspend_state != SUSPEND_STATE_HIGH_IRQL)
-      KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
+      KeReleaseSpinLock(&xpdd->grant_lock, old_irql);
     KdPrint((__DRIVER_NAME "     No free grant refs\n"));    
     return INVALID_GRANT_REF;
   }
   xpdd->gnttab_list_free--;
   ref = xpdd->gnttab_list[xpdd->gnttab_list_free];
   if (suspend_state != SUSPEND_STATE_HIGH_IRQL)
-    KeReleaseSpinLock(&xpdd->grant_lock, OldIrql);
+    KeReleaseSpinLock(&xpdd->grant_lock, old_irql);
 
   return ref;
 }
