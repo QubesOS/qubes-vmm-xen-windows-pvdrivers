@@ -403,7 +403,7 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
   KdPrint((__DRIVER_NAME "     BusInterruptLevel = %d\n", ConfigInfo->BusInterruptLevel));
   KdPrint((__DRIVER_NAME "     BusInterruptVector = %03x\n", ConfigInfo->BusInterruptVector));
 
-  if (ConfigInfo->BusInterruptVector != 1)
+  if (!ConfigInfo->BusInterruptVector)
   {
     KdPrint((__DRIVER_NAME "     No Interrupt assigned\n"));
     return SP_RETURN_BAD_CONFIG;
