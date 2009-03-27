@@ -6,6 +6,7 @@
     <?define ARCHDIR = amd64 ?>
   <?endif ?>
 
+  
   <Product Name='GPL PV Drivers for Windows' Id='*'
     UpgradeCode='4EDE5DEC-3208-4a1e-8E52-DAC44F7D7062'
     Language='1033' Codepage='1252' Version='$(env.GPLPV_VERSION)' Manufacturer='James Harper'>
@@ -13,6 +14,8 @@
     <Package Id='*' Keywords='Installer' Description="GPL PV Drivers for Windows"
       Comments='no comment' Manufacturer='James Harper'
       InstallerVersion='100' Languages='1033' Compressed='yes' SummaryCodepage='1252' />
+
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
 
     <UIRef Id="WixUI_Mondo" />
     <UIRef Id="WixUI_ErrorProgressText" />
