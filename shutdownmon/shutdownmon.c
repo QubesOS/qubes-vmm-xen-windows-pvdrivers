@@ -53,19 +53,6 @@ struct xsd_sockmsg
 SERVICE_STATUS service_status; 
 SERVICE_STATUS_HANDLE hStatus; 
 
-#define LOGFILE "C:\\xsm.log"
-
-int write_log(char* str)
-{
-   FILE* log;
-   log = fopen(LOGFILE, "a+");
-   if (log == NULL)
-      return -1;
-   fprintf(log, "%s\n", str);
-   fclose(log);
-   return 0;
-}
-
 static void
 install_service()
 {
@@ -188,15 +175,24 @@ do_shutdown(BOOL bRebootAfterShutdown)
   TOKEN_PRIVILEGES *tp;
   HANDLE token_handle;
 
+  printf("proc_handle = %p\n", proc_handle);
+
   if (!OpenProcessToken(proc_handle, TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token_handle))
+  {
+    printf("OpenProcessToken failed\n");
     return;
+  }
+  printf("token_handle = %p\n", token_handle);
+
   tp = malloc(sizeof(TOKEN_PRIVILEGES) + sizeof(LUID_AND_ATTRIBUTES));
   tp->PrivilegeCount = 1;
-  if (!LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tp->Privileges[0].Luid))
+  if (!LookupPrivilegeValueA(NULL, SE_SHUTDOWN_NAME, &tp->Privileges[0].Luid))
   {
+    printf("LookupPrivilegeValue failed\n");
     CloseHandle(token_handle);
     return;
   }
+
   tp->Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
   if (!AdjustTokenPrivileges(token_handle, FALSE, tp, 0, NULL, NULL))
   {
@@ -206,8 +202,10 @@ do_shutdown(BOOL bRebootAfterShutdown)
 
   if (!InitiateSystemShutdownEx(NULL, NULL, 0, TRUE, bRebootAfterShutdown, SHTDN_REASON_FLAG_PLANNED | SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_MINOR_OTHER))
   {
+    printf("InitiateSystemShutdownEx failed\n");
     // Log a message to the system log here about a failed shutdown
   }
+  printf("InitiateSystemShutdownEx succeeded\n");
 
   CloseHandle(token_handle);
 }
@@ -224,13 +222,13 @@ get_xen_interface_path()
   handle = SetupDiGetClassDevs(&GUID_XENBUS_IFACE, 0, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
   if (handle == INVALID_HANDLE_VALUE)
   {
-    write_log("SetupDiGetClassDevs failed\n"); 
+    printf("SetupDiGetClassDevs failed\n"); 
     return NULL;
   }
   sdid.cbSize = sizeof(sdid);
   if (!SetupDiEnumDeviceInterfaces(handle, NULL, &GUID_XENBUS_IFACE, 0, &sdid))
   {
-    write_log("SetupDiEnumDeviceInterfaces failed\n");
+    printf("SetupDiEnumDeviceInterfaces failed\n");
     return NULL;
   }
   SetupDiGetDeviceInterfaceDetail(handle, &sdid, NULL, 0, &buf_len, NULL);
@@ -238,7 +236,7 @@ get_xen_interface_path()
   sdidd->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
   if (!SetupDiGetDeviceInterfaceDetail(handle, &sdid, sdidd, buf_len, NULL, NULL))
   {
-    write_log("SetupDiGetDeviceInterfaceDetail failed\n"); 
+    printf("SetupDiGetDeviceInterfaceDetail failed\n"); 
     return NULL;
   }
   
@@ -321,6 +319,7 @@ printf("read start\n");
   msg->tx_id = 0;
   msg->len = (ULONG)(strlen(path) + 1);
   strcpy(buf + sizeof(*msg), path);
+
   if (!WriteFile(handle, buf, sizeof(*msg) + msg->len, &bytes_written, NULL))
   {
     printf("write failed\n");
@@ -336,7 +335,7 @@ printf("read start\n");
   printf("msg->len = %d\n", msg->len);
   buf[sizeof(*msg) + msg->len] = 0;
   printf("msg text = %s\n", buf + sizeof(*msg));
-  ret = malloc(strlen(buf + sizeof(*msg)));
+  ret = malloc(strlen(buf + sizeof(*msg)) + 1);
   strcpy(ret, buf + sizeof(*msg));
   return ret;
 }
@@ -363,6 +362,7 @@ do_monitoring()
     if (service_status.dwCurrentState != SERVICE_RUNNING)
       return;
     buf = xb_read(handle, "control/shutdown");
+
     //printf("msg = '%s'\n", msg);
     if (strcmp("poweroff", buf) == 0 || strcmp("halt", buf) == 0)
     {
@@ -405,7 +405,7 @@ void service_main(int argc, char *argv[])
   UNREFERENCED_PARAMETER (argc);
   UNREFERENCED_PARAMETER (argv);
 
-  write_log("Entering service_main\n"); 
+  printf("Entering service_main\n"); 
 
   service_status.dwServiceType = SERVICE_WIN32; 
   service_status.dwCurrentState =  SERVICE_START_PENDING; 
@@ -418,7 +418,7 @@ void service_main(int argc, char *argv[])
   hStatus = RegisterServiceCtrlHandler(SERVICE_ID, (LPHANDLER_FUNCTION)control_handler); 
   if (hStatus == (SERVICE_STATUS_HANDLE)0) 
   { 
-    write_log("RegisterServiceCtrlHandler failed\n"); 
+    printf("RegisterServiceCtrlHandler failed\n"); 
     return; 
   }  
 
@@ -427,7 +427,7 @@ void service_main(int argc, char *argv[])
 
   do_monitoring();
 
-  write_log("All done\n"); 
+  printf("All done\n"); 
 
   return; 
 }
