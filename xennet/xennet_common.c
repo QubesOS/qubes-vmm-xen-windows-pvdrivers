@@ -79,10 +79,14 @@ XenNet_BuildHeader(packet_info_t *pi, ULONG new_header_size)
     //KdPrint((__DRIVER_NAME "     B bytes_remaining = %d, pi->curr_buffer = %p, pi->mdl_count = %d\n", bytes_remaining, pi->curr_buffer, pi->mdl_count));
     if (MmGetMdlByteCount(pi->curr_buffer))
     {
+      PUCHAR src_addr;
+      src_addr = MmGetSystemAddressForMdlSafe(pi->curr_buffer, NormalPagePriority);
+      if (!src_addr)
+        return FALSE;
       copy_size = min(bytes_remaining, MmGetMdlByteCount(pi->curr_buffer) - pi->curr_mdl_offset);
       //KdPrint((__DRIVER_NAME "     B copy_size = %d\n", copy_size));
       memcpy(pi->header + pi->header_length,
-        (PUCHAR)MmGetMdlVirtualAddress(pi->curr_buffer) + pi->curr_mdl_offset, copy_size);
+        src_addr + pi->curr_mdl_offset, copy_size);
       pi->curr_mdl_offset = (USHORT)(pi->curr_mdl_offset + copy_size);
       pi->header_length += copy_size;
       bytes_remaining -= copy_size;
@@ -143,7 +147,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi)
       return PARSE_UNKNOWN_TYPE;
     }
     pi->ip4_header_length = (pi->header[XN_HDR_SIZE + 0] & 0x0F) << 2;
-    if (pi->header_length < (ULONG)(XN_HDR_SIZE + 20 + pi->ip4_header_length))
+    if (pi->header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20))
     {
       if (!XenNet_BuildHeader(pi, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)))
       {
