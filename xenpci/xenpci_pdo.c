@@ -574,6 +574,11 @@ XenPci_DOP_BuildScatterGatherList(
   
   //FUNCTION_ENTER();
   
+  if (!ScatterGatherBuffer)
+  {
+    KdPrint((__DRIVER_NAME "     NULL ScatterGatherBuffer\n"));
+    return STATUS_INVALID_PARAMETER;
+  }
   ASSERT(MmGetMdlVirtualAddress(Mdl) == CurrentVa);
 
   xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
@@ -617,6 +622,8 @@ XenPci_DOP_BuildScatterGatherList(
   if (ScatterGatherBufferLength < FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
     sizeof(SCATTER_GATHER_ELEMENT) * sglist->NumberOfElements + sizeof(sg_extra_t))
   {
+    KdPrint((__DRIVER_NAME "     STATUS_BUFFER_TOO_SMALL (%d < %d)\n", ScatterGatherBufferLength, FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
+      sizeof(SCATTER_GATHER_ELEMENT) * sglist->NumberOfElements + sizeof(sg_extra_t)));
     return STATUS_BUFFER_TOO_SMALL;
   }
   
@@ -633,6 +640,10 @@ XenPci_DOP_BuildScatterGatherList(
     {
       remaining = MmGetMdlByteCount(curr_mdl);
       offset = MmGetMdlByteOffset(curr_mdl);
+      if (!remaining)
+      {
+        KdPrint((__DRIVER_NAME "     zero length MDL\n"));
+      }
       for (i = 0; i < ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl)); i++)
       {
 //KdPrint((__DRIVER_NAME "     element = %d\n", sg_element));
@@ -654,7 +665,7 @@ XenPci_DOP_BuildScatterGatherList(
     sg_extra->aligned_buffer = ExAllocatePoolWithTag(NonPagedPool, max(Length, PAGE_SIZE), XENPCI_POOL_TAG);
     if (!sg_extra->aligned_buffer)
     {
-      //KdPrint((__DRIVER_NAME "     MAP_TYPE_REMAPPED buffer allocation failed - requested va = %p, length = %d\n", MmGetMdlVirtualAddress(Mdl), Length));
+      KdPrint((__DRIVER_NAME "     MAP_TYPE_REMAPPED buffer allocation failed - requested va = %p, length = %d\n", MmGetMdlVirtualAddress(Mdl), Length));
       return STATUS_INSUFFICIENT_RESOURCES;
     }
     //KdPrint((__DRIVER_NAME "     MAP_TYPE_REMAPPED - %p -> %p\n", MmGetMdlVirtualAddress(Mdl), sg_extra->aligned_buffer));
@@ -681,6 +692,9 @@ XenPci_DOP_BuildScatterGatherList(
     sglist->Elements[0].Address.QuadPart = (ULONGLONG)ptr;
     sglist->Elements[0].Length = Length;
     //KdPrint((__DRIVER_NAME "     MAP_TYPE_VIRTUAL - %08x\n", sglist->Elements[0].Address.LowPart));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     map_type = %d\n", map_type));
     break;
   }
 
