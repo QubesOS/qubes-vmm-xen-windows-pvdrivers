@@ -348,6 +348,11 @@ XenNet_QueryInformation(
 
       used_temp_buffer = FALSE;
       break;
+    case OID_IP4_OFFLOAD_STATS:
+    case OID_IP6_OFFLOAD_STATS:
+      /* these are called often so just ignore then quietly */
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      break;
     default:
       KdPrint(("Get Unknown OID 0x%x\n", Oid));
       status = NDIS_STATUS_NOT_SUPPORTED;

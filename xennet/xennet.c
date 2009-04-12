@@ -208,6 +208,10 @@ XenNet_Resume(PDEVICE_OBJECT device_object, PVOID context)
   
   FUNCTION_ENTER();
   
+  ASSERT(xi->resume_work_item);
+  IoFreeWorkItem(xi->resume_work_item);
+  xi->resume_work_item = NULL;
+  
   XenNet_TxResumeStart(xi);
   XenNet_RxResumeStart(xi);
   XenNet_ConnectBackend(xi);
@@ -226,7 +230,6 @@ static VOID
 XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 {
   struct xennet_info *xi = context;
-  PIO_WORKITEM work_item;
   KIRQL old_irql;
 
   UNREFERENCED_PARAMETER(dpc);
@@ -250,8 +253,9 @@ XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     break;
   case SR_STATE_RESUMING:
     KdPrint((__DRIVER_NAME "     New state SR_STATE_RESUMING\n"));
-    work_item = IoAllocateWorkItem(xi->fdo);
-    IoQueueWorkItem(work_item, XenNet_Resume, DelayedWorkQueue, xi);
+    ASSERT(!xi->resume_work_item);
+    xi->resume_work_item = IoAllocateWorkItem(xi->fdo);
+    IoQueueWorkItem(xi->resume_work_item, XenNet_Resume, DelayedWorkQueue, xi);
     break;
   default:
     KdPrint((__DRIVER_NAME "     New state %d\n", xi->device_state->suspend_resume_state_fdo));
@@ -717,6 +721,8 @@ XenNet_Reset(
   return NDIS_STATUS_SUCCESS;
 }
 
+dma_driver_extension_t *dma_driver_extension;
+
 NTSTATUS DDKAPI
 DriverEntry(
   PDRIVER_OBJECT DriverObject,
@@ -728,6 +734,11 @@ DriverEntry(
   NDIS_MINIPORT_CHARACTERISTICS mini_chars;
 
   FUNCTION_ENTER();
+
+  IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_DMA_DRIVER_EXTENSION_MAGIC), sizeof(dma_driver_extension_t), &dma_driver_extension);  
+  dma_driver_extension->need_virtual_address = NULL;
+  dma_driver_extension->get_alignment = NULL;
+  dma_driver_extension->max_sg_elements = 17;
 
   KdPrint((__DRIVER_NAME "     DriverObject = %p, RegistryPath = %p\n", DriverObject, RegistryPath));
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));

@@ -665,7 +665,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     for (cons = xi->rx.rsp_cons; cons != prod && packet_count < MAX_PACKETS_PER_INTERRUPT; cons++)
     {
       id = (USHORT)(cons & (NET_RX_RING_SIZE - 1));
-      ASSERT(xi->rx_ring_pbs[id]);
+      ASSERT(xi->rx_ring_pbs[id] != (USHORT)0xFFFF);
       page_buf = &xi->rx_pbs[xi->rx_ring_pbs[id]];
       xi->rx_ring_pbs[id] = 0xFFFF;
       xi->rx_id_free++;
