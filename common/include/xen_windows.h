@@ -757,6 +757,7 @@ typedef ULONG
 typedef struct {
   PXEN_DMA_NEED_VIRTUAL_ADDRESS need_virtual_address;
   PXEN_DMA_GET_ALIGNMENT get_alignment;
+  ULONG max_sg_elements;
 } dma_driver_extension_t;
 
 #endif
