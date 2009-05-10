@@ -27,44 +27,51 @@ CopyFiles=XenPCI.CopyFiles
 
 [XenPCI.CopyFiles]
 xenpci.sys
-xenhide.sys
 
 [SourceDisksFiles]
 xenpci.sys=1
-xenhide.sys=1
 
 [SourceDisksNames]
 1 = %DISK_NAME%
 
 [XenPCI_Device.NT.Services]
 AddService=XenPCI,3,XenPCI_Service
-AddService=XenHide,0,XenHide_Service
 
 [XenPCI_Service]
 DisplayName    = %XenPCI.SVCDESC%                            
 ServiceType    = 1
 StartType      = 0
 ErrorControl   = 1
-LoadOrderGroup = Boot Bus Extender
+LoadOrderGroup = XenPCI Group
 ServiceBinary  = %12%\xenpci.sys
 AddReg         = XenPci_Service_AddReg
-
-[XenHide_Service]
-DisplayName    = %XenHide.SVCDESC%
-ServiceType    = 1
-StartType      = 0
-ErrorControl   = 1
-LoadOrderGroup = System Bus Extender
-ServiceBinary  = %12%\xenhide.sys
-DelReg         = XenHide_Service_DelReg
+DelReg         = XenPci_Service_DelReg
 
 [XenPci_Service_AddReg]
 HKR,"Parameters", "veto_devices", 0x00010008, "console"
 HKR,"Parameters", "veto_devices", 0x00010008, "vfb"
 HKR,"Parameters", "veto_devices", 0x00010008, "vkbd"
+; Qemu IDE
+HKR,"Parameters", "hide_devices", 0x00010008, "VEN_8086&DEV_7010"
+; Qemu SCSI
+HKR,"Parameters", "hide_devices", 0x00010008, "VEN_1000&DEV_0012"
+; Qemu Network
+HKR,"Parameters", "hide_devices", 0x00010008, "VEN_10EC&DEV_8139"
+; Add XenHide as a filter to IDE Controllers
+HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E96A-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenPci
+; Add XenHide as a filter to SCSI Controllers
+HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97B-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenPci
+; Add XenPci as a filter to Network Adapters
+HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002bE10318},UpperFilters,0x00010008,XenPci
 
-[XenHide_Service_DelReg]
-HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97D-E325-11CE-BFC1-08002BE10318},UpperFilters
+[XenPci_Service_DelReg]
+; Clear out some old keys
+HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97D-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenHide
+HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenHide
+HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E96A-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenHide
+HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97B-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenHide
+
+
 
 [DestinationDirs]
 XenPCI_Device_CoInstaller_CopyFiles = 11
@@ -92,5 +99,4 @@ KmdfLibraryVersion = $KMDFVERSION$
 XenGplPv = "Xen GPL PV Driver Developers"
 XenPCI.SVCDESC = "Xen PCI Device Driver"
 XenPCI.DRVDESC = "Xen PCI Device Driver"
-XenHide.SVCDESC = "Xen PCI Device Hider Driver"
 DISK_NAME = "Xen PCI Device Driver Install Disk"

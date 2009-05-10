@@ -54,7 +54,7 @@ XenPci_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE notifi
 }
 
 static NTSTATUS
-XenPci_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
+XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
 {
   NTSTATUS status;
 //  PDEVICE_OBJECT fdo = NULL;
@@ -79,7 +79,7 @@ XenPci_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   UNREFERENCED_PARAMETER(driver);
 
   FUNCTION_ENTER();
-  
+
   WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp_power_callbacks);
   pnp_power_callbacks.EvtDeviceD0Entry = XenPci_EvtDeviceD0Entry;
   pnp_power_callbacks.EvtDeviceD0EntryPostInterruptsEnabled = XenPci_EvtDeviceD0EntryPostInterruptsEnabled;
@@ -187,8 +187,207 @@ XenPci_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   return status;
 }
 
+NTSTATUS
+XenHide_EvtDevicePrepareHardware (WDFDEVICE device, WDFCMRESLIST resources_raw, WDFCMRESLIST resources_translated)
+{
+  UNREFERENCED_PARAMETER(device);
+  UNREFERENCED_PARAMETER(resources_raw);
+  UNREFERENCED_PARAMETER(resources_translated);
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return STATUS_UNSUCCESSFUL;
+}
+
+static BOOLEAN
+XenPci_IdSuffixMatches(PWDFDEVICE_INIT device_init, PWCHAR matching_id)
+{
+  NTSTATUS status;
+  WDFMEMORY memory;
+  ULONG remaining;
+  size_t string_length;
+  PWCHAR ids;
+  PWCHAR ptr;
+  size_t ids_length;
+  ULONG properties[] = {DevicePropertyCompatibleIDs, DevicePropertyHardwareID};
+  int i;
+  
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  for (i = 0; i < ARRAY_SIZE(properties); i++)
+  {
+
+    status = WdfFdoInitAllocAndQueryProperty(device_init, properties[i], NonPagedPool, WDF_NO_OBJECT_ATTRIBUTES, &memory);
+    if (!NT_SUCCESS(status))
+      continue;
+    ids = WdfMemoryGetBuffer(memory, &ids_length);
+
+    if (!NT_SUCCESS(status))
+    {
+//      KdPrint((__DRIVER_NAME "     i = %d, status = %x, ids_length = %d\n", i, status, ids_length));
+      continue;
+    }
+    
+    remaining = (ULONG)ids_length / 2;
+    for (ptr = ids; *ptr != 0; ptr += string_length + 1)
+    {
+      RtlStringCchLengthW(ptr, remaining, &string_length);
+      remaining -= (ULONG)string_length + 1;
+      if (string_length >= wcslen(matching_id))
+      {
+        ptr += string_length - wcslen(matching_id);
+        string_length = wcslen(matching_id);
+      }
+//      KdPrint((__DRIVER_NAME "     Comparing '%S' and '%S'\n", ptr, matching_id));
+      if (wcscmp(ptr, matching_id) == 0)
+      {
+        //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (Match)\n"));
+        WdfObjectDelete(memory);
+        return TRUE;
+      }
+    }
+    WdfObjectDelete(memory);
+  }
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (No match)\n"));
+  return FALSE;
+}
+
 ULONG qemu_filtered;
 ULONG qemu_filtered_by_qemu;
+
+static NTSTATUS
+XenPci_EvtDeviceAdd_XenHide(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
+{
+  NTSTATUS status;
+  WDFMEMORY memory;
+  PWCHAR device_description;
+  WDF_PNPPOWER_EVENT_CALLBACKS pnp_power_callbacks;
+  WDF_OBJECT_ATTRIBUTES device_attributes;
+  BOOLEAN hide_required = FALSE;
+  WDFDEVICE device;
+  WDFKEY param_key;
+  DECLARE_CONST_UNICODE_STRING(hide_devices_name, L"hide_devices");
+  WDFCOLLECTION hide_devices;
+  ULONG i;
+  
+  UNREFERENCED_PARAMETER(driver);
+
+  FUNCTION_ENTER();
+
+  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &hide_devices);
+  status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &param_key);
+  if (NT_SUCCESS(status))
+  {
+    status = WdfRegistryQueryMultiString(param_key, &hide_devices_name, WDF_NO_OBJECT_ATTRIBUTES, hide_devices);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint(("Error reading parameters/hide_devices value %08x\n", status));
+    }
+    WdfRegistryClose(param_key);
+  }
+  else
+  {
+    KdPrint(("Error opening parameters key %08x\n", status));
+  }
+  if (!WdfCollectionGetCount(hide_devices))
+  {
+    WDFSTRING wdf_string;
+    UNICODE_STRING unicode_string;
+    
+    RtlInitUnicodeString(&unicode_string, L"VEN_8086&DEV_7010"); // Qemu IDE
+    WdfStringCreate(&unicode_string, WDF_NO_OBJECT_ATTRIBUTES, &wdf_string);
+    WdfCollectionAdd(hide_devices, wdf_string);
+    RtlInitUnicodeString(&unicode_string, L"VEN_1000&DEV_0012"); // Qemu SCSI
+    WdfStringCreate(&unicode_string, WDF_NO_OBJECT_ATTRIBUTES, &wdf_string);
+    WdfCollectionAdd(hide_devices, wdf_string);
+    RtlInitUnicodeString(&unicode_string, L"VEN_10EC&DEV_8139"); // Qemu Network
+    WdfStringCreate(&unicode_string, WDF_NO_OBJECT_ATTRIBUTES, &wdf_string);
+    WdfCollectionAdd(hide_devices, wdf_string);
+  }
+  status = WdfFdoInitAllocAndQueryProperty(device_init, DevicePropertyDeviceDescription, NonPagedPool, WDF_NO_OBJECT_ATTRIBUTES, &memory);
+  if (NT_SUCCESS(status))
+  {
+    device_description = WdfMemoryGetBuffer(memory, NULL);
+  }
+  else
+  {
+    device_description = L"<unknown device>";
+  }
+
+  for (i = 0; i < WdfCollectionGetCount(hide_devices); i++)
+  {
+    WDFSTRING wdf_string = WdfCollectionGetItem(hide_devices, i);
+    UNICODE_STRING unicode_string;
+    WdfStringGetUnicodeString(wdf_string, &unicode_string);
+    if (XenPci_IdSuffixMatches(device_init, unicode_string.Buffer))
+    {
+      hide_required = TRUE;
+      break;
+    }
+  }
+#if 0
+  /* hide only specific devices */
+  if (XenPci_IdSuffixMatches(device_init, L"VEN_8086&DEV_7010")) // Qemu IDE
+  {
+    hide_required = TRUE;
+  }
+  else if (XenPci_IdSuffixMatches(device_init, L"VEN_1000&DEV_0012"))// Qemu SCSI
+  {
+    hide_required = TRUE;
+  }
+  else if (XenPci_IdSuffixMatches(device_init, L"VEN_10EC&DEV_8139")) // Qemu Network
+  {
+    hide_required = TRUE;
+  }
+#endif
+  if (!hide_required)
+  {
+    WdfObjectDelete(memory);
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (filter not required for %S)\n", device_description));
+    return STATUS_SUCCESS;
+  }
+  
+  KdPrint((__DRIVER_NAME "     Installing Filter for %S\n", device_description));
+
+  WdfFdoInitSetFilter(device_init);
+  WdfDeviceInitSetDeviceType(device_init, FILE_DEVICE_UNKNOWN);
+  WdfDeviceInitSetExclusive(device_init, FALSE);
+
+  WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp_power_callbacks);
+  pnp_power_callbacks.EvtDevicePrepareHardware = XenHide_EvtDevicePrepareHardware;
+  WdfDeviceInitSetPnpPowerEventCallbacks(device_init, &pnp_power_callbacks);
+  
+  WDF_OBJECT_ATTRIBUTES_INIT(&device_attributes);
+  status = WdfDeviceCreate(&device_init, &device_attributes, &device);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Error creating device %08x\n", status));
+    WdfObjectDelete(memory);
+    FUNCTION_EXIT();
+    return status;
+  }
+
+  WdfObjectDelete(memory);
+  FUNCTION_EXIT();
+
+  return status;
+}
+
+static NTSTATUS
+XenPci_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
+{
+  if (XenPci_IdSuffixMatches(device_init, L"VEN_5853&DEV_0001"))
+  {
+    KdPrint((__DRIVER_NAME "     Xen PCI device found - must be fdo\n"));
+    return XenPci_EvtDeviceAdd_XenPci(driver, device_init);
+  }
+  else if (qemu_filtered && !qemu_filtered_by_qemu)
+  {
+    KdPrint((__DRIVER_NAME "     Xen PCI device not found - must be filter\n"));
+    return XenPci_EvtDeviceAdd_XenHide(driver, device_init);  
+  }
+  else
+    return STATUS_SUCCESS;
+}
+
 ULONG qemu_protocol_version;
 ULONG tpr_patch_requested;
 extern PULONG InitSafeBootMode;
@@ -213,7 +412,6 @@ XenPci_HideQemuDevices()
       }
       /* fall through */
     case 0:
-      qemu_filtered = TRUE;
       qemu_filtered_by_qemu = TRUE;
       WRITE_PORT_USHORT(XEN_IOPORT_DEVICE_MASK, QEMU_UNPLUG_ALL_IDE_DISKS|QEMU_UNPLUG_ALL_NICS);
       KdPrint((__DRIVER_NAME "     Disabled qemu devices\n"));
@@ -226,7 +424,7 @@ XenPci_HideQemuDevices()
 }
 
 /*
-make sure the load order is System Reserved, Dummy Group, WdfLoadGroup, Boot Bus Extender
+make sure the load order is System Reserved, Dummy Group, WdfLoadGroup, XenPCI, Boot Bus Extender
 */
 
 static VOID
@@ -240,9 +438,11 @@ XenPci_FixLoadOrder()
   ULONG i;
   LONG dummy_group_index = -1;
   LONG boot_bus_extender_index = -1;
+  LONG xenpci_group_index = -1;
   LONG wdf_load_group_index = -1;
   DECLARE_CONST_UNICODE_STRING(dummy_group_name, L"Dummy Group");
   DECLARE_CONST_UNICODE_STRING(wdf_load_group_name, L"WdfLoadGroup");
+  DECLARE_CONST_UNICODE_STRING(xenpci_group_name, L"XenPCI Group");
   DECLARE_CONST_UNICODE_STRING(boot_bus_extender_name, L"Boot Bus Extender");
 
   FUNCTION_ENTER();
@@ -273,12 +473,15 @@ XenPci_FixLoadOrder()
       dummy_group_index = (ULONG)i;
     if (!RtlCompareUnicodeString(&val, &wdf_load_group_name, TRUE))
       wdf_load_group_index = (ULONG)i;         
+    if (!RtlCompareUnicodeString(&val, &xenpci_group_name, TRUE))
+      xenpci_group_index = (ULONG)i;         
     if (!RtlCompareUnicodeString(&val, &boot_bus_extender_name, TRUE))
       boot_bus_extender_index = (ULONG)i;         
     KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
   }
   KdPrint((__DRIVER_NAME "     dummy_group_index = %d\n", dummy_group_index));
   KdPrint((__DRIVER_NAME "     wdf_load_group_index = %d\n", wdf_load_group_index));
+  KdPrint((__DRIVER_NAME "     xenpci_group_index = %d\n", xenpci_group_index));
   KdPrint((__DRIVER_NAME "     boot_bus_extender_index = %d\n", boot_bus_extender_index));
   if (boot_bus_extender_index == -1)
   {
@@ -287,7 +490,10 @@ XenPci_FixLoadOrder()
     WdfRegistryClose(sgo_key);
     return; /* something is very wrong */
   }
-  if (dummy_group_index == 1 && (wdf_load_group_index == -1 || (wdf_load_group_index > dummy_group_index && wdf_load_group_index < boot_bus_extender_index)))
+  if (dummy_group_index == 1 && (wdf_load_group_index == -1 || 
+    (dummy_group_index < wdf_load_group_index
+    && wdf_load_group_index < xenpci_group_index
+    && xenpci_group_index < boot_bus_extender_index)))
   {
     return; /* our work here is done */
   }
@@ -308,7 +514,14 @@ XenPci_FixLoadOrder()
       WdfCollectionAdd(new_load_order, tmp_wdf_string);
       WdfObjectDelete(tmp_wdf_string);
     }
-    if (i == (ULONG)dummy_group_index || i == (ULONG)wdf_load_group_index)
+    if (i == 1)
+    {
+      WDFSTRING tmp_wdf_string;
+      WdfStringCreate(&xenpci_group_name, WDF_NO_OBJECT_ATTRIBUTES, &tmp_wdf_string);
+      WdfCollectionAdd(new_load_order, tmp_wdf_string);
+      WdfObjectDelete(tmp_wdf_string);
+    }
+    if (i == (ULONG)dummy_group_index || i == (ULONG)wdf_load_group_index || i == (ULONG)xenpci_group_index)
       continue;
     ws = WdfCollectionGetItem(old_load_order, i);
     WdfCollectionAdd(new_load_order, ws);
@@ -391,27 +604,9 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
       && !wcsstr(SystemStartOptions, L"NOGPLPV")
       && !*InitSafeBootMode)
   {
+    qemu_filtered = TRUE;
     /* see if the qemu method of disabling the PCI devices exists */
     XenPci_HideQemuDevices();
-    /* if not, tell the filter to deny the pci devices their resources */
-    if (!qemu_filtered)
-    {
-      OBJECT_ATTRIBUTES oa;
-      UNICODE_STRING dir_name;
-      NTSTATUS status;
-      HANDLE handle;
-      
-      KdPrint((__DRIVER_NAME "     Adding DirectoryObject\n"));
-      RtlInitUnicodeString(&dir_name, L"\\NEED_GPLPV_FILTER");
-      InitializeObjectAttributes(&oa, &dir_name, OBJ_KERNEL_HANDLE, NULL, NULL);
-      status = ZwCreateDirectoryObject(&handle, DIRECTORY_CREATE_OBJECT, &oa);
-      KdPrint((__DRIVER_NAME "     ZwCreateDirectoryObject = %08x\n", status));
-      if (!NT_SUCCESS(status))
-      {
-        return status;
-      }
-      qemu_filtered = TRUE;
-    }
   }
   
   if (qemu_filtered)

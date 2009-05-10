@@ -499,18 +499,28 @@ XenPci_DOP_CalculateScatterGatherList(
   ULONG elements;
   PMDL curr_mdl;
     
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
   
-  KdPrint((__DRIVER_NAME "     Mdl = %p\n", Mdl));
-  KdPrint((__DRIVER_NAME "     CurrentVa = %p\n", CurrentVa));
-  KdPrint((__DRIVER_NAME "     Length = %d\n", Length));
+  //KdPrint((__DRIVER_NAME "     Mdl = %p\n", Mdl));
+  //KdPrint((__DRIVER_NAME "     CurrentVa = %p\n", CurrentVa));
+  //KdPrint((__DRIVER_NAME "     Length = %d\n", Length));
 
   xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
 
   if (Mdl)
   {
+    //if (CurrentVa != MmGetMdlVirtualAddress(Mdl))
+    //{
+    //  KdPrint((__DRIVER_NAME "     CurrentVa (%p) != MdlVa (%p)\n", CurrentVa, MmGetMdlVirtualAddress(Mdl)));
+    //
+
+    KdPrint((__DRIVER_NAME "     CurrentVa = %p, MdlVa = %p\n", CurrentVa, MmGetMdlVirtualAddress(Mdl)));
+
     for (curr_mdl = Mdl, elements = 0; curr_mdl; curr_mdl = curr_mdl->Next)
-      elements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(CurrentVa, Length);
+    {
+      KdPrint((__DRIVER_NAME "     curr_mdlVa = %p, curr_mdl size = %d\n", MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl)));
+      elements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl));
+    }
   }
   else
   {
@@ -535,7 +545,7 @@ XenPci_DOP_CalculateScatterGatherList(
 
   KdPrint((__DRIVER_NAME "     ScatterGatherListSize = %d, NumberOfMapRegisters = %d\n", *ScatterGatherListSize, elements));
 
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
   return STATUS_SUCCESS;
 }
 
@@ -624,8 +634,8 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
   if (ScatterGatherBufferLength < FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
     sizeof(SCATTER_GATHER_ELEMENT) * sglist->NumberOfElements + sizeof(sg_extra_t))
   {
-    KdPrint((__DRIVER_NAME "     STATUS_BUFFER_TOO_SMALL (%d < %d)\n", ScatterGatherBufferLength, FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
-      sizeof(SCATTER_GATHER_ELEMENT) * sglist->NumberOfElements + sizeof(sg_extra_t)));
+    //KdPrint((__DRIVER_NAME "     STATUS_BUFFER_TOO_SMALL (%d < %d)\n", ScatterGatherBufferLength, FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
+    //  sizeof(SCATTER_GATHER_ELEMENT) * sglist->NumberOfElements + sizeof(sg_extra_t)));
     return STATUS_BUFFER_TOO_SMALL;
   }
   
@@ -745,12 +755,12 @@ XenPci_DOP_GetScatterGatherList(
   ULONG map_registers;
   PSCATTER_GATHER_LIST sg_list;
   
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
 
   status = XenPci_DOP_CalculateScatterGatherList(DmaAdapter, Mdl, CurrentVa, Length, &list_size, &map_registers);
   if (!NT_SUCCESS(status))
   {
-    FUNCTION_EXIT();
+    //FUNCTION_EXIT();
     return status;
   }
 
@@ -758,7 +768,7 @@ XenPci_DOP_GetScatterGatherList(
   if (!sg_list)
   {
     KdPrint((__DRIVER_NAME "     Cannot allocate memory for sg_list\n"));
-    FUNCTION_EXIT();
+    //FUNCTION_EXIT();
     return STATUS_INSUFFICIENT_RESOURCES;
   }
     
@@ -767,7 +777,7 @@ XenPci_DOP_GetScatterGatherList(
   if (NT_SUCCESS(status))
     ExecutionRoutine(DeviceObject, DeviceObject->CurrentIrp, sg_list, Context);
   
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
   
   return status;
 }
@@ -779,14 +789,27 @@ XenPci_DOP_BuildMdlFromScatterGatherList(
   PMDL OriginalMdl,
   PMDL *TargetMdl)
 {
+  NTSTATUS status = STATUS_SUCCESS;
   UNREFERENCED_PARAMETER(DmaAdapter);
   UNREFERENCED_PARAMETER(ScatterGather);
   UNREFERENCED_PARAMETER(OriginalMdl);
   UNREFERENCED_PARAMETER(TargetMdl);
 
   FUNCTION_ENTER();
+  
+  if (OriginalMdl)
+  {
+    *TargetMdl = OriginalMdl;
+  }
+  else
+  {
+    *TargetMdl = NULL;
+    status = STATUS_INVALID_PARAMETER;
+  }
+  
   FUNCTION_EXIT();
-  return STATUS_UNSUCCESSFUL;
+  
+  return status;
 }
 
 static PDMA_ADAPTER
@@ -1216,13 +1239,13 @@ XenPci_EvtChn_Notify(PVOID context, evtchn_port_t Port)
 }
 
 static BOOLEAN
-XenPci_EvtChn_AckEvent(PVOID context, evtchn_port_t port)
+XenPci_EvtChn_AckEvent(PVOID context, evtchn_port_t port, BOOLEAN *last_interrupt)
 {
   WDFDEVICE device = context;
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
   
-  return EvtChn_AckEvent(xpdd, port);
+  return EvtChn_AckEvent(xpdd, port, last_interrupt);
 }
 
 typedef struct {

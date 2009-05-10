@@ -57,18 +57,27 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
 
 /* Called at DIRQL */
 BOOLEAN
-EvtChn_AckEvent(PVOID context, evtchn_port_t port)
+EvtChn_AckEvent(PVOID context, evtchn_port_t port, BOOLEAN *last_interrupt)
 {
   PXENPCI_DEVICE_DATA xpdd = context;
   ULONG evt_word;
   ULONG evt_bit;
   xen_ulong_t val;
+  int i;
   
   evt_bit = port & (BITS_PER_LONG - 1);
   evt_word = port >> BITS_PER_LONG_SHIFT;
 
   val = synch_clear_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
-  //KdPrint((__DRIVER_NAME "     EvtChn_AckEvent work[0] = %08x, port %d = %d\n", xpdd->evtchn_pending_pvt[0], port, val));
+  *last_interrupt = FALSE;
+  for (i = 0; i < sizeof(xen_ulong_t) * 8; i++)
+  {
+    if (xpdd->evtchn_pending_pvt[i])
+    {
+      *last_interrupt = TRUE;
+      break;
+    }
+  }
   
   return (BOOLEAN)!!val;
 }
