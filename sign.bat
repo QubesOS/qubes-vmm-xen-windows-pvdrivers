@@ -17,7 +17,7 @@ xcopy /D %BASEDIR%\redist\wdf\%_BUILDARCH%\WdfCoInstaller01007.dll xenpci\%BUILD
 IF NOT EXIST SIGN_CONFIG.BAT GOTO DONT_SIGN
 CALL SIGN_CONFIG.BAT
 %DDK_PATH%\bin\selfsign\inf2cat /driver:xenpci\%BUILDDIR% /os:%SIGN_OS%
-%DDK_PATH%\bin\selfsign\signtool sign /v /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenpci\%BUILDDIR%\xenpci.sys xenpci\%BUILDDIR%\xenhide.sys xenpci\%BUILDDIR%\WdfCoInstaller01007.dll xenpci\%BUILDDIR%\xenpci.cat
+%DDK_PATH%\bin\selfsign\signtool sign /v /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenpci\%BUILDDIR%\xenpci.sys xenpci\%BUILDDIR%\WdfCoInstaller01007.dll xenpci\%BUILDDIR%\xenpci.cat
 
 %DDK_PATH%\bin\selfsign\inf2cat /driver:xennet\%BUILDDIR% /os:%SIGN_OS%
 %DDK_PATH%\bin\selfsign\signtool sign /v /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xennet\%BUILDDIR%\xennet.sys xennet\%BUILDDIR%\xennet.cat
