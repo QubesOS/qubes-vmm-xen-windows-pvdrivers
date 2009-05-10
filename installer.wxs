@@ -44,7 +44,6 @@
                 <File Id='xenpci.cat' Name='xenpci.cat' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenpci.cat' />
                 <File Id='xenpci.inf' Name='xenpci.inf' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenpci.inf' />
                 <File Id='xenpci.sys' Name='xenpci.sys' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenpci.sys' />
-                <File Id='xenhide.sys' Name='xenhide.sys' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenhide.sys' />
                 <File Id='WdfCoInstaller01007.dll' Name='WdfCoInstaller01007.dll' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\WdfCoInstaller01007.dll' />
                 <difx:Driver Sequence='99' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
               </Component>
