@@ -1,5 +1,0 @@
-!include "..\common.inc"
-KMDF_VERSION_MAJOR=1
-TARGETNAME=xenhide
-TARGETTYPE=DRIVER
-SOURCES=xenhide.c
