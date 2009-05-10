@@ -305,7 +305,7 @@ typedef evtchn_port_t
 (*PXEN_EVTCHN_ALLOCUNBOUND)(PVOID Context, domid_t Domain);
 
 typedef BOOLEAN
-(*PXEN_EVTCHN_ACK_EVENT)(PVOID context, evtchn_port_t port);
+(*PXEN_EVTCHN_ACK_EVENT)(PVOID context, evtchn_port_t port, BOOLEAN *last_interrupt);
 
 typedef BOOLEAN
 (*PXEN_EVTCHN_SYNC_ROUTINE)(PVOID sync_context);
