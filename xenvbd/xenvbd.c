@@ -38,6 +38,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 static BOOLEAN dump_mode = FALSE;
 
+CHAR scsi_device_manufacturer[8];
+CHAR scsi_disk_model[16];
+CHAR scsi_cdrom_model[16];
+
 ULONGLONG parse_numeric_string(PCHAR string)
 {
   ULONGLONG val = 0;
@@ -748,9 +752,10 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   int more_to_do = TRUE;
   blkif_shadow_t *shadow;
   ULONG suspend_resume_state_pdo;
+  BOOLEAN last_interrupt = FALSE;
 
   /* in dump mode I think we get called on a timer, not by an actual IRQ */
-  if (!dump_mode && !xvdd->vectors.EvtChn_AckEvent(xvdd->vectors.context, xvdd->event_channel))
+  if (!dump_mode && !xvdd->vectors.EvtChn_AckEvent(xvdd->vectors.context, xvdd->event_channel, &last_interrupt))
     return FALSE; /* interrupt was not for us */
     
   suspend_resume_state_pdo = xvdd->device_state->suspend_resume_state_pdo;
@@ -786,7 +791,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   if (xvdd->device_state->suspend_resume_state_fdo != SR_STATE_RUNNING)
   {
-    return FALSE;
+    return !last_interrupt;
   }
 
   while (more_to_do)
@@ -892,7 +897,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     FUNCTION_EXIT();
   }
 
-  return FALSE; /* always fall through to the next ISR... */
+  return !last_interrupt;
 }
 
 static BOOLEAN DDKAPI
@@ -979,8 +984,8 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
           id->ResponseDataFormat = 0;
           id->AdditionalLength = FIELD_OFFSET(INQUIRYDATA, VendorSpecific) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength);
           id->CommandQueue = 1;
-          memcpy(id->VendorId, "XEN     ", 8); // vendor id
-          memcpy(id->ProductId, "PV DISK         ", 16); // product id
+          memcpy(id->VendorId, scsi_device_manufacturer, 8); // vendor id
+          memcpy(id->ProductId, scsi_disk_model, 16); // product id
           memcpy(id->ProductRevisionLevel, "0000", 4); // product revision level
         }
         else
@@ -1019,8 +1024,8 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
           id->ResponseDataFormat = 0;
           id->AdditionalLength = FIELD_OFFSET(INQUIRYDATA, VendorSpecific) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength);
           id->CommandQueue = 1;
-          memcpy(id->VendorId, "XEN     ", 8); // vendor id
-          memcpy(id->ProductId, "PV CDROM        ", 16); // product id
+          memcpy(id->VendorId, scsi_device_manufacturer, 8); // vendor id
+          memcpy(id->ProductId, scsi_cdrom_model, 16); // product id
           memcpy(id->ProductRevisionLevel, "0000", 4); // product revision level
         }
         else
@@ -1404,7 +1409,15 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   HW_INITIALIZATION_DATA HwInitializationData;
   PVOID driver_extension;
   PUCHAR ptr;
-
+  OBJECT_ATTRIBUTES oa;
+  HANDLE service_handle;
+  UNICODE_STRING param_name;
+  HANDLE param_handle;
+  UNICODE_STRING value_name;
+  CHAR buf[256];
+  ULONG buf_len;
+  PKEY_VALUE_PARTIAL_INFORMATION kpv;
+  
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
   KdPrint((__DRIVER_NAME "     DriverObject = %p, RegistryPath = %p\n", DriverObject, RegistryPath));
@@ -1430,11 +1443,66 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, NULL, ULongToPtr(BLKIF_MAX_SEGMENTS_PER_REQUEST), NULL); /* for use in crash dump */
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
 
-    IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_DMA_DRIVER_EXTENSION_MAGIC), sizeof(dma_driver_extension), &dma_driver_extension);  
+    IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_DMA_DRIVER_EXTENSION_MAGIC), sizeof(dma_driver_extension_t), &dma_driver_extension);  
     dma_driver_extension->need_virtual_address = XenVbd_DmaNeedVirtualAddress;
     dma_driver_extension->get_alignment = XenVbd_DmaGetAlignment;
-  }
+    dma_driver_extension->max_sg_elements = 0;
+    
+    // get registry service key handle
+    // get parameters key handle
+    // get disk value name
+    // get cdrom value name
+    
+    InitializeObjectAttributes(&oa, RegistryPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    status = ZwOpenKey(&service_handle, KEY_READ, &oa);
+    if(!NT_SUCCESS(status))
+    {
+      KdPrint((__DRIVER_NAME "     ZwOpenKey(Service) returned %08x\n", status));
+    }
+    else
+    {
+      RtlInitUnicodeString(&param_name, L"Parameters");
+      InitializeObjectAttributes(&oa, &param_name, OBJ_CASE_INSENSITIVE, service_handle, NULL);
+      status = ZwOpenKey(&param_handle, KEY_READ, &oa);
+      if(!NT_SUCCESS(status))
+      {
+        KdPrint((__DRIVER_NAME "     ZwOpenKey(Parameters) returned %08x\n", status));
+      }
+      else
+      {
+        kpv = (PKEY_VALUE_PARTIAL_INFORMATION)buf;
+        RtlFillMemory(scsi_device_manufacturer, 8, ' ');
+        RtlFillMemory(scsi_disk_model, 16, ' ');
+        RtlFillMemory(scsi_cdrom_model, 16, ' ');
 
+        RtlInitUnicodeString(&value_name, L"Manufacturer");
+        buf_len = 256;
+        status = ZwQueryValueKey(param_handle, &value_name, KeyValuePartialInformation, buf, buf_len, &buf_len);
+        if(NT_SUCCESS(status))
+          wcstombs(scsi_device_manufacturer, (PWCHAR)kpv->Data, min(kpv->DataLength, 8));
+        else
+          strncpy(scsi_device_manufacturer, "XEN     ", 8);
+
+        RtlInitUnicodeString(&value_name, L"Disk_Model");
+        buf_len = 256;
+        status = ZwQueryValueKey(param_handle, &value_name, KeyValuePartialInformation, buf, buf_len, &buf_len);
+        if(NT_SUCCESS(status))
+          wcstombs(scsi_disk_model, (PWCHAR)kpv->Data, min(kpv->DataLength, 16));
+        else
+          strncpy(scsi_disk_model, "PV DISK          ", 16);
+
+        RtlInitUnicodeString(&value_name, L"CDROM_Model");
+        buf_len = 256;
+        status = ZwQueryValueKey(param_handle, &value_name, KeyValuePartialInformation, buf, buf_len, &buf_len);
+        if(NT_SUCCESS(status))
+          wcstombs(scsi_cdrom_model, (PWCHAR)kpv->Data, min(kpv->DataLength, 16));
+        else
+          strncpy(scsi_cdrom_model, "PV CDROM        ", 16);
+      }
+      ZwClose(service_handle);
+    }
+  }
+  
   RtlZeroMemory(&HwInitializationData, sizeof(HW_INITIALIZATION_DATA));
 
   HwInitializationData.HwInitializationDataSize = sizeof(HW_INITIALIZATION_DATA);
