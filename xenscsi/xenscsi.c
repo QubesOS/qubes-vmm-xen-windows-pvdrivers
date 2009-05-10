@@ -78,6 +78,7 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
   vscsiif_response_t *rep;
   int more_to_do = TRUE;
   vscsiif_shadow_t *shadow;
+  BOOLEAN last_interrupt = FALSE;
 
   if (xsdd->pause_ack != xsdd->pause_req)
   {
@@ -88,7 +89,7 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
       ScsiPortNotification(NextRequest, DeviceExtension);
     }
   }
-  if (!dump_mode && !xsdd->vectors.EvtChn_AckEvent(xsdd->vectors.context, xsdd->event_channel))
+  if (!dump_mode && !xsdd->vectors.EvtChn_AckEvent(xsdd->vectors.context, xsdd->event_channel, &last_interrupt))
   {
     return FALSE;
   }
@@ -196,7 +197,7 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
 
   //FUNCTION_EXIT();
   
-  return FALSE;
+  return !last_interrupt;
 }
 
 static VOID
