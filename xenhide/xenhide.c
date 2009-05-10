@@ -25,6 +25,241 @@ static BOOLEAN need_gplpv_filter;
 static BOOLEAN gplpv_interrogated;
 
 static NTSTATUS
+XenHide_EvtDeviceFilterRemoveResourceRequirements(WDFDEVICE device, WDFIORESREQLIST irrl)
+{
+  ULONG i;
+  WDFIORESLIST irl;
+  
+  UNREFERENCED_PARAMETER(device);
+  
+  FUNCTION_ENTER();
+  
+  for (i = 0; i < WdfIoResourceRequirementsListGetCount(irrl); i++)
+  {
+    KdPrint((__DRIVER_NAME "     Processing irrl #%d\n", i));
+    irl = WdfIoResourceRequirementsListGetIoResList(irrl, i);
+    while(WdfIoResourceListGetCount(irl) > 0)
+    {
+      KdPrint((__DRIVER_NAME "     Removing irl\n"));
+      WdfIoResourceListRemove(irl, 0);
+    }
+  }
+  
+  FUNCTION_EXIT();
+  
+  return STATUS_SUCCESS;
+}
+
+/*
+static NTSTATUS
+XenHide_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
+{
+  NTSTATUS status = STATUS_UNSUCCESSFUL;
+  
+  UNREFERENCED_PARAMETER(device);
+  UNREFERENCED_PARAMETER(previous_state);
+
+  FUNCTION_ENTER();
+  WdfDeviceSetFailed(device, WdfDeviceFailedNoRestart);
+  FUNCTION_EXIT();
+  return status;
+}
+*/
+
+NTSTATUS
+XenHide_EvtDevicePrepareHardware (WDFDEVICE device, WDFCMRESLIST resources_raw, WDFCMRESLIST resources_translated)
+{
+  UNREFERENCED_PARAMETER(device);
+  UNREFERENCED_PARAMETER(resources_raw);
+  UNREFERENCED_PARAMETER(resources_translated);
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  return STATUS_SUCCESS; //UNSUCCESSFUL;
+}
+
+/*
+NTSTATUS
+XenHide_EvtDeviceReleaseHardware(WDFDEVICE device, WDFCMRESLIST resources_translated)
+{
+  UNREFERENCED_PARAMETER(device);
+  UNREFERENCED_PARAMETER(resources_translated);
+  
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+  
+  return STATUS_SUCCESS;
+}
+*/
+
+
+static BOOLEAN
+XenHide_IdSuffixMatches(PWDFDEVICE_INIT device_init, PWCHAR matching_id)
+{
+  NTSTATUS status;
+  WDFMEMORY memory;
+  ULONG remaining;
+  size_t string_length;
+  PWCHAR ids;
+  PWCHAR ptr;
+  size_t ids_length;
+  ULONG properties[] = {DevicePropertyCompatibleIDs, DevicePropertyHardwareID};
+  int i;
+  
+//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  for (i = 0; i < ARRAY_SIZE(properties); i++)
+  {
+
+    status = WdfFdoInitAllocAndQueryProperty(device_init, properties[i], NonPagedPool, WDF_NO_OBJECT_ATTRIBUTES, &memory);
+    if (!NT_SUCCESS(status))
+      continue;
+    ids = WdfMemoryGetBuffer(memory, &ids_length);
+
+    if (!NT_SUCCESS(status))
+    {
+//      KdPrint((__DRIVER_NAME "     i = %d, status = %x, ids_length = %d\n", i, status, ids_length));
+      continue;
+    }
+    
+    remaining = ids_length / 2;
+    for (ptr = ids; *ptr != 0; ptr += string_length + 1)
+    {
+      RtlStringCchLengthW(ptr, remaining, &string_length);
+      remaining -= (ULONG)string_length + 1;
+      if (string_length >= wcslen(matching_id))
+      {
+        ptr += string_length - wcslen(matching_id);
+        string_length = wcslen(matching_id);
+      }
+//      KdPrint((__DRIVER_NAME "     Comparing '%S' and '%S'\n", ptr, matching_id));
+      if (wcscmp(ptr, matching_id) == 0)
+      {
+        //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (Match)\n"));
+        WdfObjectDelete(memory);
+        return TRUE;
+      }
+    }
+    WdfObjectDelete(memory);
+  }
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (No match)\n"));
+  return FALSE;
+}
+
+static NTSTATUS
+XenHide_EvtDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
+{
+  NTSTATUS status;
+  WDFMEMORY memory;
+  PWCHAR device_description;
+  WDF_PNPPOWER_EVENT_CALLBACKS pnp_power_callbacks;
+  WDF_FDO_EVENT_CALLBACKS fdo_callbacks;
+  WDF_OBJECT_ATTRIBUTES device_attributes;
+  UNICODE_STRING dir_name;
+  OBJECT_ATTRIBUTES oa;
+  HANDLE handle;
+  BOOLEAN hide_required = FALSE;
+  WDFDEVICE device;
+  //PXENHIDE_DEVICE_DATA xhdd;
+
+  UNREFERENCED_PARAMETER(driver);
+#if 0
+  PDEVICE_OBJECT deviceObject = NULL;
+  ULONG length;
+  WCHAR device_description[256];
+  USHORT hide_type;
+#endif
+
+  FUNCTION_ENTER();
+
+  if (!gplpv_interrogated)
+  {
+    gplpv_interrogated = TRUE;
+    RtlInitUnicodeString(&dir_name, L"\\NEED_GPLPV_FILTER");
+    InitializeObjectAttributes(&oa, &dir_name, OBJ_KERNEL_HANDLE, NULL, NULL);
+    status = ZwOpenDirectoryObject(&handle, DIRECTORY_QUERY, &oa);
+    KdPrint((__DRIVER_NAME "     ZwOpenDirectoryObject = %08x\n", status));
+    if (NT_SUCCESS(status))
+    {
+      need_gplpv_filter = TRUE;
+      ZwClose(handle);
+    }
+  }
+  
+  status = WdfFdoInitAllocAndQueryProperty(device_init, DevicePropertyDeviceDescription, NonPagedPool, WDF_NO_OBJECT_ATTRIBUTES, &memory);
+  if (NT_SUCCESS(status))
+  {
+    device_description = WdfMemoryGetBuffer(memory, NULL);
+  }
+  else
+  {
+    device_description = L"<unknown device>";
+  }
+
+  if (need_gplpv_filter)
+  {
+    /* hide only specific devices */
+    if (XenHide_IdSuffixMatches(device_init, L"VEN_8086&DEV_7010")) // Qemu IDE
+    {
+      hide_required = TRUE;
+    }
+    else if (XenHide_IdSuffixMatches(device_init, L"VEN_1000&DEV_0012"))// Qemu SCSI
+    {
+      hide_required = TRUE;
+    }
+    else if (XenHide_IdSuffixMatches(device_init, L"VEN_10EC&DEV_8139")) // Qemu Network
+    {
+      hide_required = TRUE;
+    }
+  }
+
+  if (!hide_required)
+  {
+    WdfObjectDelete(memory);
+    KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " (filter not required for %S)\n", device_description));
+    return STATUS_SUCCESS;
+  }
+  
+  KdPrint((__DRIVER_NAME "     Installing Filter for %S\n", device_description));
+
+  WdfFdoInitSetFilter(device_init);
+  WdfDeviceInitSetDeviceType(device_init, FILE_DEVICE_UNKNOWN);
+  WdfDeviceInitSetExclusive(device_init, FALSE);
+
+  WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp_power_callbacks);
+  pnp_power_callbacks.EvtDevicePrepareHardware = XenHide_EvtDevicePrepareHardware;
+  //pnp_power_callbacks.EvtDeviceReleaseHardware = XenHide_EvtDeviceReleaseHardware;
+  //pnp_power_callbacks.EvtDeviceD0Entry = XenHide_EvtDeviceD0Entry;
+  //pnp_power_callbacks.EvtDeviceD0Exit = XenHide_EvtDeviceD0Exit;
+  WdfDeviceInitSetPnpPowerEventCallbacks(device_init, &pnp_power_callbacks);
+  
+  WDF_FDO_EVENT_CALLBACKS_INIT(&fdo_callbacks);
+  fdo_callbacks.EvtDeviceFilterRemoveResourceRequirements = XenHide_EvtDeviceFilterRemoveResourceRequirements;
+  WdfFdoInitSetEventCallbacks(device_init, &fdo_callbacks);
+
+  //WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&device_attributes, XENHIDE_DEVICE_DATA);
+  WDF_OBJECT_ATTRIBUTES_INIT(&device_attributes);
+  status = WdfDeviceCreate(&device_init, &device_attributes, &device);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Error creating device %08x\n", status));
+    WdfObjectDelete(memory);
+    FUNCTION_EXIT();
+    return status;
+  }
+
+  //xhdd = GetXhdd(device);
+
+  //xhdd->filter_do = deviceObject;
+
+  WdfObjectDelete(memory);
+  FUNCTION_EXIT();
+
+  return status;
+}
+
+
+
+#if 0
+static NTSTATUS
 XenHide_Power(PDEVICE_OBJECT device_object, PIRP irp)
 {
   NTSTATUS status;
@@ -323,26 +558,38 @@ XenHide_Pnp(PDEVICE_OBJECT device_object, PIRP irp)
 
   return status;
 }
+#endif
+
+static VOID
+XenHide_EvtDriverUnload(WDFDRIVER driver)
+{
+  UNREFERENCED_PARAMETER(driver);
+  
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
+}
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
   NTSTATUS status = STATUS_SUCCESS;
-  int i;
-  
-  UNREFERENCED_PARAMETER(RegistryPath);
+  WDF_DRIVER_CONFIG config;
+  WDFDRIVER driver;
+  PDRIVER_OBJECT wdm_driver;
 
   FUNCTION_ENTER();
 
   need_gplpv_filter = FALSE;
   gplpv_interrogated = FALSE;
   
-  for (i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++)
-    DriverObject->MajorFunction[i] = XenHide_Pass;
-  DriverObject->MajorFunction[IRP_MJ_PNP] = XenHide_Pnp;
-  DriverObject->MajorFunction[IRP_MJ_POWER] = XenHide_Power;
-  DriverObject->DriverExtension->AddDevice = XenHide_AddDevice;
-
+  WDF_DRIVER_CONFIG_INIT(&config, XenHide_EvtDeviceAdd);
+  config.EvtDriverUnload = XenHide_EvtDriverUnload;
+  status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, &driver);
+  if (NT_SUCCESS(status))
+  {
+    wdm_driver = WdfDriverWdmGetDriverObject(driver);
+    ObReferenceObject(wdm_driver);
+  }
   FUNCTION_EXIT();
 
   return status;

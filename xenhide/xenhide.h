@@ -21,7 +21,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include <ntifs.h>
 #include <ntddk.h>
-#include <wdm.h>
+#include <wdf.h>
 #include <initguid.h>
 #include <wdmguid.h>
 #include <errno.h>
@@ -41,16 +41,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //{CD433FE7-954F-4D51-BE29-D8A38DFA1108}
 //DEFINE_GUID(GUID_XENHIDE_IFACE, 0xCD433FE7, 0x954F, 0x4D51, 0xBE, 0x29, 0xD8, 0xA3, 0x8D, 0xFA, 0x11, 0x08);
 
-#define XENHIDE_TYPE_NONE 0
-#define XENHIDE_TYPE_DEVICE 1
-#define XENHIDE_TYPE_PCI_BUS 2
-
+#if 0
 typedef struct {
-  PDEVICE_OBJECT filter_do;
-  PDEVICE_OBJECT pdo;
-  PDEVICE_OBJECT lower_do;
-  IO_REMOVE_LOCK RemoveLock;
+  //PDEVICE_OBJECT filter_do;
+  //PDEVICE_OBJECT pdo;
+  //PDEVICE_OBJECT lower_do;
+  //IO_REMOVE_LOCK RemoveLock;
   USHORT hide_type;
 } XENHIDE_DEVICE_DATA, *PXENHIDE_DEVICE_DATA;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENHIDE_DEVICE_DATA, GetXhdd)
+#endif
 
 #endif
