@@ -738,7 +738,7 @@ DriverEntry(
   IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_DMA_DRIVER_EXTENSION_MAGIC), sizeof(dma_driver_extension_t), &dma_driver_extension);  
   dma_driver_extension->need_virtual_address = NULL;
   dma_driver_extension->get_alignment = NULL;
-  dma_driver_extension->max_sg_elements = 17;
+  dma_driver_extension->max_sg_elements = 19; /* header + 18 fragments */
 
   KdPrint((__DRIVER_NAME "     DriverObject = %p, RegistryPath = %p\n", DriverObject, RegistryPath));
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));

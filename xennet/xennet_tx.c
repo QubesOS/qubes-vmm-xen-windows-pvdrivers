@@ -105,9 +105,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   parse_result = XenNet_ParsePacketHeader(&pi);  
   //KdPrint((__DRIVER_NAME "     B\n"));
 
-  if (pi.header && *((PUCHAR)pi.header + 12) != 0x08)
-    KdPrint((__DRIVER_NAME "     %02x %02x\n", (int)*((PUCHAR)pi.header + 12), (int)*((PUCHAR)pi.header + 13)));
-
   if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) == NDIS_PROTOCOL_ID_TCP_IP)
   {
     csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
@@ -173,15 +170,23 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     }
   }
 
-  if (pi.mdl_count + !!ndis_lso > xi->tx_ring_free)
+  sg = (PSCATTER_GATHER_LIST)NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
+  ASSERT(sg != NULL);
+
+  if (sg->NumberOfElements > 19)
   {
-    KdPrint((__DRIVER_NAME "     Full on send - required = %d, available = %d\n", pi.mdl_count + !!ndis_lso, xi->tx_ring_free));
+    KdPrint((__DRIVER_NAME "     sg->NumberOfElements = %d\n", sg->NumberOfElements));
+    NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_SUCCESS);
+    return TRUE; // we'll pretend we sent the packet here for now...
+  }
+  //ASSERT(sg->NumberOfElements <= 19);
+  if (sg->NumberOfElements + !!ndis_lso > xi->tx_ring_free)
+  {
+    KdPrint((__DRIVER_NAME "     Full on send - required = %d, available = %d\n", sg->NumberOfElements + !!ndis_lso, xi->tx_ring_free));
     //FUNCTION_EXIT();
     return FALSE;
   }
 
-  sg = (PSCATTER_GATHER_LIST)NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
-  ASSERT(sg != NULL);
 
   if (ndis_lso || (pi.header_length && pi.header_length > sg->Elements[sg_element].Length && pi.header == pi.header_data))
   {
@@ -281,7 +286,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     //KdPrint((__DRIVER_NAME "     Using extra_info\n"));
     ASSERT(flags & NETTXF_extra_info);
     ei = (struct netif_extra_info *)RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
-    chunks++;
     xi->tx_ring_free--;
     ei->type = XEN_NETIF_EXTRA_TYPE_GSO;
     ei->flags = 0;
@@ -300,6 +304,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     //KdPrint((__DRIVER_NAME "     H - address = %p, length = %d\n",
     //  sg->Elements[sg_element].Address.LowPart + sg_offset, sg->Elements[sg_element].Length - sg_offset));
     txN = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+    chunks++;
     xi->tx_ring_free--;
     txN->id = 0xFFFF;
     txN->gref = (grant_ref_t)(sg->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT);
@@ -319,6 +324,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   txN->id = get_id_from_freelist(xi);
 //KdPrint((__DRIVER_NAME "     send - id = %d\n", tx0->id));
   //KdPrint((__DRIVER_NAME "     TX: id = %d, hb = %p, xi->tx_shadows[txN->id].hb = %p\n", txN->id, header_buf, xi->tx_shadows[txN->id].hb));
+  ASSERT(tx0->size == pi.total_length);
   ASSERT(!xi->tx_shadows[txN->id].hb);
   ASSERT(!xi->tx_shadows[txN->id].packet);
   xi->tx_shadows[txN->id].packet = packet;
@@ -330,7 +336,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo) = UlongToPtr(pi.tcp_length);
   }
 
-  if (chunks > 12)
+  if (chunks > 19)
   {
     KdPrint((__DRIVER_NAME "     chunks = %d\n", chunks));
   }
