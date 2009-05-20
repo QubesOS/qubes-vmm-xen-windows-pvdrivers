@@ -491,7 +491,7 @@ XenNet_MakePackets(
           XenNet_SumPacketData(pi, packet, TRUE);
         }
       }
-      else if (!xi->config_csum_rx_check)
+      else if (xi->config_csum_rx_check)
       {
         if (xi->setting_csum.V4Receive.TcpChecksum && pi->ip_proto == 6)
         {
