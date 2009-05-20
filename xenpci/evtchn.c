@@ -60,6 +60,7 @@ BOOLEAN
 EvtChn_AckEvent(PVOID context, evtchn_port_t port, BOOLEAN *last_interrupt)
 {
   PXENPCI_DEVICE_DATA xpdd = context;
+  ULONG pcpu = KeGetCurrentProcessorNumber() & 0xff;
   ULONG evt_word;
   ULONG evt_bit;
   xen_ulong_t val;
@@ -68,19 +69,21 @@ EvtChn_AckEvent(PVOID context, evtchn_port_t port, BOOLEAN *last_interrupt)
   evt_bit = port & (BITS_PER_LONG - 1);
   evt_word = port >> BITS_PER_LONG_SHIFT;
 
-  val = synch_clear_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
-  *last_interrupt = FALSE;
+  val = synch_clear_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[pcpu][evt_word]);
+  *last_interrupt = TRUE;
   for (i = 0; i < sizeof(xen_ulong_t) * 8; i++)
   {
-    if (xpdd->evtchn_pending_pvt[i])
+    if (xpdd->evtchn_pending_pvt[pcpu][i])
     {
-      *last_interrupt = TRUE;
+      *last_interrupt = FALSE;
       break;
     }
   }
   
   return (BOOLEAN)!!val;
 }
+
+volatile ULONG in_inq = 0;
 
 BOOLEAN
 EvtChn_EvtInterruptIsr(WDFINTERRUPT interrupt, ULONG message_id)
@@ -90,7 +93,8 @@ For HVM domains, Xen always triggers the event on CPU0. Because the
 interrupt is delivered via the virtual PCI device it might get delivered
 to CPU != 0, but we should always use vcpu_info[0]
 */
-  int cpu = 0;
+  int vcpu = 0;
+  ULONG pcpu = KeGetCurrentProcessorNumber() & 0xff;
   vcpu_info_t *vcpu_info;
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(WdfInterruptGetDevice(interrupt));
   shared_info_t *shared_info_area = xpdd->shared_info_area;
@@ -115,16 +119,16 @@ to CPU != 0, but we should always use vcpu_info[0]
     KdPrint((__DRIVER_NAME "     interrupt while hibernated\n"));
   }
 
-  for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt); i++)
+  for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt[pcpu]); i++)
   {
-    if (xpdd->evtchn_pending_pvt[i])
+    if (xpdd->evtchn_pending_pvt[pcpu][i])
     {
-      KdPrint((__DRIVER_NAME "     Unacknowledged event word = %d, val = %p\n", i, xpdd->evtchn_pending_pvt[i]));
-      xpdd->evtchn_pending_pvt[i] = 0;
+      KdPrint((__DRIVER_NAME "     Unacknowledged event word = %d, val = %p\n", i, xpdd->evtchn_pending_pvt[pcpu][i]));
+      xpdd->evtchn_pending_pvt[pcpu][i] = 0;
     }
   }
   
-  vcpu_info = &shared_info_area->vcpu_info[cpu];
+  vcpu_info = &shared_info_area->vcpu_info[vcpu];
 
   vcpu_info->evtchn_upcall_pending = 0;
 
@@ -153,7 +157,7 @@ to CPU != 0, but we should always use vcpu_info[0]
         break;
       case EVT_ACTION_TYPE_IRQ:
         //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_IRQ\n"));
-        synch_set_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[evt_word]);
+        synch_set_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[pcpu][evt_word]);
         deferred = TRUE;
         break;
       case EVT_ACTION_TYPE_DPC:
@@ -162,13 +166,13 @@ to CPU != 0, but we should always use vcpu_info[0]
         break;
       case EVT_ACTION_TYPE_SUSPEND:
         KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_SUSPEND\n"));
-        for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt); i++)
+        for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt[pcpu]); i++)
         {
           if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_IRQ)
           {
             int suspend_bit = i & (BITS_PER_LONG - 1);
             int suspend_word = i >> BITS_PER_LONG_SHIFT;
-            synch_set_bit(suspend_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[suspend_word]);
+            synch_set_bit(suspend_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[pcpu][suspend_word]);
           }
           else if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_NORMAL && xpdd->ev_actions[i].ServiceRoutine)
           {

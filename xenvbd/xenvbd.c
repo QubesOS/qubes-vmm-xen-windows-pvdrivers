@@ -791,7 +791,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   if (xvdd->device_state->suspend_resume_state_fdo != SR_STATE_RUNNING)
   {
-    return !last_interrupt;
+    return last_interrupt;
   }
 
   while (more_to_do)
@@ -897,7 +897,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     FUNCTION_EXIT();
   }
 
-  return !last_interrupt;
+  return last_interrupt;
 }
 
 static BOOLEAN DDKAPI

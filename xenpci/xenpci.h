@@ -130,7 +130,7 @@ typedef struct {
   
   PHYSICAL_ADDRESS shared_info_area_unmapped;
   shared_info_t *shared_info_area;
-  xen_ulong_t evtchn_pending_pvt[sizeof(xen_ulong_t) * 8];
+  xen_ulong_t evtchn_pending_pvt[MAX_VIRT_CPUS][sizeof(xen_ulong_t) * 8];
   xen_ulong_t evtchn_pending_suspend[sizeof(xen_ulong_t) * 8];
   evtchn_port_t pdo_event_channel;
   KEVENT pdo_suspend_event;

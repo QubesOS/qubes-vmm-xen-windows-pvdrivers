@@ -197,7 +197,7 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
 
   //FUNCTION_EXIT();
   
-  return !last_interrupt;
+  return last_interrupt;
 }
 
 static VOID
