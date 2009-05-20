@@ -533,7 +533,8 @@ XenVbd_StartRingDetection(PXENVBD_DEVICE_DATA xvdd)
   int i;
   int notify;
 
-  xvdd->ring_detect_state = 0;
+  xvdd->ring_detect_state = RING_DETECT_STATE_DETECT1;
+  
   req = RING_GET_REQUEST(&xvdd->ring, xvdd->ring.req_prod_pvt);
   req->operation = 0xff;
   req->nr_segments = 0;
@@ -583,7 +584,7 @@ XenVbd_HwScsiInitialize(PVOID DeviceExtension)
         xvdd->ring.nr_ents = BLK_OTHER_RING_SIZE;
         xvdd->use_other = TRUE;
       }
-      xvdd->ring_detect_state = 2;
+      xvdd->ring_detect_state = RING_DETECT_STATE_COMPLETE;
     }
   }
   FUNCTION_EXIT();
@@ -816,11 +817,14 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 */
       switch (xvdd->ring_detect_state)
       {
-      case 0:
-        KdPrint((__DRIVER_NAME "     ring_detect_state = %d, operation = %x, id = %lx, status = %d\n", xvdd->ring_detect_state, rep->operation, rep->id, rep->status));
-        xvdd->ring_detect_state = 1;
+      case RING_DETECT_STATE_NOT_STARTED:
+        KdPrint((__DRIVER_NAME "     premature IRQ\n"));
         break;
-      case 1:
+      case RING_DETECT_STATE_DETECT1:
+        KdPrint((__DRIVER_NAME "     ring_detect_state = %d, operation = %x, id = %lx, status = %d\n", xvdd->ring_detect_state, rep->operation, rep->id, rep->status));
+        xvdd->ring_detect_state = RING_DETECT_STATE_DETECT2;
+        break;
+      case RING_DETECT_STATE_DETECT2:
         KdPrint((__DRIVER_NAME "     ring_detect_state = %d, operation = %x, id = %lx, status = %d\n", xvdd->ring_detect_state, rep->operation, rep->id, rep->status));
         *xvdd->event_channel_ptr |= 0x80000000;
         if (rep->operation != 0xff)
@@ -829,10 +833,10 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
           xvdd->use_other = TRUE;
           *xvdd->event_channel_ptr |= 0x40000000;
         }
-        xvdd->ring_detect_state = 2;
+        xvdd->ring_detect_state = RING_DETECT_STATE_COMPLETE;
         ScsiPortNotification(NextRequest, DeviceExtension);
         break;
-      case 2:
+      case RING_DETECT_STATE_COMPLETE:
         shadow = &xvdd->shadows[rep->id];
         srb = shadow->srb;
         ASSERT(srb != NULL);
@@ -918,7 +922,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   }
   
   // If we haven't enumerated all the devices yet then just defer the request
-  if (xvdd->ring_detect_state < 2)
+  if (xvdd->ring_detect_state < RING_DETECT_STATE_COMPLETE)
   {
     Srb->SrbStatus = SRB_STATUS_BUSY;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
@@ -1282,7 +1286,7 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
   FUNCTION_ENTER();
 
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
-  if (xvdd->ring_detect_state == 2 && xvdd->device_state->suspend_resume_state_pdo == SR_STATE_RUNNING)
+  if (xvdd->ring_detect_state == RING_DETECT_STATE_COMPLETE && xvdd->device_state->suspend_resume_state_pdo == SR_STATE_RUNNING)
   {
     ScsiPortNotification(NextRequest, DeviceExtension);
   }
