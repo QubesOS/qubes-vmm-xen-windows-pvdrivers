@@ -45,7 +45,7 @@
                 <File Id='xenpci.inf' Name='xenpci.inf' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenpci.inf' />
                 <File Id='xenpci.sys' Name='xenpci.sys' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenpci.sys' />
                 <File Id='WdfCoInstaller01007.dll' Name='WdfCoInstaller01007.dll' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\WdfCoInstaller01007.dll' />
-                <difx:Driver Sequence='99' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
+                <difx:Driver Sequence='1' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
               </Component>
             </Directory>
             <Directory Id='XenVbdDir' Name='xenvbd'>
@@ -53,7 +53,7 @@
                 <File Id='xenvbd.cat' Name='xenvbd.cat' DiskId='1' Source='xenvbd\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenvbd.cat' />
                 <File Id='xenvbd.inf' Name='xenvbd.inf' DiskId='1' Source='xenvbd\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenvbd.inf' />
                 <File Id='xenvbd.sys' Name='xenvbd.sys' DiskId='1' Source='xenvbd\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenvbd.sys' />
-                <difx:Driver Sequence='1' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes'/>
+                <difx:Driver Sequence='2' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes'/>
               </Component>
             </Directory>
             <Directory Id='XenScsiDir' Name='xenscsi'>
@@ -61,7 +61,7 @@
                 <File Id='xenscsi.cat' Name='xenscsi.cat' DiskId='1' Source='xenscsi\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenscsi.cat' />
                 <File Id='xenscsi.inf' Name='xenscsi.inf' DiskId='1' Source='xenscsi\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenscsi.inf' />
                 <File Id='xenscsi.sys' Name='xenscsi.sys' DiskId='1' Source='xenscsi\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenscsi.sys' />
-                <difx:Driver Sequence='2' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
+                <difx:Driver Sequence='3' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
               </Component>
             </Directory>
             <Directory Id='XenNetDir' Name='xennet'>
@@ -69,7 +69,7 @@
                 <File Id='xennet.cat' Name='xennet.cat' DiskId='1' Source='xennet\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xennet.cat' />
                 <File Id='xennet.inf' Name='xennet.inf' DiskId='1' Source='xennet\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xennet.inf' />
                 <File Id='xennet.sys' Name='xennet.sys' DiskId='1' Source='xennet\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xennet.sys' />
-                <difx:Driver Sequence='3' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
+                <difx:Driver Sequence='4' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
               </Component>
             </Directory>
           </Directory>
