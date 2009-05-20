@@ -856,7 +856,7 @@ XenNet_ReturnPacket(
   put_packet_on_freelist(xi, Packet);
   xi->rx_outstanding--;
   
-  if (!xi->rx_outstanding && xi->rx_shutting_down)
+  if (!xi->rx_outstanding && xi->shutting_down)
     KeSetEvent(&xi->packet_returned_event, IO_NO_INCREMENT, FALSE);
 
   XenNet_FillRing(xi);
@@ -971,7 +971,6 @@ XenNet_RxInit(xennet_info_t *xi)
   KeSetTargetProcessorDpc(&xi->rx_dpc, 0);
   //KeSetImportanceDpc(&xi->rx_dpc, HighImportance);
   //KeInitializeDpc(&xi->rx_timer_dpc, XenNet_RxTimerDpc, xi);
-  xi->rx_shutting_down = FALSE;
 
   XenNet_BufferAlloc(xi);
   
@@ -998,10 +997,6 @@ XenNet_RxShutdown(xennet_info_t *xi)
   KIRQL OldIrql;
 
   FUNCTION_ENTER();
-
-  KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
-  xi->rx_shutting_down = TRUE;
-  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
 
   if (xi->config_rx_interrupt_moderation)
   {

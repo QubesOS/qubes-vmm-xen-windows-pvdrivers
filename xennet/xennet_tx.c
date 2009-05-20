@@ -446,7 +446,8 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   } while (prod != xi->tx.sring->rsp_prod);
 
   /* if queued packets, send them now */
-  XenNet_SendQueuedPackets(xi);
+  if (!xi->shutting_down)
+    XenNet_SendQueuedPackets(xi);
 
   KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
@@ -456,7 +457,7 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     head = *(PNDIS_PACKET *)&packet->MiniportReservedEx[0];
     NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_SUCCESS);
     xi->tx_outstanding--;
-    if (!xi->tx_outstanding && xi->tx_shutting_down)
+    if (!xi->tx_outstanding && xi->shutting_down)
       KeSetEvent(&xi->tx_idle_event, IO_NO_INCREMENT, FALSE);
   }
 
@@ -556,7 +557,6 @@ XenNet_TxInit(xennet_info_t *xi)
   InitializeListHead(&xi->tx_waiting_pkt_list);
 
   KeInitializeEvent(&xi->tx_idle_event, SynchronizationEvent, FALSE);
-  xi->tx_shutting_down = FALSE;
   xi->tx_outstanding = 0;
   xi->tx_ring_free = NET_TX_RING_SIZE;
 
@@ -606,11 +606,7 @@ XenNet_TxShutdown(xennet_info_t *xi)
 
   FUNCTION_ENTER();
 
-  ASSERT(!xi->connected);
-
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
-
-  xi->tx_shutting_down = TRUE;
 
   /* Free packets in tx queue */
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);

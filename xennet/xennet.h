@@ -244,7 +244,8 @@ struct xennet_info
   NDIS_HANDLE adapter_handle;
   NDIS_MINIPORT_INTERRUPT interrupt;
   ULONG packet_filter;
-  int connected;
+  BOOLEAN connected;
+  BOOLEAN shutting_down;
   uint8_t perm_mac_addr[ETH_ALEN];
   uint8_t curr_mac_addr[ETH_ALEN];
 
@@ -271,7 +272,6 @@ struct xennet_info
 #define TX_HEADER_BUFFER_SIZE 512
 //#define TX_HEADER_BUFFERS (NET_TX_RING_SIZE >> 2)
 #define TX_HEADER_BUFFERS (NET_TX_RING_SIZE)
-  BOOLEAN tx_shutting_down;
   KEVENT tx_idle_event;
   ULONG tx_outstanding;
   ULONG tx_id_free;
@@ -288,7 +288,6 @@ struct xennet_info
   packet_info_t rxpi;
   PNDIS_PACKET rx_packet_list[NET_RX_RING_SIZE * 2];
   ULONG rx_packet_free;
-  BOOLEAN rx_shutting_down;
   KEVENT packet_returned_event;
   //NDIS_MINIPORT_TIMER rx_timer;
   KDPC rx_dpc;

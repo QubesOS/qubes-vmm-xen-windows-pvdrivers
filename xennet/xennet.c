@@ -694,11 +694,14 @@ XenNet_Halt(
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
-  xi->connected = FALSE;
-  KeMemoryBarrier(); /* make sure everyone sees that we are now shut down */
+  xi->shutting_down = TRUE;
+  KeMemoryBarrier(); /* make sure everyone sees that we are now shutting down */
 
   XenNet_TxShutdown(xi);
   XenNet_RxShutdown(xi);
+
+  xi->connected = FALSE;
+  KeMemoryBarrier(); /* make sure everyone sees that we are now disconnected */
 
   xi->vectors.XenPci_XenShutdownDevice(xi->vectors.context);
 
