@@ -406,7 +406,9 @@ struct vcpu_info {
     uint8_t evtchn_upcall_pending;
     uint8_t evtchn_upcall_mask;
     xen_ulong_t evtchn_pending_sel;
+#if !defined(__ia64__)
     struct arch_vcpu_info arch;
+#endif
     struct vcpu_time_info time;
 }; /* 64 bytes (x86) */
 #ifndef __XEN__
