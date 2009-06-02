@@ -29,8 +29,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
   #define bit_scan_forward(p1, p2) _BitScanForward(p1, p2)
 #else
   #define xchg(p1, p2) InterlockedExchange64(p1, p2)
-  #define synch_clear_bit(p1, p2) _interlockedbittestandreset64(p2, p1)
-  #define synch_set_bit(p1, p2) _interlockedbittestandset64(p2, p1)
+  #define synch_clear_bit(p1, p2) InterlockedBitTestAndReset64(p2, p1)
+  #define synch_set_bit(p1, p2) InterlockedBitTestAndSet64(p2, p1)
   #define bit_scan_forward(p1, p2) _BitScanForward64(p1, p2)
 #endif
 
