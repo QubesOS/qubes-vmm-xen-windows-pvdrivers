@@ -23,10 +23,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
   #else
     #include "hypercall_x86.h"
   #endif
-#else
-  #if defined(_AMD64_)
-    #include "hypercall_amd64.h"
-  #endif
+#elif defined(_AMD64_)
+  #include "hypercall_amd64.h"
+#elif defined(__ia64__)
+  #include "hypercall_ia64.h"
 #endif
 
 static __inline ULONGLONG

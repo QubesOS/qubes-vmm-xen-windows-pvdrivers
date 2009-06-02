@@ -2,6 +2,8 @@
 
 /* must be called at <= DISPATCH_LEVEL if hypercall_stubs == NULL */
 
+#if !defined(__ia64__)
+
 NTSTATUS
 hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
 {
@@ -58,3 +60,21 @@ hvm_free_stubs(PXENPCI_DEVICE_DATA xpdd)
 
   return STATUS_SUCCESS;
 }
+
+#else
+
+NTSTATUS
+hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
+{
+  UNREFERENCED_PARAMETER(xpdd);
+  return STATUS_SUCCESS;
+}
+
+NTSTATUS
+hvm_free_stubs(PXENPCI_DEVICE_DATA xpdd)
+{
+  UNREFERENCED_PARAMETER(xpdd);
+  return STATUS_SUCCESS;
+}
+
+#endif
