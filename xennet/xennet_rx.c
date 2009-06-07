@@ -654,7 +654,13 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   ASSERT(xi->connected);
 
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
-
+  
+  if (xi->shutting_down)
+  {
+    /* there is a chance that our Dpc had been queued just before the shutdown... */
+    KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
+    return;
+  }
   InitializeListHead(&rx_packet_list);
 
   do {
@@ -785,19 +791,6 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   {
     PNDIS_PACKET packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[0]);
     packets[packet_count++] = packet;
-#if 0    
-    KdPrint((__DRIVER_NAME "     Adding packet %p to indicate list\n", packet));
-{
-    PVOID addr;
-    UINT buffer_length;
-    UINT total_length;
-    PNDIS_BUFFER buffer;
-
-    NdisGetFirstBufferFromPacketSafe(packet, &buffer, &addr, &buffer_length, &total_length, NormalPagePriority);
-    KdPrint((__DRIVER_NAME "     buffer = %p, addr = %p, buffer_length = %d, total_length = %d\n", buffer, addr, buffer_length, total_length));
-    ASSERT(total_length <= xi->config_mtu + XN_HDR_SIZE);
-}   
-#endif
     entry = RemoveHeadList(&rx_packet_list);
     if (packet_count == MAXIMUM_PACKETS_PER_INDICATE || entry == &rx_packet_list)
     {
