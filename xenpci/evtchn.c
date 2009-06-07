@@ -316,7 +316,10 @@ EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
   xpdd->ev_actions[Port].ServiceContext = NULL;
 
   if (old_type == EVT_ACTION_TYPE_DPC)
+  {
     KeRemoveQueueDpc(&xpdd->ev_actions[Port].Dpc);
+    KeFlushQueuedDpcs();
+  }
   
   return STATUS_SUCCESS;
 }
@@ -465,9 +468,7 @@ EvtChn_Suspend(PXENPCI_DEVICE_DATA xpdd)
       KeRemoveQueueDpc(&xpdd->ev_actions[i].Dpc);
     }
   }
-#if (NTDDI_VERSION >= NTDDI_WINXP)
   KeFlushQueuedDpcs();
-#endif
 
   return STATUS_SUCCESS;
 }
