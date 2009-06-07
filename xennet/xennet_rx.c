@@ -996,6 +996,9 @@ XenNet_RxShutdown(xennet_info_t *xi)
     KeCancelTimer(&xi->rx_timer);
   }
 
+  KeRemoveQueueDpc(&xi->rx_dpc);
+  KeFlushQueuedDpcs();
+
   while (xi->rx_outstanding)
   {
     KdPrint((__DRIVER_NAME "     Waiting for all packets to be returned\n"));

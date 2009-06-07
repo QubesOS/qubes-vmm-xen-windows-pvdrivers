@@ -405,6 +405,13 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
+  if (xi->shutting_down)
+  {
+    /* there is a chance that our Dpc had been queued just before the shutdown... */
+    KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
+    return;
+  }
+
   do {
     prod = xi->tx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'rsp_prod'. */
@@ -605,6 +612,9 @@ XenNet_TxShutdown(xennet_info_t *xi)
   shared_buffer_t *hb;
 
   FUNCTION_ENTER();
+
+  KeRemoveQueueDpc(&xi->tx_dpc);
+  KeFlushQueuedDpcs();
 
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
