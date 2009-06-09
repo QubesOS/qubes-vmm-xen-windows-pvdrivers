@@ -533,7 +533,7 @@ XenVbd_StartRingDetection(PXENVBD_DEVICE_DATA xvdd)
   int notify;
 
   xvdd->ring_detect_state = RING_DETECT_STATE_DETECT1;
-  RtlZeroMemory(xvdd->sring->ring, PAGE_SIZE);
+  RtlZeroMemory(xvdd->sring->ring, PAGE_SIZE - FIELD_OFFSET(blkif_sring_t, ring));
   req = RING_GET_REQUEST(&xvdd->ring, xvdd->ring.req_prod_pvt);
   req->operation = 0xff;
   xvdd->ring.req_prod_pvt++;
