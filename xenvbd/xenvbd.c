@@ -516,7 +516,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   }
   else
   {
-    ConfigInfo->Master = TRUE; //FALSE;
+    ConfigInfo->Master = TRUE;
     ConfigInfo->Dma32BitAddresses = TRUE;
     KdPrint((__DRIVER_NAME "     Dma64BitAddresses not supported\n"));
   }
@@ -530,31 +530,15 @@ static VOID
 XenVbd_StartRingDetection(PXENVBD_DEVICE_DATA xvdd)
 {
   blkif_request_t *req;
-  int i;
   int notify;
 
   xvdd->ring_detect_state = RING_DETECT_STATE_DETECT1;
-  
+  RtlZeroMemory(xvdd->sring->ring, PAGE_SIZE);
   req = RING_GET_REQUEST(&xvdd->ring, xvdd->ring.req_prod_pvt);
   req->operation = 0xff;
-  req->nr_segments = 0;
-  for (i = 0; i < BLKIF_MAX_SEGMENTS_PER_REQUEST; i++)
-  {
-    req->seg[i].gref = 0; //0xffffffff;
-    req->seg[i].first_sect = 0; //0xff;
-    req->seg[i].last_sect = 0; //0xff;
-  }
   xvdd->ring.req_prod_pvt++;
-
   req = RING_GET_REQUEST(&xvdd->ring, xvdd->ring.req_prod_pvt);
   req->operation = 0xff;
-  req->nr_segments = 0;
-  for (i = 0; i < BLKIF_MAX_SEGMENTS_PER_REQUEST; i++)
-  {
-    req->seg[i].gref = 0; //0xffffffff;
-    req->seg[i].first_sect = 0; //0xff;
-    req->seg[i].last_sect = 0; //0xff;
-  }
   xvdd->ring.req_prod_pvt++;
 
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xvdd->ring, notify);
