@@ -172,6 +172,14 @@ typedef struct {
 
   struct xenstore_domain_interface *xen_store_interface;
 
+
+#define BALLOON_UNITS (1024 * 1024) /* 1MB */
+  PKTHREAD balloon_thread;
+  KEVENT balloon_event;
+  ULONG initial_memory;
+  ULONG current_memory;
+  ULONG target_memory;
+  
   /* xenbus related */
   XENBUS_WATCH_ENTRY XenBus_WatchEntries[MAX_WATCH_ENTRIES];
   FAST_MUTEX xb_watch_mutex;
