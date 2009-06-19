@@ -124,6 +124,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
   UCHAR type;
   PCHAR setting, value, value2;
   UINT i;
+  ULONG backend_sg = 0;
 
   FUNCTION_ENTER();
   
@@ -151,9 +152,10 @@ XenNet_ConnectBackend(struct xennet_info *xi)
         xi->event_channel = PtrToUlong(value);
       }
       break;
-    case XEN_INIT_TYPE_READ_STRING_BACK:
     case XEN_INIT_TYPE_READ_STRING_FRONT:
-      //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
+      break;
+    case XEN_INIT_TYPE_READ_STRING_BACK:
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
       if (strcmp(setting, "mac") == 0)
       {
         char *s, *e;
@@ -169,6 +171,13 @@ XenNet_ConnectBackend(struct xennet_info *xi)
         {
           /* only copy if curr_mac_addr is not a LUA */
           memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
+        }
+      }
+      else if (strcmp(setting, "feature-sg") == 0)
+      {
+        if (atoi(value))
+        {
+          backend_sg = 1;
         }
       }
       break;
@@ -193,6 +202,10 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
       break;
     }
+  }
+  if (xi->config_sg && !backend_sg)
+  {
+    KdPrint((__DRIVER_NAME "     SG not supported by backend - disabling\n"));
   }
   FUNCTION_EXIT();
   
@@ -608,9 +621,10 @@ XenNet_Init(
   #pragma warning(suppress:4054)
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL, "event-channel", (PVOID)XenNet_HandleEvent, xi);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL, NULL);
-  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-sg", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1", NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1", NULL);
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", buf, NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", (int)xi->config_sg);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", buf, NULL);
