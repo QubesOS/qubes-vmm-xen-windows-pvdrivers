@@ -62,6 +62,10 @@ NDIS_OID supported_oids[] =
   OID_802_3_XMIT_MORE_COLLISIONS,
   /* tcp offload */
   OID_TCP_TASK_OFFLOAD,
+  /* power */
+  OID_PNP_CAPABILITIES,
+  OID_PNP_SET_POWER,
+  OID_PNP_QUERY_POWER,
 };
 
 /* return 4 or 8 depending on size of buffer */
@@ -92,6 +96,7 @@ XenNet_QueryInformation(
   PNDIS_TASK_OFFLOAD nto;
   PNDIS_TASK_TCP_IP_CHECKSUM nttic;
   PNDIS_TASK_TCP_LARGE_SEND nttls;
+  PNDIS_PNP_CAPABILITIES npc;
 
   *BytesNeeded = 0;
   *BytesWritten = 0;
@@ -353,6 +358,24 @@ XenNet_QueryInformation(
       /* these are called often so just ignore then quietly */
       status = NDIS_STATUS_NOT_SUPPORTED;
       break;
+
+    case OID_PNP_CAPABILITIES:
+      KdPrint(("Get OID_PNP_CAPABILITIES\n"));
+      len = sizeof(NDIS_PNP_CAPABILITIES);
+      if (len > InformationBufferLength)
+        break;
+      npc = (PNDIS_PNP_CAPABILITIES)InformationBuffer;
+      npc->Flags = 0;
+      npc->WakeUpCapabilities.MinMagicPacketWakeUp = NdisDeviceStateUnspecified;
+      npc->WakeUpCapabilities.MinPatternWakeUp = NdisDeviceStateUnspecified;
+      npc->WakeUpCapabilities.MinLinkChangeWakeUp = NdisDeviceStateUnspecified;
+      used_temp_buffer = FALSE;
+      break;
+    case OID_PNP_QUERY_POWER:
+      KdPrint(("Get OID_PNP_CAPABILITIES\n"));
+      used_temp_buffer = FALSE;
+      break;
+
     default:
       KdPrint(("Get Unknown OID 0x%x\n", Oid));
       status = NDIS_STATUS_NOT_SUPPORTED;
@@ -733,6 +756,28 @@ XenNet_SetInformation(
         xi->setting_max_offload = 0;
         KdPrint(("     LSO disabled\n", nto->Task));
       }
+      break;
+    case OID_PNP_SET_POWER:
+      KdPrint(("     Set OID_PNP_SET_POWER\n"));
+      switch (*(PNDIS_DEVICE_POWER_STATE )InformationBuffer)
+      {
+      case NdisDeviceStateD0:
+        KdPrint(("       NdisDeviceStateD0\n"));
+        break;
+      case NdisDeviceStateD1:
+        KdPrint(("       NdisDeviceStateD1\n"));
+        break;
+      case NdisDeviceStateD2:
+        KdPrint(("       NdisDeviceStateD2\n"));
+        break;
+      case NdisDeviceStateD3:
+        KdPrint(("       NdisDeviceStateD3\n"));
+        break;
+      default:
+        KdPrint(("       NdisDeviceState??\n"));
+        break;
+      }
+      status = NDIS_STATUS_SUCCESS;
       break;
     default:
       KdPrint(("Set Unknown OID 0x%x\n", Oid));
