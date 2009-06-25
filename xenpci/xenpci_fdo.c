@@ -656,6 +656,7 @@ XenPci_EvtDeviceD0EntryPostInterruptsEnabled(WDFDEVICE device, WDF_POWER_DEVICE_
   char *value;
   domid_t domid = DOMID_SELF;
   ULONG ret;
+  xen_ulong_t *max_ram_page;
 
   UNREFERENCED_PARAMETER(previous_state);
 
@@ -673,6 +674,8 @@ XenPci_EvtDeviceD0EntryPostInterruptsEnabled(WDFDEVICE device, WDF_POWER_DEVICE_
   KdPrint((__DRIVER_NAME "     XENMEM_current_reservation = %d\n", ret));
   ret = HYPERVISOR_memory_op(xpdd, XENMEM_maximum_reservation, &domid);
   KdPrint((__DRIVER_NAME "     XENMEM_maximum_reservation = %d\n", ret));
+  ret = HYPERVISOR_memory_op(xpdd, XENMEM_maximum_ram_page, &max_ram_page);
+  KdPrint((__DRIVER_NAME "     XENMEM_maximum_ram_page = %d\n", ret));
 
   if (!xpdd->initial_memory)
   {
