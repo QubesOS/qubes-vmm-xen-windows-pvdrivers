@@ -193,7 +193,7 @@ typedef struct
 typedef struct
 {
   PNDIS_PACKET packet; /* only set on the last packet */
-  shared_buffer_t *hb;
+  shared_buffer_t *cb;
 } tx_shadow_t;
 
 typedef struct {
@@ -270,15 +270,15 @@ struct xennet_info
   tx_shadow_t tx_shadows[NET_TX_RING_SIZE];
   NDIS_HANDLE tx_buffer_pool;
 #define TX_HEADER_BUFFER_SIZE 512
-//#define TX_HEADER_BUFFERS (NET_TX_RING_SIZE >> 2)
-#define TX_HEADER_BUFFERS (NET_TX_RING_SIZE)
+//#define TX_COALESCE_BUFFERS (NET_TX_RING_SIZE >> 2)
+#define TX_COALESCE_BUFFERS (NET_TX_RING_SIZE)
   KEVENT tx_idle_event;
   ULONG tx_outstanding;
   ULONG tx_id_free;
   USHORT tx_id_list[NET_TX_RING_SIZE];
-  ULONG tx_hb_free;
-  ULONG tx_hb_list[TX_HEADER_BUFFERS];
-  shared_buffer_t tx_hbs[TX_HEADER_BUFFERS];
+  ULONG tx_cb_free;
+  ULONG tx_cb_list[TX_COALESCE_BUFFERS];
+  shared_buffer_t tx_cbs[TX_COALESCE_BUFFERS];
   KDPC tx_dpc;
 
   /* rx_related - protected by rx_lock */
