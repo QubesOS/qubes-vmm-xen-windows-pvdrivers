@@ -266,6 +266,11 @@ XenPci_DOP_FreeMapRegisters(
   grant_ref_t gref;
 
   //FUNCTION_ENTER();
+  if (!map_register_base)
+  {
+    /* i'm not sure if this is ideal here, but NDIS definitely does it */
+    return;
+  }
   ASSERT(map_register_base->total_map_registers == NumberOfMapRegisters);
 
   for (i = 0; i < map_register_base->count; i++)
@@ -322,6 +327,7 @@ XenPci_DOP_MapTransfer(
   //  mdl, MapRegisterBase, MmGetMdlVirtualAddress(mdl), CurrentVa, *Length));
 
   ASSERT(mdl);
+  ASSERT(map_register_base);
   ASSERT(map_register_base->count < map_register_base->total_map_registers);
   
   if (xen_dma_adapter->dma_extension)
