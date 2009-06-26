@@ -71,6 +71,7 @@ put_cb_on_freelist(struct xennet_info *xi, shared_buffer_t *cb)
 
 #define SWAP_USHORT(x) (USHORT)((((x & 0xFF) << 8)|((x >> 8) & 0xFF)))
 
+
 /* Called at DISPATCH_LEVEL with tx_lock held */
 /*
  * Send one NDIS_PACKET. This may involve multiple entries on TX ring.
@@ -89,11 +90,11 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   BOOLEAN ndis_lso = FALSE;
   BOOLEAN xen_gso = FALSE;
   //ULONG remaining;
-  PSCATTER_GATHER_LIST sg;
+  PSCATTER_GATHER_LIST sg = NULL;
   ULONG sg_element = 0;
   ULONG sg_offset = 0;
   ULONG parse_result;
-  shared_buffer_t *header_buf = NULL;
+  shared_buffer_t *coalesce_buf = NULL;
   ULONG chunks = 0;
   
   //FUNCTION_ENTER();
@@ -102,7 +103,21 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   NdisQueryPacket(packet, NULL, (PUINT)&pi.mdl_count, &pi.first_buffer, (PUINT)&pi.total_length);
   //KdPrint((__DRIVER_NAME "     A - packet = %p, mdl_count = %d, total_length = %d\n", packet, pi.mdl_count, pi.total_length));
 
-  parse_result = XenNet_ParsePacketHeader(&pi);  
+  if (xi->config_sg)
+  {
+    parse_result = XenNet_ParsePacketHeader(&pi, NULL, 0);
+  }
+  else
+  {
+    coalesce_buf = get_cb_from_freelist(xi);
+    if (!coalesce_buf)
+    {
+      KdPrint((__DRIVER_NAME "     Full on send - no free cb's\n"));
+      return FALSE;
+    }
+    parse_result = XenNet_ParsePacketHeader(&pi, coalesce_buf->virtual, pi.total_length);
+  }
+  
   //KdPrint((__DRIVER_NAME "     B\n"));
 
   if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) == NDIS_PROTOCOL_ID_TCP_IP)
@@ -170,31 +185,32 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     }
   }
 
-  sg = (PSCATTER_GATHER_LIST)NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
-  ASSERT(sg != NULL);
-
-  if (sg->NumberOfElements > 19)
+  if (xi->config_sg)
   {
-    KdPrint((__DRIVER_NAME "     sg->NumberOfElements = %d\n", sg->NumberOfElements));
-    NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_SUCCESS);
-    return TRUE; // we'll pretend we sent the packet here for now...
-  }
-  //ASSERT(sg->NumberOfElements <= 19);
-  if (sg->NumberOfElements + !!ndis_lso > xi->tx_ring_free)
-  {
-    KdPrint((__DRIVER_NAME "     Full on send - required = %d, available = %d\n", sg->NumberOfElements + !!ndis_lso, xi->tx_ring_free));
-    //FUNCTION_EXIT();
-    return FALSE;
-  }
+    sg = (PSCATTER_GATHER_LIST)NDIS_PER_PACKET_INFO_FROM_PACKET(packet, ScatterGatherListPacketInfo);
+    ASSERT(sg != NULL);
 
-
-  if (ndis_lso || (pi.header_length && pi.header_length > sg->Elements[sg_element].Length && pi.header == pi.header_data))
-  {
-    header_buf = get_cb_from_freelist(xi);
-    if (!header_buf)
+    if (sg->NumberOfElements > 19)
     {
-      KdPrint((__DRIVER_NAME "     Full on send - no free cb's\n"));
+      KdPrint((__DRIVER_NAME "     sg->NumberOfElements = %d\n", sg->NumberOfElements));
+      NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_SUCCESS);
+      return TRUE; // we'll pretend we sent the packet here for now...
+    }
+    if (sg->NumberOfElements + !!ndis_lso > xi->tx_ring_free)
+    {
+      KdPrint((__DRIVER_NAME "     Full on send - required = %d, available = %d\n", sg->NumberOfElements + !!ndis_lso, xi->tx_ring_free));
+      //FUNCTION_EXIT();
       return FALSE;
+    }
+
+    if (ndis_lso || (pi.header_length && pi.header_length > sg->Elements[sg_element].Length && pi.header == pi.header_data))
+    {
+      coalesce_buf = get_cb_from_freelist(xi);
+      if (!coalesce_buf)
+      {
+        KdPrint((__DRIVER_NAME "     Full on send - no free cb's\n"));
+        return FALSE;
+      }
     }
   }
   
@@ -231,45 +247,45 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   chunks++;
   xi->tx_ring_free--;
   tx0->id = 0xFFFF;
-  if (header_buf)
+  if (coalesce_buf)
   {
     ULONG remaining = pi.header_length;
-    ASSERT(pi.header_length < TX_HEADER_BUFFER_SIZE);
+    //ASSERT(pi.header_length < TX_HEADER_BUFFER_SIZE);
     //KdPrint((__DRIVER_NAME "     D - header_length = %d\n", pi.header_length));
-    memcpy(header_buf->virtual, pi.header, pi.header_length);
+    memcpy(coalesce_buf->virtual, pi.header, pi.header_length);
     /* even though we haven't reported that we are capable of it, LSO demands that we calculate the IP Header checksum */
     if (ndis_lso)
     {
-      XenNet_SumIpHeader(header_buf->virtual, pi.ip4_header_length);
+      XenNet_SumIpHeader(coalesce_buf->virtual, pi.ip4_header_length);
     }
-    tx0->gref = (grant_ref_t)(header_buf->logical.QuadPart >> PAGE_SHIFT);
-    tx0->offset = (USHORT)header_buf->logical.LowPart & (PAGE_SIZE - 1);
+    tx0->gref = (grant_ref_t)(coalesce_buf->logical.QuadPart >> PAGE_SHIFT);
+    tx0->offset = (USHORT)coalesce_buf->logical.LowPart & (PAGE_SIZE - 1);
     tx0->size = (USHORT)pi.header_length;
     ASSERT(tx0->offset + tx0->size <= PAGE_SIZE);
     ASSERT(tx0->size);
-    /* TODO: if the next buffer contains only a small amount of data then put it on too */
-    while (remaining)
+    if (xi->config_sg)
     {
-      //KdPrint((__DRIVER_NAME "     D - remaining = %d\n", remaining));
-      //KdPrint((__DRIVER_NAME "     Da - sg_element = %d, sg->Elements[sg_element].Length = %d\n", sg_element, sg->Elements[sg_element].Length));
-      if (sg->Elements[sg_element].Length <= remaining)
+      /* TODO: if the next buffer contains only a small amount of data then put it on too */
+      while (remaining)
       {
-        remaining -= sg->Elements[sg_element].Length;
-        sg_element++;
-      }
-      else
-      {
-        sg_offset = remaining;
-        remaining = 0;
+        //KdPrint((__DRIVER_NAME "     D - remaining = %d\n", remaining));
+        //KdPrint((__DRIVER_NAME "     Da - sg_element = %d, sg->Elements[sg_element].Length = %d\n", sg_element, sg->Elements[sg_element].Length));
+        if (sg->Elements[sg_element].Length <= remaining)
+        {
+          remaining -= sg->Elements[sg_element].Length;
+          sg_element++;
+        }
+        else
+        {
+          sg_offset = remaining;
+          remaining = 0;
+        }
       }
     }
   }
   else
   {
-    //KdPrint((__DRIVER_NAME "     E\n"));
-    //KdPrint((__DRIVER_NAME "     Eg - sg_element = %d, sg_offset = %d\n", sg_element, sg_offset));
-    //KdPrint((__DRIVER_NAME "     Eh - address = %p, length = %d\n",
-    //  sg->Elements[sg_element].Address.LowPart, sg->Elements[sg_element].Length));
+    ASSERT(xi->config_sg);
     tx0->gref = (grant_ref_t)(sg->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT);
     tx0->offset = (USHORT)sg->Elements[sg_element].Address.LowPart & (PAGE_SIZE - 1);
     tx0->size = (USHORT)sg->Elements[sg_element].Length;
@@ -297,38 +313,41 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   }
 
   //KdPrint((__DRIVER_NAME "     F\n"));
-  /* (C) */
-  while (sg_element < sg->NumberOfElements)
+  if (xi->config_sg)
   {
-    //KdPrint((__DRIVER_NAME "     G - sg_element = %d, sg_offset = %d\n", sg_element, sg_offset));
-    //KdPrint((__DRIVER_NAME "     H - address = %p, length = %d\n",
-    //  sg->Elements[sg_element].Address.LowPart + sg_offset, sg->Elements[sg_element].Length - sg_offset));
-    txN = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
-    chunks++;
-    xi->tx_ring_free--;
-    txN->id = 0xFFFF;
-    txN->gref = (grant_ref_t)(sg->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT);
-    ASSERT((sg->Elements[sg_element].Address.LowPart & (PAGE_SIZE - 1)) + sg_offset <= PAGE_SIZE);
-    txN->offset = (USHORT)(sg->Elements[sg_element].Address.LowPart + sg_offset) & (PAGE_SIZE - 1);
-    ASSERT(sg->Elements[sg_element].Length > sg_offset);
-    txN->size = (USHORT)(sg->Elements[sg_element].Length - sg_offset);
-    ASSERT(txN->offset + txN->size <= PAGE_SIZE);
-    ASSERT(txN->size);
-    tx0->size = tx0->size + txN->size;
-    txN->flags = NETTXF_more_data;
-    sg_offset = 0;
-    sg_element++;
-    xi->tx.req_prod_pvt++;
+    /* (C) - only if sg otherwise it was all sent on the first buffer */
+    while (sg_element < sg->NumberOfElements)
+    {
+      //KdPrint((__DRIVER_NAME "     G - sg_element = %d, sg_offset = %d\n", sg_element, sg_offset));
+      //KdPrint((__DRIVER_NAME "     H - address = %p, length = %d\n",
+      //  sg->Elements[sg_element].Address.LowPart + sg_offset, sg->Elements[sg_element].Length - sg_offset));
+      txN = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+      chunks++;
+      xi->tx_ring_free--;
+      txN->id = 0xFFFF;
+      txN->gref = (grant_ref_t)(sg->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT);
+      ASSERT((sg->Elements[sg_element].Address.LowPart & (PAGE_SIZE - 1)) + sg_offset <= PAGE_SIZE);
+      txN->offset = (USHORT)(sg->Elements[sg_element].Address.LowPart + sg_offset) & (PAGE_SIZE - 1);
+      ASSERT(sg->Elements[sg_element].Length > sg_offset);
+      txN->size = (USHORT)(sg->Elements[sg_element].Length - sg_offset);
+      ASSERT(txN->offset + txN->size <= PAGE_SIZE);
+      ASSERT(txN->size);
+      tx0->size = tx0->size + txN->size;
+      txN->flags = NETTXF_more_data;
+      sg_offset = 0;
+      sg_element++;
+      xi->tx.req_prod_pvt++;
+    }
   }
   txN->flags &= ~NETTXF_more_data;
   txN->id = get_id_from_freelist(xi);
 //KdPrint((__DRIVER_NAME "     send - id = %d\n", tx0->id));
-  //KdPrint((__DRIVER_NAME "     TX: id = %d, cb = %p, xi->tx_shadows[txN->id].cb = %p\n", txN->id, header_buf, xi->tx_shadows[txN->id].cb));
+  //KdPrint((__DRIVER_NAME "     TX: id = %d, cb = %p, xi->tx_shadows[txN->id].cb = %p\n", txN->id, coalesce_buf, xi->tx_shadows[txN->id].cb));
   ASSERT(tx0->size == pi.total_length);
   ASSERT(!xi->tx_shadows[txN->id].cb);
   ASSERT(!xi->tx_shadows[txN->id].packet);
   xi->tx_shadows[txN->id].packet = packet;
-  xi->tx_shadows[txN->id].cb = header_buf;
+  xi->tx_shadows[txN->id].cb = coalesce_buf;
 
   if (ndis_lso)
   {
@@ -528,6 +547,50 @@ XenNet_SendPackets(
 }
 
 VOID
+XenNet_CancelSendPackets(
+  NDIS_HANDLE MiniportAdapterContext,
+  PVOID CancelId)
+{
+  struct xennet_info *xi = MiniportAdapterContext;
+  KIRQL old_irql;
+  PLIST_ENTRY entry;
+  PNDIS_PACKET packet;
+  PNDIS_PACKET head = NULL, tail = NULL;
+
+  FUNCTION_ENTER();
+
+  KeAcquireSpinLock(&xi->tx_lock, &old_irql);
+
+  entry = xi->tx_waiting_pkt_list.Flink;
+  while (entry != &xi->tx_waiting_pkt_list)
+  {
+    packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
+    entry = entry->Flink;
+    if (NDIS_GET_PACKET_CANCEL_ID(packet) == CancelId)
+    {
+      RemoveEntryList((PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)]);
+      *(PNDIS_PACKET *)&packet->MiniportReservedEx[0] = NULL;
+      if (head)
+        *(PNDIS_PACKET *)&tail->MiniportReservedEx[0] = packet;
+      else
+        head = packet;
+      tail = packet;
+    }
+  }
+
+  KeReleaseSpinLock(&xi->tx_lock, old_irql);
+
+  while (head)
+  {
+    packet = (PNDIS_PACKET)head;
+    head = *(PNDIS_PACKET *)&packet->MiniportReservedEx[0];
+    NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_REQUEST_ABORTED);
+  }
+  
+  FUNCTION_EXIT();
+}
+
+VOID
 XenNet_TxResumeStart(xennet_info_t *xi)
 {
   UNREFERENCED_PARAMETER(xi);
@@ -555,6 +618,7 @@ BOOLEAN
 XenNet_TxInit(xennet_info_t *xi)
 {
   USHORT i, j;
+  ULONG cb_size;
 
   KeInitializeSpinLock(&xi->tx_lock);
   KeInitializeDpc(&xi->tx_dpc, XenNet_TxBufferGC, xi);
@@ -566,21 +630,29 @@ XenNet_TxInit(xennet_info_t *xi)
   KeInitializeEvent(&xi->tx_idle_event, SynchronizationEvent, FALSE);
   xi->tx_outstanding = 0;
   xi->tx_ring_free = NET_TX_RING_SIZE;
+  
+  if (xi->config_sg)
+  {
+    cb_size = TX_HEADER_BUFFER_SIZE;
+  }
+  else
+  {
+    cb_size = PAGE_SIZE;
+  }
 
-  for (i = 0; i < TX_COALESCE_BUFFERS / (PAGE_SIZE / TX_HEADER_BUFFER_SIZE); i++)
+  for (i = 0; i < TX_COALESCE_BUFFERS / (PAGE_SIZE / cb_size); i++)
   {
     PVOID virtual;
     NDIS_PHYSICAL_ADDRESS logical;
     NdisMAllocateSharedMemory(xi->adapter_handle, PAGE_SIZE, TRUE, &virtual, &logical);
     if (virtual == NULL)
-      continue;
-    //KdPrint((__DRIVER_NAME "     Allocated SharedMemory at %p\n", virtual));
-    for (j = 0; j < PAGE_SIZE / TX_HEADER_BUFFER_SIZE; j++)
+      break;
+    for (j = 0; j < PAGE_SIZE / cb_size; j++)
     {
-      USHORT index = i * (PAGE_SIZE / TX_HEADER_BUFFER_SIZE) + j;
+      USHORT index = (USHORT)(i * (PAGE_SIZE / cb_size) + j);
       xi->tx_cbs[index].id = index;
-      xi->tx_cbs[index].virtual = (PUCHAR)virtual + j * TX_HEADER_BUFFER_SIZE;
-      xi->tx_cbs[index].logical.QuadPart = logical.QuadPart + j * TX_HEADER_BUFFER_SIZE;
+      xi->tx_cbs[index].virtual = (PUCHAR)virtual + j * cb_size;
+      xi->tx_cbs[index].logical.QuadPart = logical.QuadPart + j * cb_size;
       put_cb_on_freelist(xi, &xi->tx_cbs[index]);
     }
   }

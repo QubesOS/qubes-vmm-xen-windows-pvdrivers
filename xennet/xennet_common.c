@@ -33,39 +33,35 @@ XenNet_BuildHeader(packet_info_t *pi, ULONG new_header_size)
 
   if (new_header_size <= pi->header_length)
   {
-    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " new_header_size <= pi->header_length\n"));
-    return TRUE;
+    return TRUE; /* header is already at least the required size */
   }
 
-  if (new_header_size > ARRAY_SIZE(pi->header_data))
+  if (pi->header == pi->first_buffer_virtual)
   {
-    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " new_header_size > ARRAY_SIZE(pi->header_data)\n"));
-    return FALSE;
-  }
-  
-  if (new_header_size <= pi->first_buffer_length)
-  {
-    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " new_header_size <= pi->first_buffer_length\n"));
-    pi->header_length = new_header_size;
-    if (pi->header_length == pi->first_buffer_length)
+    /* still working in the first buffer */
+    if (new_header_size <= pi->first_buffer_length)
     {
-      NdisGetNextBuffer(pi->curr_buffer, &pi->curr_buffer);
-      pi->curr_mdl_offset = 0;
+      //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ " new_header_size <= pi->first_buffer_length\n"));
+      pi->header_length = new_header_size;
+      if (pi->header_length == pi->first_buffer_length)
+      {
+        NdisGetNextBuffer(pi->curr_buffer, &pi->curr_buffer);
+        pi->curr_mdl_offset = 0;
+      }
+      else
+      {
+        pi->curr_mdl_offset = (USHORT)new_header_size;
+        if (pi->curr_pb)
+          pi->curr_pb = pi->curr_pb->next;
+      }      
+      return TRUE;
     }
     else
     {
-      pi->curr_mdl_offset = (USHORT)new_header_size;
-      if (pi->curr_pb)
-        pi->curr_pb = pi->curr_pb->next;
+      //KdPrint((__DRIVER_NAME "     Switching to header_data\n"));
+      memcpy(pi->header_data, pi->header, pi->header_length);
+      pi->header = pi->header_data;
     }
-    
-    return TRUE;
-  }
-  else if (pi->header != pi->header_data)
-  {
-    //KdPrint((__DRIVER_NAME "     Switching to header_data\n"));
-    memcpy(pi->header_data, pi->header, pi->header_length);
-    pi->header = pi->header_data;
   }
   
   bytes_remaining = new_header_size - pi->header_length;
@@ -110,19 +106,23 @@ XenNet_BuildHeader(packet_info_t *pi, ULONG new_header_size)
 }
 
 ULONG
-XenNet_ParsePacketHeader(packet_info_t *pi)
+XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_size)
 {
   //FUNCTION_ENTER();
 
   ASSERT(pi->first_buffer);
   
-  NdisQueryBufferSafe(pi->first_buffer, (PVOID)&pi->header, &pi->first_buffer_length, NormalPagePriority);
+  NdisQueryBufferSafe(pi->first_buffer, (PVOID)&pi->first_buffer_virtual, &pi->first_buffer_length, NormalPagePriority);
   pi->curr_buffer = pi->first_buffer;
+  if (alt_buffer)
+    pi->header = alt_buffer;
+  else
+    pi->header = pi->first_buffer_virtual;
 
   pi->header_length = 0;
   pi->curr_mdl_offset = 0;
     
-  if (!XenNet_BuildHeader(pi, (ULONG)XN_HDR_SIZE))
+  if (!XenNet_BuildHeader(pi, max((ULONG)XN_HDR_SIZE, min_header_size)))
   {
     KdPrint((__DRIVER_NAME "     packet too small (Ethernet Header)\n"));
     return PARSE_TOO_SMALL;

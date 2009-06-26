@@ -125,6 +125,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
   PCHAR setting, value, value2;
   UINT i;
   ULONG backend_sg = 0;
+  ULONG backend_gso = 0;
 
   FUNCTION_ENTER();
   
@@ -180,6 +181,13 @@ XenNet_ConnectBackend(struct xennet_info *xi)
           backend_sg = 1;
         }
       }
+      else if (strcmp(setting, "feature-gso-tcpv4") == 0)
+      {
+        if (atoi(value))
+        {
+          backend_gso = 1;
+        }
+      }
       break;
     case XEN_INIT_TYPE_VECTORS:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
@@ -206,6 +214,12 @@ XenNet_ConnectBackend(struct xennet_info *xi)
   if (xi->config_sg && !backend_sg)
   {
     KdPrint((__DRIVER_NAME "     SG not supported by backend - disabling\n"));
+    xi->config_sg = 0;
+  }
+  if (xi->config_gso && !backend_gso)
+  {
+    KdPrint((__DRIVER_NAME "     GSO not supported by backend - disabling\n"));
+    xi->config_gso = 0;
   }
   FUNCTION_EXIT();
   
@@ -622,6 +636,7 @@ XenNet_Init(
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL, "event-channel", (PVOID)XenNet_HandleEvent, xi);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-sg", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-gso-tcpv4", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1", NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1", NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
@@ -647,11 +662,24 @@ XenNet_Init(
     goto err;
   }
 
-  status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE, xi->config_gso);
-  if (!NT_SUCCESS(status))
+  if (xi->config_sg)
   {
-    KdPrint(("NdisMInitializeScatterGatherDma failed (%08x)\n", status));
-    goto err;
+    status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE, xi->config_gso);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint(("NdisMInitializeScatterGatherDma failed (%08x), disabling\n", status));
+      xi->config_sg = 0;
+    }
+  }
+  else
+  {
+    status = NdisMAllocateMapRegisters(xi->adapter_handle, 0, NDIS_DMA_64BITS, 64, PAGE_SIZE);
+    if (status != NDIS_STATUS_SUCCESS)
+    {
+      KdPrint((__DRIVER_NAME "     Cannot allocate Map Registers\n"));
+    }
+    /* without SG, GSO can be a maximum of PAGE_SIZE */
+    xi->config_gso = min(xi->config_gso, PAGE_SIZE);
   }
 
   XenNet_TxInit(xi);
@@ -722,9 +750,12 @@ XenNet_Halt(
 
   xi->vectors.XenPci_XenShutdownDevice(xi->vectors.context);
 
-  // TODO: remove event channel xenbus entry (how?)
+  if (!xi->config_sg)
+  {
+    NdisMFreeMapRegisters(xi->adapter_handle);
+  }
 
-  NdisFreeMemory(xi, 0, 0); // <= DISPATCH_LEVEL
+  NdisFreeMemory(xi, 0, 0);
 
   FUNCTION_EXIT();
 }
@@ -791,6 +822,7 @@ DriverEntry(
   /* added in v.4 -- use multiple pkts interface */
   mini_chars.ReturnPacketHandler = XenNet_ReturnPacket;
   mini_chars.SendPacketsHandler = XenNet_SendPackets;
+  mini_chars.CancelSendPacketsHandler = XenNet_CancelSendPackets;
 
 #ifdef NDIS51_MINIPORT
   /* added in v.5.1 */

@@ -201,6 +201,7 @@ typedef struct {
   PNDIS_BUFFER curr_buffer;
   shared_buffer_t *first_pb;
   shared_buffer_t *curr_pb;
+  PUCHAR first_buffer_virtual;
   UCHAR header_data[132]; /* maximum possible size of ETH + IP + TCP/UDP headers */
   ULONG mdl_count;
   USHORT curr_mdl_offset;
@@ -367,6 +368,11 @@ XenNet_SendPackets(
   IN UINT NumberOfPackets
   );
 
+VOID
+XenNet_CancelSendPackets(
+  NDIS_HANDLE MiniportAdapterContext,
+  PVOID CancelId);
+  
 BOOLEAN
 XenNet_TxInit(xennet_info_t *xi);
 
@@ -398,7 +404,7 @@ XenNet_SetInformation(
 #define PARSE_UNKNOWN_TYPE 2
 
 ULONG
-XenNet_ParsePacketHeader(packet_info_t *pi);
+XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR buffer, ULONG min_header_size);
 
 VOID
 XenNet_SumIpHeader(

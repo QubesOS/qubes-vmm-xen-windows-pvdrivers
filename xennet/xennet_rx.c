@@ -435,7 +435,7 @@ XenNet_MakePackets(
 
   //FUNCTION_ENTER();
 
-  parse_result = XenNet_ParsePacketHeader(pi);
+  parse_result = XenNet_ParsePacketHeader(pi, NULL, 0);
 
   if ((xi->packet_filter & NDIS_PACKET_TYPE_MULTICAST)
     && !(xi->packet_filter & NDIS_PACKET_TYPE_ALL_MULTICAST)
