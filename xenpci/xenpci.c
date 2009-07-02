@@ -116,6 +116,7 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   }
 
   xpdd = GetXpdd(device);
+  xpdd->child_list = WdfFdoGetDefaultChildList(device);
 
   WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &xpdd->veto_devices);
   status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &param_key);
