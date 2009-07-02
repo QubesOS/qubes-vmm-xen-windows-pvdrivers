@@ -213,11 +213,8 @@ typedef struct {
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_DATA, GetXpdd)
 
 typedef struct {  
-//  XENPCI_COMMON common;
   WDFDEVICE wdf_device;
   WDFDEVICE wdf_device_bus_fdo;
-  //PDEVICE_OBJECT bus_pdo;
-  //PDEVICE_OBJECT bus_fdo;
   BOOLEAN reported_missing;
   char path[128];
   char device[128];
