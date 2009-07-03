@@ -400,6 +400,11 @@ XenNet_SumPacketData(
   }
   if (i != total_length) // last odd byte
   {
+    if (buffer_offset >= buffer_length)
+    {
+      NdisQueryBufferSafe(mdl, (PVOID) &buffer, &buffer_length, NormalPagePriority);
+      buffer_offset = 0;
+    }
     csum += ((USHORT)buffer[buffer_offset] << 8);
   }
   while (csum & 0xFFFF0000)
