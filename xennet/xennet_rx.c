@@ -403,6 +403,11 @@ XenNet_SumPacketData(
     if (buffer_offset >= buffer_length)
     {
       NdisGetNextBuffer(mdl, &mdl);
+      if (mdl == NULL)
+      {
+        KdPrint((__DRIVER_NAME "     Ran out of buffers\n"));
+        return FALSE; // should never happen
+      }
       NdisQueryBufferSafe(mdl, (PVOID)&buffer, &buffer_length, NormalPagePriority);
       buffer_offset = 0;
     }
