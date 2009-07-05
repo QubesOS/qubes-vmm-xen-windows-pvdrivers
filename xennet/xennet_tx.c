@@ -424,7 +424,7 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
-  if (xi->shutting_down)
+  if (xi->shutting_down && !xi->tx_outstanding)
   {
     /* there is a chance that our Dpc had been queued just before the shutdown... */
     KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
