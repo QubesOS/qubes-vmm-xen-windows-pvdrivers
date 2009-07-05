@@ -402,7 +402,8 @@ XenNet_SumPacketData(
   {
     if (buffer_offset >= buffer_length)
     {
-      NdisQueryBufferSafe(mdl, (PVOID) &buffer, &buffer_length, NormalPagePriority);
+      NdisGetNextBuffer(mdl, &mdl);
+      NdisQueryBufferSafe(mdl, (PVOID)&buffer, &buffer_length, NormalPagePriority);
       buffer_offset = 0;
     }
     csum += ((USHORT)buffer[buffer_offset] << 8);
