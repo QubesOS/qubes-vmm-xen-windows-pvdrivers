@@ -660,7 +660,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
   
-  if (xi->shutting_down)
+  if (xi->rx_shutting_down)
   {
     /* there is a chance that our Dpc had been queued just before the shutdown... */
     KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
@@ -854,7 +854,7 @@ XenNet_ReturnPacket(
   put_packet_on_freelist(xi, Packet);
   xi->rx_outstanding--;
   
-  if (!xi->rx_outstanding && xi->shutting_down)
+  if (!xi->rx_outstanding && xi->rx_shutting_down)
     KeSetEvent(&xi->packet_returned_event, IO_NO_INCREMENT, FALSE);
 
   XenNet_FillRing(xi);
@@ -962,6 +962,7 @@ XenNet_RxInit(xennet_info_t *xi)
 
   FUNCTION_ENTER();
 
+  xi->rx_shutting_down = FALSE;
   KeInitializeSpinLock(&xi->rx_lock);
   KeInitializeEvent(&xi->packet_returned_event, SynchronizationEvent, FALSE);
   KeInitializeTimer(&xi->rx_timer);
@@ -992,9 +993,13 @@ XenNet_RxInit(xennet_info_t *xi)
 BOOLEAN
 XenNet_RxShutdown(xennet_info_t *xi)
 {
-  KIRQL OldIrql;
+  KIRQL old_irql;
 
   FUNCTION_ENTER();
+
+  KeAcquireSpinLock(&xi->rx_lock, &old_irql);
+  xi->rx_shutting_down = TRUE;
+  KeReleaseSpinLock(&xi->rx_lock, old_irql);
 
   if (xi->config_rx_interrupt_moderation)
   {
@@ -1010,7 +1015,7 @@ XenNet_RxShutdown(xennet_info_t *xi)
     KeWaitForSingleObject(&xi->packet_returned_event, Executive, KernelMode, FALSE, NULL);
   }
 
-  KeAcquireSpinLock(&xi->rx_lock, &OldIrql);
+  //KeAcquireSpinLock(&xi->rx_lock, &old_irql);
 
   XenNet_BufferFree(xi);
 
@@ -1020,7 +1025,7 @@ XenNet_RxShutdown(xennet_info_t *xi)
 
   NdisDeleteNPagedLookasideList(&xi->rx_lookaside_list);
 
-  KeReleaseSpinLock(&xi->rx_lock, OldIrql);
+  //KeReleaseSpinLock(&xi->rx_lock, old_irql);
 
   FUNCTION_EXIT();
 

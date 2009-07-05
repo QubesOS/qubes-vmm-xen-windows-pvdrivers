@@ -307,17 +307,14 @@ XenNet_HandleEvent(PVOID context)
   KeMemoryBarrier();
 //  KdPrint((__DRIVER_NAME "     connected = %d, inactive = %d, suspend_resume_state_pdo = %d\n",
 //    xi->connected, xi->inactive, suspend_resume_state_pdo));
-  if (!xi->shutting_down)
+  if (!xi->shutting_down && suspend_resume_state_pdo != xi->device_state->suspend_resume_state_fdo)
   {
-    if (suspend_resume_state_pdo != xi->device_state->suspend_resume_state_fdo)
-    {
-      KeInsertQueueDpc(&xi->suspend_dpc, NULL, NULL);
-    }
-    else if (xi->connected && !xi->inactive && suspend_resume_state_pdo != SR_STATE_RESUMING)
-    {
-      KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
-      KeInsertQueueDpc(&xi->rx_dpc, NULL, NULL);
-    }
+    KeInsertQueueDpc(&xi->suspend_dpc, NULL, NULL);
+  }
+  if (xi->connected && !xi->inactive && suspend_resume_state_pdo != SR_STATE_RESUMING)
+  {
+    KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
+    KeInsertQueueDpc(&xi->rx_dpc, NULL, NULL);
   }
   //FUNCTION_EXIT();
   return TRUE;

@@ -247,6 +247,8 @@ struct xennet_info
   ULONG packet_filter;
   BOOLEAN connected;
   BOOLEAN shutting_down;
+  BOOLEAN tx_shutting_down;
+  BOOLEAN rx_shutting_down;
   uint8_t perm_mac_addr[ETH_ALEN];
   uint8_t curr_mac_addr[ETH_ALEN];
 
