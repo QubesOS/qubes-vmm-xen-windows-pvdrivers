@@ -531,6 +531,8 @@ XenPci_DOP_CalculateScatterGatherList(
   xen_dma_adapter_t *xen_dma_adapter;
   ULONG elements;
   PMDL curr_mdl;
+  
+  UNREFERENCED_PARAMETER(CurrentVa);
     
   //FUNCTION_ENTER();
   
