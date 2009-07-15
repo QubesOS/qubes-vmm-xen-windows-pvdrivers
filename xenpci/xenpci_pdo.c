@@ -364,10 +364,10 @@ XenPci_DOP_MapTransfer(
   {
   case MAP_TYPE_MDL:
     //KdPrint((__DRIVER_NAME "     MAP_TYPE_MDL\n"));
-    mdl_offset = (ULONG)((ULONGLONG)CurrentVa - (ULONGLONG)MmGetMdlVirtualAddress(mdl));
+    mdl_offset = (ULONG)((UINT_PTR)CurrentVa - (UINT_PTR)MmGetMdlVirtualAddress(mdl));
     page_offset = PtrToUlong(CurrentVa) & (PAGE_SIZE - 1);
     *Length = min(*Length, PAGE_SIZE - page_offset);
-    pfn_index = (ULONG)(((ULONGLONG)CurrentVa >> PAGE_SHIFT) - ((ULONGLONG)MmGetMdlVirtualAddress(mdl) >> PAGE_SHIFT));
+    pfn_index = (ULONG)(((UINT_PTR)CurrentVa >> PAGE_SHIFT) - ((UINT_PTR)MmGetMdlVirtualAddress(mdl) >> PAGE_SHIFT));
     //KdPrint((__DRIVER_NAME "     mdl_offset = %d, page_offset = %d, length = %d, pfn_index = %d\n",
     //  mdl_offset, page_offset, *Length, pfn_index));
     pfn = MmGetMdlPfnArray(mdl)[pfn_index];
@@ -381,7 +381,7 @@ XenPci_DOP_MapTransfer(
     //KdPrint((__DRIVER_NAME "     MAP_TYPE_REMAPPED (MapTransfer)\n"));
     //KdPrint((__DRIVER_NAME "     Mdl = %p, MapRegisterBase = %p, MdlVa = %p, CurrentVa = %p, Length = %d\n",
     //  mdl, MapRegisterBase, MmGetMdlVirtualAddress(mdl), CurrentVa, *Length));
-    mdl_offset = (ULONG)((ULONGLONG)CurrentVa - (ULONGLONG)MmGetMdlVirtualAddress(mdl));
+    mdl_offset = (ULONG)((UINT_PTR)CurrentVa - (UINT_PTR)MmGetMdlVirtualAddress(mdl));
     *Length = min(*Length, PAGE_SIZE);
     map_register->aligned_buffer = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
     ASSERT(map_register->aligned_buffer);
@@ -481,11 +481,12 @@ XenPci_DOP_PutScatterGatherList(
         PVOID mdl_start_va = MmGetMdlVirtualAddress(curr_mdl);
         ULONG mdl_byte_count = MmGetMdlByteCount(curr_mdl);
         ULONG mdl_offset = 0;
-        if ((ULONGLONG)sg_extra->currentva >= (ULONGLONG)mdl_start_va && (ULONGLONG)sg_extra->currentva < (ULONGLONG)mdl_start_va + mdl_byte_count)
+        /* need to use <= va + len - 1 to avoid ptr wraparound */
+        if ((UINT_PTR)sg_extra->currentva >= (UINT_PTR)mdl_start_va && (UINT_PTR)sg_extra->currentva <= (UINT_PTR)mdl_start_va + mdl_byte_count - 1)
         {
           active = TRUE;
-          mdl_byte_count -= (ULONG)((ULONGLONG)sg_extra->currentva - (ULONGLONG)mdl_start_va);
-          mdl_offset = (ULONG)((ULONGLONG)sg_extra->currentva - (ULONGLONG)mdl_start_va);
+          mdl_byte_count -= (ULONG)((UINT_PTR)sg_extra->currentva - (UINT_PTR)mdl_start_va);
+          mdl_offset = (ULONG)((UINT_PTR)sg_extra->currentva - (UINT_PTR)mdl_start_va);
           mdl_start_va = sg_extra->currentva;
         }
         if (active)
@@ -546,11 +547,11 @@ XenPci_DOP_CalculateScatterGatherList(
     //  KdPrint((__DRIVER_NAME "     CurrentVa (%p) != MdlVa (%p)\n", CurrentVa, MmGetMdlVirtualAddress(Mdl)));
     //
 
-    KdPrint((__DRIVER_NAME "     CurrentVa = %p, MdlVa = %p\n", CurrentVa, MmGetMdlVirtualAddress(Mdl)));
+    //KdPrint((__DRIVER_NAME "     CurrentVa = %p, MdlVa = %p\n", CurrentVa, MmGetMdlVirtualAddress(Mdl)));
 
     for (curr_mdl = Mdl, elements = 0; curr_mdl; curr_mdl = curr_mdl->Next)
     {
-      KdPrint((__DRIVER_NAME "     curr_mdlVa = %p, curr_mdl size = %d\n", MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl)));
+      //KdPrint((__DRIVER_NAME "     curr_mdlVa = %p, curr_mdl size = %d\n", MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl)));
       elements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl));
     }
   }
@@ -561,7 +562,7 @@ XenPci_DOP_CalculateScatterGatherList(
 
   if (elements > xen_dma_adapter->adapter_object.MapRegistersPerChannel)
   {
-    KdPrint((__DRIVER_NAME "     elements = %d - too many\n", elements));
+    //KdPrint((__DRIVER_NAME "     elements = %d - too many\n", elements));
     if (NumberOfMapRegisters)
       *NumberOfMapRegisters = 0;
     *ScatterGatherListSize = 0;
@@ -575,7 +576,7 @@ XenPci_DOP_CalculateScatterGatherList(
   if (NumberOfMapRegisters)
     *NumberOfMapRegisters = elements;
 
-  KdPrint((__DRIVER_NAME "     ScatterGatherListSize = %d, NumberOfMapRegisters = %d\n", *ScatterGatherListSize, elements));
+  //KdPrint((__DRIVER_NAME "     ScatterGatherListSize = %d, NumberOfMapRegisters = %d\n", *ScatterGatherListSize, elements));
 
   //FUNCTION_EXIT();
   return STATUS_SUCCESS;
@@ -651,15 +652,16 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
         {
           mdl_start_va = MmGetMdlVirtualAddress(curr_mdl);
           mdl_byte_count = MmGetMdlByteCount(curr_mdl);
-          if ((ULONGLONG)CurrentVa >= (ULONGLONG)mdl_start_va && (ULONGLONG)CurrentVa < (ULONGLONG)mdl_start_va + mdl_byte_count)
+          /* need to use <= va + len - 1 to avoid ptr wraparound */
+          if ((UINT_PTR)CurrentVa >= (UINT_PTR)mdl_start_va && (UINT_PTR)CurrentVa <= (UINT_PTR)mdl_start_va + mdl_byte_count - 1)
           {
             active = TRUE;
-            mdl_byte_count -= (ULONG)((ULONGLONG)CurrentVa - (ULONGLONG)mdl_start_va);
+            mdl_byte_count -= (ULONG)((UINT_PTR)CurrentVa - (UINT_PTR)mdl_start_va);
             mdl_start_va = CurrentVa;
           }
           if (active)
           {
-            if (((ULONGLONG)mdl_start_va & (alignment - 1)) || (mdl_byte_count & (alignment - 1)))
+            if (((UINT_PTR)mdl_start_va & (alignment - 1)) || (mdl_byte_count & (alignment - 1)))
               map_type = MAP_TYPE_REMAPPED;
             remapped_bytes += mdl_byte_count;
           }
@@ -677,21 +679,33 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
     map_type = MAP_TYPE_MDL;
   }
   if (map_type == MAP_TYPE_MDL)
-  {
-    for (curr_mdl = Mdl, sglist->NumberOfElements = 0, active = FALSE; curr_mdl; curr_mdl = curr_mdl->Next)
+  {    
+    for (curr_mdl = Mdl, sglist->NumberOfElements = 0, total_remaining = Length, active = FALSE; total_remaining > 0; curr_mdl = curr_mdl->Next)
     {
+      if (!curr_mdl)
+      {
+      KdPrint((__DRIVER_NAME "     CurrentVa = %p, Length = %d\n", CurrentVa, Length));
+for (curr_mdl = Mdl; curr_mdl; curr_mdl = curr_mdl->Next)
+{
+  KdPrint((__DRIVER_NAME "     Mdl = %p, VirtualAddress = %p, ByteCount = %d\n", Mdl, MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl)));
+}
+      }
+      ASSERT(curr_mdl);
       mdl_start_va = MmGetMdlVirtualAddress(curr_mdl);
       mdl_byte_count = MmGetMdlByteCount(curr_mdl);
-      if ((ULONGLONG)CurrentVa >= (ULONGLONG)mdl_start_va && (ULONGLONG)CurrentVa < (ULONGLONG)mdl_start_va + mdl_byte_count)
+      /* need to use <= va + len - 1 to avoid ptr wraparound */
+      if ((UINT_PTR)CurrentVa >= (UINT_PTR)mdl_start_va && (UINT_PTR)CurrentVa <= (UINT_PTR)mdl_start_va + mdl_byte_count - 1)
       {
         active = TRUE;
-        mdl_byte_count -= (ULONG)((ULONGLONG)CurrentVa - (ULONGLONG)mdl_start_va);
+        mdl_byte_count -= (ULONG)((UINT_PTR)CurrentVa - (UINT_PTR)mdl_start_va);
         mdl_start_va = CurrentVa;
       }
+      mdl_byte_count = min(mdl_byte_count, total_remaining);
       if (active)
       {
         sglist->NumberOfElements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(
-          MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl));
+          mdl_start_va, mdl_byte_count);
+        total_remaining -= mdl_byte_count;
       }
     }
   }
@@ -714,23 +728,26 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
   case MAP_TYPE_MDL:
     //KdPrint((__DRIVER_NAME "     MAP_TYPE_MDL - %p\n", MmGetMdlVirtualAddress(Mdl)));
     total_remaining = Length;
-    for (sg_element = 0, curr_mdl = Mdl, active = FALSE; curr_mdl; curr_mdl = curr_mdl->Next)
+    for (sg_element = 0, curr_mdl = Mdl, active = FALSE; total_remaining > 0; curr_mdl = curr_mdl->Next)
     {
+      ASSERT(curr_mdl);
       mdl_start_va = MmGetMdlVirtualAddress(curr_mdl);
       mdl_byte_count = MmGetMdlByteCount(curr_mdl);
-      if ((ULONGLONG)CurrentVa >= (ULONGLONG)mdl_start_va && (ULONGLONG)CurrentVa < (ULONGLONG)mdl_start_va + mdl_byte_count)
+      /* need to use <= va + len - 1 to avoid ptr wraparound */
+      if ((UINT_PTR)CurrentVa >= (UINT_PTR)mdl_start_va && (UINT_PTR)CurrentVa <= (UINT_PTR)mdl_start_va + mdl_byte_count - 1)
       {
         active = TRUE;
-        mdl_byte_count -= (ULONG)((ULONGLONG)CurrentVa - (ULONGLONG)mdl_start_va);
+        mdl_byte_count -= (ULONG)((UINT_PTR)CurrentVa - (UINT_PTR)mdl_start_va);
         mdl_start_va = CurrentVa;
       }
       if (active)
       {
         ULONG pfn_offset;
-        remaining = mdl_byte_count;
-        offset = (ULONG)((ULONGLONG)mdl_start_va & (PAGE_SIZE - 1));
-        pfn_offset = (ULONG)(((ULONGLONG)mdl_start_va >> PAGE_SHIFT) - ((ULONGLONG)MmGetMdlVirtualAddress(curr_mdl) >> PAGE_SHIFT));
-        for (i = 0; i < ADDRESS_AND_SIZE_TO_SPAN_PAGES(mdl_start_va, mdl_byte_count); i++)
+        remaining = min(mdl_byte_count, total_remaining);
+        offset = (ULONG)((UINT_PTR)mdl_start_va & (PAGE_SIZE - 1));
+        pfn_offset = (ULONG)(((UINT_PTR)mdl_start_va >> PAGE_SHIFT) - ((UINT_PTR)MmGetMdlVirtualAddress(curr_mdl) >> PAGE_SHIFT));
+        //for (i = 0; i < ADDRESS_AND_SIZE_TO_SPAN_PAGES(mdl_start_va, mdl_byte_count); i++)
+        for (i = 0; remaining > 0; i++)
         {
           pfn = MmGetMdlPfnArray(curr_mdl)[pfn_offset + i];
           ASSERT(pfn);
@@ -745,6 +762,16 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
         }
       }
     }
+    if (sg_element != sglist->NumberOfElements)
+    {
+      KdPrint((__DRIVER_NAME "     sg_element = %d, sglist->NumberOfElements = %d\n", sg_element, sglist->NumberOfElements));
+      KdPrint((__DRIVER_NAME "     CurrentVa = %p, Length = %d\n", CurrentVa, Length));
+for (curr_mdl = Mdl; curr_mdl; curr_mdl = curr_mdl->Next)
+{
+  KdPrint((__DRIVER_NAME "     Mdl = %p, VirtualAddress = %p, ByteCount = %d\n", Mdl, MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl)));
+}
+    }
+    ASSERT(sg_element == sglist->NumberOfElements);
     break;
   case MAP_TYPE_REMAPPED:
     sg_extra->aligned_buffer = ExAllocatePoolWithTag(NonPagedPool, max(remapped_bytes, PAGE_SIZE), XENPCI_POOL_TAG);
@@ -753,7 +780,7 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
       KdPrint((__DRIVER_NAME "     MAP_TYPE_REMAPPED buffer allocation failed - requested va = %p, length = %d\n", MmGetMdlVirtualAddress(Mdl), remapped_bytes));
       return STATUS_INSUFFICIENT_RESOURCES;
     }
-    //KdPrint((__DRIVER_NAME "     MAP_TYPE_REMAPPED - %p -> %p\n", MmGetMdlVirtualAddress(Mdl), sg_extra->aligned_buffer));
+    //KdPrint((__DRIVER_NAME "     MAP_TYPE_REMAPPED - %p\n", sg_extra->aligned_buffer));
     sg_extra->mdl = Mdl;
     sg_extra->currentva = CurrentVa;
     sg_extra->copy_length = remapped_bytes;
@@ -765,11 +792,12 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
         mdl_start_va = MmGetMdlVirtualAddress(curr_mdl);
         mdl_byte_count = MmGetMdlByteCount(curr_mdl);
         mdl_offset = 0;
-        if ((ULONGLONG)CurrentVa >= (ULONGLONG)mdl_start_va && (ULONGLONG)CurrentVa < (ULONGLONG)mdl_start_va + mdl_byte_count)
+        /* need to use <= va + len - 1 to avoid ptr wraparound */
+        if ((UINT_PTR)CurrentVa >= (UINT_PTR)mdl_start_va && (UINT_PTR)CurrentVa <= (UINT_PTR)mdl_start_va + mdl_byte_count - 1)
         {
           active = TRUE;
-          mdl_byte_count -= (ULONG)((ULONGLONG)CurrentVa - (ULONGLONG)mdl_start_va);
-          mdl_offset = (ULONG)((ULONGLONG)CurrentVa - (ULONGLONG)mdl_start_va);
+          mdl_byte_count -= (ULONG)((UINT_PTR)CurrentVa - (UINT_PTR)mdl_start_va);
+          mdl_offset = (ULONG)((UINT_PTR)CurrentVa - (UINT_PTR)mdl_start_va);
           mdl_start_va = CurrentVa;
         }
         if (active)
