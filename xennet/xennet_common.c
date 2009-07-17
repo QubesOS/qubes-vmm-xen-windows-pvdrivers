@@ -181,6 +181,12 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
       return PARSE_TOO_SMALL;
     }
   }
+  
+  if ((ULONG)XN_HDR_SIZE + pi->ip4_length > pi->total_length)
+  {
+    KdPrint((__DRIVER_NAME "     XN_HDR_SIZE + ip4_length (%d) > total_length (%d)\n", XN_HDR_SIZE + pi->ip4_length, pi->total_length));
+    return PARSE_UNKNOWN_TYPE;
+  }
 
   pi->tcp_length = pi->ip4_length - pi->ip4_header_length - pi->tcp_header_length;
   pi->tcp_remaining = pi->tcp_length;
