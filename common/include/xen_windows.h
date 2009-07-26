@@ -65,6 +65,8 @@ typedef unsigned long xenbus_transaction_t;
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
 
+#define IOCTL_XEN_RECONFIGURE CTL_CODE(0x8000, 0x800, METHOD_NEITHER, 0)
+
 static __inline char **
 SplitString(char *String, char Split, int MaxParts, int *Count)
 {
@@ -396,8 +398,6 @@ typedef struct {
   CHAR path[128];
   CHAR backend_path[128];
 
-  //evtchn_port_t pdo_event_channel;
-
   PXEN_XENBUS_READ XenBus_Read;
   PXEN_XENBUS_WRITE XenBus_Write;
   PXEN_XENBUS_PRINTF XenBus_Printf;
@@ -447,6 +447,7 @@ typedef struct {
 #define XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION     13
 #define XEN_INIT_TYPE_MATCH_FRONT               14 /* string, value, action */
 #define XEN_INIT_TYPE_MATCH_BACK                15 /* string, value, action */
+#define XEN_INIT_TYPE_EVENT_CHANNEL_DPC         16
 
 #define XEN_INIT_MATCH_TYPE_IF_MATCH		0x0001
 #define XEN_INIT_MATCH_TYPE_IF_NOT_MATCH	0x0000
@@ -575,6 +576,7 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2, PVOID p3)
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
     break;
   case XEN_INIT_TYPE_EVENT_CHANNEL:
+  case XEN_INIT_TYPE_EVENT_CHANNEL_DPC:
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
     __ADD_XEN_INIT_PTR(ptr, p2);
     __ADD_XEN_INIT_PTR(ptr, p3);
@@ -624,6 +626,7 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
     *p2 = NULL;
     break;
   case XEN_INIT_TYPE_EVENT_CHANNEL:
+  case XEN_INIT_TYPE_EVENT_CHANNEL_DPC:
     *p1 = __GET_XEN_INIT_STRING(ptr);
     *p2 = __GET_XEN_INIT_PTR(ptr);
     *p3 = __GET_XEN_INIT_PTR(ptr);
@@ -657,6 +660,7 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2, PVOID p3)
     __ADD_XEN_INIT_PTR(ptr, p2);
     break;
   case XEN_INIT_TYPE_EVENT_CHANNEL:
+  case XEN_INIT_TYPE_EVENT_CHANNEL_DPC:
   case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ:
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
     __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p2));
@@ -713,6 +717,7 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
     *p2 = __GET_XEN_INIT_PTR(ptr);
     break;
   case XEN_INIT_TYPE_EVENT_CHANNEL:
+  case XEN_INIT_TYPE_EVENT_CHANNEL_DPC:
   case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ:
     *p1 = __GET_XEN_INIT_STRING(ptr);
     *p2 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
