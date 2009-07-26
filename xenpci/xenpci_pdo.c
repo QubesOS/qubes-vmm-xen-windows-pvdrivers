@@ -1151,6 +1151,21 @@ XenPci_ReadBackendState(PXENPCI_PDO_DEVICE_DATA xppdd)
   }
 }
 
+static NTSTATUS
+XenPciPdo_ReconfigureCompletionRoutine(
+  PDEVICE_OBJECT device_object,
+  PIRP irp,
+  PVOID context)
+{
+  UNREFERENCED_PARAMETER(device_object);
+  
+  if (irp->PendingReturned)
+  {
+    KeSetEvent ((PKEVENT)context, IO_NO_INCREMENT, FALSE);
+  }
+  return STATUS_MORE_PROCESSING_REQUIRED;
+}
+
 static VOID
 XenPci_BackEndStateHandler(char *path, PVOID context)
 {
@@ -1158,6 +1173,7 @@ XenPci_BackEndStateHandler(char *path, PVOID context)
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
   ULONG new_backend_state;
+  CHAR tmp_path[128];
 
 #if !DBG
   UNREFERENCED_PARAMETER(path);
@@ -1220,6 +1236,58 @@ XenPci_BackEndStateHandler(char *path, PVOID context)
     KdPrint((__DRIVER_NAME "     Backend State Changed to Closed (%s)\n", path));  
     break;
 
+  case XenbusStateReconfiguring:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Reconfiguring (%s)\n", path));  
+    RtlStringCbPrintfA(tmp_path, ARRAY_SIZE(tmp_path), "%s/state", xppdd->path);
+    KdPrint((__DRIVER_NAME "     Setting %s to %d\n", tmp_path, XenbusStateReconfiguring));
+    XenBus_Printf(xpdd, XBT_NIL, tmp_path, "%d", XenbusStateReconfiguring);
+    break;
+
+  case XenbusStateReconfigured:
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Reconfigured (%s)\n", path));
+  {
+    PDEVICE_OBJECT fdo;
+    PIRP irp;
+    PIO_STACK_LOCATION stack;
+    NTSTATUS status;
+    KEVENT irp_complete_event;
+    
+    fdo = IoGetAttachedDeviceReference(WdfDeviceWdmGetDeviceObject(device));
+    KeInitializeEvent(&irp_complete_event, NotificationEvent, FALSE);
+    irp = IoAllocateIrp(fdo->StackSize, FALSE);
+    stack = IoGetNextIrpStackLocation(irp);
+    stack->MajorFunction = IRP_MJ_INTERNAL_DEVICE_CONTROL;
+    stack->Parameters.DeviceIoControl.IoControlCode = (ULONG)IOCTL_XEN_RECONFIGURE;
+    IoSetCompletionRoutine(irp, XenPciPdo_ReconfigureCompletionRoutine, &irp_complete_event, TRUE, TRUE, TRUE);
+    status = IoCallDriver(fdo, irp);
+    if (status == STATUS_PENDING)
+    {
+      KdPrint((__DRIVER_NAME "     Waiting for completion\n"));
+      status = KeWaitForSingleObject(&irp_complete_event, Executive, KernelMode, FALSE, NULL);
+      status = irp->IoStatus.Status;                     
+    }
+    KdPrint((__DRIVER_NAME "     IOCTL_XEN_RECONFIGURE status = %08x\n", status));
+    ObDereferenceObject(fdo);
+#if 0
+    WDFREQUEST request;
+    WDF_REQUEST_SEND_OPTIONS options;
+    WDFIOTARGET target;
+    DEVICE_OBJECT fdo;
+    
+    WDF_REQUEST_SEND_OPTIONS_INIT(&options, WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
+    fdo = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device));
+    
+    target = WdfDeviceGetIoTarget(xppdd->wdf_device);
+    WdfRequestCreate(WDF_NO_OBJECT_ATTRIBUTES, target, &request);
+    WdfIoTargetFormatRequestForInternalIoctl(target, request, IOCTL_XEN_RECONFIGURE, NULL, NULL, NULL, NULL);
+    WdfRequestSend(request, target, &options);
+#endif
+    RtlStringCbPrintfA(tmp_path, ARRAY_SIZE(tmp_path), "%s/state", xppdd->path);
+    KdPrint((__DRIVER_NAME "     Setting %s to %d\n", tmp_path, XenbusStateConnected));
+    XenBus_Printf(xpdd, XBT_NIL, tmp_path, "%d", XenbusStateConnected);
+    break;
+  }
+  
   default:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d (%s)\n", xppdd->backend_state, path));
     break;
@@ -1616,6 +1684,7 @@ XenPci_XenShutdownDevice(PVOID context)
         FreePages(value);
         break;
       case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+      case XEN_INIT_TYPE_EVENT_CHANNEL_DPC: /* frontend event channel bound to dpc */
       case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
         EvtChn_Unbind(xpdd, PtrToUlong(value));
         EvtChn_Close(xpdd, PtrToUlong(value));
@@ -1829,10 +1898,11 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
       }
       break;
     case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+    case XEN_INIT_TYPE_EVENT_CHANNEL_DPC: /* frontend event channel bound to dpc */
     case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
       if ((event_channel = EvtChn_AllocUnbound(xpdd, 0)) != 0)
       {
-        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, event_channel));
+        KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, event_channel));
         RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
         XenBus_Printf(xpdd, XBT_NIL, path, "%d", event_channel);
         ADD_XEN_INIT_RSP(&out_ptr, type, setting, UlongToPtr(event_channel), NULL);
@@ -1840,6 +1910,11 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
         if (type == XEN_INIT_TYPE_EVENT_CHANNEL_IRQ)
         {
           EvtChn_BindIrq(xpdd, event_channel, xppdd->irq_vector, path);
+        }
+        else if (type == XEN_INIT_TYPE_EVENT_CHANNEL_DPC)
+        {
+          #pragma warning(suppress:4055)
+          EvtChn_BindDpc(xpdd, event_channel, (PXEN_EVTCHN_SERVICE_ROUTINE)value, value2);
         }
         else
         {
@@ -1884,9 +1959,9 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
       res = XenBus_Read(xpdd, XBT_NIL, path, &value);
       if (res)
       {
-        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = <failed>\n", setting));
+        KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = <failed>\n", setting));
         XenPci_FreeMem(res);
-        ADD_XEN_INIT_RSP(&out_ptr, type, setting, NULL, NULL);
+        ADD_XEN_INIT_RSP(&out_ptr, type, setting, "", "");
       }
       else
       {
@@ -2211,7 +2286,7 @@ XenPciPdo_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
     KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", target_state));
     break;  
   }
-  
+
   if (target_state == WdfPowerDevicePrepareForHibernation
       || (target_state == WdfPowerDeviceD3 && xppdd->hiber_usage_kludge))
   {
@@ -2504,6 +2579,7 @@ XenPci_Pdo_Suspend(WDFDEVICE device)
         switch (type)
         {
         case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
+        case XEN_INIT_TYPE_EVENT_CHANNEL_DPC: /* frontend event channel bound to dpc */
         case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
           EvtChn_Unbind(xpdd, PtrToUlong(value));
           EvtChn_Close(xpdd, PtrToUlong(value));
