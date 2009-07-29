@@ -2065,9 +2065,10 @@ XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
         prd->Type = CmResourceTypeInterrupt;
         prd->ShareDisposition = CmResourceShareShared;
         prd->Flags = (xpdd->irq_mode == Latched)?CM_RESOURCE_INTERRUPT_LATCHED:CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
-        prd->u.Interrupt.Level = xpdd->irq_number;
+        prd->u.Interrupt.Level = 0;       // Set group and level to zero (group = upper word)
+        prd->u.Interrupt.Level = xpdd->irq_number & 0xffff; // Only set the lower word
         prd->u.Interrupt.Vector = xpdd->irq_number;
-        prd->u.Interrupt.Affinity = (KAFFINITY)-1;
+        prd->u.Interrupt.Affinity = KeQueryActiveProcessors();
         xppdd->irq_number = xpdd->irq_number;
       }
       break;
@@ -2114,9 +2115,10 @@ XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
         prd->Type = CmResourceTypeInterrupt;
         prd->ShareDisposition = CmResourceShareShared;
         prd->Flags = (xpdd->irq_mode == Latched)?CM_RESOURCE_INTERRUPT_LATCHED:CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
-        prd->u.Interrupt.Level = xpdd->irq_level;
+        prd->u.Interrupt.Level = 0;       // Set group and level to zero (group = upper word)
+        prd->u.Interrupt.Level = xpdd->irq_level & 0xffff; // Only set the lower word
         prd->u.Interrupt.Vector = xpdd->irq_vector;
-        prd->u.Interrupt.Affinity = (KAFFINITY)-1;
+        prd->u.Interrupt.Affinity = KeQueryActiveProcessors();
         xppdd->irq_vector = xpdd->irq_vector;
         xppdd->irq_level = xpdd->irq_level;
       }
