@@ -329,6 +329,14 @@ XenPci_BalloonHandler(char *Path, PVOID Data)
 
   XenBus_Read(xpdd, XBT_NIL, BALLOON_PATH, &value);
   
+  if (value == NULL)
+  {
+    KdPrint((__DRIVER_NAME "     Failed to read value\n"));
+    XenBus_EndTransaction(xpdd, xbt, 0, &retry);
+    FUNCTION_EXIT();
+    return;
+  }
+
   if (atoi(value) > 0)
     xpdd->target_memory = atoi(value) >> 10; /* convert to MB */
 
