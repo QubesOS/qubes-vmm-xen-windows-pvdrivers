@@ -628,7 +628,7 @@ XenNet_TxInit(xennet_info_t *xi)
   InitializeListHead(&xi->tx_waiting_pkt_list);
 
   KeInitializeEvent(&xi->tx_idle_event, SynchronizationEvent, FALSE);
-  xi->tx_shutting_down = TRUE;
+  xi->tx_shutting_down = FALSE;
   xi->tx_outstanding = 0;
   xi->tx_ring_free = NET_TX_RING_SIZE;
   
