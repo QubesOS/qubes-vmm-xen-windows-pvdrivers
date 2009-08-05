@@ -115,7 +115,7 @@ typedef struct _XENBUS_WATCH_ENTRY {
 #define SUSPEND_STATE_RESUMING  3 /* we are the other side of the suspend and things are starting to get back to normal */
 
 typedef struct {  
-  //XENPCI_COMMON common;
+  WDFDEVICE wdf_device;
   
   BOOLEAN XenBus_ShuttingDown;
   
@@ -176,6 +176,7 @@ typedef struct {
 #define BALLOON_UNITS (1024 * 1024) /* 1MB */
   PKTHREAD balloon_thread;
   KEVENT balloon_event;
+  BOOLEAN balloon_shutdown;
   ULONG initial_memory;
   ULONG current_memory;
   ULONG target_memory;
@@ -188,7 +189,9 @@ typedef struct {
   struct xsd_sockmsg *xb_reply;
   
   WDFCHILDLIST child_list;
-  
+
+  KSPIN_LOCK suspend_lock;  
+  evtchn_port_t suspend_evtchn;
   int suspend_state;
   
   UNICODE_STRING legacy_interface_name;
@@ -469,17 +472,11 @@ XenBus_RemWatch(PVOID Context, xenbus_transaction_t xbt, char *Path, PXENBUS_WAT
 NTSTATUS
 XenBus_Init(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
-XenBus_Close(PXENPCI_DEVICE_DATA xpdd);
-NTSTATUS
-XenBus_Start(PXENPCI_DEVICE_DATA xpdd);
-NTSTATUS
-XenBus_Stop(PXENPCI_DEVICE_DATA xpdd);
+XenBus_Halt(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
 XenBus_Suspend(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
 XenBus_Resume(PXENPCI_DEVICE_DATA xpdd);
-NTSTATUS
-XenBus_StopThreads(PXENPCI_DEVICE_DATA xpdd);
 
 PHYSICAL_ADDRESS
 XenPci_AllocMMIO(PXENPCI_DEVICE_DATA xpdd, ULONG len);

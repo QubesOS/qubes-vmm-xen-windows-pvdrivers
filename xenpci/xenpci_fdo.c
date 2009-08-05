@@ -134,7 +134,7 @@ XenPci_Init(PXENPCI_DEVICE_DATA xpdd)
   KdPrint((__DRIVER_NAME "     gpfn = %x\n", xatp.gpfn));
   ret = HYPERVISOR_memory_op(xpdd, XENMEM_add_to_physmap, &xatp);
   KdPrint((__DRIVER_NAME "     hypervisor memory op (XENMAPSPACE_shared_info) ret = %d\n", ret));
-  
+
   FUNCTION_EXIT();
 
   return STATUS_SUCCESS;
@@ -249,6 +249,8 @@ XenPci_BalloonThreadProc(PVOID StartContext)
       ptimeout = NULL;
     }
     KeWaitForSingleObject(&xpdd->balloon_event, Executive, KernelMode, FALSE, ptimeout);
+    if (xpdd->balloon_shutdown)
+      PsTerminateSystemThread(0);
 //TODO: initiate shutdown here
     KdPrint((__DRIVER_NAME "     Got balloon event, current = %d, target = %d\n", xpdd->current_memory, xpdd->target_memory));
     /* not really worried about races here, but cache target so we only read it once */
@@ -389,6 +391,26 @@ XenPci_SuspendN(PVOID context)
   FUNCTION_EXIT();
 }
 
+static VOID
+XenPci_SuspendEvtDpc(PVOID context);
+static NTSTATUS
+XenPci_ConnectSuspendEvt(PXENPCI_DEVICE_DATA xpdd);
+
+/* called at PASSIVE_LEVEL */
+static NTSTATUS
+XenPci_ConnectSuspendEvt(PXENPCI_DEVICE_DATA xpdd)
+{
+  CHAR path[128];
+
+  xpdd->suspend_evtchn = EvtChn_AllocUnbound(xpdd, 0);
+  KdPrint((__DRIVER_NAME "     suspend event channel = %d\n", xpdd->suspend_evtchn));
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "device/suspend/event-channel");
+  XenBus_Printf(xpdd, XBT_NIL, path, "%d", xpdd->suspend_evtchn);
+  EvtChn_BindDpc(xpdd, xpdd->suspend_evtchn, XenPci_SuspendEvtDpc, xpdd->wdf_device);
+  
+  return STATUS_SUCCESS;
+}
+
 /* Called at PASSIVE_LEVEL */
 static VOID DDKAPI
 XenPci_SuspendResume(WDFWORKITEM workitem)
@@ -425,6 +447,8 @@ XenPci_SuspendResume(WDFWORKITEM workitem)
     xpdd->suspend_state = SUSPEND_STATE_RESUMING;
     XenBus_Resume(xpdd);
 
+    XenPci_ConnectSuspendEvt(xpdd);
+
     WdfChildListBeginIteration(child_list, &child_iterator);
     while ((status = WdfChildListRetrieveNextDevice(child_list, &child_iterator, &child_device, NULL)) == STATUS_SUCCESS)
     {
@@ -437,6 +461,26 @@ XenPci_SuspendResume(WDFWORKITEM workitem)
     xpdd->suspend_state = SUSPEND_STATE_NONE;
   }
   FUNCTION_EXIT();
+}
+
+/* called at DISPATCH_LEVEL */
+static VOID
+XenPci_SuspendEvtDpc(PVOID context)
+{
+  NTSTATUS status;
+  WDFDEVICE device = context;
+  //KIRQL old_irql;
+  WDF_OBJECT_ATTRIBUTES attributes;
+  WDF_WORKITEM_CONFIG workitem_config;
+  WDFWORKITEM workitem;
+
+  KdPrint((__DRIVER_NAME "     Suspend detected via Dpc\n"));
+  WDF_WORKITEM_CONFIG_INIT(&workitem_config, XenPci_SuspendResume);
+  WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+  attributes.ParentObject = device;
+  status = WdfWorkItemCreate(&workitem_config, &attributes, &workitem);
+  // TODO: check status here
+  WdfWorkItemEnqueue(workitem);
 }
 
 static void
@@ -665,6 +709,7 @@ XenPci_EvtDeviceD0EntryPostInterruptsEnabled(WDFDEVICE device, WDF_POWER_DEVICE_
   domid_t domid = DOMID_SELF;
   ULONG ret;
   xen_ulong_t *max_ram_page;
+  HANDLE thread_handle;
 
   UNREFERENCED_PARAMETER(previous_state);
 
@@ -672,6 +717,8 @@ XenPci_EvtDeviceD0EntryPostInterruptsEnabled(WDFDEVICE device, WDF_POWER_DEVICE_
   
   XenBus_Init(xpdd);
 
+  XenPci_ConnectSuspendEvt(xpdd);
+  
   response = XenBus_AddWatch(xpdd, XBT_NIL, SYSRQ_PATH, XenPci_SysrqHandler, xpdd);
   
   response = XenBus_AddWatch(xpdd, XBT_NIL, SHUTDOWN_PATH, XenPci_ShutdownHandler, device);
@@ -696,12 +743,15 @@ XenPci_EvtDeviceD0EntryPostInterruptsEnabled(WDFDEVICE device, WDF_POWER_DEVICE_
     }
     KdPrint((__DRIVER_NAME "     Initial Memory Value = %d (%s)\n", xpdd->initial_memory, value));
     KeInitializeEvent(&xpdd->balloon_event, SynchronizationEvent, FALSE);
-    status = PsCreateSystemThread(&xpdd->balloon_thread, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenPci_BalloonThreadProc, xpdd);
+    xpdd->balloon_shutdown = FALSE;
+    status = PsCreateSystemThread(&thread_handle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenPci_BalloonThreadProc, xpdd);
     if (!NT_SUCCESS(status))
     {
       KdPrint((__DRIVER_NAME "     Could not start balloon thread\n"));
-      //return status;
-    }    
+      return status;
+    }
+    status = ObReferenceObjectByHandle(thread_handle, THREAD_ALL_ACCESS, NULL, KernelMode, &xpdd->balloon_thread, NULL);
+    ZwClose(thread_handle);
   }
   response = XenBus_AddWatch(xpdd, XBT_NIL, BALLOON_PATH, XenPci_BalloonHandler, device);
 
@@ -714,8 +764,8 @@ NTSTATUS
 XenPci_EvtDeviceD0ExitPreInterruptsDisabled(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
 {
   NTSTATUS status = STATUS_SUCCESS;
-  
-  UNREFERENCED_PARAMETER(device);
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(device);
+  LARGE_INTEGER timeout;
   
   FUNCTION_ENTER();
   
@@ -743,6 +793,19 @@ XenPci_EvtDeviceD0ExitPreInterruptsDisabled(WDFDEVICE device, WDF_POWER_DEVICE_S
     KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", target_state));
     break;  
   }
+  
+  xpdd->balloon_shutdown = TRUE;
+  KeSetEvent(&xpdd->balloon_event, IO_NO_INCREMENT, FALSE);
+  
+  timeout.QuadPart = (LONGLONG)-1 * 1000 * 1000 * 10;
+  while ((status = KeWaitForSingleObject(xpdd->balloon_thread, Executive, KernelMode, FALSE, &timeout)) != STATUS_SUCCESS)
+  {
+    timeout.QuadPart = (LONGLONG)-1 * 1000 * 1000 * 10;
+    KdPrint((__DRIVER_NAME "     Waiting for balloon thread to stop\n"));
+  }
+  ObDereferenceObject(xpdd->balloon_thread);
+
+  XenBus_Halt(xpdd);
   
   FUNCTION_EXIT();
   

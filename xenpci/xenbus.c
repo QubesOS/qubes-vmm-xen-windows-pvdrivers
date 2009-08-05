@@ -286,7 +286,7 @@ XenBus_Init(PXENPCI_DEVICE_DATA xpdd)
     
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
 
-  ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
+  ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
 
   ExInitializeFastMutex(&xpdd->xb_request_mutex);
   ExInitializeFastMutex(&xpdd->xb_watch_mutex);
@@ -307,29 +307,38 @@ XenBus_Init(PXENPCI_DEVICE_DATA xpdd)
   }
   EvtChn_BindDpc(xpdd, xpdd->xen_store_evtchn, XenBus_Dpc, xpdd);
 
+KdPrint((__DRIVER_NAME "     A\n"));
   status = PsCreateSystemThread(&thread_handle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_ReadThreadProc, xpdd);
   if (!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     Could not start read thread\n"));
     return status;
   }
-  
+KdPrint((__DRIVER_NAME "     B\n"));  
   status = ObReferenceObjectByHandle(thread_handle, THREAD_ALL_ACCESS, NULL, KernelMode, &xpdd->XenBus_ReadThread, NULL);
+KdPrint((__DRIVER_NAME "     C\n"));
   ZwClose(thread_handle);
+  
+KdPrint((__DRIVER_NAME "     D\n"));
   if (!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     ObReferenceObjectByHandle(XenBus_ReadThread) = %08x\n", status));
     return status;
   }
+KdPrint((__DRIVER_NAME "     E\n"));
 
   status = PsCreateSystemThread(&thread_handle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenBus_WatchThreadProc, xpdd);
+KdPrint((__DRIVER_NAME "     F\n"));
   if (!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME " Could not start watch thread\n"));
     return status;
   }
+KdPrint((__DRIVER_NAME "     G\n"));
   status = ObReferenceObjectByHandle(thread_handle, THREAD_ALL_ACCESS, NULL, KernelMode, &xpdd->XenBus_WatchThread, NULL);
+KdPrint((__DRIVER_NAME "     H\n"));
   ZwClose(thread_handle);
+KdPrint((__DRIVER_NAME "     I\n"));
   if (!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     ObReferenceObjectByHandle(XenBus_WatchThread) = %08x\n", status));
@@ -371,10 +380,9 @@ XenBus_SendRemWatch(
 }
 
 NTSTATUS
-XenBus_StopThreads(PXENPCI_DEVICE_DATA xpdd)
+XenBus_Halt(PXENPCI_DEVICE_DATA xpdd)
 {
   NTSTATUS status;
-  //KWAIT_BLOCK WaitBlockArray[2];
   int i;
   LARGE_INTEGER timeout;
 
@@ -391,21 +399,24 @@ XenBus_StopThreads(PXENPCI_DEVICE_DATA xpdd)
   xpdd->XenBus_ShuttingDown = TRUE;
   KeMemoryBarrier();
 
-  KeSetEvent(&xpdd->XenBus_ReadThreadEvent, IO_NO_INCREMENT, FALSE);
   KeSetEvent(&xpdd->XenBus_WatchThreadEvent, IO_NO_INCREMENT, FALSE);
+  KeSetEvent(&xpdd->XenBus_ReadThreadEvent, IO_NO_INCREMENT, FALSE);
   
-  timeout.QuadPart = (LONGLONG)-1 * 1000 * 1000 * 10;
-  while ((status = KeWaitForSingleObject(xpdd->XenBus_ReadThread, Executive, KernelMode, FALSE, &timeout)) != STATUS_SUCCESS)
-  {
-    timeout.QuadPart = (LONGLONG)-1 * 1000 * 1000 * 10;
-  }
-  ObDereferenceObject(xpdd->XenBus_ReadThread);
   timeout.QuadPart = (LONGLONG)-1 * 1000 * 1000 * 10;
   while ((status = KeWaitForSingleObject(xpdd->XenBus_WatchThread, Executive, KernelMode, FALSE, &timeout)) != STATUS_SUCCESS)
   {
     timeout.QuadPart = (LONGLONG)-1 * 1000 * 1000 * 10;
+    KdPrint((__DRIVER_NAME "     Waiting for XenBus_WatchThread to stop\n"));
   }
   ObDereferenceObject(xpdd->XenBus_WatchThread);
+
+  timeout.QuadPart = (LONGLONG)-1 * 1000 * 1000 * 10;
+  while ((status = KeWaitForSingleObject(xpdd->XenBus_ReadThread, Executive, KernelMode, FALSE, &timeout)) != STATUS_SUCCESS)
+  {
+    timeout.QuadPart = (LONGLONG)-1 * 1000 * 1000 * 10;
+    KdPrint((__DRIVER_NAME "     Waiting for XenBus_ReadThread to stop\n"));
+  }
+  ObDereferenceObject(xpdd->XenBus_ReadThread);
   
   xpdd->XenBus_ShuttingDown = FALSE;
 
@@ -470,6 +481,7 @@ XenBus_ReadThreadProc(PVOID StartContext)
   char *path, *token;
   PXENPCI_DEVICE_DATA xpdd = StartContext;
 
+  FUNCTION_ENTER();
   for(;;)
   {
     KeWaitForSingleObject(&xpdd->XenBus_ReadThreadEvent, Executive, KernelMode, FALSE, NULL);
@@ -535,6 +547,7 @@ XenBus_ReadThreadProc(PVOID StartContext)
       }
     }
   }
+  FUNCTION_EXIT();
 }
 
 static DDKAPI void
@@ -620,7 +633,8 @@ XenBus_Suspend(PXENPCI_DEVICE_DATA xpdd)
   }
 
   // need to synchronise with readthread here too to ensure that it won't do anything silly
-  
+  MmUnmapIoSpace(xpdd->xen_store_interface, PAGE_SIZE);
+
   return STATUS_SUCCESS;
 }
 
