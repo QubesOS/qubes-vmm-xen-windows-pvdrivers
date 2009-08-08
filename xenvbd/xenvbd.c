@@ -1323,7 +1323,8 @@ XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Con
     break;
   case ScsiRestartAdapter:
     KdPrint((__DRIVER_NAME "     ScsiRestartAdapter\n"));
-    XenVbd_InitFromConfig(xvdd);
+    if (XenVbd_InitFromConfig(xvdd) != SP_RETURN_FOUND)
+      KeBugCheckEx(DATA_COHERENCY_EXCEPTION, 0, (ULONG_PTR) xvdd, 0, 0);
     if (!xvdd->inactive)
       XenVbd_StartRingDetection(xvdd);
     //if (xvdd->use_other)
