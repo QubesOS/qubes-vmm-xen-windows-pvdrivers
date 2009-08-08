@@ -9,6 +9,7 @@
 #include <winioctl.h>
 #include <setupapi.h>
 #include <ctype.h>
+#include <powrprof.h>
 
 #define SERVICE_ID "ShutdownMon"
 #define SERVICE_NAME "Xen Shutdown Monitor"
@@ -166,6 +167,46 @@ remove_service()
 
   CloseServiceHandle(service_handle); 
   CloseServiceHandle(manager_handle);
+}
+
+static void
+do_hibernate()
+{
+  HANDLE proc_handle = GetCurrentProcess();
+  TOKEN_PRIVILEGES *tp;
+  HANDLE token_handle;
+
+  printf("proc_handle = %p\n", proc_handle);
+
+  if (!OpenProcessToken(proc_handle, TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token_handle))
+  {
+    printf("OpenProcessToken failed\n");
+    return;
+  }
+  printf("token_handle = %p\n", token_handle);
+
+  tp = malloc(sizeof(TOKEN_PRIVILEGES) + sizeof(LUID_AND_ATTRIBUTES));
+  tp->PrivilegeCount = 1;
+  if (!LookupPrivilegeValueA(NULL, SE_SHUTDOWN_NAME, &tp->Privileges[0].Luid))
+  {
+    printf("LookupPrivilegeValue failed\n");
+    CloseHandle(token_handle);
+    return;
+  }
+
+  tp->Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+  if (!AdjustTokenPrivileges(token_handle, FALSE, tp, 0, NULL, NULL))
+  {
+    CloseHandle(token_handle);
+    return;
+  }
+
+  if (!SetSuspendState(TRUE, FALSE, FALSE))
+  {
+    printf("hibernate failed\n");
+  }
+
+  CloseHandle(token_handle);
 }
 
 static void
@@ -371,6 +412,10 @@ do_monitoring()
     else if (strcmp("reboot", buf) == 0)
     {
       do_shutdown(TRUE);
+    } 
+    else if (strcmp("hibernate", buf) == 0)
+    {
+      do_hibernate();
     } 
   }
 }
