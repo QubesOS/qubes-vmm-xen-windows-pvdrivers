@@ -89,15 +89,14 @@ typedef struct _XENBUS_WATCH_RING
   char Token[10];
 } XENBUS_WATCH_RING;
 
+typedef struct xsd_sockmsg xsd_sockmsg_t;
+
 typedef struct _XENBUS_WATCH_ENTRY {
   char Path[128];
   PXENBUS_WATCH_CALLBACK ServiceRoutine;
   PVOID ServiceContext;
   int Count;
   int Active;
-  //int RemovePending;
-  //int Running;
-  //KEVENT CompleteEvent;
 } XENBUS_WATCH_ENTRY, *PXENBUS_WATCH_ENTRY;
 
 #define NR_EVENTS 1024
@@ -116,8 +115,6 @@ typedef struct _XENBUS_WATCH_ENTRY {
 
 typedef struct {  
   WDFDEVICE wdf_device;
-  
-  BOOLEAN XenBus_ShuttingDown;
   
   BOOLEAN tpr_patched;
 
@@ -161,17 +158,9 @@ typedef struct {
   ev_action_t ev_actions[NR_EVENTS];
 //  unsigned long bound_ports[NR_EVENTS/(8*sizeof(unsigned long))];
 
-  PKTHREAD XenBus_ReadThread;
-  KEVENT XenBus_ReadThreadEvent;
-  PKTHREAD XenBus_WatchThread;
-  KEVENT XenBus_WatchThreadEvent;
-
-  XENBUS_WATCH_RING XenBus_WatchRing[WATCH_RING_SIZE];
-  int XenBus_WatchRingReadIndex;
-  int XenBus_WatchRingWriteIndex;
-
+  BOOLEAN xb_state;
+  
   struct xenstore_domain_interface *xen_store_interface;
-
 
 #define BALLOON_UNITS (1024 * 1024) /* 1MB */
   PKTHREAD balloon_thread;
@@ -204,7 +193,8 @@ typedef struct {
   
   WDFQUEUE io_queue;
 
-  WDFCOLLECTION veto_devices;
+  //WDFCOLLECTION veto_devices;
+  LIST_ENTRY veto_list;
 #if 0
   KSPIN_LOCK mmio_freelist_lock;
   PPFN_NUMBER mmio_freelist_base;
@@ -229,6 +219,7 @@ typedef struct {
   //PVOID xenbus_request;
   KEVENT backend_state_event;
   ULONG backend_state;
+  FAST_MUTEX backend_state_mutex;
   ULONG frontend_state;
   PMDL config_page_mdl;
   PHYSICAL_ADDRESS config_page_phys;

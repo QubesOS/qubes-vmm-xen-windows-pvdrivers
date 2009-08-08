@@ -684,14 +684,6 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
   {    
     for (curr_mdl = Mdl, sglist->NumberOfElements = 0, total_remaining = Length, active = FALSE; total_remaining > 0; curr_mdl = curr_mdl->Next)
     {
-      if (!curr_mdl)
-      {
-      KdPrint((__DRIVER_NAME "     CurrentVa = %p, Length = %d\n", CurrentVa, Length));
-for (curr_mdl = Mdl; curr_mdl; curr_mdl = curr_mdl->Next)
-{
-  KdPrint((__DRIVER_NAME "     Mdl = %p, VirtualAddress = %p, ByteCount = %d\n", Mdl, MmGetMdlVirtualAddress(curr_mdl), MmGetMdlByteCount(curr_mdl)));
-}
-      }
       ASSERT(curr_mdl);
       mdl_start_va = MmGetMdlVirtualAddress(curr_mdl);
       mdl_byte_count = MmGetMdlByteCount(curr_mdl);
@@ -1126,7 +1118,6 @@ XenPci_BIS_GetBusData(PVOID context, ULONG data_type, PVOID buffer, ULONG offset
 Called at PASSIVE_LEVEL(?)
 Called during restore
 */
-
 static ULONG
 XenPci_ReadBackendState(PXENPCI_PDO_DEVICE_DATA xppdd)
 {
@@ -1167,7 +1158,7 @@ XenPciPdo_ReconfigureCompletionRoutine(
 }
 
 static VOID
-XenPci_BackEndStateHandler(char *path, PVOID context)
+XenPci_UpdateBackendState(PVOID context)
 {
   WDFDEVICE device = context;
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
@@ -1175,27 +1166,26 @@ XenPci_BackEndStateHandler(char *path, PVOID context)
   ULONG new_backend_state;
   CHAR tmp_path[128];
 
-#if !DBG
-  UNREFERENCED_PARAMETER(path);
-#endif
-  
-  //  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
 
-  /* check that path == device/id/state */
-  //RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
+  ExAcquireFastMutex(&xppdd->backend_state_mutex);
+
   new_backend_state = XenPci_ReadBackendState(xppdd);
   if (new_backend_state == XenbusStateUnknown)
   {
     if (xpdd->suspend_state != SUSPEND_STATE_NONE)
+    {
+      ExReleaseFastMutex(&xppdd->backend_state_mutex);
       return;
-    KdPrint(("Failed to read %s, assuming closed\n", path));
+    }
+    KdPrint(("Failed to read path, assuming closed\n"));
     new_backend_state = XenbusStateClosed;
   }
 
   if (xppdd->backend_state == new_backend_state)
   {
     KdPrint((__DRIVER_NAME "     state unchanged\n"));
-    //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+    ExReleaseFastMutex(&xppdd->backend_state_mutex);
     return;
   }
 
@@ -1204,27 +1194,27 @@ XenPci_BackEndStateHandler(char *path, PVOID context)
   switch (xppdd->backend_state)
   {
   case XenbusStateUnknown:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Unknown (%s)\n", path));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Unknown\n"));
     break;
 
   case XenbusStateInitialising:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialising (%s)\n", path));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialising\n"));
     break;
 
   case XenbusStateInitWait:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait (%s)\n", path));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to InitWait\n"));
     break;
 
   case XenbusStateInitialised:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialised (%s)\n", path));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Initialised\n"));
     break;
 
   case XenbusStateConnected:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Connected (%s)\n", path));    
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Connected\n"));  
     break;
 
   case XenbusStateClosing:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing (%s)\n", path));
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));
     if (xppdd->frontend_state == XenbusStateConnected)
     {
       KdPrint((__DRIVER_NAME "     Requesting eject\n"));
@@ -1233,18 +1223,18 @@ XenPci_BackEndStateHandler(char *path, PVOID context)
     break;
 
   case XenbusStateClosed:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Closed (%s)\n", path));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Closed\n"));
     break;
 
   case XenbusStateReconfiguring:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Reconfiguring (%s)\n", path));  
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Reconfiguring\n"));
     RtlStringCbPrintfA(tmp_path, ARRAY_SIZE(tmp_path), "%s/state", xppdd->path);
     KdPrint((__DRIVER_NAME "     Setting %s to %d\n", tmp_path, XenbusStateReconfiguring));
     XenBus_Printf(xpdd, XBT_NIL, tmp_path, "%d", XenbusStateReconfiguring);
     break;
 
   case XenbusStateReconfigured:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Reconfigured (%s)\n", path));
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Reconfigured\n"));
   {
     PDEVICE_OBJECT fdo;
     PIRP irp;
@@ -1289,15 +1279,27 @@ XenPci_BackEndStateHandler(char *path, PVOID context)
   }
   
   default:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d (%s)\n", xppdd->backend_state, path));
+    KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d\n", xppdd->backend_state));
     break;
   }
 
   KeSetEvent(&xppdd->backend_state_event, 1, FALSE);
 
-//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  ExReleaseFastMutex(&xppdd->backend_state_mutex);
+  FUNCTION_EXIT();
 
   return;
+}
+
+static VOID
+XenPci_BackendStateHandler(char *path, PVOID context)
+{
+  UNREFERENCED_PARAMETER(path);
+
+  /* check that path == device/id/state */
+  //RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->path);
+
+  XenPci_UpdateBackendState(context);
 }
 
 static NTSTATUS
@@ -1309,6 +1311,7 @@ XenPci_GetBackendAndAddWatch(WDFDEVICE device)
   PCHAR res;
   PCHAR value;
 
+  FUNCTION_ENTER();
   /* Get backend path */
   RtlStringCbPrintfA(path, ARRAY_SIZE(path),
     "%s/backend", xppdd->path);
@@ -1324,8 +1327,9 @@ XenPci_GetBackendAndAddWatch(WDFDEVICE device)
 
   /* Add watch on backend state */
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-  XenBus_AddWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, device);
-  
+  XenBus_AddWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, device);
+
+  FUNCTION_EXIT();  
   return STATUS_SUCCESS;
 }
 
@@ -1612,7 +1616,7 @@ XenPci_ChangeFrontendState(WDFDEVICE device, ULONG frontend_state_set, ULONG bac
   ULONG thiswait;
   char path[128];
   
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  FUNCTION_ENTER();
   
   xppdd->frontend_state = frontend_state_set;
 
@@ -1627,6 +1631,8 @@ XenPci_ChangeFrontendState(WDFDEVICE device, ULONG frontend_state_set, ULONG bac
     timeout.QuadPart = (LONGLONG)-1 * thiswait * 1000 * 10;
     if (KeWaitForSingleObject(&xppdd->backend_state_event, Executive, KernelMode, FALSE, &timeout) == STATUS_TIMEOUT)
     {
+      /* it's possible that the workitems are blocked because the pagefile isn't available. Lets just re-read the backend value for now */
+      XenPci_UpdateBackendState(device);
       remaining -= thiswait;
       if (remaining == 0)
       {
@@ -1636,7 +1642,7 @@ XenPci_ChangeFrontendState(WDFDEVICE device, ULONG frontend_state_set, ULONG bac
       KdPrint((__DRIVER_NAME "     Still waiting for %d (currently %d)...\n", backend_state_response, xppdd->backend_state));
     }
   }
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
   return STATUS_SUCCESS;
 }
 
@@ -1774,7 +1780,6 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors, NULL);
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_STATE_PTR, NULL, &xppdd->device_state, NULL);
 
-
   if (!qemu_filtered)
     active = FALSE;
 
@@ -1842,7 +1847,6 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   in_ptr = src;
   while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
   {
-  
     if (!done_xenbus_init)
     {
       if (XenPci_ChangeFrontendState(device, XenbusStateInitialising, XenbusStateInitWait, 2000) != STATUS_SUCCESS)
@@ -2103,7 +2107,7 @@ XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
         if (!NT_SUCCESS(status))
         {
           RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-          XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, device);
+          XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, device);
           FUNCTION_ERROR_EXIT();
           return status;
         }
@@ -2237,7 +2241,7 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
   if (!NT_SUCCESS(status))
   {
     RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, device);
+    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, device);
     WdfDeviceSetFailed(device, WdfDeviceFailedNoRestart);
     FUNCTION_ERROR_EXIT();
     return status;
@@ -2299,7 +2303,7 @@ XenPciPdo_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
     status = XenPci_XenShutdownDevice(device);
     /* Remove watch on backend state */
     RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, device);
+    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, device);
   }
   FUNCTION_EXIT();
   
@@ -2515,6 +2519,7 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   RtlStringCbCopyA(xppdd->device, ARRAY_SIZE(xppdd->device), identification->device);
   xppdd->index = identification->index;
   KeInitializeEvent(&xppdd->backend_state_event, SynchronizationEvent, FALSE);
+  ExInitializeFastMutex(&xppdd->backend_state_mutex);
   xppdd->backend_state = XenbusStateUnknown;
   xppdd->frontend_state = XenbusStateUnknown;
   xppdd->backend_path[0] = '\0';
@@ -2591,7 +2596,7 @@ XenPci_Pdo_Suspend(WDFDEVICE device)
     }
 
     RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackEndStateHandler, xppdd);  
+    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, xppdd);  
   }
   else
   {

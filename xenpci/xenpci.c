@@ -72,9 +72,11 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   WDF_OBJECT_ATTRIBUTES file_attributes;
   WDF_FILEOBJECT_CONFIG file_config;
   WDF_IO_QUEUE_CONFIG queue_config;
+  WDFCOLLECTION veto_devices;
   WDFKEY param_key;
   DECLARE_CONST_UNICODE_STRING(veto_devices_name, L"veto_devices");
   WDF_DEVICE_POWER_CAPABILITIES power_capabilities;
+  int i;
   
   UNREFERENCED_PARAMETER(driver);
 
@@ -119,11 +121,11 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   xpdd->wdf_device = device;
   xpdd->child_list = WdfFdoGetDefaultChildList(device);
 
-  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &xpdd->veto_devices);
+  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &veto_devices);
   status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &param_key);
   if (NT_SUCCESS(status))
   {
-    status = WdfRegistryQueryMultiString(param_key, &veto_devices_name, WDF_NO_OBJECT_ATTRIBUTES, xpdd->veto_devices);
+    status = WdfRegistryQueryMultiString(param_key, &veto_devices_name, WDF_NO_OBJECT_ATTRIBUTES, veto_devices);
     if (!NT_SUCCESS(status))
     {
       KdPrint(("Error reading parameters/veto_devices value %08x\n", status));
@@ -134,7 +136,22 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   {
     KdPrint(("Error opening parameters key %08x\n", status));
   }
-  
+
+  InitializeListHead(&xpdd->veto_list);
+  for (i = 0; i < WdfCollectionGetCount(veto_devices); i++)
+  {
+    WDFOBJECT ws;
+    UNICODE_STRING val;
+    ANSI_STRING s;
+    PVOID entry;
+    ws = WdfCollectionGetItem(veto_devices, i);
+    WdfStringGetUnicodeString(ws, &val);
+    RtlUnicodeStringToAnsiString(&s, &val, TRUE);
+    entry = ExAllocatePoolWithTag(NonPagedPool, sizeof(LIST_ENTRY) + s.Length + 1, XENPCI_POOL_TAG);
+    memcpy((PUCHAR)entry + sizeof(LIST_ENTRY), s.Buffer, s.Length + 1);
+    RtlFreeAnsiString(&s);
+    InsertTailList(&xpdd->veto_list, (PLIST_ENTRY)entry);
+  }
   WDF_DEVICE_POWER_CAPABILITIES_INIT(&power_capabilities);
   power_capabilities.DeviceD1 = WdfTrue;
   power_capabilities.WakeFromD1 = WdfTrue;
