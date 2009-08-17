@@ -492,8 +492,9 @@ static __inline VOID
 __ADD_XEN_INIT_STRING(PUCHAR *ptr, PCHAR val)
 {
 //  KdPrint((__DRIVER_NAME "     ADD_XEN_INIT_STRING *ptr = %p, val = %s\n", *ptr, val));
-  RtlStringCbCopyA((PCHAR)*ptr, PAGE_SIZE - (PtrToUlong(*ptr) & (PAGE_SIZE - 1)), val);
-  *ptr += strlen(val) + 1;
+  size_t max_string_size = PAGE_SIZE - (PtrToUlong(*ptr) & (PAGE_SIZE - 1));
+  RtlStringCbCopyA((PCHAR)*ptr, max_string_size, val);
+  *ptr += min(strlen(val) + 1, max_string_size);
 }
 
 static __inline UCHAR
