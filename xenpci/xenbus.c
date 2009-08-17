@@ -278,7 +278,7 @@ XenBus_Dpc(PVOID ServiceContext)
       MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons), sizeof(msg));
     if (xpdd->xen_store_interface->rsp_prod - xpdd->xen_store_interface->rsp_cons < sizeof(msg) + msg.len)
     {
-      KdPrint((__DRIVER_NAME " +++ Message incomplete (header but not full body)\n"));
+      //KdPrint((__DRIVER_NAME " +++ Message incomplete (header but not full body)\n"));
       break;
     }
 
