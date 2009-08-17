@@ -51,6 +51,7 @@ DelReg         = XenPci_Service_DelReg
 HKR,"Parameters", "veto_devices", 0x00010008, "console"
 HKR,"Parameters", "veto_devices", 0x00010008, "vfb"
 HKR,"Parameters", "veto_devices", 0x00010008, "vkbd"
+HKR,"Parameters", "veto_devices", 0x00010008, "suspend"
 ; Qemu IDE
 HKR,"Parameters", "hide_devices", 0x00010008, "VEN_8086&DEV_7010"
 ; Qemu SCSI
