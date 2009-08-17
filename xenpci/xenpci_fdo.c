@@ -899,7 +899,7 @@ XenPci_EvtChildListScanForChildren(WDFCHILDLIST child_list)
   {
     for (i = 0; devices[i]; i++)
     {
-      RtlStringCbPrintfA(path, ARRAY_SIZE(path), "device/%s", devices[i]);
+      /* make sure the key is not in the veto list */
       for (entry = xpdd->veto_list.Flink; entry != &xpdd->veto_list; entry = ((PLIST_ENTRY)entry)->Flink)
       {
         if (!strcmp(devices[i], (PCHAR)entry + sizeof(LIST_ENTRY)))
@@ -911,6 +911,7 @@ XenPci_EvtChildListScanForChildren(WDFCHILDLIST child_list)
         continue;
       }
     
+      RtlStringCbPrintfA(path, ARRAY_SIZE(path), "device/%s", devices[i]);
       msg = XenBus_List(xpdd, XBT_NIL, path, &instances);
       if (!msg)
       {
