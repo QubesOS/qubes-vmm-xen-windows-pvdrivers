@@ -53,6 +53,7 @@
                 <File Id='xenvbd.cat' Name='xenvbd.cat' DiskId='1' Source='xenvbd\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenvbd.cat' />
                 <File Id='xenvbd.inf' Name='xenvbd.inf' DiskId='1' Source='xenvbd\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenvbd.inf' />
                 <File Id='xenvbd.sys' Name='xenvbd.sys' DiskId='1' Source='xenvbd\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenvbd.sys' />
+                <File Id='xencoinst.dll' Name='xencoinst.dll' DiskId='1' Source='coinst\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\coinst.dll' />
                 <difx:Driver Sequence='1' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes'/>
               </Component>
             </Directory>

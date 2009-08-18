@@ -1,1 +1,1 @@
-DIRS=xenpci xenvbd xennet xenscsi copyconfig shutdownmon
+DIRS=xenpci xenvbd xennet xenscsi copyconfig shutdownmon coinst

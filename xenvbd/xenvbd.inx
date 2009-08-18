@@ -21,7 +21,7 @@ ExcludeFromSelect=*
 CopyFiles=XenVbd.CopyFiles
 
 [XenVbd.CopyFiles]
-xenvbd.sys
+xenvbd.sys,,0x00001000 ; COPYFLG_REPLACE_BOOT_FILE
 
 [XenVbd_Inst.NT.Services]
 AddService=XenVbd,2,XenVbd_Service, XenVbd_EventLog
@@ -37,6 +37,11 @@ AddReg = XenVbd_Service_AddReg
 
 [XenVbd_Service_AddReg]
 HKR,"Parameters\PnpInterface", "15", 0x00010001, 0x00000001
+; hide Qemu IDE in XenPCI
+HKLM,"SYSTEM\CurrentControlSet\Services\XenPCI\Parameters", "hide_devices", 0x00010008, "VEN_8086&DEV_7010"
+HKLM,"SYSTEM\CurrentControlSet\Services\XenPCI\Parameters", "hide_devices", 0x00010008, "primary_ide_channel"
+HKLM,"SYSTEM\CurrentControlSet\Services\XenPCI\Parameters", "hide_devices", 0x00010008, "secondary_ide_channel"
+HKLM,"SYSTEM\CurrentControlSet\Services\XenPCI\Parameters", "hide_devices", 0x00010008, "*pnp0600"
 
 [XenVbd_EventLog]
 AddReg = XenVbd_EventLog_AddReg
@@ -45,8 +50,22 @@ AddReg = XenVbd_EventLog_AddReg
 HKR,,EventMessageFile,0x00020000,"%SystemRoot%\System32\IoLogMsg.dll;%SystemRoot%\System32\drivers\XenVbd.sys"
 HKR,,TypesSupported,0x00010001,7
 
+[DestinationDirs]
+XenVbd_Inst_CoInstaller_CopyFiles = 11
+
+[XenVbd_Inst.NT.CoInstallers]
+AddReg=XenVbd_Inst_CoInstaller_AddReg
+CopyFiles=XenVbd_Inst_CoInstaller_CopyFiles
+
+[XenVbd_Inst_CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "xencoinst.dll,CoRequireReboot"
+
+[XenVbd_Inst_CoInstaller_CopyFiles]
+xencoinst.dll
+
 [SourceDisksFiles]
 xenvbd.sys=1
+xencoinst.dll=1
 
 [SourceDisksNames]
 1 = %DISK_NAME%

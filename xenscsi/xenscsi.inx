@@ -37,6 +37,8 @@ AddReg = XenScsi_Service_AddReg
 
 [XenScsi_Service_AddReg]
 HKR,"Parameters\PnpInterface", "15", 0x00010001, 0x00000001
+; hide Qemu SCSI in XenPCI
+HKLM,"SYSTEM\CurrentControlSet\Services\XenPCI\Parameters", "hide_devices", 0x00010008, "VEN_1000&DEV_0012"
 
 [XenScsi_EventLog]
 AddReg = XenScsi_EventLog_AddReg
