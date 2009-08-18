@@ -242,6 +242,7 @@ XenBus_WatchWorkItemProc(WDFWORKITEM workitem)
   if (!entry->Active || !entry->ServiceRoutine)
   {
     KdPrint((__DRIVER_NAME "     No watch for index %d\n", index));
+    ExReleaseFastMutex(&xpdd->xb_watch_mutex);
     WdfObjectDelete(workitem);
     return;
   }
