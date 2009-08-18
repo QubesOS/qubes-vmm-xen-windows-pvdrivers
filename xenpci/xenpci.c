@@ -306,21 +306,6 @@ XenPci_EvtDeviceAdd_XenHide(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   {
     KdPrint(("Error opening parameters key %08x\n", status));
   }
-  if (!WdfCollectionGetCount(hide_devices))
-  {
-    WDFSTRING wdf_string;
-    UNICODE_STRING unicode_string;
-    
-    RtlInitUnicodeString(&unicode_string, L"VEN_8086&DEV_7010"); // Qemu IDE
-    WdfStringCreate(&unicode_string, WDF_NO_OBJECT_ATTRIBUTES, &wdf_string);
-    WdfCollectionAdd(hide_devices, wdf_string);
-    RtlInitUnicodeString(&unicode_string, L"VEN_1000&DEV_0012"); // Qemu SCSI
-    WdfStringCreate(&unicode_string, WDF_NO_OBJECT_ATTRIBUTES, &wdf_string);
-    WdfCollectionAdd(hide_devices, wdf_string);
-    RtlInitUnicodeString(&unicode_string, L"VEN_10EC&DEV_8139"); // Qemu Network
-    WdfStringCreate(&unicode_string, WDF_NO_OBJECT_ATTRIBUTES, &wdf_string);
-    WdfCollectionAdd(hide_devices, wdf_string);
-  }
   status = WdfFdoInitAllocAndQueryProperty(device_init, DevicePropertyDeviceDescription, NonPagedPool, WDF_NO_OBJECT_ATTRIBUTES, &memory);
   if (NT_SUCCESS(status))
   {
