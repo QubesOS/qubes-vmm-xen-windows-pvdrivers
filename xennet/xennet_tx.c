@@ -198,7 +198,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     }
     if (sg->NumberOfElements + !!ndis_lso > xi->tx_ring_free)
     {
-      KdPrint((__DRIVER_NAME "     Full on send - required = %d, available = %d\n", sg->NumberOfElements + !!ndis_lso, xi->tx_ring_free));
+      //KdPrint((__DRIVER_NAME "     Full on send - required = %d, available = %d\n", sg->NumberOfElements + !!ndis_lso, xi->tx_ring_free));
       //FUNCTION_EXIT();
       return FALSE;
     }
@@ -427,6 +427,7 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   if (xi->tx_shutting_down && !xi->tx_outstanding)
   {
     /* there is a chance that our Dpc had been queued just before the shutdown... */
+    KeSetEvent(&xi->tx_idle_event, IO_NO_INCREMENT, FALSE);
     KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
     return;
   }

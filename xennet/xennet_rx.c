@@ -447,6 +447,8 @@ XenNet_MakePackets(
   //FUNCTION_ENTER();
 
   parse_result = XenNet_ParsePacketHeader(pi, NULL, 0);
+  
+  //KdPrint((__DRIVER_NAME "     ip4_length = %d, tcp_length = %d\n", pi->ip4_length, pi->tcp_length));
 
   if ((xi->packet_filter & NDIS_PACKET_TYPE_MULTICAST)
     && !(xi->packet_filter & NDIS_PACKET_TYPE_ALL_MULTICAST)
@@ -715,7 +717,6 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
       else
       {
         rxrsp = RING_GET_RESPONSE(&xi->rx, cons);
-//KdPrint((__DRIVER_NAME "     status = %d, offset = %d\n", rxrsp->status, rxrsp->offset));
         if (rxrsp->status <= 0
           || rxrsp->offset + rxrsp->status > PAGE_SIZE)
         {
