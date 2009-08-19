@@ -1306,6 +1306,7 @@ XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Con
 
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  KdPrint((__DRIVER_NAME "     xvdd = %p\n", xvdd));
 
   switch (ControlType)
   {
@@ -1323,13 +1324,13 @@ XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Con
     break;
   case ScsiRestartAdapter:
     KdPrint((__DRIVER_NAME "     ScsiRestartAdapter\n"));
-    if (XenVbd_InitFromConfig(xvdd) != SP_RETURN_FOUND)
-      KeBugCheckEx(DATA_COHERENCY_EXCEPTION, 0, (ULONG_PTR) xvdd, 0, 0);
     if (!xvdd->inactive)
+    {
+      if (XenVbd_InitFromConfig(xvdd) != SP_RETURN_FOUND)
+        KeBugCheckEx(DATA_COHERENCY_EXCEPTION, 0, (ULONG_PTR) xvdd, 0, 0);
       XenVbd_StartRingDetection(xvdd);
-    //if (xvdd->use_other)
-    //  xvdd->ring.nr_ents = BLK_OTHER_RING_SIZE;
-   break;
+    }
+    break;
   case ScsiSetBootConfig:
     KdPrint((__DRIVER_NAME "     ScsiSetBootConfig\n"));
     break;
