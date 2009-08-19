@@ -2100,7 +2100,7 @@ XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
         xppdd->config_page_phys = prd->u.Memory.Start;
         xppdd->config_page_length = prd->u.Memory.Length;
         xppdd->requested_resources_start = xppdd->requested_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
-        xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+        //xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
         
 #if 0
         status = XenPci_XenConfigDevice(device);
@@ -2218,7 +2218,7 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
     KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", previous_state));
     break;  
   }
-  
+
   if (previous_state == WdfPowerDevicePrepareForHibernation
       || (previous_state == WdfPowerDeviceD3 && xppdd->hiber_usage_kludge))
   {
@@ -2226,6 +2226,12 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
   }
   else
   {
+  }
+
+  if (previous_state == WdfPowerDevicePrepareForHibernation || previous_state == WdfPowerDeviceD3 || previous_state == WdfPowerDeviceD3Final)
+  {
+    xppdd->requested_resources_ptr = xppdd->requested_resources_start;
+    xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
   }
 
   XenConfig_InitConfigPage(device);
