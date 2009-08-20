@@ -138,7 +138,7 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   }
 
   InitializeListHead(&xpdd->veto_list);
-  for (i = 0; i < WdfCollectionGetCount(veto_devices); i++)
+  for (i = 0; i < (int)WdfCollectionGetCount(veto_devices); i++)
   {
     WDFOBJECT ws;
     UNICODE_STRING val;
