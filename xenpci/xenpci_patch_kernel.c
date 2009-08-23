@@ -198,7 +198,7 @@ static patch_t patches[] =
 static BOOLEAN
 XenPci_TestAndPatchInstruction(PVOID address)
 {
-	PUCHAR instruction = address;
+  PUCHAR instruction = address;
   ULONG i;
   /* don't declare patches[] on the stack - windows gets grumpy if we allocate too much space on the stack at HIGH_LEVEL */
   
@@ -207,9 +207,7 @@ XenPci_TestAndPatchInstruction(PVOID address)
     if (memcmp(address, patches[i].bytes, patches[i].match_size) == 0)
       break;
   }
-  if (patches[i].patch_type == PATCH_NONE)
-    return FALSE;
-    
+
   switch (patches[i].patch_type)
   {
   case PATCH_1B4:
@@ -230,10 +228,9 @@ XenPci_TestAndPatchInstruction(PVOID address)
     InsertCallRel32(instruction + 2, patches[i].function);
     break;
   default:
-    /* wtf? */
-    break;
+    return FALSE;
   }
-	return TRUE;
+  return TRUE;
 }
 
 typedef struct {
@@ -255,8 +252,7 @@ XenPci_DoPatchKernel0(PVOID context)
 
   FUNCTION_ENTER();
 
-	high_level_tpr = SaveTpr();
-
+  high_level_tpr = SaveTpr();
   /* we know all the other CPUs are at HIGH_LEVEL so set them all to the same as cpu 0 */
   for (i = 1; i < MAX_VIRT_CPUS; i++)
     SaveTprProcValue(i, high_level_tpr);
@@ -270,9 +266,10 @@ XenPci_DoPatchKernel0(PVOID context)
     }
     else if (*(PULONG)((PUCHAR)pi->base + i) == LAPIC_TASKPRI)
     {
-       potential_patch_positions[potential_patch_position_index++] = (PUCHAR)pi->base + i;
+      potential_patch_positions[potential_patch_position_index++] = (PUCHAR)pi->base + i;
     }
   }
+
   for (i = 0; i < patch_position_index; i++)
     KdPrint((__DRIVER_NAME "     Patch added at %p\n", patch_positions[i]));
 

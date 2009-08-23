@@ -35,7 +35,6 @@ XenPci_MapHalThenPatchKernel(PXENPCI_DEVICE_DATA xpdd)
    
   FUNCTION_ENTER();
 
-  status = AuxKlibInitialize();
   amei = NULL;
   /* buffer size could change between requesting and allocating - need to loop until we are successful */
   while ((status = AuxKlibQueryModuleInformation(&module_info_buffer_size, sizeof(AUX_MODULE_EXTENDED_INFO), amei)) == STATUS_BUFFER_TOO_SMALL || amei == NULL)

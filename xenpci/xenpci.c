@@ -19,6 +19,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define INITGUID
 #include "xenpci.h"
+#include <aux_klib.h>
 #include <stdlib.h>
 
 #define SYSRQ_PATH "control/sysrq"
@@ -548,6 +549,28 @@ XenPci_FixLoadOrder()
   return;
 }
 
+KBUGCHECK_CALLBACK_RECORD callback_record;
+
+static VOID
+XenPci_BugcheckCallback(PVOID buffer, ULONG length)
+{
+  NTSTATUS status;
+  KBUGCHECK_DATA bugcheck_data;
+  
+  UNREFERENCED_PARAMETER(buffer);
+  UNREFERENCED_PARAMETER(length);
+  
+  bugcheck_data.BugCheckDataSize  = sizeof(bugcheck_data);
+  status = AuxKlibGetBugCheckData(&bugcheck_data);
+  if(!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     AuxKlibGetBugCheckData returned %08x\n", status));
+    return;
+  }
+  KdPrint((__DRIVER_NAME "     Bug check 0x%08X (0x%p, 0x%p, 0x%p, 0x%p)\n",
+    bugcheck_data.BugCheckCode, bugcheck_data.Parameter1, bugcheck_data.Parameter2, bugcheck_data.Parameter3, bugcheck_data.Parameter4));
+}
+
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -563,15 +586,23 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   char Buf[300];// Sometimes bigger then 200 if system reboot from crash
   ULONG BufLen = 300;
   PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
-#if 0
-  WDF_TIMER_CONFIG  timer_config;
-  OBJECT_ATTRIBUTES timer_attributes;
-#endif
-
+  
   UNREFERENCED_PARAMETER(RegistryPath);
 
   FUNCTION_ENTER();
+
+  status = AuxKlibInitialize();
+  if(!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     AuxKlibInitialize failed %08x - expect a crash soon\n", status));
+  }
   
+  KeInitializeCallbackRecord(&callback_record);
+  if (!KeRegisterBugCheckCallback(&callback_record, XenPci_BugcheckCallback, NULL, 0, (PUCHAR)"XenPci"))
+  {
+    KdPrint((__DRIVER_NAME "     KeRegisterBugCheckCallback failed\n"));
+  }
+
   XenPci_FixLoadOrder();
 
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
@@ -597,8 +628,33 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   
   if (wcsstr(SystemStartOptions, L"PATCHTPR"))
   {
+    WDFKEY memory_key;
+    UNICODE_STRING verifier_key_name;
+    UNICODE_STRING verifier_value_name;
+    ULONG verifier_value;
+    
     KdPrint((__DRIVER_NAME "     PATCHTPR found\n"));
-    tpr_patch_requested = TRUE;
+    
+    RtlInitUnicodeString(&verifier_key_name, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Session Manager\\Memory Management");
+    status = WdfRegistryOpenKey(NULL, &verifier_key_name, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &memory_key);
+    if (!NT_SUCCESS(status))
+    {
+      tpr_patch_requested = TRUE;
+    }  
+    else
+    {
+      RtlInitUnicodeString(&verifier_value_name, L"VerifyDriverLevel");
+      status = WdfRegistryQueryULong(memory_key, &verifier_value_name, &verifier_value);
+      if (NT_SUCCESS(status) && verifier_value != 0)
+      {
+        KdPrint((__DRIVER_NAME "     Verifier active - not patching\n"));
+      }
+      else
+      {
+        tpr_patch_requested = TRUE;
+      }
+      WdfRegistryClose(memory_key);
+    }
   }
   
   if (wcsstr(SystemStartOptions, L"NOGPLPV"))
