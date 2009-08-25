@@ -76,13 +76,13 @@
           </Directory>
         </Directory>
         <Component Id='Cert' Guid='11112EC8-8635-45fb-9AE8-C22310F1E82D'>
-          <File Id='ca.cer' Name='ca.cer' DiskId='1' Source='ca.cer' />
-          <iis:Certificate Id='ca.cer' Name='ca.cer' Request='no' BinaryKey='ca.cer' StoreLocation='localMachine' StoreName='root' Overwrite='no' />
+          <File Id='gplpv.cer' Name='gplpv.cer' DiskId='1' Source='gplpv.cer' />
+          <iis:Certificate Id='gplpv.cer' Name='gplpv.cer' Request='no' BinaryKey='gplpv.cer' StoreLocation='localMachine' StoreName='root' Overwrite='no' />
         </Component>
       </Directory>
     </Directory>
 
-    <Binary Id='ca.cer' SourceFile='ca.cer' />    
+    <Binary Id='gplpv.cer' SourceFile='gplpv.cer' />    
 
     <Feature Id='Cert' Title='Install Certificate' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
       <ComponentRef Id='Cert' />

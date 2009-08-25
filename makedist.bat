@@ -18,6 +18,8 @@ SET PV_DIR=%CD%
 
 ECHO PV_DIR=%PV_DIR%
 
+IF NOT EXIST gplpv.cer "%DDK_PATH%"\bin\selfsign\makecert -r -pe -ss PrivateCertStore -n "CN=GPLPV_Test_Cert" gplpv.cer
+
 cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre WXP && CD /D "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
 
 cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre WNET && CD /D "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
