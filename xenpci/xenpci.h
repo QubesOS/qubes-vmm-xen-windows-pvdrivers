@@ -172,6 +172,7 @@ typedef struct {
   
   /* xenbus related */
   XENBUS_WATCH_ENTRY XenBus_WatchEntries[MAX_WATCH_ENTRIES];
+  KSPIN_LOCK xb_ring_spinlock;
   FAST_MUTEX xb_watch_mutex;
   FAST_MUTEX xb_request_mutex;
   KEVENT xb_request_complete_event;

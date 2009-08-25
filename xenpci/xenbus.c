@@ -265,6 +265,8 @@ XenBus_Dpc(PVOID ServiceContext)
   WDFWORKITEM workitem;
 
   //FUNCTION_ENTER();
+  
+  KeAcquireSpinLockAtDpcLevel(&xpdd->xb_ring_spinlock);
 
   //KdPrint((__DRIVER_NAME "     rsp_prod = %d, rsp_cons = %d\n", xpdd->xen_store_interface->rsp_prod, xpdd->xen_store_interface->rsp_cons));
   while (xpdd->xen_store_interface->rsp_prod != xpdd->xen_store_interface->rsp_cons)
@@ -315,6 +317,7 @@ XenBus_Dpc(PVOID ServiceContext)
       WdfWorkItemEnqueue(workitem);
     }
   }
+  KeReleaseSpinLockFromDpcLevel(&xpdd->xb_ring_spinlock);
   
   //FUNCTION_EXIT();
 }
@@ -355,6 +358,7 @@ XenBus_Init(PXENPCI_DEVICE_DATA xpdd)
 
   ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
 
+  KeInitializeSpinLock(&xpdd->xb_ring_spinlock);
   ExInitializeFastMutex(&xpdd->xb_request_mutex);
   ExInitializeFastMutex(&xpdd->xb_watch_mutex);
 
