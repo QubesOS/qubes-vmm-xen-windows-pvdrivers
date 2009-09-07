@@ -46,13 +46,13 @@ EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemA
   UNREFERENCED_PARAMETER(SystemArgument1);
   UNREFERENCED_PARAMETER(SystemArgument2);
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
+  //FUNCTION_ENTER();
 
   if (action->type != EVT_ACTION_TYPE_EMPTY)
   {
     action->ServiceRoutine(action->ServiceContext);
   }
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  //FUNCTION_EXIT();
 }
 
 /* Called at DIRQL */
