@@ -33,4 +33,6 @@ REG DELETE HKLM\SYSTEM\CurrentControlSet\Services\XenVbd /f
 REG DELETE HKLM\SYSTEM\CurrentControlSet\Control\Class\{4D36E96A-E325-11CE-BFC1-08002BE10318} /v UpperFilters /f
 REG DELETE HKLM\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002bE10318} /v UpperFilters /f
 REG DELETE HKLM\SYSTEM\CurrentControlSet\Control\Class\{4D36E97B-E325-11CE-BFC1-08002BE10318} /v UpperFilters /f
+REG DELETE HKLM\SYSTEM\CurrentControlSet\Control\Class\{4D36E97D-E325-11CE-BFC1-08002BE10318} /v UpperFilters /f
+
 ECHO done
