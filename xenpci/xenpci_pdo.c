@@ -638,7 +638,7 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
     if (xen_dma_adapter->dma_extension->need_virtual_address && xen_dma_adapter->dma_extension->need_virtual_address(DeviceObject->CurrentIrp))
     {
       ASSERT(!Mdl->Next); /* can only virtual a single buffer */
-      ASSERT(MmGetMdlVirtualAddress(Mdl) == CurrentVa);
+      //ASSERT(MmGetMdlVirtualAddress(Mdl) == CurrentVa);
       map_type = MAP_TYPE_VIRTUAL;
       sglist->NumberOfElements = 1;
     }
@@ -819,7 +819,7 @@ for (curr_mdl = Mdl; curr_mdl; curr_mdl = curr_mdl->Next)
   case MAP_TYPE_VIRTUAL:
     ptr = MmGetSystemAddressForMdlSafe(Mdl, NormalPagePriority);
     ASSERT(ptr); /* lazy */
-    sglist->Elements[0].Address.QuadPart = (ULONGLONG)ptr;
+    sglist->Elements[0].Address.QuadPart = (ULONGLONG)ptr + ((UINT_PTR)CurrentVa - (UINT_PTR)MmGetMdlVirtualAddress(Mdl));
     sglist->Elements[0].Length = Length;
     //KdPrint((__DRIVER_NAME "     MAP_TYPE_VIRTUAL - %08x\n", sglist->Elements[0].Address.LowPart));
     break;
