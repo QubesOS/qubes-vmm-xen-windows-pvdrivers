@@ -623,10 +623,10 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
     KdPrint((__DRIVER_NAME "     NULL ScatterGatherBuffer\n"));
     return STATUS_INVALID_PARAMETER;
   }
-  if (MmGetMdlVirtualAddress(Mdl) != CurrentVa)
-  {
-    KdPrint((__DRIVER_NAME "     MmGetMdlVirtualAddress = %p, CurrentVa = %p, Length = %d\n", MmGetMdlVirtualAddress(Mdl), CurrentVa, Length));
-  }
+  //if (MmGetMdlVirtualAddress(Mdl) != CurrentVa)
+  //{
+  //  KdPrint((__DRIVER_NAME "     MmGetMdlVirtualAddress = %p, CurrentVa = %p, Length = %d\n", MmGetMdlVirtualAddress(Mdl), CurrentVa, Length));
+  //}
 
   xen_dma_adapter = (xen_dma_adapter_t *)DmaAdapter;
   xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
