@@ -44,7 +44,7 @@ XenUsb_ExecuteRequestCallback(
     shadow->req.seg[i].gref = (grant_ref_t)(sg_list->Elements->Address.QuadPart >> PAGE_SHIFT);
     shadow->req.seg[i].offset = (USHORT)sg_list->Elements->Address.LowPart & (PAGE_SIZE - 1);
     shadow->req.seg[i].length = (USHORT)sg_list->Elements->Length;
-    shadow->req.buffer_length += sg_list->Elements->Length;
+    shadow->req.buffer_length = shadow->req.buffer_length + (USHORT)sg_list->Elements->Length;
   }
   shadow->req.nr_buffer_segs = (USHORT)sg_list->NumberOfElements;
   //KdPrint((__DRIVER_NAME "     buffer_length = %d\n", shadow->req.buffer_length));
@@ -242,7 +242,7 @@ static BOOLEAN
 XenUsb_HandleEvent(PVOID context)
 {
   PXENUSB_DEVICE_DATA xudd = context;
-  RING_IDX i, prod, cons;
+  RING_IDX prod, cons;
   usbif_response_t *rsp;
   int more_to_do = TRUE;
   usbif_shadow_t *complete_head = NULL, *complete_tail = NULL;
@@ -678,9 +678,6 @@ XenUsb_EvtChildListScanForChildren(WDFCHILDLIST child_list)
   PCHAR err;
   PCHAR value;
   ULONG i;
-  usbif_shadow_t *shadow;
-  PUSB_DEFAULT_PIPE_SETUP_PACKET setup_packet;
-  int notify;
 
   FUNCTION_ENTER();
 

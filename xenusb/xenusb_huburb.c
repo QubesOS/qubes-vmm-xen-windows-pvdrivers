@@ -33,14 +33,10 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
   PXENUSB_DEVICE_DATA xudd = GetXudd(xupdd->wdf_device_bus_fdo);
   WDF_REQUEST_PARAMETERS wrp;
   PURB urb;
-  PUSB_DEFAULT_PIPE_SETUP_PACKET setup_packet;
-  PMDL mdl;
   PUSBD_INTERFACE_INFORMATION interface_information;
   ULONG i, j;
-  int notify;
   xenusb_device_t *usb_device;
   PUSB_HUB_DESCRIPTOR uhd;
-  KIRQL old_irql;
   xenusb_endpoint_t *endpoint;
 
   UNREFERENCED_PARAMETER(input_buffer_length);

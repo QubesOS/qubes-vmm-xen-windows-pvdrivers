@@ -100,8 +100,6 @@ XenUsbHub_EvtIoInternalDeviceControl(
   NTSTATUS status;
   WDFDEVICE device = WdfIoQueueGetDevice(queue);
   PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(device);
-  PDEVICE_OBJECT fdo;
-  PIRP irp;
   WDF_REQUEST_PARAMETERS wrp;
   PURB urb;
   xenusb_device_t *usb_device;
@@ -386,11 +384,6 @@ XenPciPdo_UBIH_InitializeUsbDevice(
   PXENUSB_DEVICE_DATA xudd = GetXudd(xupdd->wdf_device_bus_fdo);
   WDF_IO_QUEUE_CONFIG queue_config;
   xenusb_device_t *usb_device = DeviceHandle;
-  PDEVICE_OBJECT fdo;
-  KEVENT irp_complete_event;
-  PIRP irp;
-  URB urb;
-  PIO_STACK_LOCATION stack;
   PUCHAR ptr;
   PVOID buf;
   PMDL mdl;
@@ -496,7 +489,7 @@ XenPciPdo_UBIH_InitializeUsbDevice(
     setup_packet->bmRequestType.Type = BMREQUEST_STANDARD;
     setup_packet->bmRequestType.Dir = BMREQUEST_DEVICE_TO_HOST;
     setup_packet->bRequest = USB_REQUEST_GET_DESCRIPTOR;
-    setup_packet->wValue.LowByte = i+1;
+    setup_packet->wValue.LowByte = (UCHAR)(i + 1);
     setup_packet->wValue.HiByte = USB_CONFIGURATION_DESCRIPTOR_TYPE; //device descriptor
     setup_packet->wIndex.W = 0;
     setup_packet->wLength = shadow->req.buffer_length;
@@ -509,7 +502,7 @@ XenPciPdo_UBIH_InitializeUsbDevice(
     KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
     KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
     ptr = buf;
-    config_descriptor = ptr;
+    config_descriptor = (PUSB_CONFIGURATION_DESCRIPTOR)ptr;
     KdPrint((__DRIVER_NAME "     Config %d\n", i));
     KdPrint((__DRIVER_NAME "      bLength = %d\n", config_descriptor->bLength));
     KdPrint((__DRIVER_NAME "      bDescriptorType = %d\n", config_descriptor->bDescriptorType));
@@ -525,7 +518,7 @@ XenPciPdo_UBIH_InitializeUsbDevice(
     ptr += config_descriptor->bLength;
     for (j = 0; j < config_descriptor->bNumInterfaces; j++)
     {
-      interface_descriptor = ptr;
+      interface_descriptor = (PUSB_INTERFACE_DESCRIPTOR)ptr;
       KdPrint((__DRIVER_NAME "       Interface %d\n", j));
       KdPrint((__DRIVER_NAME "        bLength = %d\n", interface_descriptor->bLength));
       KdPrint((__DRIVER_NAME "        bDescriptorType = %d\n", interface_descriptor->bDescriptorType));
@@ -542,7 +535,7 @@ XenPciPdo_UBIH_InitializeUsbDevice(
       memcpy(&usb_device->configs[i]->interfaces[j]->interface_descriptor, interface_descriptor, sizeof(USB_INTERFACE_DESCRIPTOR));
       for (k = 0; k < interface_descriptor->bNumEndpoints; k++)
       {
-        endpoint_descriptor = ptr;
+        endpoint_descriptor = (PUSB_ENDPOINT_DESCRIPTOR)ptr;
         KdPrint((__DRIVER_NAME "        Endpoint %d\n", k));
         KdPrint((__DRIVER_NAME "         bLength = %d\n", endpoint_descriptor->bLength));
         KdPrint((__DRIVER_NAME "         bDescriptorType = %d\n", endpoint_descriptor->bDescriptorType));
@@ -627,7 +620,6 @@ XenPciPdo_UBIH_GetUsbDescriptors(
   WDFDEVICE device = BusContext;
   xenusb_device_t *usb_device = DeviceHandle;
   xenusb_config_t *usb_config;
-  int i, j;
   PUCHAR ptr;
 
   FUNCTION_ENTER();
@@ -674,6 +666,10 @@ XenPciPdo_UBIH_RemoveUsbDevice (
  ULONG Flags)
 {
   NTSTATUS status = STATUS_SUCCESS;
+
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(DeviceHandle);
+
   FUNCTION_ENTER();
   
   if (Flags & USBD_KEEP_DEVICE_DATA)
@@ -693,6 +689,11 @@ XenPciPdo_UBIH_RestoreUsbDevice(
   PUSB_DEVICE_HANDLE NewDeviceHandle)
 {
   NTSTATUS status = STATUS_UNSUCCESSFUL;
+
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(OldDeviceHandle);
+  UNREFERENCED_PARAMETER(NewDeviceHandle);
+  
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
@@ -705,6 +706,10 @@ XenPciPdo_UBIH_GetPortHackFlags(
  PULONG HackFlags)
 {
   NTSTATUS status = STATUS_UNSUCCESSFUL;
+
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(HackFlags);
+
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
@@ -729,7 +734,7 @@ XenPciPdo_UBIH_QueryDeviceInformation(
   KdPrint((__DRIVER_NAME "     DeviceInformationBuffer = %p\n", DeviceInformationBuffer));
   KdPrint((__DRIVER_NAME "     DeviceInformationBufferLength = %d\n", DeviceInformationBufferLength));
   KdPrint((__DRIVER_NAME "     ->InformationLevel = %d\n", udi->InformationLevel));
-  if (DeviceInformationBufferLength < FIELD_OFFSET(USB_DEVICE_INFORMATION_0, PipeList[1]))
+  if (DeviceInformationBufferLength < (ULONG)FIELD_OFFSET(USB_DEVICE_INFORMATION_0, PipeList[1]))
   {
     KdPrint((__DRIVER_NAME "     STATUS_BUFFER_TOO_SMALL\n"));
     FUNCTION_EXIT();
@@ -771,7 +776,7 @@ XenPciPdo_UBIH_GetControllerInformation (
 {
   NTSTATUS status = STATUS_UNSUCCESSFUL;
   PUSB_CONTROLLER_INFORMATION_0 uci = ControllerInformationBuffer;
-  WDFDEVICE device = BusContext;
+  //WDFDEVICE device = BusContext;
   //xenusb_device_t *usb_device = DeviceHandle;
 
   FUNCTION_ENTER();
@@ -806,6 +811,10 @@ XenPciPdo_UBIH_ControllerSelectiveSuspend (
   BOOLEAN Enable)
 {
   NTSTATUS status = STATUS_UNSUCCESSFUL;
+
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(Enable);
+  
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
@@ -821,7 +830,7 @@ XenPciPdo_UBIH_GetExtendedHubInformation (
   PULONG LengthOfDataReturned)
 {
   PUSB_EXTHUB_INFORMATION_0 hib = HubInformationBuffer;
-  int i;
+  ULONG i;
 
   FUNCTION_ENTER();
 
@@ -830,7 +839,7 @@ XenPciPdo_UBIH_GetExtendedHubInformation (
   KdPrint((__DRIVER_NAME "     HubInformationBuffer = %p\n", HubInformationBuffer));
   KdPrint((__DRIVER_NAME "     HubInformationBufferLength = %d\n", HubInformationBufferLength));
   KdPrint((__DRIVER_NAME "     ->InformationLevel = %d\n", hib->InformationLevel));
-  if (HubInformationBufferLength < FIELD_OFFSET(USB_EXTHUB_INFORMATION_0, Port[8]))
+  if (HubInformationBufferLength < (ULONG)FIELD_OFFSET(USB_EXTHUB_INFORMATION_0, Port[8]))
   {
     KdPrint((__DRIVER_NAME "     STATUS_BUFFER_TOO_SMALL\n"));
     FUNCTION_EXIT();
@@ -878,16 +887,18 @@ XenPciPdo_UBIH_GetRootHubSymbolicName(
   return status;
 }
 
-static NTSTATUS
+static PVOID
 XenPciPdo_UBIH_GetDeviceBusContext(
   PVOID BusContext,
   PVOID DeviceHandle)
 {
-  NTSTATUS status = STATUS_UNSUCCESSFUL;
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(DeviceHandle);
+  
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
-  return status;
+  return NULL;
 }
 
 static NTSTATUS
@@ -932,6 +943,10 @@ XenPciPdo_UBIH_FlushTransfers(
   PUSB_DEVICE_HANDLE DeviceHandle)
 {
   NTSTATUS status = STATUS_SUCCESS;
+
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(DeviceHandle);
+  
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
@@ -944,6 +959,10 @@ XenPciPdo_UBIH_SetDeviceHandleData(
   PUSB_DEVICE_HANDLE DeviceHandle,
   PDEVICE_OBJECT UsbDevicePdo)
 {
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(DeviceHandle);
+  UNREFERENCED_PARAMETER(UsbDevicePdo);
+  
   FUNCTION_ENTER();
   FUNCTION_EXIT();
 }
@@ -956,6 +975,11 @@ XenPciPdo_UBIU_GetUSBDIVersion(
   )
 {
   NTSTATUS status = STATUS_UNSUCCESSFUL;
+
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(VersionInformation);
+  UNREFERENCED_PARAMETER(HcdCapabilities);
+
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
@@ -969,6 +993,10 @@ XenPciPdo_UBIU_QueryBusTime(
   )
 {
   NTSTATUS status = STATUS_UNSUCCESSFUL;
+
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(CurrentFrame);
+  
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
@@ -982,6 +1010,10 @@ XenPciPdo_UBIU_SubmitIsoOutUrb(
   )
 {
   NTSTATUS status = STATUS_UNSUCCESSFUL;
+
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(Urb);
+  
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
@@ -997,6 +1029,13 @@ XenPciPdo_UBIU_QueryBusInformation(
   PULONG BusInformationActualLength)
 {
   NTSTATUS status = STATUS_UNSUCCESSFUL;
+
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(Level);
+  UNREFERENCED_PARAMETER(BusInformationBuffer);
+  UNREFERENCED_PARAMETER(BusInformationBufferLength);
+  UNREFERENCED_PARAMETER(BusInformationActualLength);
+  
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
@@ -1006,6 +1045,8 @@ XenPciPdo_UBIU_QueryBusInformation(
 static BOOLEAN
 XenPciPdo_UBIU_IsDeviceHighSpeed(PVOID BusContext)
 {
+  UNREFERENCED_PARAMETER(BusContext);
+  
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
@@ -1024,6 +1065,8 @@ XenPciPdo_UBIU_EnumLogEntry(
   NTSTATUS status = STATUS_SUCCESS;
   FUNCTION_ENTER();
   
+  UNREFERENCED_PARAMETER(BusContext);
+  
   KdPrint((__DRIVER_NAME "     DriverTag = %08x\n", DriverTag));
   KdPrint((__DRIVER_NAME "     EnumTag = %08x\n", EnumTag));
   KdPrint((__DRIVER_NAME "     P1 = %08x\n", P1));
@@ -1041,7 +1084,7 @@ XenUsb_EnumeratePorts(WDFDEVICE device)
   CHAR path[128];
   PCHAR err;
   PCHAR value;
-  int i;
+  ULONG i;
   
   for (i = 0; i < xudd->num_ports; i++)
   {
@@ -1093,7 +1136,7 @@ XenUsbHub_HubInterruptTimer(WDFTIMER timer)
   WDF_REQUEST_PARAMETERS wrp;
   WDFREQUEST request;
   PURB urb;
-  int i;
+  ULONG i;
   
   //FUNCTION_ENTER();
   WdfSpinLockAcquire(endpoint->interrupt_lock);
@@ -1169,22 +1212,6 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   WDF_PNPPOWER_EVENT_CALLBACKS child_pnp_power_callbacks;
   WDF_DEVICE_POWER_CAPABILITIES child_power_capabilities;
   WDF_IO_QUEUE_CONFIG queue_config;
-  WDFIOTARGET bus_target;
-  PDEVICE_OBJECT fdo;
-  PIRP irp;
-  PIO_STACK_LOCATION stack;
-  KEVENT irp_complete_event;
-  usbif_request_t *req;
-  usbif_response_t *rsp;
-  URB urb;
-  PVOID buf;
-  PUSB_DEVICE_DESCRIPTOR device_descriptor;
-  PUSB_CONFIGURATION_DESCRIPTOR config_descriptor;  
-  PUSB_INTERFACE_DESCRIPTOR interface_descriptor;
-  PUCHAR ptr;
-  int num_configs;
-  int i, j, k;
-  xenusb_device_t *usb_device;
   WDF_QUERY_INTERFACE_CONFIG interface_config;
   USB_BUS_INTERFACE_HUB_V5 ubih;
   USB_BUS_INTERFACE_USBDI_V2 ubiu;

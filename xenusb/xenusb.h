@@ -119,7 +119,6 @@ struct _usbif_shadow {
   usbif_request_t req;
   usbif_response_t rsp;
   usbif_shadow_t *next; /* for gathering shadows from the ring for callback */
-  ULONGLONG submit_time;
 };
 
 #define MAX_SHADOW_ENTRIES 64
