@@ -723,6 +723,216 @@ XenUsb_EvtChildListScanForChildren(WDFCHILDLIST child_list)
 }
 
 static VOID
+XenUsb_EvtIoDeviceControl(
+  WDFQUEUE queue,
+  WDFREQUEST request,
+  size_t output_buffer_length,
+  size_t input_buffer_length,
+  ULONG io_control_code)
+{
+  NTSTATUS status;
+  WDFDEVICE device = WdfIoQueueGetDevice(queue);
+  PXENUSB_DEVICE_DATA xudd = GetXudd(device);
+  //WDF_REQUEST_PARAMETERS wrp;
+  //PURB urb;
+  //xenusb_device_t *usb_device;
+
+  UNREFERENCED_PARAMETER(queue);
+  UNREFERENCED_PARAMETER(input_buffer_length);
+  UNREFERENCED_PARAMETER(output_buffer_length);
+
+  FUNCTION_ENTER();
+
+  status = STATUS_UNSUCCESSFUL;
+
+  //WDF_REQUEST_PARAMETERS_INIT(&wrp);
+  //WdfRequestGetParameters(request, &wrp);
+
+  // these are in api\usbioctl.h
+  switch(io_control_code)
+  {
+#if 0
+  case IOCTL_USB_GET_NODE_INFORMATION:
+  {
+    PUSB_NODE_INFORMATION uni;
+    size_t length;
+    
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_INFORMATION\n"));
+    KdPrint((__DRIVER_NAME "      output_buffer_length = %d\n", output_buffer_length));
+    // make sure size is >= bDescriptorLength
+    status = WdfRequestRetrieveOutputBuffer(request, output_buffer_length, (PVOID *)&uni, &length);
+    if (NT_SUCCESS(status))
+    {
+      switch(uni->NodeType)
+      {
+      case UsbHub:
+        KdPrint((__DRIVER_NAME "      NodeType = UsbHub\n"));
+        uni->u.HubInformation.HubDescriptor.bDescriptorLength = FIELD_OFFSET(USB_HUB_DESCRIPTOR, bRemoveAndPowerMask) + 3;
+        if (output_buffer_length >= FIELD_OFFSET(USB_NODE_INFORMATION, u.HubInformation.HubDescriptor.bRemoveAndPowerMask) + 3)
+        {
+          uni->u.HubInformation.HubDescriptor.bDescriptorType = 0x29;
+          uni->u.HubInformation.HubDescriptor.bNumberOfPorts = 8;
+          uni->u.HubInformation.HubDescriptor.wHubCharacteristics = 0x0012; // no power switching no overcurrent protection
+          uni->u.HubInformation.HubDescriptor.bPowerOnToPowerGood = 1; // 2ms units
+          uni->u.HubInformation.HubDescriptor.bHubControlCurrent = 0;
+          // DeviceRemovable bits (includes an extra bit at the start)
+          uni->u.HubInformation.HubDescriptor.bRemoveAndPowerMask[0] = 0;
+          uni->u.HubInformation.HubDescriptor.bRemoveAndPowerMask[1] = 0;
+          // PortPwrCtrlMask
+          uni->u.HubInformation.HubDescriptor.bRemoveAndPowerMask[2] = 0xFF;
+          uni->u.HubInformation.HubIsBusPowered = TRUE;
+        }
+        WdfRequestSetInformation(request, FIELD_OFFSET(USB_NODE_INFORMATION, u.HubInformation.HubDescriptor.bRemoveAndPowerMask) + 3);
+        break;
+      case UsbMIParent:
+        KdPrint((__DRIVER_NAME "      NodeType = UsbMIParent\n"));
+        status = STATUS_UNSUCCESSFUL;
+        break;
+      }
+    }
+    else
+    {
+      KdPrint((__DRIVER_NAME "     WdfRequestRetrieveOutputBuffer = %08x\n", status));
+    }    
+    break;
+  }
+#endif
+  case IOCTL_USB_GET_NODE_CONNECTION_INFORMATION:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_INFORMATION\n"));
+    break;
+  case IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION\n"));
+    break;
+  case IOCTL_USB_GET_NODE_CONNECTION_NAME:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_NAME\n"));
+    break;
+  case IOCTL_USB_DIAG_IGNORE_HUBS_ON:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_DIAG_IGNORE_HUBS_ON\n"));
+    break;
+  case IOCTL_USB_DIAG_IGNORE_HUBS_OFF:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_DIAG_IGNORE_HUBS_OFF\n"));
+    break;
+  case IOCTL_USB_GET_NODE_CONNECTION_DRIVERKEY_NAME:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_DRIVERKEY_NAME\n"));
+    break;
+  case IOCTL_USB_GET_HUB_CAPABILITIES:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_HUB_CAPABILITIES\n"));
+    break;
+  case IOCTL_USB_HUB_CYCLE_PORT:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_HUB_CYCLE_PORT\n"));
+    break;
+  case IOCTL_USB_GET_NODE_CONNECTION_ATTRIBUTES:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_ATTRIBUTES\n"));
+    break;
+  case IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX\n"));
+    break;
+  case IOCTL_USB_GET_ROOT_HUB_NAME:
+  {
+    PUSB_HCD_DRIVERKEY_NAME uhdn;
+    size_t length;
+    
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_ROOT_HUB_NAME\n"));
+    KdPrint((__DRIVER_NAME "      output_buffer_length = %d\n", output_buffer_length));
+      
+    if (output_buffer_length < sizeof(USB_HCD_DRIVERKEY_NAME))
+      status = STATUS_INSUFFICIENT_RESOURCES;
+    else
+    {
+      status = WdfRequestRetrieveOutputBuffer(request, output_buffer_length, (PVOID *)&uhdn, &length);
+      if (NT_SUCCESS(status))
+      {
+        WDFSTRING symbolic_link_wdfstring;
+        UNICODE_STRING symbolic_link;
+        
+        uhdn->DriverKeyName[0] = 0;
+        status = WdfStringCreate(NULL, WDF_NO_OBJECT_ATTRIBUTES, &symbolic_link_wdfstring);
+        status = WdfDeviceRetrieveDeviceInterfaceString(xudd->root_hub_device, &GUID_DEVINTERFACE_USB_HUB, NULL, symbolic_link_wdfstring);
+        if (NT_SUCCESS(status))
+        {
+          WdfStringGetUnicodeString(symbolic_link_wdfstring, &symbolic_link);
+          /* remove leading \??\ from name */
+          symbolic_link.Buffer += 4;
+          symbolic_link.Length -= 4 * sizeof(WCHAR);
+          uhdn->ActualLength = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + symbolic_link.Length + sizeof(WCHAR);
+          if (output_buffer_length >= uhdn->ActualLength)
+          {
+            memcpy(uhdn->DriverKeyName, symbolic_link.Buffer, symbolic_link.Length);
+            uhdn->DriverKeyName[symbolic_link.Length / 2] = 0;
+          }
+        }
+        else
+        {
+          KdPrint((__DRIVER_NAME "     WdfDeviceRetrieveDeviceInterfaceString = %08x\n", status));
+          status = STATUS_INVALID_PARAMETER;
+        }
+      }
+      else
+      {
+        KdPrint((__DRIVER_NAME "     WdfRequestRetrieveOutputBuffer = %08x\n", status));
+      }
+      KdPrint((__DRIVER_NAME "      uhdn->ActualLength = %d\n", uhdn->ActualLength));
+      KdPrint((__DRIVER_NAME "      uhdn->DriverKeyName = %S\n", uhdn->DriverKeyName));
+      WdfRequestSetInformation(request, uhdn->ActualLength);
+    }
+    break;
+  }
+  case IOCTL_GET_HCD_DRIVERKEY_NAME:
+  {
+    PUSB_HCD_DRIVERKEY_NAME uhdn;
+    size_t length;
+    
+    KdPrint((__DRIVER_NAME "     IOCTL_GET_HCD_DRIVERKEY_NAME\n"));
+    KdPrint((__DRIVER_NAME "      output_buffer_length = %d\n", output_buffer_length));
+      
+    if (output_buffer_length < sizeof(USB_HCD_DRIVERKEY_NAME))
+      status = STATUS_INSUFFICIENT_RESOURCES;
+    else
+    {
+      status = WdfRequestRetrieveOutputBuffer(request, output_buffer_length, (PVOID *)&uhdn, &length);
+      if (NT_SUCCESS(status))
+      {
+        ULONG key_length;
+        status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 0, NULL, &key_length);
+        status = STATUS_SUCCESS;
+        uhdn->ActualLength = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + key_length;
+        if (output_buffer_length >= uhdn->ActualLength)
+        {
+          status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 
+            uhdn->ActualLength - FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName), uhdn->DriverKeyName,
+            &key_length);
+        }
+        else
+        {
+          uhdn->DriverKeyName[0] = 0;
+        }
+      }
+      else
+      {
+        KdPrint((__DRIVER_NAME "     WdfRequestRetrieveOutputBuffer = %08x\n", status));
+      }
+      KdPrint((__DRIVER_NAME "      uhdn->ActualLength = %d\n", uhdn->ActualLength));
+      KdPrint((__DRIVER_NAME "      uhdn->DriverKeyName = %S\n", uhdn->DriverKeyName));
+      WdfRequestSetInformation(request, uhdn->ActualLength);
+    }
+    break;
+  }
+#if 0
+  case IOCTL_USB_RESET_HUB:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_RESET_HUB\n"));
+    break;
+#endif
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown IOCTL %08x\n", io_control_code));
+    break;
+  }
+  KdPrint((__DRIVER_NAME "     Calling WdfRequestComplete with status = %08x\n", status));
+  WdfRequestComplete(request, status);
+
+  FUNCTION_EXIT();
+}
+
+static VOID
 XenUsb_EvtIoInternalDeviceControl(
   WDFQUEUE queue,
   WDFREQUEST request,
@@ -752,6 +962,53 @@ XenUsb_EvtIoInternalDeviceControl(
     WdfRequestComplete(request, WdfRequestGetStatus(request));
     break;
   }
+
+  FUNCTION_EXIT();
+}
+
+static VOID
+XenUsb_EvtIoDefault(
+  WDFQUEUE queue,
+  WDFREQUEST request)
+{
+  NTSTATUS status;
+  WDF_REQUEST_PARAMETERS parameters;
+
+  FUNCTION_ENTER();
+
+  UNREFERENCED_PARAMETER(queue);
+
+  status = STATUS_UNSUCCESSFUL;
+
+  WDF_REQUEST_PARAMETERS_INIT(&parameters);
+  WdfRequestGetParameters(request, &parameters);
+
+  switch (parameters.Type)
+  {
+  case WdfRequestTypeCreate:
+    KdPrint((__DRIVER_NAME "     WdfRequestTypeCreate\n"));
+    break;
+  case WdfRequestTypeClose:
+    KdPrint((__DRIVER_NAME "     WdfRequestTypeClose\n"));
+    break;
+  case WdfRequestTypeRead:
+    KdPrint((__DRIVER_NAME "     WdfRequestTypeRead\n"));
+    break;
+  case WdfRequestTypeWrite:
+    KdPrint((__DRIVER_NAME "     WdfRequestTypeWrite\n"));
+    break;
+  case WdfRequestTypeDeviceControl:
+    KdPrint((__DRIVER_NAME "     WdfRequestTypeDeviceControl\n"));
+    
+    break;
+  case WdfRequestTypeDeviceControlInternal:
+    KdPrint((__DRIVER_NAME "     WdfRequestTypeDeviceControlInternal\n"));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown type %x\n", parameters.Type));
+    break;
+  }
+  WdfRequestComplete(request, status);  
 
   FUNCTION_EXIT();
 }
@@ -829,7 +1086,9 @@ XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   }
 
   WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queue_config, WdfIoQueueDispatchParallel);
+  queue_config.EvtIoDeviceControl = XenUsb_EvtIoDeviceControl;
   queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl;
+  queue_config.EvtIoDefault = XenUsb_EvtIoDefault;
   status = WdfIoQueueCreate(device, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &xudd->io_queue);
   if (!NT_SUCCESS(status)) {
       KdPrint((__DRIVER_NAME "     Error creating io_queue 0x%x\n", status));
@@ -857,6 +1116,12 @@ XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   pbi.BusNumber = 0;
   WdfDeviceSetBusInformationForChildren(device, &pbi);
 
+  status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_USB_HOST_CONTROLLER, NULL);
+  if (!NT_SUCCESS(status))
+    return status;
+
+  //status = WdfDeviceOpenRegistryKey(device, 
+  
   FUNCTION_EXIT();
   return status;
 }

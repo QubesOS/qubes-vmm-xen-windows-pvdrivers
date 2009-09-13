@@ -55,6 +55,7 @@ XenUsbHub_EvtIoDefault(
     break;
   case WdfRequestTypeDeviceControl:
     KdPrint((__DRIVER_NAME "     WdfRequestTypeDeviceControl\n"));
+    
     break;
   case WdfRequestTypeDeviceControlInternal:
     KdPrint((__DRIVER_NAME "     WdfRequestTypeDeviceControlInternal\n"));
@@ -67,7 +68,6 @@ XenUsbHub_EvtIoDefault(
 
   FUNCTION_EXIT();
 }
-
 
 static NTSTATUS
 XenUsbHub_BusIrpCompletionRoutine(
@@ -87,6 +87,81 @@ XenUsbHub_BusIrpCompletionRoutine(
   FUNCTION_EXIT();
 
   return STATUS_MORE_PROCESSING_REQUIRED;
+}
+
+static VOID
+XenUsbHub_EvtIoDeviceControl(
+  WDFQUEUE queue,
+  WDFREQUEST request,
+  size_t output_buffer_length,
+  size_t input_buffer_length,
+  ULONG io_control_code)
+{
+  NTSTATUS status;
+  //WDFDEVICE device = WdfIoQueueGetDevice(queue);
+  //PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(device);
+  //WDF_REQUEST_PARAMETERS wrp;
+  //PURB urb;
+  //xenusb_device_t *usb_device;
+
+  UNREFERENCED_PARAMETER(queue);
+  UNREFERENCED_PARAMETER(input_buffer_length);
+  UNREFERENCED_PARAMETER(output_buffer_length);
+
+  FUNCTION_ENTER();
+
+  status = STATUS_UNSUCCESSFUL;
+
+  //WDF_REQUEST_PARAMETERS_INIT(&wrp);
+  //WdfRequestGetParameters(request, &wrp);
+
+  // these are in api\usbioctl.h
+  switch(io_control_code)
+  {
+  case IOCTL_USB_GET_NODE_INFORMATION:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_INFORMATION\n"));
+    break;
+  case IOCTL_USB_GET_NODE_CONNECTION_INFORMATION:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_INFORMATION\n"));
+    break;
+  case IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION\n"));
+    break;
+  case IOCTL_USB_GET_NODE_CONNECTION_NAME:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_NAME\n"));
+    break;
+  case IOCTL_USB_DIAG_IGNORE_HUBS_ON:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_DIAG_IGNORE_HUBS_ON\n"));
+    break;
+  case IOCTL_USB_DIAG_IGNORE_HUBS_OFF:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_DIAG_IGNORE_HUBS_OFF\n"));
+    break;
+  case IOCTL_USB_GET_NODE_CONNECTION_DRIVERKEY_NAME:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_DRIVERKEY_NAME\n"));
+    break;
+  case IOCTL_USB_GET_HUB_CAPABILITIES:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_HUB_CAPABILITIES\n"));
+    break;
+  case IOCTL_USB_HUB_CYCLE_PORT:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_HUB_CYCLE_PORT\n"));
+    break;
+  case IOCTL_USB_GET_NODE_CONNECTION_ATTRIBUTES:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_ATTRIBUTES\n"));
+    break;
+  case IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX:
+    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX\n"));
+    break;
+  case IOCTL_GET_HCD_DRIVERKEY_NAME:
+    KdPrint((__DRIVER_NAME "     IOCTL_GET_HCD_DRIVERKEY_NAME\n"));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     Unknown IOCTL %08x\n", io_control_code));
+    break;
+  }
+  KdPrint((__DRIVER_NAME "     Calling WdfRequestComplete with status = %08x\n", status));
+  WdfRequestComplete(request, status);
+
+  FUNCTION_EXIT();
 }
 
 static VOID
@@ -570,27 +645,6 @@ XenPciPdo_UBIH_InitializeUsbDevice(
     }
   }
 
-#if 0
-  WdfSpinLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &usb_device->configs[0]->interfaces[0]->endpoints[0]->interrupt_lock);
-  WDF_TIMER_CONFIG_INIT(&timer_config, XenUsbHub_HubInterruptTimer);  
-  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&timer_attributes, pxenusb_endpoint_t);
-  timer_attributes.ParentObject = child_device;
-  status = WdfTimerCreate(&timer_config, &timer_attributes, &usb_device->configs[0]->interfaces[0]->endpoints[0]->interrupt_timer);
-  if (!NT_SUCCESS(status)) {
-      KdPrint((__DRIVER_NAME "     Error creating timer 0x%x\n", status));
-      return status;
-  }
-  *GetEndpoint(usb_device->configs[0]->interfaces[0]->endpoints[0]->interrupt_timer) = usb_device->configs[0]->interfaces[0]->endpoints[0];
-  WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchManual);
-  //queue_config.PowerManaged = TRUE;
-  status = WdfIoQueueCreate(child_device, &queue_config, WDF_NO_OBJECT_ATTRIBUTES,
-    &usb_device->configs[0]->interfaces[0]->endpoints[0]->interrupt_queue);
-  if (!NT_SUCCESS(status)) {
-      KdPrint((__DRIVER_NAME "     Error creating timer io_queue 0x%x\n", status));
-      return status;
-  }
-#endif
-  
   WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchParallel);
   queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB;
   queue_config.PowerManaged = TRUE; /* power managed queue for SUBMIT_URB */
@@ -1350,6 +1404,7 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
 
   WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queue_config, WdfIoQueueDispatchParallel);
   queue_config.EvtIoInternalDeviceControl = XenUsbHub_EvtIoInternalDeviceControl;
+  queue_config.EvtIoDeviceControl = XenUsbHub_EvtIoDeviceControl;
   queue_config.EvtIoDefault = XenUsbHub_EvtIoDefault;
   /* can't be power managed or deadlocks occur */
   queue_config.PowerManaged = FALSE;
@@ -1427,7 +1482,11 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
     return status;
-    
+  
+  status = WdfDeviceCreateDeviceInterface(child_device, &GUID_DEVINTERFACE_USB_HUB, NULL);
+  if (!NT_SUCCESS(status))
+    return status;
+
   FUNCTION_EXIT();
   
   return status;
