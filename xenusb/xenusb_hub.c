@@ -478,7 +478,10 @@ XenPciPdo_UBIH_InitializeUsbDevice(
   
   // get address from freelist and assign it to the device...
   usb_device->address = 2;
+  // and get this stuff properly...
   usb_device->port_number = 1;
+  xupdd->usb_device->device_speed = UsbHighSpeed;
+  xupdd->usb_device->device_type = Usb20Device;
 
   buf = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENUSB_POOL_TAG);
   mdl = IoAllocateMdl(buf, PAGE_SIZE, FALSE, FALSE, NULL);
@@ -644,6 +647,8 @@ XenPciPdo_UBIH_InitializeUsbDevice(
       }
     }
   }
+  usb_device->active_config = usb_device->configs[0];
+  usb_device->active_interface = usb_device->configs[0]->interfaces[0];
 
   WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchParallel);
   queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB;
@@ -780,6 +785,7 @@ XenPciPdo_UBIH_QueryDeviceInformation(
 {
   PUSB_DEVICE_INFORMATION_0 udi = DeviceInformationBuffer;
   xenusb_device_t *usb_device = DeviceHandle;
+  ULONG i;
 
   FUNCTION_ENTER();
 
@@ -788,7 +794,7 @@ XenPciPdo_UBIH_QueryDeviceInformation(
   KdPrint((__DRIVER_NAME "     DeviceInformationBuffer = %p\n", DeviceInformationBuffer));
   KdPrint((__DRIVER_NAME "     DeviceInformationBufferLength = %d\n", DeviceInformationBufferLength));
   KdPrint((__DRIVER_NAME "     ->InformationLevel = %d\n", udi->InformationLevel));
-  if (DeviceInformationBufferLength < (ULONG)FIELD_OFFSET(USB_DEVICE_INFORMATION_0, PipeList[1]))
+  if (DeviceInformationBufferLength < (ULONG)FIELD_OFFSET(USB_DEVICE_INFORMATION_0, PipeList[usb_device->active_interface->interface_descriptor.bNumEndpoints]))
   {
     KdPrint((__DRIVER_NAME "     STATUS_BUFFER_TOO_SMALL\n"));
     FUNCTION_EXIT();
@@ -800,22 +806,20 @@ XenPciPdo_UBIH_QueryDeviceInformation(
     FUNCTION_EXIT();
     return STATUS_NOT_SUPPORTED;
   }
-  udi->ActualLength = FIELD_OFFSET(USB_DEVICE_INFORMATION_0, PipeList[1]);
-  udi->PortNumber = 0;
+  udi->ActualLength = FIELD_OFFSET(USB_DEVICE_INFORMATION_0, PipeList[usb_device->active_interface->interface_descriptor.bNumEndpoints]);
+  udi->PortNumber = 1;
   memcpy(&udi->DeviceDescriptor, &usb_device->device_descriptor, sizeof(USB_DEVICE_DESCRIPTOR));
   udi->CurrentConfigurationValue = usb_device->active_config->config_descriptor.bConfigurationValue;
   udi->DeviceAddress = usb_device->address;
-  udi->HubAddress = usb_device->address; // ?
-  udi->DeviceSpeed = UsbHighSpeed; // get from structure...
-  udi->DeviceType = Usb20Device; // get from structure...
-  udi->NumberOfOpenPipes = 1;
-  udi->PipeList[0].EndpointDescriptor.bLength = sizeof(USB_ENDPOINT_DESCRIPTOR);
-  udi->PipeList[0].EndpointDescriptor.bDescriptorType = USB_ENDPOINT_DESCRIPTOR_TYPE;
-  udi->PipeList[0].EndpointDescriptor.bEndpointAddress = 0x81;
-  udi->PipeList[0].EndpointDescriptor.bmAttributes = 0x3;
-  udi->PipeList[0].EndpointDescriptor.wMaxPacketSize = 2;
-  udi->PipeList[0].EndpointDescriptor.bInterval = 12;
-  udi->PipeList[0].ScheduleOffset = 0; // not necessarily right
+  udi->HubAddress = 1; // ?
+  udi->DeviceSpeed = usb_device->device_speed;
+  udi->DeviceType = usb_device->device_type;
+  udi->NumberOfOpenPipes = usb_device->active_interface->interface_descriptor.bNumEndpoints;
+  for (i = 0; i < usb_device->active_interface->interface_descriptor.bNumEndpoints; i++)
+  {
+    memcpy(&udi->PipeList[i].EndpointDescriptor, &usb_device->active_interface->endpoints[i]->endpoint_descriptor, sizeof(USB_ENDPOINT_DESCRIPTOR));
+    udi->PipeList[0].ScheduleOffset = 0; // not necessarily right
+  }
   *LengthOfDataReturned = udi->ActualLength;
   FUNCTION_EXIT();
   return STATUS_SUCCESS;
@@ -853,6 +857,8 @@ XenPciPdo_UBIH_GetControllerInformation (
   }
   
   uci->ActualLength = sizeof(USB_CONTROLLER_INFORMATION_0);
+  uci->SelectiveSuspendEnabled = FALSE;
+  uci->IsHighSpeedController = TRUE;
   *LengthOfDataReturned = uci->ActualLength;
   
   FUNCTION_EXIT();
@@ -1328,6 +1334,8 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   // get address from freelist...
   xupdd->usb_device->pdo_device = child_device;
   xupdd->usb_device->address = 1;
+  xupdd->usb_device->device_speed = UsbHighSpeed;
+  xupdd->usb_device->device_type = Usb20Device;
   xupdd->usb_device->device_descriptor.bLength = sizeof(USB_DEVICE_DESCRIPTOR);
   xupdd->usb_device->device_descriptor.bDescriptorType = USB_DEVICE_DESCRIPTOR_TYPE;
   xupdd->usb_device->device_descriptor.bcdUSB = 0x0200;
@@ -1355,6 +1363,7 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   xupdd->usb_device->configs[0]->config_descriptor.bmAttributes = 0xe0;
   xupdd->usb_device->configs[0]->config_descriptor.MaxPower = 0;
   xupdd->usb_device->configs[0]->interfaces[0] = ExAllocatePoolWithTag(NonPagedPool, sizeof(xenusb_interface_t) + sizeof(PVOID) * 1, XENUSB_POOL_TAG);
+  xupdd->usb_device->active_interface = xupdd->usb_device->configs[0]->interfaces[0];
   xupdd->usb_device->configs[0]->interfaces[0]->config = xupdd->usb_device->configs[0];
   xupdd->usb_device->configs[0]->interfaces[0]->interface_descriptor.bLength = 9;
   xupdd->usb_device->configs[0]->interfaces[0]->interface_descriptor.bDescriptorType = USB_INTERFACE_DESCRIPTOR_TYPE;

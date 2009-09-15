@@ -162,7 +162,10 @@ typedef struct _xenusb_device_t {
   USB_DEVICE_DESCRIPTOR device_descriptor;
   ULONG port_number;
   WDFQUEUE urb_queue;
+  USB_DEVICE_SPEED device_speed;
+  USB_DEVICE_TYPE device_type;
   xenusb_config_t *active_config;
+  xenusb_interface_t *active_interface;
   xenusb_config_t **configs; /* pointer to an array of configs */
 } xenusb_device_t;
 

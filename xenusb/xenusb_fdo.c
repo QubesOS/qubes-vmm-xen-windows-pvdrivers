@@ -168,7 +168,7 @@ XenUsb_ExecuteRequest(
     //FUNCTION_EXIT();
     return status;
   }
-  WdfDmaTransactionSetMaximumLength(shadow->dma_transaction, 512);
+  WdfDmaTransactionSetMaximumLength(shadow->dma_transaction, (USBIF_MAX_SEGMENTS_PER_REQUEST - 1) * PAGE_SIZE);
   status = WdfDmaTransactionExecute(shadow->dma_transaction, shadow);
   if (!NT_SUCCESS(status))
   {

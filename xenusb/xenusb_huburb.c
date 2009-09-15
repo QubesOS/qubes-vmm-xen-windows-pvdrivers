@@ -85,7 +85,7 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
     KdPrint((__DRIVER_NAME "      ConfigurationHandle = %p\n", urb->UrbSelectConfiguration.ConfigurationHandle));
     if (urb->UrbSelectConfiguration.ConfigurationDescriptor)
     {
-      urb->UrbSelectConfiguration.ConfigurationHandle = (PVOID)0xEEEEEEEE;
+      urb->UrbSelectConfiguration.ConfigurationHandle = xupdd->usb_device->configs[0];
       interface_information = &urb->UrbSelectConfiguration.Interface;
       for (i = 0; i < urb->UrbSelectConfiguration.ConfigurationDescriptor->bNumInterfaces; i++)
       {
@@ -99,7 +99,7 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
         KdPrint((__DRIVER_NAME "      Reserved = %02x\n", (ULONG)interface_information->Reserved));
         KdPrint((__DRIVER_NAME "      InterfaceHandle = %p\n", interface_information->InterfaceHandle));
         KdPrint((__DRIVER_NAME "      NumberOfPipes = %d\n", interface_information->NumberOfPipes));
-        interface_information->InterfaceHandle = (PVOID)0xBBBBBBBB; // do this on completion...
+        interface_information->InterfaceHandle = xupdd->usb_device->configs[0]->interfaces[0];
         interface_information->Class = 0x09;
         interface_information->SubClass = 0x00;
         interface_information->SubClass = 0x00;
@@ -117,7 +117,7 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
           interface_information->Pipes[j].EndpointAddress = 0x81;
           interface_information->Pipes[j].Interval = 12;
           interface_information->Pipes[j].PipeType = UsbdPipeTypeInterrupt;
-          interface_information->Pipes[j].PipeHandle = xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0];
+          interface_information->Pipes[j].PipeHandle = xupdd->usb_device->configs[0]->interfaces[0]->endpoints[j];
           interface_information->Pipes[j].MaximumTransferSize = 4096; /* made up number - possibly not used */
           // this is input actually interface_information->Pipes[j].PipeFlags = 0;
         }
