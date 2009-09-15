@@ -6,4 +6,5 @@ NTTARGETFILES=$(NTTARGETFILES) $(OBJ_PATH)\$(O)\$(TARGETNAME).inf
 TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\wdmsec.lib $(DDK_LIB_PATH)\Rtlver.lib $(DDK_LIB_PATH)\..\..\wlh\*\aux_klib.lib
 AMD64_SOURCES=hypercall.asm
 I386_SOURCES=tpr_emulate.asm
-SOURCES=xenpci.c xenpci_fdo.c xenpci_pdo.c evtchn.c gnttbl.c xenbus.c memory.c xenbus_device_interface.c xenpci_highsync.c xenpci_patch_kernel.c
+
+SOURCES=xenpci.rc xenpci.c xenpci_fdo.c xenpci_pdo.c evtchn.c gnttbl.c xenbus.c memory.c xenbus_device_interface.c xenpci_highsync.c xenpci_patch_kernel.c

@@ -73,6 +73,16 @@
                 <difx:Driver Sequence='3' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
               </Component>
             </Directory>
+            <Directory Id='XenUsbDir' Name='xenusb'>
+              <Component Id='XenUsb' Guid='83746E68-DBCC-4feb-B521-09D5328D3BB0'>
+                <File Id='xenusb.cat' Name='xenusb.cat' DiskId='1' Source='xenusb\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenusb.cat' />
+                <File Id='xenusb.inf' Name='xenusb.inf' DiskId='1' Source='xenusb\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenusb.inf' />
+                <File Id='xenusb.sys' Name='xenusb.sys' DiskId='1' Source='xenusb\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenusb.sys' />
+                <!-- we deliberately use the file from xenpci so that wix can deduplicate it -->
+                <File Id='WdfCoInstaller01007.dll_usb' Name='WdfCoInstaller01007.dll' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\WdfCoInstaller01007.dll' />
+                <difx:Driver Sequence='3' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
+              </Component>
+            </Directory>
           </Directory>
         </Directory>
         <Component Id='Cert' Guid='11112EC8-8635-45fb-9AE8-C22310F1E82D'>
@@ -99,6 +109,9 @@
       </Feature>
       <Feature Id='XenNet' Title='XenNet Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
         <ComponentRef Id='XenNet' />
+      </Feature>
+      <Feature Id='XenUsb' Title='XenUsb Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+        <ComponentRef Id='XenUsb' />
       </Feature>
     </Feature>
     <Feature Id='ShutdownMon' Title='Shutdown Monitor' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>

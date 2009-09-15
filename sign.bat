@@ -14,13 +14,15 @@ ECHO SIGN_OS=%SIGN_OS%
 xcopy /D coinst\%BUILDDIR%\coinst.dll xenvbd\%BUILDDIR%
 move xenvbd\%BUILDDIR%\coinst.dll xenvbd\%BUILDDIR%\xencoinst.dll
 xcopy /D %BASEDIR%\redist\wdf\%_BUILDARCH%\WdfCoInstaller01007.dll xenpci\%BUILDDIR%
+xcopy /D %BASEDIR%\redist\wdf\%_BUILDARCH%\WdfCoInstaller01007.dll xenusb\%BUILDDIR%
 
 REM IF NOT EXIST SIGN_CONFIG.BAT GOTO DONT_SIGN
 REM CALL SIGN_CONFIG.BAT
 
 SET CERT_NAME=GPLPV_Test_Cert
 
-%DDK_PATH%\bin\selfsign\signtool sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenpci\%BUILDDIR%\xenpci.sys xenpci\%BUILDDIR%\WdfCoInstaller01007.dll
+REM %DDK_PATH%\bin\selfsign\signtool sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenpci\%BUILDDIR%\xenpci.sys xenpci\%BUILDDIR%\WdfCoInstaller01007.dll
+%DDK_PATH%\bin\selfsign\signtool sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenpci\%BUILDDIR%\xenpci.sys
 %DDK_PATH%\bin\selfsign\inf2cat /driver:xenpci\%BUILDDIR% /os:%SIGN_OS%
 %DDK_PATH%\bin\selfsign\signtool sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenpci\%BUILDDIR%\xenpci.cat
 
@@ -35,5 +37,10 @@ SET CERT_NAME=GPLPV_Test_Cert
 %DDK_PATH%\bin\selfsign\signtool sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenscsi\%BUILDDIR%\xenscsi.sys
 %DDK_PATH%\bin\selfsign\inf2cat /driver:xenscsi\%BUILDDIR% /os:%SIGN_OS%
 %DDK_PATH%\bin\selfsign\signtool sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenscsi\%BUILDDIR%\xenscsi.cat
+
+REM %DDK_PATH%\bin\selfsign\signtool sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenusb\%BUILDDIR%\xenusb.sys xenusb\%BUILDDIR%\WdfCoInstaller01007.dll
+%DDK_PATH%\bin\selfsign\signtool sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenusb\%BUILDDIR%\xenusb.sys
+%DDK_PATH%\bin\selfsign\inf2cat /driver:xenusb\%BUILDDIR% /os:%SIGN_OS%
+%DDK_PATH%\bin\selfsign\signtool sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenusb\%BUILDDIR%\xenusb.cat
 
 :DONT_SIGN
