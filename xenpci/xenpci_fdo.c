@@ -98,12 +98,15 @@ XenPci_EvtDeviceQueryRemove(WDFDEVICE device)
 static NTSTATUS
 XenPci_Init(PXENPCI_DEVICE_DATA xpdd)
 {
+  NTSTATUS status;
   struct xen_add_to_physmap xatp;
   int ret;
 
   FUNCTION_ENTER();
 
-  hvm_get_stubs(xpdd);
+  status = hvm_get_stubs(xpdd);
+  if (!NT_SUCCESS(status))
+    return status;
 
   if (!xpdd->shared_info_area)
   {

@@ -589,6 +589,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   
   UNREFERENCED_PARAMETER(RegistryPath);
 
+  KdPrint((__DRIVER_NAME " " VER_FILEVERSION_STR));
+
   FUNCTION_ENTER();
 
   status = AuxKlibInitialize();
