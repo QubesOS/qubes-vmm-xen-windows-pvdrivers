@@ -26,7 +26,6 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
 {
   WDFQUEUE queue;
   WDFDEVICE device;
-  PXENUSB_PDO_DEVICE_DATA xupdd;
   PXENUSB_DEVICE_DATA xudd;
   //ULONG i;
 
@@ -37,8 +36,7 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
   ASSERT(queue);
   device = WdfIoQueueGetDevice(queue);
   ASSERT(device);
-  xupdd = GetXupdd(device);
-  xudd = GetXudd(xupdd->wdf_device_bus_fdo);
+  xudd = GetXudd(device);
 
   switch (shadow->urb->UrbHeader.Function)
   {
@@ -56,15 +54,14 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
   //case URB_FUNCTION_SET_DESCRIPTOR_TO_INTERFACE:
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE\n"));
     shadow->urb->UrbControlDescriptorRequest.TransferBufferLength = shadow->total_length;
-#if 0
 {
   PUCHAR addr = shadow->urb->UrbControlDescriptorRequest.TransferBuffer;
+  int i;
   if (!addr)
     addr = MmGetSystemAddressForMdlSafe(shadow->urb->UrbControlDescriptorRequest.TransferBufferMDL, HighPagePriority);
   for (i = 0; i < min(shadow->urb->UrbControlDescriptorRequest.TransferBufferLength, 16); i++)
-    KdPrint((__DRIVER_NAME "      UrbControlDescriptorRequest[%02x] = %02x\n", i, addr[i]));
+    KdPrint((__DRIVER_NAME "      UrbControlDescriptorRequest[%02x] = %02x '%c'\n", i, addr[i], (addr[i] < 32)?' ':addr[i]));
 }
-#endif
     break;
   case URB_FUNCTION_SELECT_CONFIGURATION:
     KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
@@ -95,6 +92,15 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
     shadow->urb->UrbControlVendorClassRequest.TransferBufferLength = shadow->total_length;
     break;
   case URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER:
+#if 0
+    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
+    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
+    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
+    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
+    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
+    KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
+    KdPrint((__DRIVER_NAME "     URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER\n"));
+#endif
     shadow->urb->UrbBulkOrInterruptTransfer.TransferBufferLength = shadow->total_length;
     break;
   default:
@@ -149,8 +155,7 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
 {
   NTSTATUS status;
   WDFDEVICE device = WdfIoQueueGetDevice(queue);
-  PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(device);
-  PXENUSB_DEVICE_DATA xudd = GetXudd(xupdd->wdf_device_bus_fdo);
+  PXENUSB_DEVICE_DATA xudd = GetXudd(device);
   WDF_REQUEST_PARAMETERS wrp;
   PURB urb;
   usbif_shadow_t *shadow;
@@ -188,9 +193,6 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
 
   ASSERT(usb_device);
   
-  if (!usb_device)
-    usb_device = xupdd->usb_device;
-
   switch(urb->UrbHeader.Function)
   {
   case URB_FUNCTION_SELECT_CONFIGURATION:
@@ -556,7 +558,7 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
       WdfRequestComplete(request, STATUS_SUCCESS);
       break;
     default:
-      KdPrint((__DRIVER_NAME "      TransferFlags = %08x\n", urb->UrbControlVendorClassRequest.TransferFlags));
+URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE      KdPrint((__DRIVER_NAME "      TransferFlags = %08x\n", urb->UrbControlVendorClassRequest.TransferFlags));
       KdPrint((__DRIVER_NAME "      TransferBufferLength = %d\n", urb->UrbControlVendorClassRequest.TransferBufferLength));
       KdPrint((__DRIVER_NAME "      TransferBuffer = %p\n", urb->UrbControlVendorClassRequest.TransferBuffer));
       KdPrint((__DRIVER_NAME "      TransferBufferMDL = %p\n", urb->UrbControlVendorClassRequest.TransferBufferMDL));
@@ -705,26 +707,6 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     break;
 #endif
   case URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER: /* 11.12.4 */
-#if 0
-    KdPrint((__DRIVER_NAME "     URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER\n"));
-    KdPrint((__DRIVER_NAME "      PipeHandle = %p\n", urb->UrbBulkOrInterruptTransfer.PipeHandle));
-#endif
-//    KdPrint((__DRIVER_NAME "      TransferFlags = %08x\n", urb->UrbBulkOrInterruptTransfer.TransferFlags));
-//    KdPrint((__DRIVER_NAME "      TransferBufferLength = %d\n", urb->UrbBulkOrInterruptTransfer.TransferBufferLength));
-#if 0
-    KdPrint((__DRIVER_NAME "      TransferBuffer = %p\n", urb->UrbBulkOrInterruptTransfer.TransferBuffer));
-    KdPrint((__DRIVER_NAME "      TransferBufferMdl = %p\n", urb->UrbBulkOrInterruptTransfer.TransferBufferMDL));
-    KdPrint((__DRIVER_NAME "      UrbLink = %p\n", urb->UrbBulkOrInterruptTransfer.UrbLink));
-#endif
-#if 0
-{
-  PUCHAR addr = urb->UrbBulkOrInterruptTransfer.TransferBuffer;
-  if (!addr)
-    addr = MmGetSystemAddressForMdlSafe(urb->UrbBulkOrInterruptTransfer.TransferBufferMDL, HighPagePriority);
-  for (i = 0; i < min(urb->UrbBulkOrInterruptTransfer.TransferBufferLength, 16); i++)
-    KdPrint((__DRIVER_NAME "      UrbBulkOrInterruptTransfer[%02x] = %02x\n", i, addr[i]));
-}
-#endif
     endpoint = urb->UrbBulkOrInterruptTransfer.PipeHandle;    
 //    KdPrint((__DRIVER_NAME "      pipe_value = %08x\n", endpoint->pipe_value));
     shadow = get_shadow_from_freelist(xudd);

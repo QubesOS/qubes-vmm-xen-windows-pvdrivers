@@ -221,11 +221,16 @@ XenUsbHub_EvtIoInternalDeviceControl(
   case IOCTL_INTERNAL_USB_GET_ROOTHUB_PDO:
     KdPrint((__DRIVER_NAME "     IOCTL_INTERNAL_USB_GET_ROOTHUB_PDO\n"));
     KdPrint((__DRIVER_NAME "     WdfDeviceWdmGetPhysicalDevice(device) = %p\n", WdfDeviceWdmGetPhysicalDevice(device)));
-    KdPrint((__DRIVER_NAME "     WdfDeviceWdmGetDeviceObject(device) = %p\n", WdfDeviceWdmGetDeviceObject(device)));
-    KdPrint((__DRIVER_NAME "     WdfDeviceWdmGetAttachedDevice(device) = %p\n", WdfDeviceWdmGetAttachedDevice(device)));
-    KdPrint((__DRIVER_NAME "     IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device)) = %p\n", IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device))));
+    //KdPrint((__DRIVER_NAME "     IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device)) = %p\n", IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device))));
     *(PVOID *)wrp.Parameters.Others.Arg1 = WdfDeviceWdmGetPhysicalDevice(device);
-    *(PVOID *)wrp.Parameters.Others.Arg2 = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device));
+    //*(PVOID *)wrp.Parameters.Others.Arg2 = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device));
+    *(PVOID *)wrp.Parameters.Others.Arg2 = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(xupdd->wdf_device_bus_fdo));
+    {
+    //PDEVICE_OBJECT hcdTopOfStack = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device));
+    PDEVICE_OBJECT hcdTopOfStack = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(xupdd->wdf_device_bus_fdo));
+    KdPrint((__DRIVER_NAME "     hcdTopOfStack = %p\n", hcdTopOfStack));
+    KdPrint((__DRIVER_NAME "     hcdTopOfStack->StackSize = %p\n", hcdTopOfStack->StackSize));
+    }
     status = STATUS_SUCCESS;
     break;
   case IOCTL_INTERNAL_USB_RESET_PORT:
@@ -416,7 +421,7 @@ XenUsb_SubmitCompletionRoutine(
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_CreateUsbDevice(
+XenUsbHub_UBIH_CreateUsbDevice(
   PVOID BusContext,
   PUSB_DEVICE_HANDLE *DeviceHandle,
   PUSB_DEVICE_HANDLE *HubDeviceHandle,
@@ -449,7 +454,7 @@ XenUsb_SetEventCallback(usbif_shadow_t *shadow)
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_InitializeUsbDevice(
+XenUsbHub_UBIH_InitializeUsbDevice(
  PVOID BusContext,
  PUSB_DEVICE_HANDLE DeviceHandle)
 {
@@ -653,7 +658,7 @@ XenPciPdo_UBIH_InitializeUsbDevice(
   WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchParallel);
   queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB;
   queue_config.PowerManaged = TRUE; /* power managed queue for SUBMIT_URB */
-  status = WdfIoQueueCreate(device, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &usb_device->urb_queue);
+  status = WdfIoQueueCreate(xupdd->wdf_device_bus_fdo, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &usb_device->urb_queue);
   if (!NT_SUCCESS(status)) {
       KdPrint((__DRIVER_NAME "     Error creating urb_queue 0x%x\n", status));
       return status;
@@ -666,7 +671,7 @@ XenPciPdo_UBIH_InitializeUsbDevice(
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_GetUsbDescriptors(
+XenUsbHub_UBIH_GetUsbDescriptors(
   PVOID BusContext,
   PUSB_DEVICE_HANDLE DeviceHandle,
   PUCHAR DeviceDescriptorBuffer,
@@ -719,7 +724,7 @@ XenPciPdo_UBIH_GetUsbDescriptors(
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_RemoveUsbDevice (
+XenUsbHub_UBIH_RemoveUsbDevice (
  PVOID BusContext,
  PUSB_DEVICE_HANDLE DeviceHandle,
  ULONG Flags)
@@ -742,7 +747,7 @@ XenPciPdo_UBIH_RemoveUsbDevice (
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_RestoreUsbDevice(
+XenUsbHub_UBIH_RestoreUsbDevice(
   PVOID BusContext,
   PUSB_DEVICE_HANDLE OldDeviceHandle,
   PUSB_DEVICE_HANDLE NewDeviceHandle)
@@ -760,7 +765,7 @@ XenPciPdo_UBIH_RestoreUsbDevice(
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_GetPortHackFlags(
+XenUsbHub_UBIH_GetPortHackFlags(
  PVOID BusContext,
  PULONG HackFlags)
 {
@@ -776,7 +781,7 @@ XenPciPdo_UBIH_GetPortHackFlags(
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_QueryDeviceInformation(
+XenUsbHub_UBIH_QueryDeviceInformation(
   PVOID BusContext,
   PUSB_DEVICE_HANDLE DeviceHandle,
   PVOID DeviceInformationBuffer,
@@ -786,6 +791,7 @@ XenPciPdo_UBIH_QueryDeviceInformation(
   PUSB_DEVICE_INFORMATION_0 udi = DeviceInformationBuffer;
   xenusb_device_t *usb_device = DeviceHandle;
   ULONG i;
+  ULONG required_size;
 
   FUNCTION_ENTER();
 
@@ -794,7 +800,10 @@ XenPciPdo_UBIH_QueryDeviceInformation(
   KdPrint((__DRIVER_NAME "     DeviceInformationBuffer = %p\n", DeviceInformationBuffer));
   KdPrint((__DRIVER_NAME "     DeviceInformationBufferLength = %d\n", DeviceInformationBufferLength));
   KdPrint((__DRIVER_NAME "     ->InformationLevel = %d\n", udi->InformationLevel));
-  if (DeviceInformationBufferLength < (ULONG)FIELD_OFFSET(USB_DEVICE_INFORMATION_0, PipeList[usb_device->active_interface->interface_descriptor.bNumEndpoints]))
+  required_size = (ULONG)FIELD_OFFSET(USB_DEVICE_INFORMATION_0, PipeList[usb_device->active_interface->interface_descriptor.bNumEndpoints]);
+  KdPrint((__DRIVER_NAME "     required_size = %d\n", required_size));
+  *LengthOfDataReturned = required_size;
+  if (DeviceInformationBufferLength < required_size)
   {
     KdPrint((__DRIVER_NAME "     STATUS_BUFFER_TOO_SMALL\n"));
     FUNCTION_EXIT();
@@ -806,7 +815,7 @@ XenPciPdo_UBIH_QueryDeviceInformation(
     FUNCTION_EXIT();
     return STATUS_NOT_SUPPORTED;
   }
-  udi->ActualLength = FIELD_OFFSET(USB_DEVICE_INFORMATION_0, PipeList[usb_device->active_interface->interface_descriptor.bNumEndpoints]);
+  udi->ActualLength = required_size;
   udi->PortNumber = 1;
   memcpy(&udi->DeviceDescriptor, &usb_device->device_descriptor, sizeof(USB_DEVICE_DESCRIPTOR));
   udi->CurrentConfigurationValue = usb_device->active_config->config_descriptor.bConfigurationValue;
@@ -820,13 +829,12 @@ XenPciPdo_UBIH_QueryDeviceInformation(
     memcpy(&udi->PipeList[i].EndpointDescriptor, &usb_device->active_interface->endpoints[i]->endpoint_descriptor, sizeof(USB_ENDPOINT_DESCRIPTOR));
     udi->PipeList[0].ScheduleOffset = 0; // not necessarily right
   }
-  *LengthOfDataReturned = udi->ActualLength;
   FUNCTION_EXIT();
   return STATUS_SUCCESS;
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_GetControllerInformation (
+XenUsbHub_UBIH_GetControllerInformation (
   PVOID BusContext,
   PVOID ControllerInformationBuffer,
   ULONG ControllerInformationBufferLength,
@@ -866,7 +874,7 @@ XenPciPdo_UBIH_GetControllerInformation (
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_ControllerSelectiveSuspend (
+XenUsbHub_UBIH_ControllerSelectiveSuspend (
   PVOID BusContext,
   BOOLEAN Enable)
 {
@@ -882,7 +890,7 @@ XenPciPdo_UBIH_ControllerSelectiveSuspend (
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_GetExtendedHubInformation (
+XenUsbHub_UBIH_GetExtendedHubInformation (
   PVOID BusContext,
   PDEVICE_OBJECT HubPhysicalDeviceObject,
   PVOID HubInformationBuffer,
@@ -927,7 +935,7 @@ XenPciPdo_UBIH_GetExtendedHubInformation (
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_GetRootHubSymbolicName(
+XenUsbHub_UBIH_GetRootHubSymbolicName(
   PVOID BusContext,
   PVOID HubInformationBuffer,
   ULONG HubInformationBufferLength,
@@ -948,7 +956,7 @@ XenPciPdo_UBIH_GetRootHubSymbolicName(
 }
 
 static PVOID
-XenPciPdo_UBIH_GetDeviceBusContext(
+XenUsbHub_UBIH_GetDeviceBusContext(
   PVOID BusContext,
   PVOID DeviceHandle)
 {
@@ -962,7 +970,7 @@ XenPciPdo_UBIH_GetDeviceBusContext(
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_Initialize20Hub (
+XenUsbHub_UBIH_Initialize20Hub (
   PVOID BusContext,
   PUSB_DEVICE_HANDLE HubDeviceHandle,
   ULONG TtCount)
@@ -977,7 +985,7 @@ XenPciPdo_UBIH_Initialize20Hub (
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_RootHubInitNotification(
+XenUsbHub_UBIH_RootHubInitNotification(
   PVOID BusContext,
   PVOID CallbackContext,
   PRH_INIT_CALLBACK CallbackFunction)
@@ -998,7 +1006,7 @@ XenPciPdo_UBIH_RootHubInitNotification(
 }
 
 static NTSTATUS
-XenPciPdo_UBIH_FlushTransfers(
+XenUsbHub_UBIH_FlushTransfers(
   PVOID BusContext,
   PUSB_DEVICE_HANDLE DeviceHandle)
 {
@@ -1014,7 +1022,7 @@ XenPciPdo_UBIH_FlushTransfers(
 }
 
 static VOID
-XenPciPdo_UBIH_SetDeviceHandleData(
+XenUsbHub_UBIH_SetDeviceHandleData(
   PVOID BusContext,
   PUSB_DEVICE_HANDLE DeviceHandle,
   PDEVICE_OBJECT UsbDevicePdo)
@@ -1028,7 +1036,7 @@ XenPciPdo_UBIH_SetDeviceHandleData(
 }
 
 static NTSTATUS
-XenPciPdo_UBIU_GetUSBDIVersion(
+XenUsbHub_UBIU_GetUSBDIVersion(
   PVOID BusContext,
   PUSBD_VERSION_INFORMATION VersionInformation,
   PULONG HcdCapabilities
@@ -1047,7 +1055,7 @@ XenPciPdo_UBIU_GetUSBDIVersion(
 }
 
 static NTSTATUS
-XenPciPdo_UBIU_QueryBusTime(
+XenUsbHub_UBIU_QueryBusTime(
   PVOID BusContext,
   PULONG CurrentFrame
   )
@@ -1064,7 +1072,7 @@ XenPciPdo_UBIU_QueryBusTime(
 }
 
 static NTSTATUS
-XenPciPdo_UBIU_SubmitIsoOutUrb(
+XenUsbHub_UBIU_SubmitIsoOutUrb(
   PVOID BusContext,
   PURB Urb
   )
@@ -1081,7 +1089,7 @@ XenPciPdo_UBIU_SubmitIsoOutUrb(
 }
 
 static NTSTATUS
-XenPciPdo_UBIU_QueryBusInformation(
+XenUsbHub_UBIU_QueryBusInformation(
   PVOID BusContext,
   ULONG Level,
   PVOID BusInformationBuffer,
@@ -1103,7 +1111,7 @@ XenPciPdo_UBIU_QueryBusInformation(
 }
 
 static BOOLEAN
-XenPciPdo_UBIU_IsDeviceHighSpeed(PVOID BusContext)
+XenUsbHub_UBIU_IsDeviceHighSpeed(PVOID BusContext)
 {
   UNREFERENCED_PARAMETER(BusContext);
   
@@ -1114,7 +1122,7 @@ XenPciPdo_UBIU_IsDeviceHighSpeed(PVOID BusContext)
 }
 
 static NTSTATUS
-XenPciPdo_UBIU_EnumLogEntry(
+XenUsbHub_UBIU_EnumLogEntry(
   PVOID BusContext,
   ULONG DriverTag,
   ULONG EnumTag,
@@ -1136,6 +1144,7 @@ XenPciPdo_UBIU_EnumLogEntry(
   return status;
 }
 
+#if 0
 VOID
 XenUsb_EnumeratePorts(WDFDEVICE device)
 {
@@ -1184,6 +1193,7 @@ XenUsb_EnumeratePorts(WDFDEVICE device)
     }
   }  
 }
+#endif
 
 static VOID
 XenUsbHub_HubInterruptTimer(WDFTIMER timer)
@@ -1286,6 +1296,7 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
 
   WdfDeviceInitSetDeviceType(child_init, FILE_DEVICE_UNKNOWN);
   
+  WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&child_pnp_power_callbacks);
   child_pnp_power_callbacks.EvtDeviceD0Entry = XenUsbHub_EvtDeviceD0Entry;
   child_pnp_power_callbacks.EvtDeviceD0Exit = XenUsbHub_EvtDeviceD0Exit;
   child_pnp_power_callbacks.EvtDevicePrepareHardware = XenUsbHub_EvtDevicePrepareHardware;
@@ -1453,22 +1464,22 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   ubih.BusContext = child_device;
   ubih.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
   ubih.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
-  ubih.CreateUsbDevice = XenPciPdo_UBIH_CreateUsbDevice;
-  ubih.InitializeUsbDevice = XenPciPdo_UBIH_InitializeUsbDevice;
-  ubih.GetUsbDescriptors = XenPciPdo_UBIH_GetUsbDescriptors;
-  ubih.RemoveUsbDevice = XenPciPdo_UBIH_RemoveUsbDevice;
-  ubih.RestoreUsbDevice = XenPciPdo_UBIH_RestoreUsbDevice;
-  ubih.GetPortHackFlags = XenPciPdo_UBIH_GetPortHackFlags;
-  ubih.QueryDeviceInformation = XenPciPdo_UBIH_QueryDeviceInformation;
-  ubih.GetControllerInformation = XenPciPdo_UBIH_GetControllerInformation;
-  ubih.ControllerSelectiveSuspend = XenPciPdo_UBIH_ControllerSelectiveSuspend;
-  ubih.GetExtendedHubInformation = XenPciPdo_UBIH_GetExtendedHubInformation;
-  ubih.GetRootHubSymbolicName = XenPciPdo_UBIH_GetRootHubSymbolicName;
-  ubih.GetDeviceBusContext = XenPciPdo_UBIH_GetDeviceBusContext;
-  ubih.Initialize20Hub = XenPciPdo_UBIH_Initialize20Hub;
-  ubih.RootHubInitNotification = XenPciPdo_UBIH_RootHubInitNotification;
-  ubih.FlushTransfers = XenPciPdo_UBIH_FlushTransfers;
-  ubih.SetDeviceHandleData = XenPciPdo_UBIH_SetDeviceHandleData;
+  ubih.CreateUsbDevice = XenUsbHub_UBIH_CreateUsbDevice;
+  ubih.InitializeUsbDevice = XenUsbHub_UBIH_InitializeUsbDevice;
+  ubih.GetUsbDescriptors = XenUsbHub_UBIH_GetUsbDescriptors;
+  ubih.RemoveUsbDevice = XenUsbHub_UBIH_RemoveUsbDevice;
+  ubih.RestoreUsbDevice = XenUsbHub_UBIH_RestoreUsbDevice;
+  ubih.GetPortHackFlags = XenUsbHub_UBIH_GetPortHackFlags;
+  ubih.QueryDeviceInformation = XenUsbHub_UBIH_QueryDeviceInformation;
+  ubih.GetControllerInformation = XenUsbHub_UBIH_GetControllerInformation;
+  ubih.ControllerSelectiveSuspend = XenUsbHub_UBIH_ControllerSelectiveSuspend;
+  ubih.GetExtendedHubInformation = XenUsbHub_UBIH_GetExtendedHubInformation;
+  ubih.GetRootHubSymbolicName = XenUsbHub_UBIH_GetRootHubSymbolicName;
+  ubih.GetDeviceBusContext = XenUsbHub_UBIH_GetDeviceBusContext;
+  ubih.Initialize20Hub = XenUsbHub_UBIH_Initialize20Hub;
+  ubih.RootHubInitNotification = XenUsbHub_UBIH_RootHubInitNotification;
+  ubih.FlushTransfers = XenUsbHub_UBIH_FlushTransfers;
+  ubih.SetDeviceHandleData = XenUsbHub_UBIH_SetDeviceHandleData;
   ubih.Size = sizeof(USB_BUS_INTERFACE_HUB_V5);
   ubih.Version = USB_BUSIF_HUB_VERSION_5;
   WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&ubih, &USB_BUS_INTERFACE_HUB_GUID, NULL);
@@ -1479,12 +1490,12 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   ubiu.BusContext = child_device;
   ubiu.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
   ubiu.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
-  ubiu.GetUSBDIVersion = XenPciPdo_UBIU_GetUSBDIVersion;
-  ubiu.QueryBusTime = XenPciPdo_UBIU_QueryBusTime;
-  ubiu.SubmitIsoOutUrb = XenPciPdo_UBIU_SubmitIsoOutUrb;
-  ubiu.QueryBusInformation = XenPciPdo_UBIU_QueryBusInformation;
-  ubiu.IsDeviceHighSpeed = XenPciPdo_UBIU_IsDeviceHighSpeed;
-  ubiu.EnumLogEntry  = XenPciPdo_UBIU_EnumLogEntry;
+  ubiu.GetUSBDIVersion = XenUsbHub_UBIU_GetUSBDIVersion;
+  ubiu.QueryBusTime = XenUsbHub_UBIU_QueryBusTime;
+  ubiu.SubmitIsoOutUrb = XenUsbHub_UBIU_SubmitIsoOutUrb;
+  ubiu.QueryBusInformation = XenUsbHub_UBIU_QueryBusInformation;
+  ubiu.IsDeviceHighSpeed = XenUsbHub_UBIU_IsDeviceHighSpeed;
+  ubiu.EnumLogEntry  = XenUsbHub_UBIU_EnumLogEntry;
   ubiu.Size = sizeof(USB_BUS_INTERFACE_USBDI_V2);
   ubiu.Version = USB_BUSIF_HUB_VERSION_2;
   WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&ubiu, &USB_BUS_INTERFACE_USBDI_GUID, NULL);

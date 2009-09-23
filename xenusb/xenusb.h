@@ -116,13 +116,13 @@ struct _usbif_shadow {
   ULONG total_length;
   /* called at DISPATCH_LEVEL */
   VOID (*callback)(usbif_shadow_t *);
-  usbif_request_t req;
-  usbif_response_t rsp;
+  usbif_urb_request_t req;
+  usbif_urb_response_t rsp;
   usbif_shadow_t *next; /* for gathering shadows from the ring for callback */
 };
 
 #define MAX_SHADOW_ENTRIES 64
-#define SHADOW_ENTRIES min(MAX_SHADOW_ENTRIES, USB_RING_SIZE)
+#define SHADOW_ENTRIES min(MAX_SHADOW_ENTRIES, USB_URB_RING_SIZE)
 
 struct _xenusb_endpoint_t;
 struct _xenusb_interface_t;
@@ -196,14 +196,19 @@ typedef struct {
   USHORT shadow_free;
 
   PUCHAR config_page;
-  
-  KSPIN_LOCK port_lock;
+
+  /* protected by conn_ring_lock */  
   ULONG num_ports;
   xenusb_port_t ports[32];
 
-  KSPIN_LOCK ring_lock;
-  usbif_sring_t *sring;
-  usbif_front_ring_t ring;
+  KSPIN_LOCK urb_ring_lock;
+  usbif_urb_sring_t *urb_sring;
+  usbif_urb_front_ring_t urb_ring;
+
+  KSPIN_LOCK conn_ring_lock;
+  usbif_conn_sring_t *conn_sring;
+  usbif_conn_front_ring_t conn_ring;
+
   evtchn_port_t event_channel;
 
   BOOLEAN inactive;

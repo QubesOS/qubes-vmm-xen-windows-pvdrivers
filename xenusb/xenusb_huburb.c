@@ -164,15 +164,6 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
     KdPrint((__DRIVER_NAME "      TransferBuffer = %p\n", urb->UrbControlDescriptorRequest.TransferBuffer));
     KdPrint((__DRIVER_NAME "      TransferBufferMDL = %p\n", urb->UrbControlDescriptorRequest.TransferBufferMDL));
     KdPrint((__DRIVER_NAME "      UrbLink = %p\n", urb->UrbControlDescriptorRequest.UrbLink));
-    KdPrint((__DRIVER_NAME "      hca.Reserved8[0] = %p\n", urb->UrbControlDescriptorRequest.hca.Reserved8[0]));
-    KdPrint((__DRIVER_NAME "      hca.Reserved8[1] = %p\n", urb->UrbControlDescriptorRequest.hca.Reserved8[1]));
-    KdPrint((__DRIVER_NAME "      hca.Reserved8[2] = %p\n", urb->UrbControlDescriptorRequest.hca.Reserved8[2]));
-    KdPrint((__DRIVER_NAME "      hca.Reserved8[3] = %p\n", urb->UrbControlDescriptorRequest.hca.Reserved8[3]));
-    KdPrint((__DRIVER_NAME "      hca.Reserved8[4] = %p\n", urb->UrbControlDescriptorRequest.hca.Reserved8[4]));
-    KdPrint((__DRIVER_NAME "      hca.Reserved8[5] = %p\n", urb->UrbControlDescriptorRequest.hca.Reserved8[5]));
-    KdPrint((__DRIVER_NAME "      hca.Reserved8[6] = %p\n", urb->UrbControlDescriptorRequest.hca.Reserved8[6]));
-    KdPrint((__DRIVER_NAME "      hca.Reserved8[7] = %p\n", urb->UrbControlDescriptorRequest.hca.Reserved8[7]));
-    KdPrint((__DRIVER_NAME "      Reserved1 = %04x\n", urb->UrbControlDescriptorRequest.Reserved1));
     KdPrint((__DRIVER_NAME "      Index = %d\n", (int)urb->UrbControlDescriptorRequest.Index));
     KdPrint((__DRIVER_NAME "      DescriptorType = %d\n", (int)urb->UrbControlDescriptorRequest.DescriptorType));
     KdPrint((__DRIVER_NAME "      LanguageId = %04x\n", urb->UrbControlDescriptorRequest.LanguageId));
@@ -432,7 +423,6 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
 #endif
     endpoint = urb->UrbBulkOrInterruptTransfer.PipeHandle;
     WdfSpinLockAcquire (endpoint->interrupt_lock);
-    // we should synchronise to the timer here to prevent a race
     if (WdfIoQueueGetState(endpoint->interrupt_queue, NULL, NULL) & WdfIoQueueNoRequests)
     {
       status = WdfTimerStart(endpoint->interrupt_timer, WDF_REL_TIMEOUT_IN_MS(100));
