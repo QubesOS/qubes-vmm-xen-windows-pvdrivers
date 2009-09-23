@@ -4,6 +4,9 @@
 
 #if !defined(__ia64__)
 
+#define XEN_SIGNATURE_LOWER 0x40000000
+#define XEN_SIGNATURE_UPPER 0x4000FFFF
+
 NTSTATUS
 hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
 {
@@ -14,7 +17,7 @@ hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
   ULONG pages;
   ULONG msr;
 
-  for (base = 0x40000000; base < 0x40001000; base += 0x100)
+  for (base = XEN_SIGNATURE_LOWER; base < XEN_SIGNATURE_UPPER; base += 0x100)
   {
     __cpuid(cpuid_output, base);
     *(ULONG*)(xensig + 0) = cpuid_output[1];
@@ -25,7 +28,7 @@ hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
     if (!strncmp("XenVMMXenVMM", xensig, 12) && ((cpuid_output[0] - base) >= 2))
       break;
   }
-  if (base >= 0x40001000)
+  if (base > XEN_SIGNATURE_UPPER)
   {
     KdPrint((__DRIVER_NAME "     Cannot find Xen signature\n"));
     return STATUS_UNSUCCESSFUL;
@@ -47,7 +50,7 @@ hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
   for (i = 0; i < pages; i++) {
     ULONGLONG pfn;
     pfn = (MmGetPhysicalAddress(xpdd->hypercall_stubs + i * PAGE_SIZE).QuadPart >> PAGE_SHIFT);
-    KdPrint((__DRIVER_NAME "     pfn = %16lX\n", pfn));
+    //KdPrint((__DRIVER_NAME "     pfn = %16lX\n", pfn));
     __writemsr(msr, (pfn << PAGE_SHIFT) + i);
   }
   return STATUS_SUCCESS;
