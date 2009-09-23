@@ -1,6 +1,6 @@
 #include <windows.h>
-
 #include <ntverp.h>
+#include "gplpv_version.h"
 
 #define VER_FILETYPE                VFT_DRV
 #define VER_FILESUBTYPE             VFT2_DRV_SYSTEM
@@ -11,17 +11,6 @@
 #endif
 #define VER_INTERNALNAME_STR        "xennet.sys"
 #define VER_ORIGINALFILENAME_STR    "xennet.sys"
-
-#define EXPAND(x) STRINGIFY(x)
-#define STRINGIFY(x) #x
-
-#ifdef BUILD_NUMBER
-  #define VER_FILEVERSION             0,10,0,BUILD_NUMBER
-  #define VER_FILEVERSION_STR         "GPLPV 0.10.0." EXPAND(BUILD_NUMBER)
-#else
-  #define VER_FILEVERSION             0,0,0,0
-  #define VER_FILEVERSION_STR         "GPLPV Unversioned"
-#endif
 
 #undef VER_PRODUCTVERSION
 #define VER_PRODUCTVERSION          VER_FILEVERSION
