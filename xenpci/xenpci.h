@@ -321,31 +321,52 @@ typedef struct {
 
 #define XEN_INTERFACE_VERSION 1
 
-#define DEVICE_INTERFACE_TYPE_LEGACY 0
+//#define DEVICE_INTERFACE_TYPE_LEGACY 0
 #define DEVICE_INTERFACE_TYPE_XENBUS 1
+#define DEVICE_INTERFACE_TYPE_EVTCHN 2
+#define DEVICE_INTERFACE_TYPE_GNTDEV 3
 
 typedef struct {
-  ULONG type; /* must be the first member */
-  KSPIN_LOCK lock;
   ULONG len;
+  WDFQUEUE io_queue;
   union {
     struct xsd_sockmsg msg;
     UCHAR buffer[PAGE_SIZE];
   } u;
   LIST_ENTRY read_list_head;
   LIST_ENTRY watch_list_head;
-  WDFQUEUE io_queue;
+} XENBUS_INTERFACE_DATA, *PXENBUS_INTERFACE_DATA;
 
-  //PIRP pending_read_irp;
+typedef struct {
+  ULONG dummy; /* fill this in with whatever is required */
+} EVTCHN_INTERFACE_DATA, *PEVTCHN_INTERFACE_DATA;
+
+typedef struct {
+  ULONG dummy;  /* fill this in with whatever is required */
+} GNTDEV_INTERFACE_DATA, *PGNTDEV_INTERFACE_DATA;
+
+typedef struct {
+  ULONG type;
+  KSPIN_LOCK lock;
+  WDFQUEUE io_queue;
+  EVT_WDF_FILE_CLEANUP *EvtFileCleanup;
+  EVT_WDF_FILE_CLOSE *EvtFileClose;
+  union {
+    XENBUS_INTERFACE_DATA xenbus;
+    EVTCHN_INTERFACE_DATA evtchn;
+    GNTDEV_INTERFACE_DATA gntdev;
+  };
 } XENPCI_DEVICE_INTERFACE_DATA, *PXENPCI_DEVICE_INTERFACE_DATA;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_INTERFACE_DATA, GetXpdid)
 
+NTSTATUS
+XenBus_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_config, WDFFILEOBJECT file_object);
+
 EVT_WDF_DEVICE_FILE_CREATE XenPci_EvtDeviceFileCreate;
 EVT_WDF_FILE_CLOSE XenPci_EvtFileClose;
 EVT_WDF_FILE_CLEANUP XenPci_EvtFileCleanup;
-EVT_WDF_IO_QUEUE_IO_READ XenPci_EvtIoRead;
-EVT_WDF_IO_QUEUE_IO_WRITE XenPci_EvtIoWrite;
+EVT_WDF_IO_QUEUE_IO_DEFAULT XenPci_EvtIoDefault;
 
 #include "hypercall.h"
 

@@ -34,36 +34,8 @@ typedef struct
   WDFFILEOBJECT file_object;
 } watch_context_t;
 
-VOID
-XenPci_EvtDeviceFileCreate(WDFDEVICE device, WDFREQUEST request, WDFFILEOBJECT file_object)
-{
-  NTSTATUS status;
-  PXENPCI_DEVICE_INTERFACE_DATA xpdid = GetXpdid(file_object);
-  WDF_IO_QUEUE_CONFIG queue_config;
-  
-  FUNCTION_ENTER();
-  
-  xpdid->type = DEVICE_INTERFACE_TYPE_XENBUS;
-  KeInitializeSpinLock(&xpdid->lock);
-  InitializeListHead(&xpdid->read_list_head);
-  InitializeListHead(&xpdid->watch_list_head);
-  xpdid->len = 0;
-  WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchManual);
-  //queue_config.EvtIoRead = XenPci_EvtIoRead;
-  status = WdfIoQueueCreate(device, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &xpdid->io_queue);
-  if (!NT_SUCCESS(status)) {
-      KdPrint(("Error creating queue 0x%x\n", status));
-      WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
-  }
-  //WdfIoQueueStop(xpdid->io_queue, NULL, NULL);
-
-  WdfRequestComplete(request, STATUS_SUCCESS);
-  
-  FUNCTION_EXIT();
-}
-
-VOID
-XenPci_ProcessReadRequest(WDFQUEUE queue, WDFREQUEST request, size_t length)
+static VOID
+XenBus_ProcessReadRequest(WDFQUEUE queue, WDFREQUEST request, size_t length)
 {
   NTSTATUS status;
   WDFFILEOBJECT file_object = WdfRequestGetFileObject(request);
@@ -85,7 +57,7 @@ XenPci_ProcessReadRequest(WDFQUEUE queue, WDFREQUEST request, size_t length)
   }
   ASSERT(NT_SUCCESS(status)); // lazy?
 
-  while(dst_offset < dst_length && (list_entry = (xenbus_read_queue_item_t *)RemoveHeadList(&xpdid->read_list_head)) != (xenbus_read_queue_item_t *)&xpdid->read_list_head)
+  while(dst_offset < dst_length && (list_entry = (xenbus_read_queue_item_t *)RemoveHeadList(&xpdid->xenbus.read_list_head)) != (xenbus_read_queue_item_t *)&xpdid->xenbus.read_list_head)
   {
     copy_length = min(list_entry->length - list_entry->offset, dst_length - dst_offset);
     memcpy((PUCHAR)buffer + dst_offset, (PUCHAR)list_entry->data + list_entry->offset, copy_length);
@@ -98,7 +70,7 @@ XenPci_ProcessReadRequest(WDFQUEUE queue, WDFREQUEST request, size_t length)
     }
     else
     {
-      InsertHeadList(&xpdid->read_list_head, (PLIST_ENTRY)list_entry);
+      InsertHeadList(&xpdid->xenbus.read_list_head, (PLIST_ENTRY)list_entry);
     }      
   }
   WdfRequestSetInformation(request, dst_offset);
@@ -138,9 +110,9 @@ XenPci_IoWatch(char *path, PVOID context)
   list_entry->data = rep;
   list_entry->length = sizeof(*rep) + rep->len;
   list_entry->offset = 0;
-  InsertTailList(&xpdid->read_list_head, (PLIST_ENTRY)list_entry);
+  InsertTailList(&xpdid->xenbus.read_list_head, (PLIST_ENTRY)list_entry);
     
-  status = WdfIoQueueRetrieveNextRequest(xpdid->io_queue, &request);
+  status = WdfIoQueueRetrieveNextRequest(xpdid->xenbus.io_queue, &request);
   if (NT_SUCCESS(status))
   {
     WDF_REQUEST_PARAMETERS parameters;
@@ -148,7 +120,7 @@ XenPci_IoWatch(char *path, PVOID context)
     WdfRequestGetParameters(request, &parameters);
     
     KdPrint((__DRIVER_NAME "     found pending read - MinorFunction = %d, length = %d\n", (ULONG)parameters.MinorFunction, (ULONG)parameters.Parameters.Read.Length));
-    XenPci_ProcessReadRequest(xpdid->io_queue, request, parameters.Parameters.Read.Length);
+    XenBus_ProcessReadRequest(xpdid->xenbus.io_queue, request, parameters.Parameters.Read.Length);
     KeReleaseSpinLock(&xpdid->lock, old_irql);
     WdfRequestComplete(request, STATUS_SUCCESS);
   }
@@ -161,8 +133,8 @@ XenPci_IoWatch(char *path, PVOID context)
   FUNCTION_EXIT();
 }
 
-VOID
-XenPci_EvtFileCleanup(WDFFILEOBJECT file_object)
+static VOID
+XenBus_EvtFileCleanup(WDFFILEOBJECT file_object)
 {
   PXENPCI_DEVICE_INTERFACE_DATA xpdid = GetXpdid(file_object);
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(WdfFileObjectGetDevice(file_object));
@@ -174,9 +146,9 @@ XenPci_EvtFileCleanup(WDFFILEOBJECT file_object)
 
   KeAcquireSpinLock(&xpdid->lock, &old_irql);
 
-  while (!IsListEmpty(&xpdid->watch_list_head))
+  while (!IsListEmpty(&xpdid->xenbus.watch_list_head))
   {
-    watch_context = (watch_context_t *)RemoveHeadList(&xpdid->watch_list_head);
+    watch_context = (watch_context_t *)RemoveHeadList(&xpdid->xenbus.watch_list_head);
     KeReleaseSpinLock(&xpdid->lock, old_irql);
     msg = XenBus_RemWatch(xpdd, XBT_NIL, watch_context->path, XenPci_IoWatch, watch_context);
     if (msg != NULL)
@@ -194,16 +166,16 @@ XenPci_EvtFileCleanup(WDFFILEOBJECT file_object)
   FUNCTION_EXIT();
 }
 
-VOID
-XenPci_EvtFileClose(WDFFILEOBJECT file_object)
+static VOID
+XenBus_EvtFileClose(WDFFILEOBJECT file_object)
 {
   UNREFERENCED_PARAMETER(file_object);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
 }
 
-VOID
-XenPci_EvtIoRead(WDFQUEUE queue, WDFREQUEST request, size_t length)
+static VOID
+XenBus_EvtIoRead(WDFQUEUE queue, WDFREQUEST request, size_t length)
 {
   NTSTATUS status;
   WDFFILEOBJECT file_object = WdfRequestGetFileObject(request);
@@ -213,19 +185,19 @@ XenPci_EvtIoRead(WDFQUEUE queue, WDFREQUEST request, size_t length)
   UNREFERENCED_PARAMETER(queue);
   
   FUNCTION_ENTER();
-  status = WdfRequestForwardToIoQueue(request, xpdid->io_queue);
+  status = WdfRequestForwardToIoQueue(request, xpdid->xenbus.io_queue);
   if (!NT_SUCCESS(status))
   {
     KdPrint((__DRIVER_NAME "     could not forward request (%08x)\n", status));
   }
   KeAcquireSpinLock(&xpdid->lock, &old_irql);
-  if (!IsListEmpty(&xpdid->read_list_head))
+  if (!IsListEmpty(&xpdid->xenbus.read_list_head))
   {
-    status = WdfIoQueueRetrieveNextRequest(xpdid->io_queue, &request);
+    status = WdfIoQueueRetrieveNextRequest(xpdid->xenbus.io_queue, &request);
     if (NT_SUCCESS(status))
     {
       KdPrint((__DRIVER_NAME "     found pending read\n"));
-      XenPci_ProcessReadRequest(xpdid->io_queue, request, length);
+      XenBus_ProcessReadRequest(xpdid->xenbus.io_queue, request, length);
       KeReleaseSpinLock(&xpdid->lock, old_irql);
       WdfRequestComplete(request, STATUS_SUCCESS);
     }
@@ -245,8 +217,8 @@ XenPci_EvtIoRead(WDFQUEUE queue, WDFREQUEST request, size_t length)
   return;
 }
 
-VOID
-XenPci_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
+static VOID
+XenBus_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
 {
   NTSTATUS status;
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(WdfIoQueueGetDevice(queue));
@@ -272,58 +244,58 @@ XenPci_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
   
   src_ptr = (PUCHAR)buffer;
   src_len = (ULONG)length;
-  dst_ptr = xpdid->u.buffer + xpdid->len;
+  dst_ptr = xpdid->xenbus.u.buffer + xpdid->xenbus.len;
   while (src_len != 0)
   {
     KdPrint((__DRIVER_NAME "     %d bytes of write buffer remaining\n", src_len));
     /* get a complete msg header */
-    if (xpdid->len < sizeof(xpdid->u.msg))
+    if (xpdid->xenbus.len < sizeof(xpdid->xenbus.u.msg))
     {
-      copy_len = min(sizeof(xpdid->u.msg) - xpdid->len, src_len);
+      copy_len = min(sizeof(xpdid->xenbus.u.msg) - xpdid->xenbus.len, src_len);
       if (!copy_len)
         continue;
       memcpy(dst_ptr, src_ptr, copy_len);
       dst_ptr += copy_len;
       src_ptr += copy_len;
       src_len -= copy_len;
-      xpdid->len += copy_len;
+      xpdid->xenbus.len += copy_len;
     }
     /* exit if we can't get that */
-    if (xpdid->len < sizeof(xpdid->u.msg))
+    if (xpdid->xenbus.len < sizeof(xpdid->xenbus.u.msg))
       continue;
     /* get a complete msg body */
-    if (xpdid->len < sizeof(xpdid->u.msg) + xpdid->u.msg.len)
+    if (xpdid->xenbus.len < sizeof(xpdid->xenbus.u.msg) + xpdid->xenbus.u.msg.len)
     {
-      copy_len = min(sizeof(xpdid->u.msg) + xpdid->u.msg.len - xpdid->len, src_len);
+      copy_len = min(sizeof(xpdid->xenbus.u.msg) + xpdid->xenbus.u.msg.len - xpdid->xenbus.len, src_len);
       if (!copy_len)
         continue;
       memcpy(dst_ptr, src_ptr, copy_len);
       dst_ptr += copy_len;
       src_ptr += copy_len;
       src_len -= copy_len;
-      xpdid->len += copy_len;
+      xpdid->xenbus.len += copy_len;
     }
     /* exit if we can't get that */
-    if (xpdid->len < sizeof(xpdid->u.msg) + xpdid->u.msg.len)
+    if (xpdid->xenbus.len < sizeof(xpdid->xenbus.u.msg) + xpdid->xenbus.u.msg.len)
     {
       continue;
     }
     
-    switch (xpdid->u.msg.type)
+    switch (xpdid->xenbus.u.msg.type)
     {
     case XS_WATCH:
     case XS_UNWATCH:
       KeAcquireSpinLock(&xpdid->lock, &old_irql);
       watch_context = (watch_context_t *)ExAllocatePoolWithTag(NonPagedPool, sizeof(watch_context_t), XENPCI_POOL_TAG);
-      watch_path = (PCHAR)(xpdid->u.buffer + sizeof(struct xsd_sockmsg));
-      watch_token = (PCHAR)(xpdid->u.buffer + sizeof(struct xsd_sockmsg) + strlen(watch_path) + 1);
+      watch_path = (PCHAR)(xpdid->xenbus.u.buffer + sizeof(struct xsd_sockmsg));
+      watch_token = (PCHAR)(xpdid->xenbus.u.buffer + sizeof(struct xsd_sockmsg) + strlen(watch_path) + 1);
       RtlStringCbCopyA(watch_context->path, ARRAY_SIZE(watch_context->path), watch_path);
       RtlStringCbCopyA(watch_context->token, ARRAY_SIZE(watch_context->path), watch_token);
       watch_context->file_object = file_object;
-      if (xpdid->u.msg.type == XS_WATCH)
-        InsertTailList(&xpdid->watch_list_head, &watch_context->entry);
+      if (xpdid->xenbus.u.msg.type == XS_WATCH)
+        InsertTailList(&xpdid->xenbus.watch_list_head, &watch_context->entry);
       KeReleaseSpinLock(&xpdid->lock, old_irql);
-      if (xpdid->u.msg.type == XS_WATCH)
+      if (xpdid->xenbus.u.msg.type == XS_WATCH)
         msg = XenBus_AddWatch(xpdd, XBT_NIL, watch_path, XenPci_IoWatch, watch_context);
       else
         msg = XenBus_RemWatch(xpdd, XBT_NIL, watch_path, XenPci_IoWatch, watch_context);
@@ -332,16 +304,16 @@ XenPci_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
       {
         rep = ExAllocatePoolWithTag(NonPagedPool, sizeof(struct xsd_sockmsg) + strlen(msg) + 1, XENPCI_POOL_TAG);
         rep->type = XS_ERROR;
-        rep->req_id = xpdid->u.msg.req_id;
-        rep->tx_id = xpdid->u.msg.tx_id;
+        rep->req_id = xpdid->xenbus.u.msg.req_id;
+        rep->tx_id = xpdid->xenbus.u.msg.tx_id;
         rep->len = (ULONG)(strlen(msg) + 0);
         RtlStringCbCopyA((PCHAR)(rep + 1), strlen(msg) + 1, msg);
-        if (xpdid->u.msg.type == XS_WATCH)
+        if (xpdid->xenbus.u.msg.type == XS_WATCH)
           RemoveEntryList(&watch_context->entry);
       }
       else
       {
-        if (xpdid->u.msg.type == XS_WATCH)
+        if (xpdid->xenbus.u.msg.type == XS_WATCH)
         {
           WdfObjectReference(file_object);
         }
@@ -351,29 +323,61 @@ XenPci_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
           WdfObjectDereference(file_object);
         }
         rep = ExAllocatePoolWithTag(NonPagedPool, sizeof(struct xsd_sockmsg), XENPCI_POOL_TAG);
-        rep->type = xpdid->u.msg.type;
-        rep->req_id = xpdid->u.msg.req_id;
-        rep->tx_id = xpdid->u.msg.tx_id;
+        rep->type = xpdid->xenbus.u.msg.type;
+        rep->req_id = xpdid->xenbus.u.msg.req_id;
+        rep->tx_id = xpdid->xenbus.u.msg.tx_id;
         rep->len = 0;
       }
       KeReleaseSpinLock(&xpdid->lock, old_irql);
       break;
     default:
-      rep = XenBus_Raw(xpdd, &xpdid->u.msg);
+      rep = XenBus_Raw(xpdd, &xpdid->xenbus.u.msg);
       break;
     }
-    xpdid->len = 0;
+    xpdid->xenbus.len = 0;
     
     KeAcquireSpinLock(&xpdid->lock, &old_irql);
     list_entry = (xenbus_read_queue_item_t *)ExAllocatePoolWithTag(NonPagedPool, sizeof(xenbus_read_queue_item_t), XENPCI_POOL_TAG);
     list_entry->data = rep;
     list_entry->length = sizeof(*rep) + rep->len;
     list_entry->offset = 0;
-    InsertTailList(&xpdid->read_list_head, (PLIST_ENTRY)list_entry);
+    InsertTailList(&xpdid->xenbus.read_list_head, (PLIST_ENTRY)list_entry);
     KeReleaseSpinLock(&xpdid->lock, old_irql);
   }
   KdPrint((__DRIVER_NAME "     completing request with length %d\n", length));
   WdfRequestCompleteWithInformation(request, STATUS_SUCCESS, length);
 
   FUNCTION_EXIT();
+}
+
+NTSTATUS
+XenBus_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_config, WDFFILEOBJECT file_object)
+{
+  NTSTATUS status;
+  PXENPCI_DEVICE_INTERFACE_DATA xpdid = GetXpdid(file_object);
+  WDF_IO_QUEUE_CONFIG internal_queue_config;
+  
+  FUNCTION_ENTER();
+
+  xpdid->EvtFileCleanup = XenBus_EvtFileCleanup;  
+  xpdid->EvtFileClose = XenBus_EvtFileClose;
+  queue_config->EvtIoRead = XenBus_EvtIoRead;
+  queue_config->EvtIoWrite = XenBus_EvtIoWrite;
+  // queue_config->EvtIoDeviceControl = XenBus_EvtIoDeviceControl;
+  
+  InitializeListHead(&xpdid->xenbus.read_list_head);
+  InitializeListHead(&xpdid->xenbus.watch_list_head);
+  xpdid->xenbus.len = 0;
+  WDF_IO_QUEUE_CONFIG_INIT(&internal_queue_config, WdfIoQueueDispatchManual);
+  
+  status = WdfIoQueueCreate(device, &internal_queue_config, WDF_NO_OBJECT_ATTRIBUTES, &xpdid->xenbus.io_queue);
+  if (!NT_SUCCESS(status)) {
+    KdPrint(("Error creating queue 0x%x\n", status));
+    FUNCTION_EXIT();
+    return status;
+  }
+  
+  FUNCTION_EXIT();
+  
+  return status;
 }

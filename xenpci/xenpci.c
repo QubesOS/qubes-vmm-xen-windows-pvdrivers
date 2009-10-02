@@ -170,8 +170,7 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   WdfDeviceSetSpecialFileSupport(device, WdfSpecialFileDump, TRUE);
 
   WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queue_config, WdfIoQueueDispatchParallel);
-  queue_config.EvtIoRead = XenPci_EvtIoRead;
-  queue_config.EvtIoWrite = XenPci_EvtIoWrite;
+  queue_config.EvtIoDefault = XenPci_EvtIoDefault;
   status = WdfIoQueueCreate(device, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &xpdd->io_queue);
   if (!NT_SUCCESS(status)) {
       KdPrint(("Error creating queue 0x%x\n", status));
@@ -191,6 +190,20 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   
   RtlInitUnicodeString(&reference, L"xenbus");
   status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_XENBUS, &reference);
+  if (!NT_SUCCESS(status)) {
+      KdPrint(("Error registering device interface 0x%x\n", status));
+      return status;
+  }
+
+  RtlInitUnicodeString(&reference, L"evtchn");
+  status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_EVTCHN, &reference);
+  if (!NT_SUCCESS(status)) {
+      KdPrint(("Error registering device interface 0x%x\n", status));
+      return status;
+  }
+
+  RtlInitUnicodeString(&reference, L"gntdev");
+  status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_GNTDEV, &reference);
   if (!NT_SUCCESS(status)) {
       KdPrint(("Error registering device interface 0x%x\n", status));
       return status;
