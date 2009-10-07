@@ -1017,7 +1017,6 @@ XenUsb_EvtIoDeviceControl(
           status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 
             required_length - FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName), uhdn->DriverKeyName,
             &key_length);
-          KdPrint((__DRIVER_NAME "      wcslen(%S) = %d\n", uhdn->DriverKeyName, wcslen(uhdn->DriverKeyName)));
         }
         else
         {
