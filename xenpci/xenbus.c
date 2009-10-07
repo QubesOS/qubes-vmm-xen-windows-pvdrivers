@@ -372,6 +372,7 @@ XenBus_Init(PXENPCI_DEVICE_DATA xpdd)
   status = XenBus_Connect(xpdd);
   if (!NT_SUCCESS(status))
   {
+    FUNCTION_EXIT();
     return status;
   }
   

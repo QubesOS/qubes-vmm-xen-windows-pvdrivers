@@ -695,7 +695,7 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
         mdl_start_va = CurrentVa;
       }
       mdl_byte_count = min(mdl_byte_count, total_remaining);
-      if (active)
+      if (active && mdl_byte_count)
       {
         sglist->NumberOfElements += ADDRESS_AND_SIZE_TO_SPAN_PAGES(
           mdl_start_va, mdl_byte_count);
@@ -734,7 +734,7 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
         mdl_byte_count -= (ULONG)((UINT_PTR)CurrentVa - (UINT_PTR)mdl_start_va);
         mdl_start_va = CurrentVa;
       }
-      if (active)
+      if (active && mdl_byte_count)
       {
         ULONG pfn_offset;
         remaining = min(mdl_byte_count, total_remaining);
