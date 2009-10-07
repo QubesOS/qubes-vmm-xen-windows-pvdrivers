@@ -47,21 +47,18 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
     KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
     KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
     KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-  //case URB_FUNCTION_GET_DESCRIPTOR_FROM_ENDPOINT:
-  //case URB_FUNCTION_GET_DESCRIPTOR_FROM_INTERFACE:
-  //case URB_FUNCTION_SET_DESCRIPTOR_TO_DEVICE:
-  //case URB_FUNCTION_SET_DESCRIPTOR_TO_ENDPOINT:
-  //case URB_FUNCTION_SET_DESCRIPTOR_TO_INTERFACE:
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE\n"));
     shadow->urb->UrbControlDescriptorRequest.TransferBufferLength = shadow->total_length;
-{
-  PUCHAR addr = shadow->urb->UrbControlDescriptorRequest.TransferBuffer;
-  int i;
-  if (!addr)
-    addr = MmGetSystemAddressForMdlSafe(shadow->urb->UrbControlDescriptorRequest.TransferBufferMDL, HighPagePriority);
-  for (i = 0; i < min(shadow->urb->UrbControlDescriptorRequest.TransferBufferLength, 16); i++)
-    KdPrint((__DRIVER_NAME "      UrbControlDescriptorRequest[%02x] = %02x '%c'\n", i, addr[i], (addr[i] < 32)?' ':addr[i]));
-}
+    break;
+  case URB_FUNCTION_GET_DESCRIPTOR_FROM_INTERFACE:
+    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
+    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
+    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
+    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
+    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
+    KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
+    KdPrint((__DRIVER_NAME "     URB_FUNCTION_GET_DESCRIPTOR_FROM_INTERFACE\n"));
+    shadow->urb->UrbControlDescriptorRequest.TransferBufferLength = shadow->total_length;
     break;
   case URB_FUNCTION_SELECT_CONFIGURATION:
     KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
@@ -92,15 +89,16 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
     shadow->urb->UrbControlVendorClassRequest.TransferBufferLength = shadow->total_length;
     break;
   case URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER:
-#if 0
-    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
-    KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-    KdPrint((__DRIVER_NAME "     URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER\n"));
-#endif
+    if (shadow->rsp.status)
+    {
+      KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
+      KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
+      KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
+      KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
+      KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
+      KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
+      KdPrint((__DRIVER_NAME "     URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER\n"));
+    }
     shadow->urb->UrbBulkOrInterruptTransfer.TransferBufferLength = shadow->total_length;
     break;
   default:
@@ -364,15 +362,6 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     KdPrint((__DRIVER_NAME "      Index = %d\n", (int)urb->UrbControlDescriptorRequest.Index));
     KdPrint((__DRIVER_NAME "      DescriptorType = %d\n", (int)urb->UrbControlDescriptorRequest.DescriptorType));
     KdPrint((__DRIVER_NAME "      LanguageId = %04x\n", urb->UrbControlDescriptorRequest.LanguageId));
-#if 0
-{
-  PUCHAR addr = urb->UrbControlDescriptorRequest.TransferBuffer;
-  if (!addr)
-    addr = MmGetSystemAddressForMdlSafe(urb->UrbControlDescriptorRequest.TransferBufferMDL, HighPagePriority);
-  for (i = 0; i < min(urb->UrbControlDescriptorRequest.TransferBufferLength, 16); i++)
-    KdPrint((__DRIVER_NAME "      UrbControlDescriptorRequest[%02x] = %02x\n", i, addr[i]));
-}
-#endif
     shadow = get_shadow_from_freelist(xudd);
     shadow->request = request;
     shadow->urb = urb;
@@ -382,6 +371,44 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     shadow->req.transfer_flags = 0; 
     setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)shadow->req.u.ctrl;
     setup_packet->bmRequestType.Recipient = BMREQUEST_TO_DEVICE;
+    setup_packet->bmRequestType.Type = BMREQUEST_STANDARD;
+    setup_packet->bmRequestType.Dir = BMREQUEST_DEVICE_TO_HOST;
+    setup_packet->bRequest = USB_REQUEST_GET_DESCRIPTOR;
+    setup_packet->wValue.LowByte = urb->UrbControlDescriptorRequest.Index;
+    setup_packet->wValue.HiByte = urb->UrbControlDescriptorRequest.DescriptorType;
+    switch(urb->UrbControlDescriptorRequest.DescriptorType)
+    {
+    case USB_STRING_DESCRIPTOR_TYPE:
+      setup_packet->wIndex.W = urb->UrbControlDescriptorRequest.LanguageId;
+      break;
+    default:
+      setup_packet->wIndex.W = 0;
+      break;
+    }
+    setup_packet->wLength = (USHORT)urb->UrbControlDescriptorRequest.TransferBufferLength;
+    status = XenUsb_ExecuteRequest(xudd, shadow, urb->UrbControlDescriptorRequest.TransferBuffer, urb->UrbControlDescriptorRequest.TransferBufferMDL, urb->UrbControlDescriptorRequest.TransferBufferLength);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint((__DRIVER_NAME "     XenUsb_ExecuteRequest status = %08x\n", status));
+    }
+    break;
+  case URB_FUNCTION_GET_DESCRIPTOR_FROM_INTERFACE:
+    KdPrint((__DRIVER_NAME "     URB_FUNCTION_GET_DESCRIPTOR_FROM_INTERFACE\n"));
+    KdPrint((__DRIVER_NAME "      TransferBufferLength = %d\n", urb->UrbControlDescriptorRequest.TransferBufferLength));
+    KdPrint((__DRIVER_NAME "      TransferBuffer = %p\n", urb->UrbControlDescriptorRequest.TransferBuffer));
+    KdPrint((__DRIVER_NAME "      TransferBufferMDL = %p\n", urb->UrbControlDescriptorRequest.TransferBufferMDL));
+    KdPrint((__DRIVER_NAME "      Index = %d\n", (int)urb->UrbControlDescriptorRequest.Index));
+    KdPrint((__DRIVER_NAME "      DescriptorType = %d\n", (int)urb->UrbControlDescriptorRequest.DescriptorType));
+    KdPrint((__DRIVER_NAME "      LanguageId = %04x\n", urb->UrbControlDescriptorRequest.LanguageId));
+    shadow = get_shadow_from_freelist(xudd);
+    shadow->request = request;
+    shadow->urb = urb;
+    shadow->callback = XenUsb_UrbCallback;
+    shadow->req.id = shadow->id;
+    shadow->req.pipe = LINUX_PIPE_DIRECTION_IN | LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
+    shadow->req.transfer_flags = 0; 
+    setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)shadow->req.u.ctrl;
+    setup_packet->bmRequestType.Recipient = BMREQUEST_TO_INTERFACE;
     setup_packet->bmRequestType.Type = BMREQUEST_STANDARD;
     setup_packet->bmRequestType.Dir = BMREQUEST_DEVICE_TO_HOST;
     setup_packet->bRequest = USB_REQUEST_GET_DESCRIPTOR;
@@ -725,7 +752,7 @@ URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE      KdPrint((__DRIVER_NAME "      Trans
       //KdPrint((__DRIVER_NAME "      USB_ENDPOINT_TYPE_BULK\n"));
       break;
     case USB_ENDPOINT_TYPE_INTERRUPT:
-      //KdPrint((__DRIVER_NAME "      USB_ENDPOINT_TYPE_INTERRUPT\n"));
+      KdPrint((__DRIVER_NAME "      USB_ENDPOINT_TYPE_INTERRUPT\n"));
       break;
     default:
       KdPrint((__DRIVER_NAME "      USB_ENDPOINT_TYPE_%d\n", endpoint->endpoint_descriptor.bmAttributes));
@@ -745,6 +772,10 @@ URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE      KdPrint((__DRIVER_NAME "      Trans
     WdfRequestComplete(request, STATUS_SUCCESS);
     break;
 #endif
+  case URB_FUNCTION_ABORT_PIPE:
+    KdPrint((__DRIVER_NAME "     URB_FUNCTION_ABORT_PIPE\n"));
+    KdPrint((__DRIVER_NAME "      PipeHandle = %p\n", urb->UrbPipeRequest.PipeHandle));
+    break;
   default:
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_%04x\n", urb->UrbHeader.Function));
     KdPrint((__DRIVER_NAME "     Calling WdfRequestCompletestatus with status = %08x\n", status));

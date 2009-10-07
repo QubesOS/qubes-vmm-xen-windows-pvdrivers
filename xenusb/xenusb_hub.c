@@ -803,6 +803,7 @@ XenUsbHub_UBIH_QueryDeviceInformation(
   required_size = (ULONG)FIELD_OFFSET(USB_DEVICE_INFORMATION_0, PipeList[usb_device->active_interface->interface_descriptor.bNumEndpoints]);
   KdPrint((__DRIVER_NAME "     required_size = %d\n", required_size));
   *LengthOfDataReturned = required_size;
+  udi->ActualLength = required_size;
   if (DeviceInformationBufferLength < required_size)
   {
     KdPrint((__DRIVER_NAME "     STATUS_BUFFER_TOO_SMALL\n"));
@@ -815,7 +816,6 @@ XenUsbHub_UBIH_QueryDeviceInformation(
     FUNCTION_EXIT();
     return STATUS_NOT_SUPPORTED;
   }
-  udi->ActualLength = required_size;
   udi->PortNumber = 1;
   memcpy(&udi->DeviceDescriptor, &usb_device->device_descriptor, sizeof(USB_DEVICE_DESCRIPTOR));
   udi->CurrentConfigurationValue = usb_device->active_config->config_descriptor.bConfigurationValue;

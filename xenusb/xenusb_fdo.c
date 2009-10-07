@@ -942,6 +942,7 @@ XenUsb_EvtIoDeviceControl(
   {
     PUSB_HCD_DRIVERKEY_NAME uhdn;
     size_t length;
+    ULONG required_length = 0;
     
     KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_ROOT_HUB_NAME\n"));
     KdPrint((__DRIVER_NAME "      output_buffer_length = %d\n", output_buffer_length));
@@ -965,8 +966,9 @@ XenUsb_EvtIoDeviceControl(
           /* remove leading \??\ from name */
           symbolic_link.Buffer += 4;
           symbolic_link.Length -= 4 * sizeof(WCHAR);
-          uhdn->ActualLength = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + symbolic_link.Length + sizeof(WCHAR);
-          if (output_buffer_length >= FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + symbolic_link.Length + sizeof(WCHAR))
+          required_length = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + symbolic_link.Length + sizeof(WCHAR);
+          uhdn->ActualLength = required_length;
+          if (output_buffer_length >= required_length)
           {
             memcpy(uhdn->DriverKeyName, symbolic_link.Buffer, symbolic_link.Length);
             uhdn->DriverKeyName[symbolic_link.Length / 2] = 0;
@@ -984,7 +986,7 @@ XenUsb_EvtIoDeviceControl(
       }
       KdPrint((__DRIVER_NAME "      uhdn->ActualLength = %d\n", uhdn->ActualLength));
       KdPrint((__DRIVER_NAME "      uhdn->DriverKeyName = %S\n", uhdn->DriverKeyName));
-      WdfRequestSetInformation(request, uhdn->ActualLength);
+      WdfRequestSetInformation(request, required_length);
     }
     break;
   }
@@ -992,6 +994,7 @@ XenUsb_EvtIoDeviceControl(
   {
     PUSB_HCD_DRIVERKEY_NAME uhdn;
     size_t length;
+    ULONG required_length = 0;
     
     KdPrint((__DRIVER_NAME "     IOCTL_GET_HCD_DRIVERKEY_NAME\n"));
     KdPrint((__DRIVER_NAME "      output_buffer_length = %d\n", output_buffer_length));
@@ -1005,13 +1008,16 @@ XenUsb_EvtIoDeviceControl(
       {
         ULONG key_length;
         status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 0, NULL, &key_length);
+        KdPrint((__DRIVER_NAME "      key_length = %d\n", key_length));
         status = STATUS_SUCCESS;
-        uhdn->ActualLength = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + key_length;
-        if (output_buffer_length >= uhdn->ActualLength)
+        required_length = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + key_length;
+        uhdn->ActualLength = required_length;
+        if (output_buffer_length >= required_length)
         {
           status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 
-            uhdn->ActualLength - FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName), uhdn->DriverKeyName,
+            required_length - FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName), uhdn->DriverKeyName,
             &key_length);
+          KdPrint((__DRIVER_NAME "      wcslen(%S) = %d\n", uhdn->DriverKeyName, wcslen(uhdn->DriverKeyName)));
         }
         else
         {
@@ -1024,7 +1030,7 @@ XenUsb_EvtIoDeviceControl(
       }
       KdPrint((__DRIVER_NAME "      uhdn->ActualLength = %d\n", uhdn->ActualLength));
       KdPrint((__DRIVER_NAME "      uhdn->DriverKeyName = %S\n", uhdn->DriverKeyName));
-      WdfRequestSetInformation(request, uhdn->ActualLength);
+      WdfRequestSetInformation(request, required_length);
     }
     break;
   }
