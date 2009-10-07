@@ -169,7 +169,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     
   mss = PtrToUlong(NDIS_PER_PACKET_INFO_FROM_PACKET(packet, TcpLargeSendPacketInfo));
 
-  if (mss)
+  if (mss && parse_result == PARSE_OK)
   {
     if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) != NDIS_PROTOCOL_ID_TCP_IP)
     {
@@ -216,22 +216,15 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   
   if (ndis_lso)
   {    
-    if (parse_result == PARSE_OK)
+    flags |= NETTXF_csum_blank | NETTXF_data_validated; /* these may be implied but not specified when lso is used*/
+    if (pi.tcp_length >= mss)
     {
-      flags |= NETTXF_csum_blank | NETTXF_data_validated; /* these may be implied but not specified when lso is used*/
-      if (pi.tcp_length >= mss)
-      {
-        flags |= NETTXF_extra_info;
-        xen_gso = TRUE;
-      }
-      else
-      {
-        KdPrint((__DRIVER_NAME "     large send specified when tcp_length < mss\n"));
-      }
+      flags |= NETTXF_extra_info;
+      xen_gso = TRUE;
     }
     else
     {
-        KdPrint((__DRIVER_NAME "     could not parse packet - no large send offload done\n"));
+      KdPrint((__DRIVER_NAME "     large send specified when tcp_length < mss\n"));
     }
   }
 
