@@ -2307,10 +2307,12 @@ XenPciPdo_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
   else
   {
     status = XenPci_XenShutdownDevice(device);
-    /* Remove watch on backend state */
-    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, device);
   }
+  
+  /* Remove watch on backend state */
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+  XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, device);
+  
   FUNCTION_EXIT();
   
   return status;
