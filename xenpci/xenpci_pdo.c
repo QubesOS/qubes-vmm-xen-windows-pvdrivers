@@ -1164,7 +1164,6 @@ XenPci_UpdateBackendState(PVOID context)
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
   ULONG new_backend_state;
-  CHAR tmp_path[128];
 
   FUNCTION_ENTER();
 
@@ -1215,68 +1214,13 @@ XenPci_UpdateBackendState(PVOID context)
 
   case XenbusStateClosing:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));
-    if (xppdd->frontend_state == XenbusStateConnected)
-    {
-      KdPrint((__DRIVER_NAME "     Requesting eject\n"));
-      WdfPdoRequestEject(device);
-    }
+    KdPrint((__DRIVER_NAME "     Requesting eject\n"));
+    WdfPdoRequestEject(device);
     break;
 
   case XenbusStateClosed:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Closed\n"));
     break;
-
-  case XenbusStateReconfiguring:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Reconfiguring\n"));
-    RtlStringCbPrintfA(tmp_path, ARRAY_SIZE(tmp_path), "%s/state", xppdd->path);
-    KdPrint((__DRIVER_NAME "     Setting %s to %d\n", tmp_path, XenbusStateReconfiguring));
-    XenBus_Printf(xpdd, XBT_NIL, tmp_path, "%d", XenbusStateReconfiguring);
-    break;
-
-  case XenbusStateReconfigured:
-    KdPrint((__DRIVER_NAME "     Backend State Changed to Reconfigured\n"));
-  {
-    PDEVICE_OBJECT fdo;
-    PIRP irp;
-    PIO_STACK_LOCATION stack;
-    NTSTATUS status;
-    KEVENT irp_complete_event;
-    
-    fdo = IoGetAttachedDeviceReference(WdfDeviceWdmGetDeviceObject(device));
-    KeInitializeEvent(&irp_complete_event, NotificationEvent, FALSE);
-    irp = IoAllocateIrp(fdo->StackSize, FALSE);
-    stack = IoGetNextIrpStackLocation(irp);
-    stack->MajorFunction = IRP_MJ_INTERNAL_DEVICE_CONTROL;
-    stack->Parameters.DeviceIoControl.IoControlCode = (ULONG)IOCTL_XEN_RECONFIGURE;
-    IoSetCompletionRoutine(irp, XenPciPdo_ReconfigureCompletionRoutine, &irp_complete_event, TRUE, TRUE, TRUE);
-    status = IoCallDriver(fdo, irp);
-    if (status == STATUS_PENDING)
-    {
-      KdPrint((__DRIVER_NAME "     Waiting for completion\n"));
-      status = KeWaitForSingleObject(&irp_complete_event, Executive, KernelMode, FALSE, NULL);
-      status = irp->IoStatus.Status;                     
-    }
-    KdPrint((__DRIVER_NAME "     IOCTL_XEN_RECONFIGURE status = %08x\n", status));
-    ObDereferenceObject(fdo);
-#if 0
-    WDFREQUEST request;
-    WDF_REQUEST_SEND_OPTIONS options;
-    WDFIOTARGET target;
-    DEVICE_OBJECT fdo;
-    
-    WDF_REQUEST_SEND_OPTIONS_INIT(&options, WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
-    fdo = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device));
-    
-    target = WdfDeviceGetIoTarget(xppdd->wdf_device);
-    WdfRequestCreate(WDF_NO_OBJECT_ATTRIBUTES, target, &request);
-    WdfIoTargetFormatRequestForInternalIoctl(target, request, IOCTL_XEN_RECONFIGURE, NULL, NULL, NULL, NULL);
-    WdfRequestSend(request, target, &options);
-#endif
-    RtlStringCbPrintfA(tmp_path, ARRAY_SIZE(tmp_path), "%s/state", xppdd->path);
-    KdPrint((__DRIVER_NAME "     Setting %s to %d\n", tmp_path, XenbusStateConnected));
-    XenBus_Printf(xpdd, XBT_NIL, tmp_path, "%d", XenbusStateConnected);
-    break;
-  }
   
   default:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Undefined = %d\n", xppdd->backend_state));
