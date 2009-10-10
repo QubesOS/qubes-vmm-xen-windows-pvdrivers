@@ -177,6 +177,8 @@ typedef struct {
   FAST_MUTEX xb_request_mutex;
   KEVENT xb_request_complete_event;
   struct xsd_sockmsg *xb_reply;
+  struct xsd_sockmsg *xb_msg;
+  ULONG xb_msg_offset;
   
   WDFCHILDLIST child_list;
 

@@ -260,6 +260,7 @@ XenBus_Dpc(PVOID ServiceContext)
   NTSTATUS status;
   PXENPCI_DEVICE_DATA xpdd = ServiceContext;
   xsd_sockmsg_t msg;
+  ULONG msg_len;
   WDF_WORKITEM_CONFIG workitem_config;
   WDF_OBJECT_ATTRIBUTES workitem_attributes;
   WDFWORKITEM workitem;
@@ -268,32 +269,47 @@ XenBus_Dpc(PVOID ServiceContext)
   
   KeAcquireSpinLockAtDpcLevel(&xpdd->xb_ring_spinlock);
 
-  //KdPrint((__DRIVER_NAME "     rsp_prod = %d, rsp_cons = %d\n", xpdd->xen_store_interface->rsp_prod, xpdd->xen_store_interface->rsp_cons));
   while (xpdd->xen_store_interface->rsp_prod != xpdd->xen_store_interface->rsp_cons)
   {
-    if (xpdd->xen_store_interface->rsp_prod - xpdd->xen_store_interface->rsp_cons < sizeof(msg))
+    if (!xpdd->xb_msg)
     {
-      KdPrint((__DRIVER_NAME " +++ Message incomplete (not even a full header)\n"));
-      break;
+      if (xpdd->xen_store_interface->rsp_prod - xpdd->xen_store_interface->rsp_cons < sizeof(xsd_sockmsg_t))
+      {
+        KdPrint((__DRIVER_NAME " +++ Message incomplete (not even a full header)\n"));
+        break;
+      }
+      KeMemoryBarrier();
+      memcpy_from_ring(xpdd->xen_store_interface->rsp, &msg,
+        MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons), sizeof(xsd_sockmsg_t));
+      xpdd->xb_msg = ExAllocatePoolWithTag(NonPagedPool, sizeof(xsd_sockmsg_t) + msg.len, XENPCI_POOL_TAG);
+      memcpy(xpdd->xb_msg, &msg, sizeof(xsd_sockmsg_t));
+      xpdd->xb_msg_offset = sizeof(xsd_sockmsg_t);
+      xpdd->xen_store_interface->rsp_cons += sizeof(xsd_sockmsg_t);
     }
-    KeMemoryBarrier();
-    memcpy_from_ring(xpdd->xen_store_interface->rsp, &msg,
-      MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons), sizeof(msg));
-    if (xpdd->xen_store_interface->rsp_prod - xpdd->xen_store_interface->rsp_cons < sizeof(msg) + msg.len)
+
+    msg_len = min(xpdd->xen_store_interface->rsp_prod - xpdd->xen_store_interface->rsp_cons, sizeof(xsd_sockmsg_t) + xpdd->xb_msg->len - xpdd->xb_msg_offset);
+    KeMemoryBarrier(); /* make sure the data in the ring is valid */
+    ASSERT(xpdd->xb_msg_offset + msg_len <= sizeof(xsd_sockmsg_t) + xpdd->xb_msg->len);
+    memcpy_from_ring(xpdd->xen_store_interface->rsp,
+      (PUCHAR)xpdd->xb_msg + xpdd->xb_msg_offset,
+      MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons),
+      msg_len);
+    xpdd->xen_store_interface->rsp_cons += msg_len;
+    xpdd->xb_msg_offset += msg_len;
+
+    if (xpdd->xb_msg_offset < sizeof(xsd_sockmsg_t) + xpdd->xb_msg->len)
     {
-      //KdPrint((__DRIVER_NAME " +++ Message incomplete (header but not full body)\n"));
+      KdPrint((__DRIVER_NAME " +++ Message incomplete (header but not full body)\n"));
+      EvtChn_Notify(xpdd, xpdd->xen_store_evtchn); /* there is room on the ring now */
       break;
     }
 
-    if (msg.type != XS_WATCH_EVENT)
+    if (xpdd->xb_msg->type != XS_WATCH_EVENT)
     {
       /* process reply - only ever one outstanding */
-      xpdd->xb_reply = ExAllocatePoolWithTag(NonPagedPool, sizeof(msg) + msg.len, XENPCI_POOL_TAG);
-      memcpy_from_ring(xpdd->xen_store_interface->rsp,
-        xpdd->xb_reply,
-        MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons),
-        msg.len + sizeof(msg));
-      xpdd->xen_store_interface->rsp_cons += msg.len + sizeof(msg);
+      ASSERT(xpdd->xb_reply == NULL);
+      xpdd->xb_reply = xpdd->xb_msg;
+      xpdd->xb_msg = NULL;
       KeSetEvent(&xpdd->xb_request_complete_event, IO_NO_INCREMENT, FALSE);
     }
     else
@@ -302,20 +318,18 @@ XenBus_Dpc(PVOID ServiceContext)
       WDF_WORKITEM_CONFIG_INIT(&workitem_config, XenBus_WatchWorkItemProc);
       WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&workitem_attributes, xsd_sockmsg_t);
       workitem_attributes.ParentObject = xpdd->wdf_device;
-      workitem_attributes.ContextSizeOverride = sizeof(msg) + msg.len;
+      workitem_attributes.ContextSizeOverride = xpdd->xb_msg_offset;
       status = WdfWorkItemCreate(&workitem_config, &workitem_attributes, &workitem);
       if (!NT_SUCCESS(status))
       {
         KdPrint((__DRIVER_NAME "     Failed to create work item for watch\n"));
-        xpdd->xen_store_interface->rsp_cons += msg.len + sizeof(msg);
         continue;
       }
-      memcpy_from_ring(xpdd->xen_store_interface->rsp,
-        WdfObjectGetTypedContext(workitem, xsd_sockmsg_t),
-        MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons), msg.len + sizeof(msg));
-      xpdd->xen_store_interface->rsp_cons += msg.len + sizeof(msg);
+      memcpy(WdfObjectGetTypedContext(workitem, xsd_sockmsg_t), xpdd->xb_msg, xpdd->xb_msg_offset);
+      xpdd->xb_msg = NULL;
       WdfWorkItemEnqueue(workitem);
     }
+    EvtChn_Notify(xpdd, xpdd->xen_store_evtchn); /* there is room on the ring now */
   }
   KeReleaseSpinLockFromDpcLevel(&xpdd->xb_ring_spinlock);
   

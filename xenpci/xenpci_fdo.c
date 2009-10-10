@@ -923,6 +923,7 @@ XenPci_EvtChildListScanForChildren(WDFCHILDLIST child_list)
           RtlZeroMemory(&child_description, sizeof(child_description));
           WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&child_description.header, sizeof(child_description));
           RtlStringCbPrintfA(path, ARRAY_SIZE(path), "device/%s/%s", devices[i], instances[j]);
+          KdPrint((__DRIVER_NAME "     Found path = %s\n", path));
           RtlStringCbCopyA(child_description.path, ARRAY_SIZE(child_description.path), path);
           RtlStringCbCopyA(child_description.device, ARRAY_SIZE(child_description.device), devices[i]);
           child_description.index = atoi(instances[j]);
