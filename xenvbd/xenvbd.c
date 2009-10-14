@@ -398,9 +398,8 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
     length = min(PAGE_SIZE - offset, remaining);
     ASSERT((offset & 511) == 0);
     ASSERT((length & 511) == 0);
-    //KdPrint((__DRIVER_NAME "     length(a) = %d\n", length));
+    ASSERT(offset + length <= PAGE_SIZE);
     shadow->req.seg[shadow->req.nr_segments].gref = gref;
-    //KdPrint((__DRIVER_NAME "     length(b) = %d\n", length));
     shadow->req.seg[shadow->req.nr_segments].first_sect = (UCHAR)(offset >> 9);
     shadow->req.seg[shadow->req.nr_segments].last_sect = (UCHAR)(((offset + length) >> 9) - 1);
     remaining -= length;
