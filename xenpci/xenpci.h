@@ -544,9 +544,14 @@ VOID
 GntTbl_PutRef(PVOID Context, grant_ref_t ref);
 grant_ref_t
 GntTbl_GetRef(PVOID Context);
-#if 0
-int 
-GntTbl_Map(PVOID Context, unsigned int start_idx, unsigned int end_idx);
-#endif
+
+BOOLEAN
+XenPci_BIS_TranslateBusAddress(PVOID context, PHYSICAL_ADDRESS bus_address, ULONG length, PULONG address_space, PPHYSICAL_ADDRESS translated_address);
+PDMA_ADAPTER
+XenPci_BIS_GetDmaAdapter(PVOID context, PDEVICE_DESCRIPTION device_description, PULONG number_of_map_registers);
+ULONG
+XenPci_BIS_SetBusData(PVOID context, ULONG data_type, PVOID buffer, ULONG offset, ULONG length);
+ULONG
+XenPci_BIS_GetBusData(PVOID context, ULONG data_type, PVOID buffer, ULONG offset, ULONG length);
 
 #endif
