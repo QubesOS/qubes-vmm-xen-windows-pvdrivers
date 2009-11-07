@@ -661,6 +661,7 @@ XenNet_Init(
 
   if (xi->config_sg)
   {
+    KdPrint((__DRIVER_NAME "     SG Enabled\n"));
     status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE, xi->config_gso);
     if (!NT_SUCCESS(status))
     {
@@ -670,6 +671,7 @@ XenNet_Init(
   }
   else
   {
+    KdPrint((__DRIVER_NAME "     SG Disabled\n"));
     status = NdisMAllocateMapRegisters(xi->adapter_handle, 0, NDIS_DMA_64BITS, 64, PAGE_SIZE);
     if (status != NDIS_STATUS_SUCCESS)
     {

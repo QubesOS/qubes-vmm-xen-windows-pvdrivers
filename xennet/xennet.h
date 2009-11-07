@@ -26,7 +26,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NDIS50_MINIPORT 1
 #include <ndis.h>
 #include "../mingw/mingw_extras.h"
-
 #else
 #define DDKAPI
 #include <ntddk.h>
@@ -42,9 +41,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <ntstrsafe.h>
 #endif
 
-
 #define VENDOR_DRIVER_VERSION_MAJOR 0
-#define VENDOR_DRIVER_VERSION_MINOR 9
+#define VENDOR_DRIVER_VERSION_MINOR 10
 
 #define VENDOR_DRIVER_VERSION (((VENDOR_DRIVER_VERSION_MAJOR) << 16) | (VENDOR_DRIVER_VERSION_MINOR))
 
