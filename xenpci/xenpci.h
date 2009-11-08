@@ -234,8 +234,7 @@ typedef struct {
   XENPCI_DEVICE_STATE device_state;
   BOOLEAN restart_on_resume;
   
-  BOOLEAN hiber_usage_kludge;
-  
+  BOOLEAN hiber_usage_kludge;  
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_PDO_DEVICE_DATA, GetXppdd)

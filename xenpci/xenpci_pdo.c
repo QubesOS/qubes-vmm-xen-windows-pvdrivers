@@ -124,8 +124,11 @@ XenPci_UpdateBackendState(PVOID context)
 
   case XenbusStateClosing:
     KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));
-    KdPrint((__DRIVER_NAME "     Requesting eject\n"));
-    WdfPdoRequestEject(device);
+    if (xppdd->frontend_state != XenbusStateClosing)
+    {
+      KdPrint((__DRIVER_NAME "     Requesting eject\n"));
+      WdfPdoRequestEject(device);
+    }
     break;
 
   case XenbusStateClosed:
@@ -1152,7 +1155,7 @@ XenPciPdo_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
     KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", target_state));
     break;  
   }
-
+  
   if (target_state == WdfPowerDevicePrepareForHibernation
       || (target_state == WdfPowerDeviceD3 && xppdd->hiber_usage_kludge))
   {
