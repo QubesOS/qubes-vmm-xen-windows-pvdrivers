@@ -324,6 +324,7 @@ XenNet_SumPacketData(
   PUSHORT csum_ptr;
   USHORT remaining;
   USHORT ip4_length;
+  BOOLEAN csum_span = TRUE; /* when the USHORT to be checksummed spans a buffer */
   
   //FUNCTION_ENTER();
 
@@ -340,9 +341,11 @@ XenNet_SumPacketData(
   switch (pi->ip_proto)
   {
   case 6:
+    ASSERT(buffer_length >= (USHORT)(XN_HDR_SIZE + pi->ip4_header_length + 17));
     csum_ptr = (USHORT *)&buffer[XN_HDR_SIZE + pi->ip4_header_length + 16];
     break;
   case 17:
+    ASSERT(buffer_length >= (USHORT)(XN_HDR_SIZE + pi->ip4_header_length + 7));
     csum_ptr = (USHORT *)&buffer[XN_HDR_SIZE + pi->ip4_header_length + 6];
     break;
   default:
@@ -362,15 +365,44 @@ XenNet_SumPacketData(
   remaining = ip4_length - pi->ip4_header_length;
 
   csum += remaining;
-
-  for (buffer_offset = i = XN_HDR_SIZE + pi->ip4_header_length; i < total_length - 1; i += 2, buffer_offset += 2)
+  
+  csum_span = FALSE;
+  buffer_offset = i = XN_HDR_SIZE + pi->ip4_header_length;
+  while (i < total_length)
   {
     /* don't include the checksum field itself in the calculation */
     if ((pi->ip_proto == 6 && i == XN_HDR_SIZE + pi->ip4_header_length + 16) || (pi->ip_proto == 17 && i == XN_HDR_SIZE + pi->ip4_header_length + 6))
-      continue;
-    if (buffer_offset == buffer_length - 1) // deal with a buffer ending on an odd byte boundary
     {
+      /* we know that this always happens in the header buffer so we are guaranteed the full two bytes */
+      i += 2;
+      buffer_offset += 2;
+      continue;
+    }
+    if (csum_span)
+    {
+      /* the other half of the next bit */
+      ASSERT(buffer_offset == 0);
+      csum += (USHORT)buffer[buffer_offset];
+      csum_span = FALSE;
+      i += 1;
+      buffer_offset += 1;
+    }
+    else if (buffer_offset == buffer_length - 1)
+    {
+      /* deal with a buffer ending on an odd byte boundary */
       csum += (USHORT)buffer[buffer_offset] << 8;
+      csum_span = TRUE;
+      i += 1;
+      buffer_offset += 1;
+    }
+    else
+    {
+      csum += GET_NET_PUSHORT(&buffer[buffer_offset]);
+      i += 2;
+      buffer_offset += 2;
+    }
+    if (buffer_offset == buffer_length && i < total_length)
+    {
       NdisGetNextBuffer(mdl, &mdl);
       if (mdl == NULL)
       {
@@ -378,46 +410,18 @@ XenNet_SumPacketData(
         return FALSE; // should never happen
       }
       NdisQueryBufferSafe(mdl, &buffer, &buffer_length, NormalPagePriority);
-      csum += ((USHORT)buffer[0]);
-      buffer_offset = (USHORT)-1;
-    }
-    else
-    {
-      if (buffer_offset == buffer_length)
-      {
-//        KdPrint((__DRIVER_NAME "     New buffer - aligned...\n"));
-        NdisGetNextBuffer(mdl, &mdl);
-        if (mdl == NULL)
-        {
-          KdPrint((__DRIVER_NAME "     Ran out of buffers\n"));
-          return FALSE; // should never happen
-        }
-        NdisQueryBufferSafe(mdl, (PVOID) &buffer, &buffer_length, NormalPagePriority);
-        buffer_offset = 0;
-      }
-      csum += GET_NET_PUSHORT(&buffer[buffer_offset]);
-    }
-  }
-  if (i != total_length) // last odd byte
-  {
-    if (buffer_offset >= buffer_length)
-    {
-      NdisGetNextBuffer(mdl, &mdl);
-      if (mdl == NULL)
-      {
-        KdPrint((__DRIVER_NAME "     Ran out of buffers\n"));
-        return FALSE; // should never happen
-      }
-      NdisQueryBufferSafe(mdl, (PVOID)&buffer, &buffer_length, NormalPagePriority);
+      ASSERT(buffer_length);
       buffer_offset = 0;
     }
-    csum += ((USHORT)buffer[buffer_offset] << 8);
   }
+      
   while (csum & 0xFFFF0000)
     csum = (csum & 0xFFFF) + (csum >> 16);
   
   if (set_csum)
+  {
     *csum_ptr = (USHORT)~GET_NET_USHORT((USHORT)csum);
+  }
   else
   {
     //FUNCTION_EXIT();
