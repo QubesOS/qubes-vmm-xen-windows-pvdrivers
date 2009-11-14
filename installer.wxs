@@ -35,8 +35,11 @@
             <Component Id='CopyConfig' Guid='C01F8A97-1410-41ce-A16E-76E6072FDFF8'>
               <File Id='copyconfig.exe' Name='copyconfig.exe' DiskId='1' Source='copyconfig\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\copyconfig.exe' />
             </Component>
-          </Directory>  
+          </Directory>
           <Directory Id='DocDir' Name='doc'>
+            <Component Id='Docs' Guid='C827FAD8-F459-42bf-9F77-921E04261B72'>
+              <File Id='Changelog.txt' Name='Changelog.txt' DiskId='1' Source='Changelog.txt' />
+            </Component>
           </Directory>
           <Directory Id='DriversDir' Name='drivers'>
             <Directory Id='XenPciDir' Name='xenpci'>
@@ -96,6 +99,9 @@
 
     <Feature Id='Cert' Title='Install Certificate' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
       <ComponentRef Id='Cert' />
+    </Feature>
+    <Feature Id='Docs' Title='Install Docs' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='disallow'>
+      <ComponentRef Id='Docs' />
     </Feature>
     <Feature Id='Drivers' Title='Drivers' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
       <Feature Id='XenPci' Title='XenPci Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='disallow'>
