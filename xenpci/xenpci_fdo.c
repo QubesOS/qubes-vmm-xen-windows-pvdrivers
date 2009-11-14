@@ -629,6 +629,8 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
 {
   NTSTATUS status = STATUS_SUCCESS;
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(device);
+  ULONG i;
+  ULONG ret;
 
   FUNCTION_ENTER();
 
@@ -674,6 +676,24 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
     }
     GntTbl_Init(xpdd);
     EvtChn_Init(xpdd);
+
+    for (i = 0; i < NR_GRANT_FRAMES + 1; i++)
+    {
+      struct xen_memory_reservation reservation;
+      ULONG pfn;
+      PMDL mdl = AllocatePage();
+      pfn = (ULONG)(MmGetMdlPfnArray(mdl)[0]);
+      reservation.address_bits = 0;
+      reservation.extent_order = 0;
+      reservation.domid = DOMID_SELF;
+      reservation.nr_extents = 1;
+      #pragma warning(disable: 4127) /* conditional expression is constant */
+      set_xen_guest_handle(reservation.extent_start, &pfn);
+      ret = HYPERVISOR_memory_op(xpdd, XENMEM_decrease_reservation, &reservation);
+    }
+    
+  // use the memory_op(unsigned int op, void *arg) hypercall to adjust memory
+  // use XENMEM_increase_reservation and XENMEM_decrease_reservation
   }
   else
   {
