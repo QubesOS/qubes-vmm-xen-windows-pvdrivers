@@ -132,7 +132,6 @@ struct
   blkif_response_t tmp_rep;
   XENVBD_DEVICETYPE device_type;
   XENVBD_DEVICEMODE device_mode;
-  DISK_GEOMETRY Geometry;
   ULONG bytes_per_sector;
   ULONGLONG total_sectors;
   XENPCI_VECTORS vectors;
