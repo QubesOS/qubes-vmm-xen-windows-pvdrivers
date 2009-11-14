@@ -680,9 +680,9 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
     for (i = 0; i < NR_GRANT_FRAMES + 1; i++)
     {
       struct xen_memory_reservation reservation;
-      ULONG pfn;
+      xen_pfn_t pfn;
       PMDL mdl = AllocatePage();
-      pfn = (ULONG)(MmGetMdlPfnArray(mdl)[0]);
+      pfn = (xen_pfn_t)(MmGetMdlPfnArray(mdl)[0]);
       reservation.address_bits = 0;
       reservation.extent_order = 0;
       reservation.domid = DOMID_SELF;
