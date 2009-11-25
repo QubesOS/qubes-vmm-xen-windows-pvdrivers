@@ -196,7 +196,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       {
         KdPrint((__DRIVER_NAME "     vectors mismatch (magic = %08x, length = %d)\n",
           ((PXENPCI_VECTORS)value)->magic, ((PXENPCI_VECTORS)value)->length));
-        FUNCTION_ERROR_EXIT();
+        FUNCTION_EXIT();
         return NDIS_STATUS_ADAPTER_NOT_FOUND;
       }
       else
@@ -491,7 +491,7 @@ XenNet_Init(
       {
         KdPrint((__DRIVER_NAME "     vectors mismatch (magic = %08x, length = %d)\n",
           ((PXENPCI_VECTORS)value)->magic, ((PXENPCI_VECTORS)value)->length));
-        FUNCTION_ERROR_EXIT();
+        FUNCTION_EXIT();
         return NDIS_STATUS_FAILURE;
       }
       else
@@ -695,7 +695,7 @@ XenNet_Init(
 err:
   NdisFreeMemory(xi, 0, 0);
   *OpenErrorStatus = status;
-  FUNCTION_ERROR_EXIT();
+  FUNCTION_EXIT_STATUS(status);
   return status;
 }
 
@@ -712,7 +712,8 @@ XenNet_PnPEventNotify(
   UNREFERENCED_PARAMETER(InformationBuffer);
   UNREFERENCED_PARAMETER(InformationBufferLength);
 
-  FUNCTION_CALLED();
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
 }
 
 /* Called when machine is shutting down, so just quiesce the HW and be done fast. */
@@ -724,7 +725,8 @@ XenNet_Shutdown(
   UNREFERENCED_PARAMETER(MiniportAdapterContext);
 
   /* remember we are called at >= DIRQL here */
-  FUNCTION_CALLED();
+  FUNCTION_ENTER();
+  FUNCTION_EXIT();
 }
 
 /* Opposite of XenNet_Init */

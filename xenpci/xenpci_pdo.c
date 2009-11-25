@@ -965,7 +965,7 @@ XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
         {
           RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
           XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, device);
-          FUNCTION_ERROR_EXIT();
+          FUNCTION_EXIT_STATUS(status);
           return status;
         }
 #endif
@@ -1097,7 +1097,7 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
   if (!NT_SUCCESS(status))
   {
     WdfDeviceSetFailed(device, WdfDeviceFailedNoRestart);
-    FUNCTION_ERROR_EXIT();
+    FUNCTION_EXIT_STATUS(status);
     return status;
   }
   status = XenPci_XenConfigDevice(device);
@@ -1106,7 +1106,7 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
     RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
     XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, device);
     WdfDeviceSetFailed(device, WdfDeviceFailedNoRestart);
-    FUNCTION_ERROR_EXIT();
+    FUNCTION_EXIT_STATUS(status);
     return status;
   }
 
@@ -1496,7 +1496,7 @@ XenPci_Pdo_Resume(WDFDEVICE device)
     {
       KdPrint((__DRIVER_NAME "     Failed to change frontend state to Initialising\n"));
       // this is probably an unrecoverable situation...
-      FUNCTION_ERROR_EXIT();
+      FUNCTION_EXIT();
       return STATUS_UNSUCCESSFUL;
     }
     if (xppdd->assigned_resources_ptr)
@@ -1518,7 +1518,7 @@ XenPci_Pdo_Resume(WDFDEVICE device)
     {
       // this is definitely an unrecoverable situation...
       KdPrint((__DRIVER_NAME "     Failed to change frontend state to connected\n"));
-      FUNCTION_ERROR_EXIT();
+      FUNCTION_EXIT();
       return STATUS_UNSUCCESSFUL;
     }
     XenPci_Pdo_ChangeSuspendState(device, SR_STATE_RESUMING);

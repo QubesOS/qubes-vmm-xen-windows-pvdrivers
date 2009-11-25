@@ -180,6 +180,9 @@ XenPci_SysrqHandler(char *path, PVOID context)
   case 'B': /* cause a bug check */
     KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000001, 0x00000000, 0x00000000, 0x00000000);
     break;
+  case 'A': /* cause an assert */
+    ASSERT(1 == 0);
+    break;
   default:
     KdPrint(("     Unhandled sysrq letter %c\n", letter));
     break;
@@ -689,7 +692,10 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
       reservation.nr_extents = 1;
       #pragma warning(disable: 4127) /* conditional expression is constant */
       set_xen_guest_handle(reservation.extent_start, &pfn);
+      
+      //KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op - pfn = %x\n", (ULONG)pfn));
       ret = HYPERVISOR_memory_op(xpdd, XENMEM_decrease_reservation, &reservation);
+      //KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
     }
     
   // use the memory_op(unsigned int op, void *arg) hypercall to adjust memory

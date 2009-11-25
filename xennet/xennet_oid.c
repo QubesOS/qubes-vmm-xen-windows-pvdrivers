@@ -383,7 +383,7 @@ XenNet_QueryInformation(
 
   if (!NT_SUCCESS(status))
   {
-    // FUNCTION_ERROR_EXIT();
+    //FUNCTION_EXIT_STATUS(status);
     return status;
   }
 
