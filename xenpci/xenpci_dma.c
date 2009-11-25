@@ -161,10 +161,12 @@ XenPci_DOP_AllocateAdapterChannel(
     IN PVOID Context
     )
 {
-  //xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)dma_adapter;
-  //PXENPCI_DEVICE_DATA xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
+  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)dma_adapter;
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
+  ULONG i;
   IO_ALLOCATION_ACTION action;
   map_register_base_t *map_register_base;
+  grant_ref_t gref;
   
   UNREFERENCED_PARAMETER(dma_adapter);
   
@@ -182,6 +184,24 @@ XenPci_DOP_AllocateAdapterChannel(
   map_register_base->device_object = device_object;
   map_register_base->total_map_registers = NumberOfMapRegisters;
   map_register_base->count = 0;
+  
+  for (i = 0; i < NumberOfMapRegisters; i++)
+  {
+    gref = GntTbl_GetRef(xpdd);
+    if (gref == INVALID_GRANT_REF)
+    {
+      /* go back through the list and free the ones we allocated */
+      NumberOfMapRegisters = i;
+      for (i = 0; i < NumberOfMapRegisters; i++)
+      {
+        gref = (grant_ref_t)(map_register_base->regs[i].logical.QuadPart >> PAGE_SHIFT);
+        GntTbl_PutRef(xpdd, gref);
+      }
+      ExFreePoolWithTag(map_register_base, XENPCI_POOL_TAG);
+      return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    map_register_base->regs[i].logical.QuadPart = ((LONGLONG)gref << PAGE_SHIFT);
+  }
   
   action = ExecutionRoutine(device_object, device_object->CurrentIrp, map_register_base, Context);
   
@@ -264,6 +284,8 @@ XenPci_DOP_FreeMapRegisters(
   ULONG i;
   grant_ref_t gref;
 
+  UNREFERENCED_PARAMETER(NumberOfMapRegisters);
+  
   //FUNCTION_ENTER();
   if (!map_register_base)
   {
@@ -311,7 +333,7 @@ XenPci_DOP_MapTransfer(
   PDEVICE_OBJECT device_object = map_register_base->device_object;
   ULONG page_offset;
   PFN_NUMBER pfn;
-  grant_ref_t gref;
+  //grant_ref_t gref;
   PUCHAR ptr;
   ULONG mdl_offset;
   ULONG pfn_index;
@@ -368,9 +390,10 @@ XenPci_DOP_MapTransfer(
     //  mdl_offset, page_offset, *Length, pfn_index));
     pfn = MmGetMdlPfnArray(mdl)[pfn_index];
     //KdPrint((__DRIVER_NAME "     B Requesting Grant Ref\n"));
-    gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, INVALID_GRANT_REF);
+    GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, (grant_ref_t)(map_register->logical.QuadPart >> PAGE_SHIFT));
     //KdPrint((__DRIVER_NAME "     B Got Grant Ref %d\n", gref));
-    map_register->logical.QuadPart = (LONGLONG)(gref << PAGE_SHIFT) | page_offset;
+    map_register->logical.QuadPart &= ~(LONGLONG)(PAGE_SIZE - 1);
+    map_register->logical.QuadPart |= page_offset;
     map_register_base->count++;
     break;
   case MAP_TYPE_REMAPPED:
@@ -389,9 +412,9 @@ XenPci_DOP_MapTransfer(
       memcpy(map_register->aligned_buffer, map_register->unaligned_buffer, map_register->copy_length);
     pfn = (PFN_NUMBER)(MmGetPhysicalAddress(map_register->aligned_buffer).QuadPart >> PAGE_SHIFT);
     //KdPrint((__DRIVER_NAME "     C Requesting Grant Ref\n"));
-    gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, INVALID_GRANT_REF);
+    GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, (grant_ref_t)(map_register->logical.QuadPart >> PAGE_SHIFT));
     //KdPrint((__DRIVER_NAME "     C Got Grant Ref %d\n", gref));
-    map_register->logical.QuadPart = (LONGLONG)(gref << PAGE_SHIFT);
+    map_register->logical.QuadPart &= ~(LONGLONG)(PAGE_SIZE - 1);
     map_register_base->count++;
     break;
   case MAP_TYPE_VIRTUAL:
@@ -718,6 +741,26 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
     //  sizeof(SCATTER_GATHER_ELEMENT) * sglist->NumberOfElements + sizeof(sg_extra_t)));
     return STATUS_BUFFER_TOO_SMALL;
   }
+
+  if (map_type != MAP_TYPE_VIRTUAL)
+  {
+    for (sg_element = 0; sg_element < sglist->NumberOfElements; sg_element++)
+    {
+      gref = GntTbl_GetRef(xpdd);
+      if (gref == INVALID_GRANT_REF)
+      {
+        /* go back through the list and free the ones we allocated */
+        sglist->NumberOfElements = sg_element;
+        for (sg_element = 0; sg_element < sglist->NumberOfElements; sg_element++)
+        {
+          gref = (grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT);
+          GntTbl_PutRef(xpdd, gref);
+        }
+        return STATUS_INSUFFICIENT_RESOURCES;
+      }
+      sglist->Elements[sg_element].Address.QuadPart = ((LONGLONG)gref << PAGE_SHIFT);
+    }
+  }
   
   sg_extra = (sg_extra_t *)((PUCHAR)sglist + FIELD_OFFSET(SCATTER_GATHER_LIST, Elements) +
     (sizeof(SCATTER_GATHER_ELEMENT)) * sglist->NumberOfElements);
@@ -752,10 +795,9 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
         for (i = 0; remaining > 0; i++)
         {
           pfn = MmGetMdlPfnArray(curr_mdl)[pfn_offset + i];
-          ASSERT(pfn);
-          gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, INVALID_GRANT_REF);
-          ASSERT(gref != INVALID_GRANT_REF);
-          sglist->Elements[sg_element].Address.QuadPart = (LONGLONG)(gref << PAGE_SHIFT) | offset;
+          GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE,
+            (grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT));
+          sglist->Elements[sg_element].Address.QuadPart |= (LONGLONG)offset;
           sglist->Elements[sg_element].Length = min(min(PAGE_SIZE - offset, remaining), total_remaining);
           total_remaining -= sglist->Elements[sg_element].Length;
           remaining -= sglist->Elements[sg_element].Length;
@@ -823,10 +865,8 @@ for (curr_mdl = Mdl; curr_mdl; curr_mdl = curr_mdl->Next)
       sg_element < ADDRESS_AND_SIZE_TO_SPAN_PAGES(sg_extra->aligned_buffer, remapped_bytes); sg_element++)
     {
       pfn = (PFN_NUMBER)(MmGetPhysicalAddress((PUCHAR)sg_extra->aligned_buffer + (sg_element << PAGE_SHIFT)).QuadPart >> PAGE_SHIFT);
-      ASSERT(pfn);
-      gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, INVALID_GRANT_REF);
-      ASSERT(gref != INVALID_GRANT_REF);
-      sglist->Elements[sg_element].Address.QuadPart = (ULONGLONG)gref << PAGE_SHIFT;
+      GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE,
+        (grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT));
       sglist->Elements[sg_element].Length = min(PAGE_SIZE, remaining);
       remaining -= sglist->Elements[sg_element].Length;
     }
@@ -908,6 +948,8 @@ XenPci_DOP_GetScatterGatherList(
   
   if (NT_SUCCESS(status))
     ExecutionRoutine(DeviceObject, DeviceObject->CurrentIrp, sg_list, Context);
+  else
+    ExFreePoolWithTag(sg_list, XENPCI_POOL_TAG);
   
   //FUNCTION_EXIT();
   
