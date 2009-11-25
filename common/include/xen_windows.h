@@ -206,6 +206,8 @@ the wrong width is used with the wrong defined port
 #define QEMU_UNPLUG_ALL_NICS 2
 #define QEMU_UNPLUG_AUX_IDE_DISKS 4
 
+#if 0
+
 static BOOLEAN debug_port_probed = FALSE;
 static BOOLEAN debug_port_enabled;
 
@@ -247,6 +249,7 @@ static void XenDbgPrint(PCHAR format, ...)
   }
 }
 
+
 static VOID
 XenRtlAssert(PCHAR expr, PCHAR filename, ULONG line_number)
 {
@@ -278,6 +281,16 @@ XenRtlAssert(PCHAR expr, PCHAR filename, ULONG line_number)
 #else
 #define FUNCTION_MSG(format, ...) XenDbgPrint(__DRIVER_NAME "     " format, __VA_ARGS__)
 #endif
+
+#else
+
+#define FUNCTION_ENTER()       KdPrint((__DRIVER_NAME " --> %s\n", __FUNCTION__))
+#define FUNCTION_EXIT()        KdPrint((__DRIVER_NAME " <-- %s\n", __FUNCTION__))
+#define FUNCTION_EXIT_STATUS(_status) KdPrint((__DRIVER_NAME " <-- %s, status = %08x\n", __FUNCTION__, _status))
+#define FUNCTION_MSG(...) KdPrint((__DRIVER_NAME "     " __VA_ARGS__))
+
+#endif
+
 
 #define INVALID_GRANT_REF 0xFFFFFFFF
 
