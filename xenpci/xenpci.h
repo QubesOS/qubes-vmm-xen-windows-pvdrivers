@@ -463,6 +463,9 @@ XenPci_HighSync(PXENPCI_HIGHSYNC_FUNCTION function0, PXENPCI_HIGHSYNC_FUNCTION f
 VOID
 XenPci_PatchKernel(PXENPCI_DEVICE_DATA xpdd, PVOID base, ULONG length);
 
+NTSTATUS
+XenPci_HookDbgPrint();
+
 struct xsd_sockmsg *
 XenBus_Raw(PXENPCI_DEVICE_DATA xpdd, struct xsd_sockmsg *msg);
 char *

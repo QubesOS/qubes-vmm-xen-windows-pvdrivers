@@ -34,6 +34,7 @@ XenPci_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE notifi
   FUNCTION_ENTER();
   
   UNREFERENCED_PARAMETER(device);
+  UNREFERENCED_PARAMETER(is_in_notification_path);
 
   switch (notification_type)
   {
@@ -562,28 +563,6 @@ XenPci_FixLoadOrder()
   return;
 }
 
-KBUGCHECK_CALLBACK_RECORD callback_record;
-
-static VOID
-XenPci_BugcheckCallback(PVOID buffer, ULONG length)
-{
-  NTSTATUS status;
-  KBUGCHECK_DATA bugcheck_data;
-  
-  UNREFERENCED_PARAMETER(buffer);
-  UNREFERENCED_PARAMETER(length);
-  
-  bugcheck_data.BugCheckDataSize  = sizeof(bugcheck_data);
-  status = AuxKlibGetBugCheckData(&bugcheck_data);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     AuxKlibGetBugCheckData returned %08x\n", status));
-    return;
-  }
-  KdPrint((__DRIVER_NAME "     Bug check 0x%08X (0x%p, 0x%p, 0x%p, 0x%p)\n",
-    bugcheck_data.BugCheckCode, bugcheck_data.Parameter1, bugcheck_data.Parameter2, bugcheck_data.Parameter3, bugcheck_data.Parameter4));
-}
-
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -602,7 +581,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   
   UNREFERENCED_PARAMETER(RegistryPath);
 
-  KdPrint((__DRIVER_NAME " " VER_FILEVERSION_STR));
+  KdPrint((__DRIVER_NAME " " VER_FILEVERSION_STR "\n"));
 
   FUNCTION_ENTER();
 
@@ -612,12 +591,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     KdPrint((__DRIVER_NAME "     AuxKlibInitialize failed %08x - expect a crash soon\n", status));
   }
   
-  KeInitializeCallbackRecord(&callback_record);
-  if (!KeRegisterBugCheckCallback(&callback_record, XenPci_BugcheckCallback, NULL, 0, (PUCHAR)"XenPci"))
-  {
-    KdPrint((__DRIVER_NAME "     KeRegisterBugCheckCallback failed\n"));
-  }
-
+  XenPci_HookDbgPrint();
+  
   XenPci_FixLoadOrder();
 
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
