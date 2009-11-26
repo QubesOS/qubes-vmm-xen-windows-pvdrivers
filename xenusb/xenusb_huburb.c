@@ -41,6 +41,7 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
 
   UNREFERENCED_PARAMETER(input_buffer_length);
   UNREFERENCED_PARAMETER(output_buffer_length);
+  UNREFERENCED_PARAMETER(io_control_code);
 
   //FUNCTION_ENTER();
 

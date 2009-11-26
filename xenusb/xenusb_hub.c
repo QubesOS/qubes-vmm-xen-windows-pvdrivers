@@ -225,12 +225,6 @@ XenUsbHub_EvtIoInternalDeviceControl(
     *(PVOID *)wrp.Parameters.Others.Arg1 = WdfDeviceWdmGetPhysicalDevice(device);
     //*(PVOID *)wrp.Parameters.Others.Arg2 = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device));
     *(PVOID *)wrp.Parameters.Others.Arg2 = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(xupdd->wdf_device_bus_fdo));
-    {
-    //PDEVICE_OBJECT hcdTopOfStack = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(device));
-    PDEVICE_OBJECT hcdTopOfStack = IoGetAttachedDevice(WdfDeviceWdmGetDeviceObject(xupdd->wdf_device_bus_fdo));
-    KdPrint((__DRIVER_NAME "     hcdTopOfStack = %p\n", hcdTopOfStack));
-    KdPrint((__DRIVER_NAME "     hcdTopOfStack->StackSize = %p\n", hcdTopOfStack->StackSize));
-    }
     status = STATUS_SUCCESS;
     break;
   case IOCTL_INTERNAL_USB_RESET_PORT:
@@ -378,6 +372,7 @@ XenUsbHub_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE not
   PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(device);
 
   UNREFERENCED_PARAMETER(xupdd);
+  UNREFERENCED_PARAMETER(is_in_notification_path);  
 
   FUNCTION_ENTER();
   
@@ -429,10 +424,15 @@ XenUsbHub_UBIH_CreateUsbDevice(
   USHORT PortNumber)
 {
   NTSTATUS status = STATUS_SUCCESS;
-  WDFDEVICE device = BusContext;
+  
+  UNREFERENCED_PARAMETER(BusContext);  
+  UNREFERENCED_PARAMETER(HubDeviceHandle);
+  UNREFERENCED_PARAMETER(PortStatus);
+  UNREFERENCED_PARAMETER(PortNumber);
+  
   FUNCTION_ENTER();
 
-  KdPrint((__DRIVER_NAME "     device = %p\n", device));
+  KdPrint((__DRIVER_NAME "     BusContext = %p\n", BusContext));
   KdPrint((__DRIVER_NAME "     DeviceHandle = %p\n", DeviceHandle));
   KdPrint((__DRIVER_NAME "     *DeviceHandle = %p\n", *DeviceHandle));
   KdPrint((__DRIVER_NAME "     HubDeviceHandle = %p\n", HubDeviceHandle));
@@ -681,14 +681,15 @@ XenUsbHub_UBIH_GetUsbDescriptors(
   )
 {
   NTSTATUS status = STATUS_SUCCESS;
-  WDFDEVICE device = BusContext;
   xenusb_device_t *usb_device = DeviceHandle;
   xenusb_config_t *usb_config;
   PUCHAR ptr;
 
+  UNREFERENCED_PARAMETER(BusContext);  
+
   FUNCTION_ENTER();
 
-  KdPrint((__DRIVER_NAME "     device = %p\n", device));
+  KdPrint((__DRIVER_NAME "     BusContext = %p\n", BusContext));
   KdPrint((__DRIVER_NAME "     DeviceHandle = %p\n", DeviceHandle));
   KdPrint((__DRIVER_NAME "     DeviceDescriptorBuffer = %p\n", DeviceDescriptorBuffer));
   KdPrint((__DRIVER_NAME "     DeviceDescriptorBufferLength = %d\n", *DeviceDescriptorBufferLength));
@@ -793,6 +794,8 @@ XenUsbHub_UBIH_QueryDeviceInformation(
   ULONG i;
   ULONG required_size;
 
+  UNREFERENCED_PARAMETER(BusContext);  
+
   FUNCTION_ENTER();
 
   KdPrint((__DRIVER_NAME "     BusContext = %p\n", BusContext));
@@ -844,6 +847,8 @@ XenUsbHub_UBIH_GetControllerInformation (
   PUSB_CONTROLLER_INFORMATION_0 uci = ControllerInformationBuffer;
   //WDFDEVICE device = BusContext;
   //xenusb_device_t *usb_device = DeviceHandle;
+
+  UNREFERENCED_PARAMETER(BusContext);  
 
   FUNCTION_ENTER();
 
@@ -900,6 +905,9 @@ XenUsbHub_UBIH_GetExtendedHubInformation (
   PUSB_EXTHUB_INFORMATION_0 hib = HubInformationBuffer;
   ULONG i;
 
+  UNREFERENCED_PARAMETER(BusContext);  
+  UNREFERENCED_PARAMETER(HubPhysicalDeviceObject);
+  
   FUNCTION_ENTER();
 
   KdPrint((__DRIVER_NAME "     BusContext = %p\n", BusContext));
@@ -942,10 +950,11 @@ XenUsbHub_UBIH_GetRootHubSymbolicName(
   PULONG HubNameActualLength)
 {
   NTSTATUS status = STATUS_SUCCESS;
-  WDFDEVICE device = BusContext;
   FUNCTION_ENTER();
 
-  KdPrint((__DRIVER_NAME "     device = %p\n", device));
+  UNREFERENCED_PARAMETER(BusContext);
+  
+  KdPrint((__DRIVER_NAME "     BusContext = %p\n", BusContext));
   KdPrint((__DRIVER_NAME "     HubInformationBuffer = %p\n", HubInformationBuffer));
   KdPrint((__DRIVER_NAME "     HubInformationBufferLength = %d\n", HubInformationBufferLength));
   RtlStringCbCopyW(HubInformationBuffer, HubInformationBufferLength, L"ROOT_HUB");
@@ -976,6 +985,11 @@ XenUsbHub_UBIH_Initialize20Hub (
   ULONG TtCount)
 {
   NTSTATUS status = STATUS_SUCCESS;
+  
+  UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(HubDeviceHandle);
+  UNREFERENCED_PARAMETER(TtCount);
+  
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     BusContext = %p\n", BusContext));
   KdPrint((__DRIVER_NAME "     HubDeviceHandle = %p\n", HubDeviceHandle));
@@ -1134,6 +1148,10 @@ XenUsbHub_UBIU_EnumLogEntry(
   FUNCTION_ENTER();
   
   UNREFERENCED_PARAMETER(BusContext);
+  UNREFERENCED_PARAMETER(DriverTag);
+  UNREFERENCED_PARAMETER(EnumTag);
+  UNREFERENCED_PARAMETER(P1);
+  UNREFERENCED_PARAMETER(P2);
   
   KdPrint((__DRIVER_NAME "     DriverTag = %08x\n", DriverTag));
   KdPrint((__DRIVER_NAME "     EnumTag = %08x\n", EnumTag));
