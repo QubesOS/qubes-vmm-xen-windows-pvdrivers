@@ -929,7 +929,7 @@ XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
         prd->u.Interrupt.Level = 0;       // Set group and level to zero (group = upper word)
         prd->u.Interrupt.Level = xpdd->irq_number & 0xffff; // Only set the lower word
         prd->u.Interrupt.Vector = xpdd->irq_number;
-        prd->u.Interrupt.Affinity = KeQueryActiveProcessors();
+        prd->u.Interrupt.Affinity = xpdd->irq_affinity; //KeQueryActiveProcessors();
         xppdd->irq_number = xpdd->irq_number;
       }
       break;
@@ -979,7 +979,7 @@ XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
         prd->u.Interrupt.Level = 0;       // Set group and level to zero (group = upper word)
         prd->u.Interrupt.Level = xpdd->irq_level & 0xffff; // Only set the lower word
         prd->u.Interrupt.Vector = xpdd->irq_vector;
-        prd->u.Interrupt.Affinity = KeQueryActiveProcessors();
+        prd->u.Interrupt.Affinity = xpdd->irq_affinity; //KeQueryActiveProcessors();
         xppdd->irq_vector = xpdd->irq_vector;
         xppdd->irq_level = xpdd->irq_level;
       }
