@@ -143,7 +143,13 @@ XenPci_HookDbgPrint()
     //DbgSetDebugPrintCallback = (PDBG_SET_DEBUGPRINT_CALLBACK)MmGetSystemRoutineAddress((PUNICODE_STRING)&DbgSetDebugPrintCallbackName);
 #if (NTDDI_VERSION >= NTDDI_VISTA)
     KdPrint((__DRIVER_NAME "     DbgSetDebugPrintCallback found\n"));
-    DbgSetDebugPrintCallback(XenPci_DbgPrintCallback, TRUE);
+    status = DbgSetDebugPrintCallback(XenPci_DbgPrintCallback, TRUE);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint((__DRIVER_NAME "     DbgSetDebugPrintCallback failed - %08x\n", status));
+    }
+    //DbgSetDebugFilterState(componentid, level, state);
+    DbgSetDebugFilterState(DPFLTR_DEFAULT_ID, 0xFFFFFFFF, TRUE);
 #else
     KdPrint((__DRIVER_NAME "     DbgSetDebugPrintCallback not found\n"));      
 #ifndef _AMD64_ // can't patch IDT on AMD64 unfortunately - results in bug check 0x109

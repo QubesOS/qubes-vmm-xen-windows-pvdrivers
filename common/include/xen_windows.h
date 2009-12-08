@@ -211,7 +211,7 @@ the wrong width is used with the wrong defined port
 static BOOLEAN debug_port_probed = FALSE;
 static BOOLEAN debug_port_enabled;
 
-static void XenDbgPrint(PCHAR format, ...)
+static void XenDbgPrintOld(PCHAR format, ...)
 {
   CHAR buf[512];
   va_list ap;
@@ -253,7 +253,7 @@ static void XenDbgPrint(PCHAR format, ...)
 static VOID
 XenRtlAssert(PCHAR expr, PCHAR filename, ULONG line_number)
 {
-  XenDbgPrint("Failed ASSERTion '%s' at %s:%d\n", expr, filename, line_number);
+  XenDbgPrintOld("Failed ASSERTion '%s' at %s:%d\n", expr, filename, line_number);
   RtlAssert(expr, filename, line_number, NULL);
 }
 
@@ -262,7 +262,7 @@ XenRtlAssert(PCHAR expr, PCHAR filename, ULONG line_number)
 #ifdef KdPrint
   #undef KdPrint
 #endif
-#define KdPrint(_x_) XenDbgPrint _x_
+#define KdPrint(_x_) XenDbgPrintOld _x_
 #endif
 
 #ifdef ASSERT
@@ -270,16 +270,16 @@ XenRtlAssert(PCHAR expr, PCHAR filename, ULONG line_number)
 #endif
 #define ASSERT( exp ) ((!(exp)) ? (XenRtlAssert( #exp, __FILE__, __LINE__), FALSE) : TRUE)
 
-#define FUNCTION_ENTER()       XenDbgPrint(__DRIVER_NAME " --> %s\n", __FUNCTION__)
-#define FUNCTION_EXIT()        XenDbgPrint(__DRIVER_NAME " <-- %s\n", __FUNCTION__)
-#define FUNCTION_EXIT_STATUS(_status) XenDbgPrint(__DRIVER_NAME " <-- %s, status = %08x\n", __FUNCTION__, _status)
-#define FUNCTION_ERROR_EXIT()  XenDbgPrint(__DRIVER_NAME " <-- %s (error path)\n", __FUNCTION__)
-#define FUNCTION_CALLED()      XenDbgPrint(__DRIVER_NAME " %s called (line %d)\n", __FUNCTION__, __LINE__)
+#define FUNCTION_ENTER()       XenDbgPrintOld(__DRIVER_NAME " --> %s\n", __FUNCTION__)
+#define FUNCTION_EXIT()        XenDbgPrintOld(__DRIVER_NAME " <-- %s\n", __FUNCTION__)
+#define FUNCTION_EXIT_STATUS(_status) XenDbgPrintOld(__DRIVER_NAME " <-- %s, status = %08x\n", __FUNCTION__, _status)
+#define FUNCTION_ERROR_EXIT()  XenDbgPrintOld(__DRIVER_NAME " <-- %s (error path)\n", __FUNCTION__)
+#define FUNCTION_CALLED()      XenDbgPrintOld(__DRIVER_NAME " %s called (line %d)\n", __FUNCTION__, __LINE__)
 #ifdef __MINGW32__
 #define FUNCTION_MSG(_x) _FUNCTION_MSG _x
-#define _FUNCTION_MSG(format, args...) XenDbgPrint(__DRIVER_NAME " %s called: " format, __FUNCTION__, ##args)
+#define _FUNCTION_MSG(format, args...) XenDbgPrintOld(__DRIVER_NAME " %s called: " format, __FUNCTION__, ##args)
 #else
-#define FUNCTION_MSG(format, ...) XenDbgPrint(__DRIVER_NAME "     " format, __VA_ARGS__)
+#define FUNCTION_MSG(format, ...) XenDbgPrintOld(__DRIVER_NAME "     " format, __VA_ARGS__)
 #endif
 
 #else
