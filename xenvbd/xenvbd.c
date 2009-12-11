@@ -278,10 +278,10 @@ decode_cdb_length(PSCSI_REQUEST_BLOCK srb)
   {
   case SCSIOP_READ:
   case SCSIOP_WRITE:
-    return (srb->Cdb[7] << 8) | srb->Cdb[8];
+    return ((ULONG)(UCHAR)srb->Cdb[7] << 8) | (ULONG)(UCHAR)srb->Cdb[8];
   case SCSIOP_READ16:
   case SCSIOP_WRITE16:
-    return (srb->Cdb[10] << 24) | (srb->Cdb[11] << 16) | (srb->Cdb[12] << 8) | srb->Cdb[13];    
+    return ((ULONG)(UCHAR)srb->Cdb[10] << 24) | ((ULONG)(UCHAR)srb->Cdb[11] << 16) | ((ULONG)(UCHAR)srb->Cdb[12] << 8) | (ULONG)(UCHAR)srb->Cdb[13];    
   default:
     return 0;
   }
@@ -296,14 +296,14 @@ decode_cdb_sector(PSCSI_REQUEST_BLOCK srb)
   {
   case SCSIOP_READ:
   case SCSIOP_WRITE:
-    sector = (srb->Cdb[2] << 24) | (srb->Cdb[3] << 16) | (srb->Cdb[4] << 8) | srb->Cdb[5];
+    sector = ((ULONG)(UCHAR)srb->Cdb[2] << 24) | ((ULONG)(UCHAR)srb->Cdb[3] << 16) | ((ULONG)(UCHAR)srb->Cdb[4] << 8) | (ULONG)(UCHAR)srb->Cdb[5];
     break;
   case SCSIOP_READ16:
   case SCSIOP_WRITE16:
-    sector = ((ULONGLONG)srb->Cdb[2] << 56) | ((ULONGLONG)srb->Cdb[3] << 48)
-           | ((ULONGLONG)srb->Cdb[4] << 40) | ((ULONGLONG)srb->Cdb[5] << 32)
-           | ((ULONGLONG)srb->Cdb[6] << 24) | ((ULONGLONG)srb->Cdb[7] << 16)
-           | ((ULONGLONG)srb->Cdb[8] << 8) | ((ULONGLONG)srb->Cdb[9]);
+    sector = ((ULONGLONG)(UCHAR)srb->Cdb[2] << 56) | ((ULONGLONG)(UCHAR)srb->Cdb[3] << 48)
+           | ((ULONGLONG)(UCHAR)srb->Cdb[4] << 40) | ((ULONGLONG)(UCHAR)srb->Cdb[5] << 32)
+           | ((ULONGLONG)(UCHAR)srb->Cdb[6] << 24) | ((ULONGLONG)(UCHAR)srb->Cdb[7] << 16)
+           | ((ULONGLONG)(UCHAR)srb->Cdb[8] << 8) | ((ULONGLONG)(UCHAR)srb->Cdb[9]);
     //KdPrint((__DRIVER_NAME "     sector_number = %d (high) %d (low)\n", (ULONG)(sector >> 32), (ULONG)sector));
     break;
   default:
@@ -1123,6 +1123,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
       XenVbd_PutSrbOnRing(xvdd, Srb);
       break;
     case SCSIOP_VERIFY:
+    case SCSIOP_VERIFY16:
       // Should we do more here?
       if (dump_mode)
         KdPrint((__DRIVER_NAME "     Command = VERIFY\n"));
