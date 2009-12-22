@@ -19,10 +19,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 
-#if defined(__MINGW32__)
-  #define xchg(p1, p2) InterlockedExchange((xen_long_t * volatile)p1, p2)
-  /* rest implemented in mingw_extras.c */
-#elif defined(_X86_)
+/* Not really necessary but keeps PREfast happy */
+static KDEFERRED_ROUTINE EvtChn_DpcBounce;
+
+#if defined(_X86_)
   #define xchg(p1, p2) InterlockedExchange(p1, p2)
   #define synch_clear_bit(p1, p2) InterlockedBitTestAndReset(p2, p1)
   #define synch_set_bit(p1, p2) InterlockedBitTestAndSet(p2, p1)
@@ -293,7 +293,7 @@ EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR descriptio
   xpdd->ev_actions[Port].xpdd = xpdd;
   KeMemoryBarrier();
   xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_IRQ;
-  strncpy(xpdd->ev_actions[Port].description, description, 128);
+  RtlStringCbCopyA(xpdd->ev_actions[Port].description, 128, description);
 
   EvtChn_Unmask(Context, Port);
 

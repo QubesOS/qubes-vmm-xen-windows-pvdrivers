@@ -20,20 +20,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #if !defined(_XENVBD_H_)
 #define _XENVBD_H_
 
-#ifdef __MINGW32__
-#include <ntddk.h>
-#include "../mingw/mingw_extras.h"
-
-#else
 #define DDKAPI
 
-#include <ntifs.h>
+//#include <ntifs.h>
 #include <ntddk.h>
 #include <wdm.h>
 #include <initguid.h>
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
-#endif
 
 #include <ntdddisk.h>
 #include <srb.h>

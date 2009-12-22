@@ -24,7 +24,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define EISCONN 127
 
 #include <ntifs.h>
-#include <ntddk.h>
+//#include <ntddk.h>
 
 #define DDKAPI
 //#include <wdm.h>
@@ -385,11 +385,8 @@ EVT_WDF_DEVICE_D0_ENTRY_POST_INTERRUPTS_ENABLED XenPci_EvtDeviceD0EntryPostInter
 EVT_WDF_DEVICE_D0_EXIT XenPci_EvtDeviceD0Exit;
 EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED XenPci_EvtDeviceD0ExitPreInterruptsDisabled;
 EVT_WDF_DEVICE_QUERY_REMOVE XenPci_EvtDeviceQueryRemove;
-
-NTSTATUS
-XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list, PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER description_header, PWDFDEVICE_INIT child_init);
-VOID
-XenPci_EvtChildListScanForChildren(WDFCHILDLIST child_list);
+EVT_WDF_CHILD_LIST_CREATE_DEVICE XenPci_EvtChildListCreateDevice;
+EVT_WDF_CHILD_LIST_SCAN_FOR_CHILDREN XenPci_EvtChildListScanForChildren;
 
 VOID
 XenPci_HideQemuDevices();
@@ -547,13 +544,9 @@ GntTbl_PutRef(PVOID Context, grant_ref_t ref);
 grant_ref_t
 GntTbl_GetRef(PVOID Context);
 
-BOOLEAN
-XenPci_BIS_TranslateBusAddress(PVOID context, PHYSICAL_ADDRESS bus_address, ULONG length, PULONG address_space, PPHYSICAL_ADDRESS translated_address);
-PDMA_ADAPTER
-XenPci_BIS_GetDmaAdapter(PVOID context, PDEVICE_DESCRIPTION device_description, PULONG number_of_map_registers);
-ULONG
-XenPci_BIS_SetBusData(PVOID context, ULONG data_type, PVOID buffer, ULONG offset, ULONG length);
-ULONG
-XenPci_BIS_GetBusData(PVOID context, ULONG data_type, PVOID buffer, ULONG offset, ULONG length);
+TRANSLATE_BUS_ADDRESS XenPci_BIS_TranslateBusAddress;
+GET_DMA_ADAPTER XenPci_BIS_GetDmaAdapter;
+GET_SET_DEVICE_DATA XenPci_BIS_SetBusData;
+GET_SET_DEVICE_DATA XenPci_BIS_GetBusData;
 
 #endif

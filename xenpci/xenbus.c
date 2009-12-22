@@ -23,6 +23,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning( disable : 4204 ) 
 #pragma warning( disable : 4221 ) 
 
+/* Not really necessary but keeps PREfast happy */
+static EVT_WDF_WORKITEM XenBus_WatchWorkItemProc;
+
 WDF_DECLARE_CONTEXT_TYPE(xsd_sockmsg_t)
 
 struct write_req {
@@ -237,6 +240,12 @@ XenBus_WatchWorkItemProc(WDFWORKITEM workitem)
   msg = WdfObjectGetTypedContext(workitem, xsd_sockmsg_t);
   path = (PCHAR)msg + sizeof(xsd_sockmsg_t);
   index = atoi(path + strlen(path) + 1);
+  if (index < 0 || index >= MAX_WATCH_ENTRIES)
+  {
+    KdPrint((__DRIVER_NAME "     Watch index %d out of range\n", index));
+    WdfObjectDelete(workitem);
+    return;
+  }
   ExAcquireFastMutex(&xpdd->xb_watch_mutex);
   entry = &xpdd->XenBus_WatchEntries[index];
   if (!entry->Active || !entry->ServiceRoutine)
@@ -602,7 +611,7 @@ XenBus_AddWatch(
   /* must init watchentry before starting watch */
   
   w_entry = &xpdd->XenBus_WatchEntries[i];
-  strncpy(w_entry->Path, Path, ARRAY_SIZE(w_entry->Path));
+  RtlStringCbCopyA(w_entry->Path, ARRAY_SIZE(w_entry->Path), Path);
   w_entry->ServiceRoutine = ServiceRoutine;
   w_entry->ServiceContext = ServiceContext;
   w_entry->Count = 0;

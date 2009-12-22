@@ -10,6 +10,7 @@
 #include <setupapi.h>
 #include <ctype.h>
 #include <powrprof.h>
+#include <strsafe.h>
 
 #define SERVICE_ID "ShutdownMon"
 #define SERVICE_NAME "Xen Shutdown Monitor"
@@ -68,7 +69,7 @@ install_service()
     return;
   }
 
-  sprintf(command_line, "\"%s\" -s", path);
+  StringCbPrintf(command_line, MAX_PATH + 10, "\"%s\" -s", path);
   manager_handle = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
  
   if (!manager_handle)
@@ -282,7 +283,7 @@ get_xen_interface_path()
   }
   
   path = malloc(strlen(sdidd->DevicePath) + 1);
-  strcpy(path, sdidd->DevicePath);
+  StringCbCopyA(path, strlen(sdidd->DevicePath) + 1, sdidd->DevicePath);
   free(sdidd);
   
   return path;
@@ -302,8 +303,8 @@ xb_add_watch(HANDLE handle, char *path)
   msg->req_id = 0;
   msg->tx_id = 0;
   msg->len = (ULONG)(strlen(path) + 1 + strlen(token) + 1);
-  strcpy(buf + sizeof(*msg), path);
-  strcpy(buf + sizeof(*msg) + strlen(path) + 1, token);
+  StringCbCopyA(buf + sizeof(*msg), 1024 - sizeof(*msg), path);
+  StringCbCopyA(buf + sizeof(*msg) + strlen(path) + 1, 1024 - sizeof(*msg) - strlen(path) - 1, token);
 
   if (!WriteFile(handle, buf, sizeof(*msg) + msg->len, &bytes_written, NULL))
   {
@@ -359,7 +360,7 @@ printf("read start\n");
   msg->req_id = 0;
   msg->tx_id = 0;
   msg->len = (ULONG)(strlen(path) + 1);
-  strcpy(buf + sizeof(*msg), path);
+  StringCbCopyA(buf + sizeof(*msg), 1024 - sizeof(*msg), path);
 
   if (!WriteFile(handle, buf, sizeof(*msg) + msg->len, &bytes_written, NULL))
   {
@@ -377,7 +378,7 @@ printf("read start\n");
   buf[sizeof(*msg) + msg->len] = 0;
   printf("msg text = %s\n", buf + sizeof(*msg));
   ret = malloc(strlen(buf + sizeof(*msg)) + 1);
-  strcpy(ret, buf + sizeof(*msg));
+  StringCbCopyA(ret, 1024 - sizeof(*msg), buf + sizeof(*msg));
   return ret;
 }
 

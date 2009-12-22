@@ -14,5 +14,7 @@ IF "%DDK_TARGET_OS%"=="WinLH" (SET MSIOS=Vista2008)
 
 SET MSINAME=gplpv_%MSIOS%%MSIARCH%_%GPLPV_VERSION%%MSIBUILD%.msi
 
+for /F %%x in ('DIR /B %BASEDIR%\redist\wdf\%_BUILDARCH%\WdfCoInstaller?????.dll') do set WDFFILENAME=%%x
+
 "%WIX%\bin\candle" installer.wxs -ext "%WIX%\bin\WixUIExtension.dll" -ext "%WIX%\bin\WixDifxAppExtension.dll" -ext "%WIX%\bin\WixIIsExtension.dll"
 "%WIX%\bin\light.exe" -o %MSINAME% installer.wixobj "%DIFXLIB%" -ext "%WIX%\bin\WixUIExtension.dll" -ext "%WIX%\bin\WixDifxAppExtension.dll" -ext "%WIX%\bin\WixIIsExtension.dll"

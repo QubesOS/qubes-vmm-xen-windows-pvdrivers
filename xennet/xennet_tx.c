@@ -20,6 +20,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xennet.h"
 
+/* Not really necessary but keeps PREfast happy */
+static KDEFERRED_ROUTINE XenNet_TxBufferGC;
+
 static USHORT
 get_id_from_freelist(struct xennet_info *xi)
 {
@@ -398,7 +401,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
 
 //ULONG packets_outstanding = 0;
 // Called at DISPATCH_LEVEL
-VOID
+static VOID
 XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 {
   struct xennet_info *xi = context;

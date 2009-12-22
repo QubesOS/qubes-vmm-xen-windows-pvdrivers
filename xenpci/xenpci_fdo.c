@@ -25,6 +25,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define SHUTDOWN_PATH "control/shutdown"
 #define BALLOON_PATH "memory/target"
 
+/* Not really necessary but keeps PREfast happy */
+static EVT_WDF_WORKITEM XenPci_SuspendResume;
+static KSTART_ROUTINE XenPci_BalloonThreadProc;
+
+
 static VOID
 XenPci_MapHalThenPatchKernel(PXENPCI_DEVICE_DATA xpdd)
 {

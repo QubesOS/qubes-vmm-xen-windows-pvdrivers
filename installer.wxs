@@ -47,7 +47,7 @@
                 <File Id='xenpci.cat' Name='xenpci.cat' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenpci.cat' />
                 <File Id='xenpci.inf' Name='xenpci.inf' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenpci.inf' />
                 <File Id='xenpci.sys' Name='xenpci.sys' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenpci.sys' />
-                <File Id='WdfCoInstaller01007.dll' Name='WdfCoInstaller01007.dll' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\WdfCoInstaller01007.dll' />
+                <File Id='$(env.WDFFILENAME)' Name='$(env.WDFFILENAME)' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\$(env.WDFFILENAME)' />
                 <difx:Driver Sequence='99' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
               </Component>
             </Directory>
@@ -82,7 +82,7 @@
                 <File Id='xenusb.inf' Name='xenusb.inf' DiskId='1' Source='xenusb\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenusb.inf' />
                 <File Id='xenusb.sys' Name='xenusb.sys' DiskId='1' Source='xenusb\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenusb.sys' />
                 <!-- we deliberately use the file from xenpci so that wix can deduplicate it -->
-                <File Id='WdfCoInstaller01007.dll_usb' Name='WdfCoInstaller01007.dll' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\WdfCoInstaller01007.dll' />
+                <File Id='$(env.WDFFILENAME)_usb' Name='$(env.WDFFILENAME)' DiskId='1' Source='xenpci\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\$(env.WDFFILENAME)' />
                 <difx:Driver Sequence='3' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
               </Component>
             </Directory>

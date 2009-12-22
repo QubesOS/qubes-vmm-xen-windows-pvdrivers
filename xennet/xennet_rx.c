@@ -20,6 +20,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xennet.h"
 
+/* Not really necessary but keeps PREfast happy */
+static KDEFERRED_ROUTINE XenNet_RxBufferCheck;
+
 static __inline shared_buffer_t *
 get_pb_from_freelist(struct xennet_info *xi)
 {

@@ -28,6 +28,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #pragma warning(disable : 4200) // zero-sized array
 
+/* Not really necessary but keeps PREfast happy */
+DRIVER_INITIALIZE DriverEntry;
+static EVT_WDF_DRIVER_DEVICE_ADD XenPci_EvtDeviceAdd;
+static EVT_WDF_DEVICE_USAGE_NOTIFICATION XenPci_EvtDeviceUsageNotification;
+static EVT_WDF_DEVICE_PREPARE_HARDWARE XenHide_EvtDevicePrepareHardware;
+
 static VOID
 XenPci_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE notification_type, BOOLEAN is_in_notification_path)
 {
@@ -592,8 +598,10 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   }
   
   XenPci_HookDbgPrint();
-  
+
+#if 0 
   XenPci_FixLoadOrder();
+#endif
 
   RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
   InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);

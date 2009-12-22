@@ -19,6 +19,20 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenusb.h"
 
+/* Not really necessary but keeps PREfast happy */
+static EVT_WDF_DEVICE_D0_ENTRY XenUsb_EvtDeviceD0Entry;
+static EVT_WDF_DEVICE_D0_ENTRY_POST_INTERRUPTS_ENABLED XenUsb_EvtDeviceD0EntryPostInterruptsEnabled;
+static EVT_WDF_DEVICE_D0_EXIT XenUsb_EvtDeviceD0Exit;
+static EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED XenUsb_EvtDeviceD0ExitPreInterruptsDisabled;
+static EVT_WDF_DEVICE_PREPARE_HARDWARE XenUsb_EvtDevicePrepareHardware;
+static EVT_WDF_DEVICE_RELEASE_HARDWARE XenUsb_EvtDeviceReleaseHardware;
+static EVT_WDF_DEVICE_QUERY_REMOVE XenUsb_EvtDeviceQueryRemove;
+static EVT_WDFDEVICE_WDM_IRP_PREPROCESS XenUsb_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE;
+static EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL XenUsb_EvtIoDeviceControl;
+static EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL XenUsb_EvtIoInternalDeviceControl;
+static EVT_WDF_IO_QUEUE_IO_DEFAULT XenUsb_EvtIoDefault;
+static EVT_WDF_PROGRAM_DMA XenUsb_ExecuteRequestCallback;
+
 static BOOLEAN
 XenUsb_ExecuteRequestCallback(
   WDFDMATRANSACTION dma_transaction,

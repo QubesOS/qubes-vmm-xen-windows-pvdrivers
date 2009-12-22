@@ -21,6 +21,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xenusb.h"
 #include <stdlib.h>
 
+/* Not really necessary but keeps PREfast happy */
+DRIVER_INITIALIZE DriverEntry;
+
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {

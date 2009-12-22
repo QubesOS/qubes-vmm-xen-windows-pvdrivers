@@ -7,9 +7,12 @@
 #include <string.h>
 #include <winioctl.h>
 #include <ntddndis.h>
+#include <strsafe.h>
 
 #define ADAPTER_TYPE_XEN
 #define ADAPTER_TYPE_OTHER
+
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 typedef struct adapter_details
 {
@@ -65,7 +68,7 @@ main(
     if (buf_len != 38)
       continue;
     /* check that the name looks like a guid */
-    sprintf(filename, "\\\\.\\%s", adapter_key_name);
+    StringCbPrintfA(filename, ARRAY_SIZE(filename), "\\\\.\\%s", adapter_key_name);
     handle = CreateFile(filename, FILE_GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (!handle)
       continue;
@@ -155,14 +158,14 @@ main(
     if (adapter->xen_IpConfig_key_name[0] && adapter->other_IpConfig_key_name[0])
     {
       // open HKLM\SYSTEM\Services\%s
-      sprintf((char *)buf, "SYSTEM\\CurrentControlSet\\Services\\%s", adapter->xen_IpConfig_key_name);
+      StringCbPrintfA((char *)buf, ARRAY_SIZE(buf), "SYSTEM\\CurrentControlSet\\Services\\%s", adapter->xen_IpConfig_key_name);
       status = RegOpenKey(HKEY_LOCAL_MACHINE, (LPCSTR)buf, &dst_key_handle);
       if (status != ERROR_SUCCESS)
       {
         printf(" Cannot open Xen adapter config key. Skipping.\n");
         continue;
       }
-      sprintf((char *)buf, "SYSTEM\\CurrentControlSet\\Services\\%s", adapter->other_IpConfig_key_name);
+      StringCbPrintfA((char *)buf, ARRAY_SIZE(buf), "SYSTEM\\CurrentControlSet\\Services\\%s", adapter->other_IpConfig_key_name);
       status = RegOpenKey(HKEY_LOCAL_MACHINE, (LPCSTR)buf, &src_key_handle);
       if (status != ERROR_SUCCESS)
       {

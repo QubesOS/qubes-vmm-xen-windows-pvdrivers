@@ -22,6 +22,32 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #pragma warning(disable: 4127) // conditional expression is constant
 
+static EVT_WDF_DEVICE_D0_ENTRY XenUsbHub_EvtDeviceD0Entry;
+static EVT_WDF_DEVICE_D0_EXIT XenUsbHub_EvtDeviceD0Exit;
+static EVT_WDF_DEVICE_PREPARE_HARDWARE XenUsbHub_EvtDevicePrepareHardware;
+static EVT_WDF_DEVICE_RELEASE_HARDWARE XenUsbHub_EvtDeviceReleaseHardware;
+static EVT_WDF_DEVICE_USAGE_NOTIFICATION XenUsbHub_EvtDeviceUsageNotification;
+static EVT_WDF_TIMER XenUsbHub_HubInterruptTimer;
+static EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL XenUsbHub_EvtIoInternalDeviceControl;
+static EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL XenUsbHub_EvtIoDeviceControl;
+static EVT_WDF_IO_QUEUE_IO_DEFAULT XenUsbHub_EvtIoDefault;
+static USB_BUSIFFN_CREATE_USB_DEVICE XenUsbHub_UBIH_CreateUsbDevice;
+static USB_BUSIFFN_INITIALIZE_USB_DEVICE XenUsbHub_UBIH_InitializeUsbDevice;
+static USB_BUSIFFN_GET_USB_DESCRIPTORS XenUsbHub_UBIH_GetUsbDescriptors;
+static USB_BUSIFFN_REMOVE_USB_DEVICE XenUsbHub_UBIH_RemoveUsbDevice;
+static USB_BUSIFFN_RESTORE_DEVICE XenUsbHub_UBIH_RestoreUsbDevice;
+static USB_BUSIFFN_GET_POTRTHACK_FLAGS XenUsbHub_UBIH_GetPortHackFlags;
+static USB_BUSIFFN_GET_DEVICE_INFORMATION XenUsbHub_UBIH_QueryDeviceInformation;
+static USB_BUSIFFN_GET_CONTROLLER_INFORMATION XenUsbHub_UBIH_GetControllerInformation;
+static USB_BUSIFFN_CONTROLLER_SELECTIVE_SUSPEND XenUsbHub_UBIH_ControllerSelectiveSuspend;
+static USB_BUSIFFN_GET_EXTENDED_HUB_INFO XenUsbHub_UBIH_GetExtendedHubInformation;
+static USB_BUSIFFN_GET_ROOTHUB_SYM_NAME XenUsbHub_UBIH_GetRootHubSymbolicName;
+static USB_BUSIFFN_GET_DEVICE_BUSCONTEXT XenUsbHub_UBIH_GetDeviceBusContext;
+static USB_BUSIFFN_INITIALIZE_20HUB XenUsbHub_UBIH_Initialize20Hub;
+static USB_BUSIFFN_ROOTHUB_INIT_NOTIFY XenUsbHub_UBIH_RootHubInitNotification;
+static USB_BUSIFFN_FLUSH_TRANSFERS XenUsbHub_UBIH_FlushTransfers;
+static USB_BUSIFFN_SET_DEVHANDLE_DATA XenUsbHub_UBIH_SetDeviceHandleData;
+
 static VOID
 XenUsbHub_EvtIoDefault(
   WDFQUEUE queue,
@@ -257,7 +283,7 @@ XenUsbHub_EvtIoInternalDeviceControl(
   //FUNCTION_EXIT();
 }
 
-NTSTATUS
+static NTSTATUS
 XenUsbHub_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
 {
   NTSTATUS status = STATUS_SUCCESS;
@@ -296,7 +322,7 @@ XenUsbHub_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
   return status;
 }
 
-NTSTATUS
+static NTSTATUS
 XenUsbHub_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
 {
   NTSTATUS status = STATUS_SUCCESS;
@@ -337,7 +363,7 @@ XenUsbHub_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
   return status;
 }
 
-NTSTATUS
+static NTSTATUS
 XenUsbHub_EvtDevicePrepareHardware(WDFDEVICE device, WDFCMRESLIST resources_raw, WDFCMRESLIST resources_translated)
 {
   NTSTATUS status = STATUS_SUCCESS;
@@ -352,7 +378,7 @@ XenUsbHub_EvtDevicePrepareHardware(WDFDEVICE device, WDFCMRESLIST resources_raw,
   return status;
 }
 
-NTSTATUS
+static NTSTATUS
 XenUsbHub_EvtDeviceReleaseHardware(WDFDEVICE device, WDFCMRESLIST resources_translated)
 {
   NTSTATUS status = STATUS_SUCCESS;
@@ -1019,20 +1045,18 @@ XenUsbHub_UBIH_RootHubInitNotification(
   return status;
 }
 
-static NTSTATUS
+/* This definition is incorrect in the docs */
+static VOID
 XenUsbHub_UBIH_FlushTransfers(
   PVOID BusContext,
-  PUSB_DEVICE_HANDLE DeviceHandle)
+  PVOID DeviceHandle)
 {
-  NTSTATUS status = STATUS_SUCCESS;
-
   UNREFERENCED_PARAMETER(BusContext);
   UNREFERENCED_PARAMETER(DeviceHandle);
   
   FUNCTION_ENTER();
 
   FUNCTION_EXIT();
-  return status;
 }
 
 static VOID

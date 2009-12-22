@@ -19,6 +19,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenscsi.h"
 
+/* Not really necessary but keeps PREfast happy */
 DRIVER_INITIALIZE DriverEntry;
 
 #ifdef ALLOC_PRAGMA
@@ -271,8 +272,8 @@ XenScsi_DevWatch(PCHAR path, PVOID DeviceExtension)
   XenScsi_WaitPause(DeviceExtension);
   
   KdPrint((__DRIVER_NAME "     Watch triggered on %s\n", path));
-  strncpy(tmp_path, xsdd->vectors.backend_path, 128);
-  strncat(tmp_path, "/vscsi-devs", 128);
+  RtlStringCbCopyA(tmp_path, ARRAY_SIZE(tmp_path), xsdd->vectors.backend_path);
+  RtlStringCbCatA(tmp_path, ARRAY_SIZE(tmp_path), "/vscsi-devs");
   msg = xsdd->vectors.XenBus_List(xsdd->vectors.context, XBT_NIL, tmp_path, &devices);
   if (msg)
   {
@@ -295,10 +296,10 @@ XenScsi_DevWatch(PCHAR path, PVOID DeviceExtension)
       break; /* not a dev so we are not interested */
     }
     dev_no = atoi(devices[i] + 4);
-    strncpy(tmp_path, xsdd->vectors.backend_path, 128);
-    strncat(tmp_path, "/vscsi-devs/", 128);
-    strncat(tmp_path, devices[i], 128);
-    strncat(tmp_path, "/state", 128);
+    RtlStringCbCopyA(tmp_path, ARRAY_SIZE(tmp_path), xsdd->vectors.backend_path);
+    RtlStringCbCatA(tmp_path, ARRAY_SIZE(tmp_path), "/vscsi-devs/");
+    RtlStringCbCatA(tmp_path, ARRAY_SIZE(tmp_path), devices[i]);
+    RtlStringCbCatA(tmp_path, ARRAY_SIZE(tmp_path), "/state");
     msg = xsdd->vectors.XenBus_Read(xsdd->vectors.context, XBT_NIL, tmp_path, &value);
     if (msg)
     {
@@ -321,10 +322,10 @@ XenScsi_DevWatch(PCHAR path, PVOID DeviceExtension)
       dev->dev_no = dev_no;
       dev->state = state;
       dev->validated = TRUE;
-      strncpy(tmp_path, xsdd->vectors.backend_path, 128);
-      strncat(tmp_path, "/vscsi-devs/", 128);
-      strncat(tmp_path, devices[i], 128);
-      strncat(tmp_path, "/v-dev", 128);
+      RtlStringCbCopyA(tmp_path, ARRAY_SIZE(tmp_path), xsdd->vectors.backend_path);
+      RtlStringCbCatA(tmp_path, ARRAY_SIZE(tmp_path), "/vscsi-devs/");
+      RtlStringCbCatA(tmp_path, ARRAY_SIZE(tmp_path), devices[i]);
+      RtlStringCbCatA(tmp_path, ARRAY_SIZE(tmp_path), "/v-dev");
       msg = xsdd->vectors.XenBus_Read(xsdd->vectors.context, XBT_NIL, tmp_path, &value);
       if (msg)
       {
@@ -336,10 +337,10 @@ XenScsi_DevWatch(PCHAR path, PVOID DeviceExtension)
         XenScsi_ParseBackendDevice(dev, value);
         // should verify that the controller = this
       }
-      strncpy(tmp_path, xsdd->vectors.path, 128);
-      strncat(tmp_path, "/vscsi-devs/", 128);
-      strncat(tmp_path, devices[i], 128);
-      strncat(tmp_path, "/state", 128);      
+      RtlStringCbCopyA(tmp_path, ARRAY_SIZE(tmp_path), xsdd->vectors.path);
+      RtlStringCbCatA(tmp_path, ARRAY_SIZE(tmp_path), "/vscsi-devs/");
+      RtlStringCbCatA(tmp_path, ARRAY_SIZE(tmp_path), devices[i]);
+      RtlStringCbCatA(tmp_path, ARRAY_SIZE(tmp_path), "/state");
       msg = xsdd->vectors.XenBus_Write(xsdd->vectors.context, XBT_NIL, tmp_path, "4");
       if (msg)
       {
@@ -529,8 +530,8 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
   {
     InitializeListHead(&xsdd->dev_list_head);
     /* should do something if we haven't enumerated in a certain time */
-    strncpy(path, xsdd->vectors.backend_path, 128);
-    strncat(path, "/vscsi-devs", 128);
+    RtlStringCbCopyA(path, ARRAY_SIZE(path), xsdd->vectors.backend_path);
+    RtlStringCbCatA(path, ARRAY_SIZE(path), "/vscsi-devs");
     xsdd->vectors.XenBus_AddWatch(xsdd->vectors.context, XBT_NIL, path,
       XenScsi_DevWatch, xsdd);
   }

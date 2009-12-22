@@ -24,6 +24,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable : 4200) // zero-sized array
 #pragma warning(disable: 4127) // conditional expression is constant
 
+/* Not really necessary but keeps PREfast happy */
+static EVT_WDF_INTERRUPT_SYNCHRONIZE XenPci_EvtChn_Sync_Routine;
+static EVT_WDF_DEVICE_D0_ENTRY XenPciPdo_EvtDeviceD0Entry;
+static EVT_WDF_DEVICE_D0_EXIT XenPciPdo_EvtDeviceD0Exit;
+static EVT_WDF_DEVICE_PREPARE_HARDWARE XenPciPdo_EvtDevicePrepareHardware;
+static EVT_WDF_DEVICE_RELEASE_HARDWARE XenPciPdo_EvtDeviceReleaseHardware;
+static EVT_WDF_DEVICE_USAGE_NOTIFICATION XenPciPdo_EvtDeviceUsageNotification;
+static EVT_WDFDEVICE_WDM_IRP_PREPROCESS XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE;
+static EVT_WDF_DEVICE_RESOURCE_REQUIREMENTS_QUERY XenPciPdo_EvtDeviceResourceRequirementsQuery;
+
 /*
 Called at PASSIVE_LEVEL(?)
 Called during restore
@@ -620,8 +630,8 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   vectors.GntTbl_EndAccess = XenPci_GntTbl_EndAccess;
   vectors.XenPci_XenConfigDevice = XenPci_XenConfigDevice;
   vectors.XenPci_XenShutdownDevice = XenPci_XenShutdownDevice;
-  strncpy(vectors.path, xppdd->path, 128);
-  strncpy(vectors.backend_path, xppdd->backend_path, 128);
+  RtlStringCbCopyA(vectors.path, 128, xppdd->path);
+  RtlStringCbCopyA(vectors.backend_path, 128, xppdd->backend_path);
   //vectors.pdo_event_channel = xpdd->pdo_event_channel;
   vectors.XenBus_Read = XenPci_XenBus_Read;
   vectors.XenBus_Write = XenPci_XenBus_Write;

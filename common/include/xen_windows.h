@@ -91,7 +91,7 @@ SplitString(char *String, char Split, int MaxParts, int *Count)
     for (last = first; *last != '\0' && *last != Split; last++);
     RetVal[*Count] = (char *)ExAllocatePoolWithTag(NonPagedPool, last - first + 1, SPLITSTRING_POOL_TAG);
     //KdPrint((__DRIVER_NAME "     c - count = %d\n", *Count));
-    strncpy(RetVal[*Count], first, last - first);
+    RtlStringCbCopyNA(RetVal[*Count], last - first + 1, first, last - first);
     RetVal[*Count][last - first] = 0;
     //KdPrint((__DRIVER_NAME "     d - count = %d\n", *Count));
     (*Count)++;

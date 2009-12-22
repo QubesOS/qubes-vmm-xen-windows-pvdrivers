@@ -311,33 +311,16 @@ EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED XenUsb_EvtDeviceD0ExitPreInterrup
 EVT_WDF_DEVICE_QUERY_REMOVE XenUsb_EvtDeviceQueryRemove;
 */
 
-//PFN_WDF_DRIVER_DEVICE_ADD XenUsb_EvtDriverDeviceAdd;
-NTSTATUS
-XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init);
+EVT_WDF_DRIVER_DEVICE_ADD XenUsb_EvtDriverDeviceAdd;
 
-NTSTATUS
-XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list, PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER description_header, PWDFDEVICE_INIT child_init);
-VOID
-XenUsb_EvtChildListScanForChildren(WDFCHILDLIST child_list);
+EVT_WDF_CHILD_LIST_CREATE_DEVICE XenUsb_EvtChildListCreateDevice;
+EVT_WDF_CHILD_LIST_SCAN_FOR_CHILDREN XenUsb_EvtChildListScanForChildren;
 
 VOID
 XenUsb_EnumeratePorts(WDFDEVICE device);
 
-VOID
-XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
-  WDFQUEUE queue,
-  WDFREQUEST request,
-  size_t output_buffer_length,
-  size_t input_buffer_length,
-  ULONG io_control_code);
-
-VOID
-XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
-  WDFQUEUE queue,
-  WDFREQUEST request,
-  size_t output_buffer_length,
-  size_t input_buffer_length,
-  ULONG io_control_code);
+EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB;
+EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB;
 
 NTSTATUS
 XenUsb_ExecuteRequest(

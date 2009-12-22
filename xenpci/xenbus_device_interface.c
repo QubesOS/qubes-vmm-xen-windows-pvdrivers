@@ -19,6 +19,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 
+/* Not really necessary but keeps PREfast happy */
+static EVT_WDF_FILE_CLEANUP XenBus_EvtFileCleanup;
+static EVT_WDF_FILE_CLOSE XenBus_EvtFileClose;
+static EVT_WDF_IO_QUEUE_IO_READ XenBus_EvtIoRead;
+static EVT_WDF_IO_QUEUE_IO_WRITE XenBus_EvtIoWrite;
+
 typedef struct {
   LIST_ENTRY entry;
   PVOID data;

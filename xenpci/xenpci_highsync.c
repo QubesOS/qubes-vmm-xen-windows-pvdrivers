@@ -19,6 +19,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xenpci.h"
 
+/* Not really necessary but keeps PREfast happy */
+static KDEFERRED_ROUTINE XenPci_HighSyncCallFunction0;
+static KDEFERRED_ROUTINE XenPci_HighSyncCallFunctionN;
+
 /*
 we need these intrinsics as even going to HIGH_LEVEL doesn't ensure that interrupts are completely disabled
 */

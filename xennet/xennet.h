@@ -21,12 +21,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable: 4201)
 #pragma warning(disable: 4214)
 
-#ifdef __MINGW32__
-#include <ntddk.h>
-#define NDIS50_MINIPORT 1
-#include <ndis.h>
-#include "../mingw/mingw_extras.h"
-#else
 #define DDKAPI
 #include <ntddk.h>
 #include <wdm.h>
@@ -39,7 +33,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <ndis.h>
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
-#endif
 
 #define VENDOR_DRIVER_VERSION_MAJOR 0
 #define VENDOR_DRIVER_VERSION_MINOR 10
@@ -351,9 +344,6 @@ XenNet_RxResumeStart(xennet_info_t *xi);
 
 VOID
 XenNet_RxResumeEnd(xennet_info_t *xi);
-
-VOID
-XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2);
 
 VOID
 XenNet_TxResumeStart(xennet_info_t *xi);

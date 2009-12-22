@@ -36,6 +36,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
   #define LongLongToPtr(x) UlongToPtr(x)
 #endif
 
+/* Not really necessary but keeps PREfast happy */
+DRIVER_INITIALIZE DriverEntry;
+
 static BOOLEAN dump_mode = FALSE;
 
 CHAR scsi_device_manufacturer[8];
@@ -1471,7 +1474,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         if(NT_SUCCESS(status))
           wcstombs(scsi_device_manufacturer, (PWCHAR)kpv->Data, min(kpv->DataLength, 8));
         else
-          strncpy(scsi_device_manufacturer, "XEN     ", 8);
+          RtlStringCbCopyA(scsi_device_manufacturer, 8, "XEN     ");
 
         RtlInitUnicodeString(&value_name, L"Disk_Model");
         buf_len = 256;
@@ -1479,7 +1482,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         if(NT_SUCCESS(status))
           wcstombs(scsi_disk_model, (PWCHAR)kpv->Data, min(kpv->DataLength, 16));
         else
-          strncpy(scsi_disk_model, "PV DISK          ", 16);
+          RtlStringCbCopyA(scsi_disk_model, 16, "PV DISK          ");
 
         RtlInitUnicodeString(&value_name, L"CDROM_Model");
         buf_len = 256;
@@ -1487,7 +1490,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         if(NT_SUCCESS(status))
           wcstombs(scsi_cdrom_model, (PWCHAR)kpv->Data, min(kpv->DataLength, 16));
         else
-          strncpy(scsi_cdrom_model, "PV CDROM        ", 16);
+          RtlStringCbCopyA(scsi_cdrom_model, 16, "PV CDROM        ");
       }
       ZwClose(service_handle);
     }

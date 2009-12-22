@@ -53,8 +53,8 @@ typedef struct _IDT
 } IDT, *PIDT;
 #pragma pack()
 
-//typedef void (*PDBGPRINT_CALLBACK_FUNCTION)(IN PANSI_STRING String, IN ULONG ComponentId, IN ULONG Level);
-//typedef NTSTATUS (*PDBG_SET_DEBUGPRINT_CALLBACK)(PDBGPRINT_CALLBACK_FUNCTION Function, IN BOOLEAN Mode);
+/* Not really necessary but keeps PREfast happy */
+static KBUGCHECK_CALLBACK_ROUTINE XenPci_BugcheckCallback;
 
 KBUGCHECK_CALLBACK_RECORD callback_record;
 
@@ -83,15 +83,16 @@ XenPci_BugcheckCallback(PVOID buffer, ULONG length)
 
 static BOOLEAN debug_port_enabled = FALSE;
 
+/* This appears to be called with interrupts disabled already, so no need to go to HIGH_LEVEL or anything like that */
 static void XenDbgPrint(PCHAR string, ULONG length)
 {
   ULONG i;
-  KIRQL old_irql = 0;
+  //KIRQL old_irql = 0;
 
-  KeRaiseIrql(HIGH_LEVEL, &old_irql);
+  //KeRaiseIrql(HIGH_LEVEL, &old_irql);
   for (i = 0; i < length; i++)
     WRITE_PORT_UCHAR(XEN_IOPORT_LOG, string[i]);
-  KeLowerIrql(old_irql);
+  //KeLowerIrql(old_irql);
 }
 
 VOID

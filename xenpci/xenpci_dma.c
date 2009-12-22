@@ -947,7 +947,10 @@ XenPci_DOP_GetScatterGatherList(
   status = XenPci_DOP_BuildScatterGatherListButDontExecute(DmaAdapter, DeviceObject, Mdl, CurrentVa, Length, WriteToDevice, sg_list, list_size, TRUE);
   
   if (NT_SUCCESS(status))
+  {
+    /* sg_list is free'd via PutScatterGatherList later */
     ExecutionRoutine(DeviceObject, DeviceObject->CurrentIrp, sg_list, Context);
+  }
   else
     ExFreePoolWithTag(sg_list, XENPCI_POOL_TAG);
   

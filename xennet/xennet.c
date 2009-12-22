@@ -22,6 +22,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <io/xenbus.h>
 #include "xennet.h"
 
+/* Not really necessary but keeps PREfast happy */
+DRIVER_INITIALIZE DriverEntry;
+static IO_WORKITEM_ROUTINE XenNet_Resume;
+static KDEFERRED_ROUTINE XenNet_SuspendResume;
+
 /* ----- BEGIN Other people's code --------- */
 /* from linux/include/linux/ctype.h, used under GPLv2 */
 #define _U      0x01    /* upper */
