@@ -24,9 +24,78 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable : 4200) // zero-sized array
 #pragma warning(disable: 4127) // conditional expression is constant
 
+#define MAP_TYPE_INVALID  0
 #define MAP_TYPE_VIRTUAL  1
 #define MAP_TYPE_MDL      2
 #define MAP_TYPE_REMAPPED 3
+
+
+#if 0
+kd> dt _ADAPTER_OBJECT 81e96b08 -v
+hal!_ADAPTER_OBJECT
+struct _ADAPTER_OBJECT, 26 elements, 0x64 bytes
+   +0x000 DmaHeader        : struct _DMA_ADAPTER, 3 elements, 0x8 bytes
+   +0x008 MasterAdapter    : (null) 
+   +0x00c MapRegistersPerChannel : 0x80001
+   +0x010 AdapterBaseVa    : (null) 
+   +0x014 MapRegisterBase  : (null) 
+   +0x018 NumberOfMapRegisters : 0
+   +0x01c CommittedMapRegisters : 0
+   +0x020 CurrentWcb       : (null) 
+   +0x024 ChannelWaitQueue : struct _KDEVICE_QUEUE, 5 elements, 0x14 bytes
+   +0x038 RegisterWaitQueue : (null) 
+   +0x03c AdapterQueue     : struct _LIST_ENTRY, 2 elements, 0x8 bytes
+ [ 0x0 - 0x0 ]
+   +0x044 SpinLock         : 0
+   +0x048 MapRegisters     : (null) 
+   +0x04c PagePort         : (null) 
+   +0x050 ChannelNumber    : 0xff ''
+   +0x051 AdapterNumber    : 0 ''
+   +0x052 DmaPortAddress   : 0
+   +0x054 AdapterMode      : 0 ''
+   +0x055 NeedsMapRegisters : 0 ''
+   +0x056 MasterDevice     : 0x1 ''
+   +0x057 Width16Bits      : 0 ''
+   +0x058 ScatterGather    : 0x1 ''
+   +0x059 IgnoreCount      : 0 ''
+   +0x05a Dma32BitAddresses : 0x1 ''
+   +0x05b Dma64BitAddresses : 0 ''
+   +0x05c AdapterList      : struct _LIST_ENTRY, 2 elements, 0x8 bytes
+ [ 0x806e1250 - 0x81f1b474 ]
+#endif
+
+/* need to confirm that this is the same for AMD64 too */
+typedef struct {
+  DMA_ADAPTER DmaHeader;
+  PVOID MasterAdapter;
+  ULONG MapRegistersPerChannel;
+  PVOID AdapterBaseVa;
+  PVOID MapRegisterBase;
+  ULONG NumberOfMapRegisters;
+  ULONG CommittedMapRegisters;
+  PVOID CurrentWcb;
+  KDEVICE_QUEUE ChannelWaitQueue;
+  PKDEVICE_QUEUE RegisterWaitQueue;
+  LIST_ENTRY AdapterQueue;
+  KSPIN_LOCK SpinLock;
+  PVOID MapRegisters;
+  PVOID PagePort;
+  UCHAR ChannelNumber;
+  UCHAR AdapterNumber;
+  USHORT DmaPortAddress;
+  UCHAR AdapterMode;
+  BOOLEAN NeedsMapRegisters;
+  BOOLEAN MasterDevice;
+  UCHAR Width16Bits;
+  BOOLEAN ScatterGather;
+  BOOLEAN IgnoreCount;
+  BOOLEAN Dma32BitAddresses;
+  BOOLEAN Dma64BitAddresses;
+#if (NTDDI_VERSION >= NTDDI_WS03)
+  BOOLEAN LegacyAdapter;
+#endif
+  LIST_ENTRY AdapterList;
+} X_ADAPTER_OBJECT;
 
 typedef struct {
   ULONG map_type;
@@ -42,15 +111,29 @@ typedef struct {
   PVOID aligned_buffer;
   PVOID unaligned_buffer;
   ULONG copy_length;
+  grant_ref_t gref;
   PHYSICAL_ADDRESS logical;
 } map_register_t;
 
 typedef struct {
   PDEVICE_OBJECT device_object;
   ULONG total_map_registers;
+  PDRIVER_CONTROL execution_routine;
+  PIRP current_irp;
+  PVOID context;
   ULONG count;
   map_register_t regs[1];
 } map_register_base_t;  
+  
+typedef struct {
+  X_ADAPTER_OBJECT adapter_object;
+  PXENPCI_PDO_DEVICE_DATA xppdd;
+  dma_driver_extension_t *dma_extension;
+  PDRIVER_OBJECT dma_extension_driver; /* to deference it */
+  map_register_base_t *map_register_base;
+  map_register_base_t *queued_map_register_base;  
+  KSPIN_LOCK lock;
+} xen_dma_adapter_t;
 
 BOOLEAN
 XenPci_BIS_TranslateBusAddress(PVOID context, PHYSICAL_ADDRESS bus_address, ULONG length, PULONG address_space, PPHYSICAL_ADDRESS translated_address)
@@ -77,6 +160,8 @@ XenPci_DOP_PutDmaAdapter(PDMA_ADAPTER dma_adapter)
   
   FUNCTION_ENTER();
 
+  ASSERT(!xen_dma_adapter->map_register_base);
+  ASSERT(!xen_dma_adapter->queued_map_register_base);
   if (xen_dma_adapter->dma_extension)
     ObDereferenceObject(xen_dma_adapter->dma_extension_driver);
   ExFreePoolWithTag(xen_dma_adapter->adapter_object.DmaHeader.DmaOperations, XENPCI_POOL_TAG);
@@ -152,58 +237,16 @@ XenPci_DOP_FreeCommonBuffer(
 //  FUNCTION_EXIT();
 }
 
-static NTSTATUS
-XenPci_DOP_AllocateAdapterChannel(
-    IN PDMA_ADAPTER dma_adapter,
-    IN PDEVICE_OBJECT device_object,
-    IN ULONG NumberOfMapRegisters,
-    IN PDRIVER_CONTROL ExecutionRoutine,
-    IN PVOID Context
-    )
+static VOID
+XenPci_ExecuteMapRegisterDma(
+  PDMA_ADAPTER dma_adapter,
+  map_register_base_t *map_register_base)
 {
-  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)dma_adapter;
-  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
-  ULONG i;
   IO_ALLOCATION_ACTION action;
-  map_register_base_t *map_register_base;
-  grant_ref_t gref;
-  
+
   UNREFERENCED_PARAMETER(dma_adapter);
   
-  //FUNCTION_ENTER();
-
-  map_register_base = ExAllocatePoolWithTag(NonPagedPool, 
-    FIELD_OFFSET(map_register_base_t, regs) + NumberOfMapRegisters * sizeof(map_register_t), XENPCI_POOL_TAG);
-  if (!map_register_base)
-  {
-    KdPrint((__DRIVER_NAME "     Cannot allocate memory for map_register_base\n"));
-    //FUNCTION_EXIT();
-    return STATUS_INSUFFICIENT_RESOURCES;
-  }
-  /* we should also allocate a single page of memory here for remap purposes as once we allocate the map registers there is no failure allowed */
-  map_register_base->device_object = device_object;
-  map_register_base->total_map_registers = NumberOfMapRegisters;
-  map_register_base->count = 0;
-  
-  for (i = 0; i < NumberOfMapRegisters; i++)
-  {
-    gref = GntTbl_GetRef(xpdd);
-    if (gref == INVALID_GRANT_REF)
-    {
-      /* go back through the list and free the ones we allocated */
-      NumberOfMapRegisters = i;
-      for (i = 0; i < NumberOfMapRegisters; i++)
-      {
-        gref = (grant_ref_t)(map_register_base->regs[i].logical.QuadPart >> PAGE_SHIFT);
-        GntTbl_PutRef(xpdd, gref);
-      }
-      ExFreePoolWithTag(map_register_base, XENPCI_POOL_TAG);
-      return STATUS_INSUFFICIENT_RESOURCES;
-    }
-    map_register_base->regs[i].logical.QuadPart = ((LONGLONG)gref << PAGE_SHIFT);
-  }
-  
-  action = ExecutionRoutine(device_object, device_object->CurrentIrp, map_register_base, Context);
+  action = map_register_base->execution_routine(map_register_base->device_object, map_register_base->current_irp, map_register_base, map_register_base->context);
   
   switch (action)
   {
@@ -223,6 +266,81 @@ XenPci_DOP_AllocateAdapterChannel(
     ASSERT(FALSE);
     break;
   }
+  return;
+}
+
+static NTSTATUS
+XenPci_DOP_AllocateAdapterChannel(
+    IN PDMA_ADAPTER dma_adapter,
+    IN PDEVICE_OBJECT device_object,
+    IN ULONG NumberOfMapRegisters,
+    IN PDRIVER_CONTROL ExecutionRoutine,
+    IN PVOID Context
+    )
+{
+  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)dma_adapter;
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
+  ULONG i;
+  map_register_base_t *map_register_base;
+  
+  UNREFERENCED_PARAMETER(dma_adapter);
+  
+  //FUNCTION_ENTER();
+  
+  ASSERT(!xen_dma_adapter->queued_map_register_base);
+
+  map_register_base = ExAllocatePoolWithTag(NonPagedPool, 
+    FIELD_OFFSET(map_register_base_t, regs) + NumberOfMapRegisters * sizeof(map_register_t), XENPCI_POOL_TAG);
+  if (!map_register_base)
+  {
+    KdPrint((__DRIVER_NAME "     Cannot allocate memory for map_register_base\n"));
+    //FUNCTION_EXIT();
+    return STATUS_INSUFFICIENT_RESOURCES;
+  }
+  //KdPrint((__DRIVER_NAME "     Alloc %p\n", map_register_base));
+  /* we should also allocate a single page of memory here for remap purposes as once we allocate the map registers there is no failure allowed */
+  map_register_base->device_object = device_object;
+  map_register_base->current_irp = device_object->CurrentIrp;
+  map_register_base->total_map_registers = NumberOfMapRegisters;
+  map_register_base->execution_routine = ExecutionRoutine;
+  map_register_base->context = Context;  
+  map_register_base->count = 0;
+  
+  for (i = 0; i < NumberOfMapRegisters; i++)
+  {
+    map_register_base->regs[i].gref = GntTbl_GetRef(xpdd);
+    if (map_register_base->regs[i].gref == INVALID_GRANT_REF)
+    {
+      KdPrint((__DRIVER_NAME "     Not enough gref's for AdapterChannel list\n"));
+      /* go back through the list and free the ones we allocated */
+      NumberOfMapRegisters = i;
+      for (i = 0; i < NumberOfMapRegisters; i++)
+      {
+        GntTbl_PutRef(xpdd, map_register_base->regs[i].gref);
+      }
+      //KdPrint((__DRIVER_NAME "     B Free %p\n", map_register_base));
+      ExFreePoolWithTag(map_register_base, XENPCI_POOL_TAG);
+      return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    map_register_base->regs[i].map_type = MAP_TYPE_INVALID;
+    map_register_base->regs[i].aligned_buffer = NULL;
+    map_register_base->regs[i].unaligned_buffer = NULL;
+    map_register_base->regs[i].copy_length = 0;
+  }
+  
+  KeAcquireSpinLockAtDpcLevel(&xen_dma_adapter->lock);
+  if (xen_dma_adapter->map_register_base)
+  {
+    xen_dma_adapter->queued_map_register_base = map_register_base;
+    KeReleaseSpinLockFromDpcLevel(&xen_dma_adapter->lock);
+  }
+  else
+  {
+    xen_dma_adapter->map_register_base = map_register_base;
+    KeReleaseSpinLockFromDpcLevel(&xen_dma_adapter->lock);
+    XenPci_ExecuteMapRegisterDma(dma_adapter, map_register_base);
+  }
+
   //FUNCTION_EXIT();
   return STATUS_SUCCESS;
 }
@@ -236,7 +354,7 @@ XenPci_DOP_FlushAdapterBuffers(
   ULONG Length,
   BOOLEAN write_to_device)
 {
-  //xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)dma_adapter;
+  xen_dma_adapter_t *xen_dma_adapter = (xen_dma_adapter_t *)dma_adapter;
   //PXENPCI_DEVICE_DATA xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
   map_register_base_t *map_register_base = MapRegisterBase;
   map_register_t *map_register;
@@ -248,6 +366,9 @@ XenPci_DOP_FlushAdapterBuffers(
   UNREFERENCED_PARAMETER(Length);
 
   //FUNCTION_ENTER();
+  
+  ASSERT(xen_dma_adapter->map_register_base);
+  ASSERT(xen_dma_adapter->map_register_base == map_register_base);
   
   for (i = 0; i < map_register_base->count; i++)
   {
@@ -282,31 +403,32 @@ XenPci_DOP_FreeMapRegisters(
   map_register_base_t *map_register_base = MapRegisterBase;
   map_register_t *map_register;
   ULONG i;
-  grant_ref_t gref;
 
   UNREFERENCED_PARAMETER(NumberOfMapRegisters);
   
   //FUNCTION_ENTER();
+
   if (!map_register_base)
   {
     /* i'm not sure if this is ideal here, but NDIS definitely does it */
     return;
   }
+
+  ASSERT(xen_dma_adapter->map_register_base == map_register_base);  
   ASSERT(map_register_base->total_map_registers == NumberOfMapRegisters);
 
-  for (i = 0; i < map_register_base->count; i++)
+  for (i = 0; i < map_register_base->total_map_registers; i++)
   {
     map_register = &map_register_base->regs[i];
+    GntTbl_EndAccess(xpdd, map_register->gref, FALSE);
     switch (map_register->map_type)
     {
+    case MAP_TYPE_INVALID:
+      break;
     case MAP_TYPE_REMAPPED:
-      gref = (grant_ref_t)(map_register->logical.QuadPart >> PAGE_SHIFT);
-      GntTbl_EndAccess(xpdd, gref, FALSE);
       ExFreePoolWithTag(map_register->aligned_buffer, XENPCI_POOL_TAG);
       break;
     case MAP_TYPE_MDL:
-      gref = (grant_ref_t)(map_register->logical.QuadPart >> PAGE_SHIFT);
-      GntTbl_EndAccess(xpdd, gref, FALSE);
       break;
     case MAP_TYPE_VIRTUAL:
       break;
@@ -314,6 +436,20 @@ XenPci_DOP_FreeMapRegisters(
   }
   ExFreePoolWithTag(map_register_base, XENPCI_POOL_TAG);
 
+  KeAcquireSpinLockAtDpcLevel(&xen_dma_adapter->lock);
+  if (xen_dma_adapter->queued_map_register_base)
+  {
+    xen_dma_adapter->map_register_base = xen_dma_adapter->queued_map_register_base;
+    xen_dma_adapter->queued_map_register_base = NULL;
+    KeReleaseSpinLockFromDpcLevel(&xen_dma_adapter->lock);
+    XenPci_ExecuteMapRegisterDma(dma_adapter, xen_dma_adapter->map_register_base);
+  }
+  else
+  {
+    xen_dma_adapter->map_register_base = NULL;
+    KeReleaseSpinLockFromDpcLevel(&xen_dma_adapter->lock);
+  }
+  
   //FUNCTION_EXIT();
 }
 
@@ -345,6 +481,7 @@ XenPci_DOP_MapTransfer(
 
   ASSERT(mdl);
   ASSERT(map_register_base);
+  ASSERT(xen_dma_adapter->map_register_base == map_register_base);  
   ASSERT(map_register_base->count < map_register_base->total_map_registers);
   
   if (xen_dma_adapter->dma_extension)
@@ -390,10 +527,11 @@ XenPci_DOP_MapTransfer(
     //  mdl_offset, page_offset, *Length, pfn_index));
     pfn = MmGetMdlPfnArray(mdl)[pfn_index];
     //KdPrint((__DRIVER_NAME "     B Requesting Grant Ref\n"));
-    GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, (grant_ref_t)(map_register->logical.QuadPart >> PAGE_SHIFT));
+    
+    //ASSERT(map_register->gref != INVALID_GRANT_REF);
+    GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, map_register->gref);
     //KdPrint((__DRIVER_NAME "     B Got Grant Ref %d\n", gref));
-    map_register->logical.QuadPart &= ~(LONGLONG)(PAGE_SIZE - 1);
-    map_register->logical.QuadPart |= page_offset;
+    map_register->logical.QuadPart = ((LONGLONG)map_register->gref << PAGE_SHIFT) | page_offset;
     map_register_base->count++;
     break;
   case MAP_TYPE_REMAPPED:
@@ -412,9 +550,9 @@ XenPci_DOP_MapTransfer(
       memcpy(map_register->aligned_buffer, map_register->unaligned_buffer, map_register->copy_length);
     pfn = (PFN_NUMBER)(MmGetPhysicalAddress(map_register->aligned_buffer).QuadPart >> PAGE_SHIFT);
     //KdPrint((__DRIVER_NAME "     C Requesting Grant Ref\n"));
-    GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, (grant_ref_t)(map_register->logical.QuadPart >> PAGE_SHIFT));
+    GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, map_register->gref);
     //KdPrint((__DRIVER_NAME "     C Got Grant Ref %d\n", gref));
-    map_register->logical.QuadPart &= ~(LONGLONG)(PAGE_SIZE - 1);
+    map_register->logical.QuadPart = ((LONGLONG)map_register->gref << PAGE_SHIFT);
     map_register_base->count++;
     break;
   case MAP_TYPE_VIRTUAL:
@@ -749,6 +887,7 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
       gref = GntTbl_GetRef(xpdd);
       if (gref == INVALID_GRANT_REF)
       {
+        KdPrint((__DRIVER_NAME "     Not enough gref's for SG list\n"));
         /* go back through the list and free the ones we allocated */
         sglist->NumberOfElements = sg_element;
         for (sg_element = 0; sg_element < sglist->NumberOfElements; sg_element++)
@@ -795,6 +934,10 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
         for (i = 0; remaining > 0; i++)
         {
           pfn = MmGetMdlPfnArray(curr_mdl)[pfn_offset + i];
+          //ASSERT((grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT) != INVALID_GRANT_REF);
+          if ((grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT) == INVALID_GRANT_REF)
+            KdPrint((__DRIVER_NAME "     GGG\n"));
+
           GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE,
             (grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT));
           sglist->Elements[sg_element].Address.QuadPart |= (LONGLONG)offset;
@@ -865,6 +1008,9 @@ for (curr_mdl = Mdl; curr_mdl; curr_mdl = curr_mdl->Next)
       sg_element < ADDRESS_AND_SIZE_TO_SPAN_PAGES(sg_extra->aligned_buffer, remapped_bytes); sg_element++)
     {
       pfn = (PFN_NUMBER)(MmGetPhysicalAddress((PUCHAR)sg_extra->aligned_buffer + (sg_element << PAGE_SHIFT)).QuadPart >> PAGE_SHIFT);
+      //ASSERT((grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT) != INVALID_GRANT_REF);
+      if ((grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT) == INVALID_GRANT_REF)
+        KdPrint((__DRIVER_NAME "     HHH\n"));
       GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE,
         (grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT));
       sglist->Elements[sg_element].Length = min(PAGE_SIZE, remaining);
@@ -1140,6 +1286,10 @@ Windows accessed beyond the end of the structure :(
   }
 
   *number_of_map_registers = xen_dma_adapter->adapter_object.MapRegistersPerChannel; //1024; /* why not... */
+
+  KeInitializeSpinLock(&xen_dma_adapter->lock);
+  xen_dma_adapter->map_register_base = NULL;
+  xen_dma_adapter->queued_map_register_base = NULL;
 
   FUNCTION_EXIT();
 
