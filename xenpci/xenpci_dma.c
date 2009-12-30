@@ -360,7 +360,7 @@ XenPci_DOP_FlushAdapterBuffers(
   map_register_t *map_register;
   ULONG i;
   
-  UNREFERENCED_PARAMETER(dma_adapter);
+  UNREFERENCED_PARAMETER(xen_dma_adapter);
   UNREFERENCED_PARAMETER(mdl);
   UNREFERENCED_PARAMETER(CurrentVa);
   UNREFERENCED_PARAMETER(Length);
