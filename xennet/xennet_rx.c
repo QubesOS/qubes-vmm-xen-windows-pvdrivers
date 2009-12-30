@@ -30,7 +30,7 @@ get_pb_from_freelist(struct xennet_info *xi)
   
   if (xi->rx_pb_free == 0)
   {
-    KdPrint((__DRIVER_NAME "     Out of pb's\n"));    
+    //KdPrint((__DRIVER_NAME "     Out of pb's\n"));    
     return NULL;
   }
   xi->rx_pb_free--;
@@ -90,7 +90,7 @@ XenNet_FillRing(struct xennet_info *xi)
     page_buf = get_pb_from_freelist(xi);
     if (!page_buf)
     {
-      KdPrint((__DRIVER_NAME "     Added %d out of %d buffers to rx ring (no free pages)\n", i, batch_target));
+      //KdPrint((__DRIVER_NAME "     Added %d out of %d buffers to rx ring (no free pages)\n", i, batch_target));
       break;
     }
     xi->rx_id_free--;
@@ -152,7 +152,7 @@ put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
 
   if (xi->rx_packet_free == NET_RX_RING_SIZE * 2)
   {
-    KdPrint((__DRIVER_NAME "     packet free list full - releasing packet\n"));
+    //KdPrint((__DRIVER_NAME "     packet free list full - releasing packet\n"));
     NdisFreePacket(packet);
     return;
   }
