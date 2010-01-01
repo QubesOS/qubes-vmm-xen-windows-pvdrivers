@@ -6,7 +6,6 @@
     <?define ARCHDIR = amd64 ?>
   <?endif ?>
 
-  
   <Product Name='GPL PV Drivers for Windows' Id='*'
     UpgradeCode='4EDE5DEC-3208-4a1e-8E52-DAC44F7D7062'
     Language='1033' Codepage='1252' Version='$(env.GPLPV_VERSION)' Manufacturer='James Harper'>
@@ -17,13 +16,20 @@
 
     <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
 
-    <UIRef Id="WixUI_Mondo" />
-    <UIRef Id="WixUI_ErrorProgressText" />
+    <UI>
+      <UIRef Id="WixUI_Mondo" />
+      <UIRef Id="WixUI_ErrorProgressText" />
+    </UI>
     
     <Media Id='1' Cabinet='gplpv.cab' EmbedCab='yes' />
 
+    <Binary Id='waitfordevices.vbs' SourceFile='waitnopendinginstallevents\waitfordevices.vbs'/>
+    <Binary Id='waitnopendinginstallevents.exe' SourceFile='waitnopendinginstallevents\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\waitnopendinginstallevents.exe'/>
     <CustomAction Id='InstallShutdownMonService' FileKey='shutdownmon.exe' ExeCommand='-i' Execute='deferred' Return='check'/>
     <CustomAction Id='UnInstallShutdownMonService' FileKey='shutdownmon.exe' ExeCommand='-u' Execute='deferred' Return='check'/>
+    <CustomAction Id='WaitForDevices' BinaryKey='waitfordevices.vbs' VBScriptCall='DoWaitForDevices' Execute='deferred' Return='check'/>
+    <CustomAction Id='WaitNoPendingInstallEvents' BinaryKey='waitnopendinginstallevents.exe' ExeCommand='300000' Execute='deferred' Return='check'/>
+    <CustomAction Id='CopyConfig' FileKey='copyconfig.exe' ExeCommand='' Execute='deferred' Return='check'/>
 
     <Directory Id='TARGETDIR' Name='SourceDir'>
       <Directory Id='ProgramFilesFolder' Name='PFiles'>
@@ -131,6 +137,9 @@
       <ScheduleReboot After='InstallFinalize' />
       <Custom Action='UnInstallShutdownMonService' Before='StopServices'>$ShutdownMon=2</Custom> 
       <Custom Action='InstallShutdownMonService' After='StartServices'>$ShutdownMon>2</Custom> 
+      <Custom Action='WaitForDevices' After='MsiProcessDrivers'>1</Custom>
+      <Custom Action='WaitNoPendingInstallEvents' After='WaitForDevices'>1</Custom>
+      <Custom Action='CopyConfig' After='WaitNoPendingInstallEvents'>$CopyConfig>2</Custom>
     </InstallExecuteSequence>
   </Product>
 </Wix>

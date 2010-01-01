@@ -193,6 +193,7 @@ main(
       printf(" Copied\n", buf);
     }
   }
+  return 0;
   
   // loop through key names that look like GUIDs
   //   get OID_GEN_VENDOR_DESCRIPTION
