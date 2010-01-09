@@ -52,9 +52,9 @@ HKR,"Parameters", "veto_devices", 0x00010008, "console"
 HKR,"Parameters", "veto_devices", 0x00010008, "vfb"
 HKR,"Parameters", "veto_devices", 0x00010008, "vkbd"
 HKR,"Parameters", "veto_devices", 0x00010008, "suspend"
-; Add XenHide as a filter to IDE Controllers
+; Add XenPci as a filter to IDE Controllers
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E96A-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenPci
-; Add XenHide as a filter to SCSI Controllers
+; Add XenPci as a filter to SCSI Controllers
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97B-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00010008,XenPci
 ; Add XenPci as a filter to Network Adapters
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002bE10318},UpperFilters,0x00010008,XenPci
@@ -65,8 +65,6 @@ HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97D-E325-11CE-BFC1-08002BE1031
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00018002,XenHide
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E96A-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00018002,XenHide
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97B-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00018002,XenHide
-
-
 
 [DestinationDirs]
 XenPCI_Device_CoInstaller_CopyFiles = 11

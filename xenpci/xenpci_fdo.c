@@ -363,10 +363,9 @@ XenPci_Suspend0(PVOID context)
   cancelled = hvm_shutdown(xpdd, SHUTDOWN_suspend);
   KdPrint((__DRIVER_NAME "     back from suspend, cancelled = %d\n", cancelled));
 
-  if (qemu_filtered_by_qemu)
+  if (qemu_hide_flags_value)
   {
     XenPci_HideQemuDevices();
-    ASSERT(qemu_filtered_by_qemu);
   }
 
   XenPci_Resume(xpdd);
@@ -668,10 +667,9 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
     break;  
   }
 
-  if (previous_state == WdfPowerDevicePrepareForHibernation && qemu_filtered_by_qemu)
+  if (previous_state == WdfPowerDevicePrepareForHibernation && qemu_hide_flags_value)
   {
     XenPci_HideQemuDevices();
-    ASSERT(qemu_filtered_by_qemu);
   }
   
   if (previous_state == WdfPowerDeviceD3Final)

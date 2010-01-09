@@ -604,8 +604,6 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   grant_ref_t gref;
   BOOLEAN done_xenbus_init = FALSE;
   PVOID value2;
-  BOOLEAN active = TRUE;
-  BOOLEAN dont_config = FALSE;
  
   FUNCTION_ENTER();
 
@@ -647,9 +645,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors, NULL);
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_STATE_PTR, NULL, &xppdd->device_state, NULL);
 
-  if (!qemu_filtered)
-    active = FALSE;
-
+#if 0
   while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
   {
     BOOLEAN condition;
@@ -709,6 +705,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
     FUNCTION_EXIT();
     return status;
   }
+#endif
   
   // first pass, possibly before state == Connected
   in_ptr = src;
@@ -859,10 +856,31 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
       break;
     }
   }
-  if (active)
+  if (qemu_hide_flags_value)
   {
-    ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_ACTIVE, NULL, NULL, NULL);
+    ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_QEMU_HIDE_FLAGS, NULL, UlongToPtr(qemu_hide_flags_value), NULL);
   }
+  else
+  {
+    DECLARE_UNICODE_STRING_SIZE(my_device_name, 128);
+    
+    RtlUnicodeStringPrintf(&my_device_name, L"#%S#", xppdd->device);
+    
+    for (i = 0; i < WdfCollectionGetCount(qemu_hide_devices); i++)
+    {
+      WDFSTRING wdf_string = WdfCollectionGetItem(qemu_hide_devices, i);
+      UNICODE_STRING hide_device_name;
+      
+      WdfStringGetUnicodeString(wdf_string, &hide_device_name);
+      
+      if (RtlCompareUnicodeString(&hide_device_name, &my_device_name, TRUE) != 0)
+      {
+        ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_QEMU_HIDE_FILTER, NULL, NULL, NULL);
+        break;
+      }
+    }
+  }
+  
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
 
   if (run_type)

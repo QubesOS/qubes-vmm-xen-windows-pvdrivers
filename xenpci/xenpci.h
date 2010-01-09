@@ -69,7 +69,6 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define XEN_PV_PRODUCT_NUMBER   0x0002
 #define XEN_PV_PRODUCT_BUILD    0x00000001
 
-extern ULONG qemu_filtered;
 extern ULONG qemu_protocol_version;
 
 typedef struct _ev_action_t {
@@ -198,6 +197,7 @@ typedef struct {
 
   //WDFCOLLECTION veto_devices;
   LIST_ENTRY veto_list;
+
 #if 0
   KSPIN_LOCK mmio_freelist_lock;
   PPFN_NUMBER mmio_freelist_base;
@@ -316,7 +316,8 @@ EVT_WDF_CHILD_LIST_SCAN_FOR_CHILDREN XenPci_EvtChildListScanForChildren;
 
 VOID
 XenPci_HideQemuDevices();
-extern ULONG qemu_filtered_by_qemu;
+extern WDFCOLLECTION qemu_hide_devices;
+extern USHORT qemu_hide_flags_value;
 
 #if 0
 NTSTATUS
