@@ -356,6 +356,8 @@ XenNet_Init(
   CHAR buf[128];
   PVOID network_address;
   UINT network_address_length;
+  BOOLEAN qemu_hide_filter = FALSE;
+  ULONG qemu_hide_flags_value = 0;
   
   UNREFERENCED_PARAMETER(OpenErrorStatus);
 
@@ -506,15 +508,26 @@ XenNet_Init(
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
       xi->device_state = (PXENPCI_DEVICE_STATE)value;
       break;
+#if 0
     case XEN_INIT_TYPE_ACTIVE:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_ACTIVE\n"));
       xi->inactive = FALSE;
+      break;
+#endif
+    case XEN_INIT_TYPE_QEMU_HIDE_FLAGS:
+      qemu_hide_flags_value = PtrToUlong(value);
+      break;
+    case XEN_INIT_TYPE_QEMU_HIDE_FILTER:
+      qemu_hide_filter = TRUE;
       break;
     default:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
       break;
     }
   }
+
+  if ((qemu_hide_flags_value & QEMU_UNPLUG_ALL_IDE_DISKS) || qemu_hide_filter)
+    xi->inactive = FALSE;
 
   // now build config page
   

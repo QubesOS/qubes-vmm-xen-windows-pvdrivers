@@ -104,10 +104,16 @@ AddReg = XenNet_Service_AddReg
 ; 5 = PciBus, 0 = Internal, 15 = PnpBus
 HKR,"Parameters\PnpInterface", "15", 0x00010001, 0x00000001
 ; hide Qemu Network in XenPCI
+HKLM,"SYSTEM\CurrentControlSet\Services\XenPCI\Parameters", "hide_devices", 0x00010008, "#vif#"
 HKLM,"SYSTEM\CurrentControlSet\Services\XenPCI\Parameters", "hide_devices", 0x00010008, "VEN_10EC&DEV_8139"
+; tell Qemu to hide stuff
+HKLM,"SYSTEM\CurrentControlSet\Services\XenPCI\Parameters", "qemu_hide_flags", 0x00010008, %QEMU_UNPLUG_ALL_NICS%
 
 [Strings]
 XenGplPv = "Xen GPL PV Driver Developers"
 XenNet.SVCDESC = "Xen Net Device Driver"
 XenNet.DRVDESC = "Xen Net Device Driver"
 DISK_NAME = "Xen Net Device Driver Install Disk"
+QEMU_UNPLUG_ALL_IDE_DISKS = 1
+QEMU_UNPLUG_ALL_NICS      = 2
+QEMU_UNPLUG_AUX_IDE_DISKS = 4
