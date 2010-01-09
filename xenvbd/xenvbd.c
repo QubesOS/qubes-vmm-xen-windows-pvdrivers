@@ -121,11 +121,13 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
   USHORT type;
   PCHAR setting, value, value2;
   ULONG qemu_protocol_version = 0;
+  BOOLEAN qemu_hide_filter = FALSE;
+  ULONG qemu_hide_flags_value = 0;
 
   xvdd->device_type = XENVBD_DEVICETYPE_UNKNOWN;
   xvdd->sring = NULL;
   xvdd->event_channel = 0;
-
+  
   xvdd->inactive = TRUE;  
   ptr = xvdd->device_base;
   while((type = GET_XEN_INIT_RSP(&ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
@@ -219,9 +221,6 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
       xvdd->device_state = (PXENPCI_DEVICE_STATE)value;
       break;
-    case XEN_INIT_TYPE_ACTIVE:
-      xvdd->inactive = FALSE;
-      break;
     case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
       qemu_protocol_version = PtrToUlong(value);
       break;
@@ -229,11 +228,23 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - entries = %d\n", PtrToUlong(setting)));
       memcpy(xvdd->dump_grant_refs, value, PtrToUlong(setting) * sizeof(grant_ref_t));
       break;
+    case XEN_INIT_TYPE_QEMU_HIDE_FLAGS:
+      qemu_hide_flags_value = PtrToUlong(value);
+      KdPrint((__DRIVER_NAME "     qemu_hide_flags_value = %d\n", qemu_hide_flags_value));
+      break;
+    case XEN_INIT_TYPE_QEMU_HIDE_FILTER:
+      qemu_hide_filter = TRUE;
+      KdPrint((__DRIVER_NAME "     qemu_hide_filter = TRUE\n"));
+      break;
     default:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_%d\n", type));
       break;
     }
   }
+  
+  if (((qemu_hide_flags_value & QEMU_UNPLUG_ALL_IDE_DISKS) && xvdd->device_type != XENVBD_DEVICETYPE_CDROM) || qemu_hide_filter)
+    xvdd->inactive = FALSE;
+  
   if (!xvdd->inactive && (xvdd->device_type == XENVBD_DEVICETYPE_UNKNOWN
       || xvdd->sring == NULL
       || xvdd->event_channel == 0
@@ -244,11 +255,7 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
     return SP_RETURN_BAD_CONFIG;
   }
-  if (!xvdd->inactive && xvdd->device_type == XENVBD_DEVICETYPE_CDROM && qemu_protocol_version > 0)
-  {
-    xvdd->inactive = TRUE;
-  }
-  
+
   if (xvdd->inactive)
     KdPrint((__DRIVER_NAME "     Device is inactive\n"));
   else
@@ -1426,7 +1433,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_INIT_DRIVER_EXTENSION_MAGIC), PAGE_SIZE, &driver_extension);
     ptr = driver_extension;
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_MATCH_FRONT, "device-type", "disk", UlongToPtr(XEN_INIT_MATCH_TYPE_IF_NOT_MATCH|XEN_INIT_MATCH_TYPE_SET_INACTIVE|XEN_INIT_MATCH_TYPE_DONT_CONFIG));
+    //ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_MATCH_FRONT, "device-type", "disk", UlongToPtr(XEN_INIT_MATCH_TYPE_IF_NOT_MATCH|XEN_INIT_MATCH_TYPE_SET_INACTIVE|XEN_INIT_MATCH_TYPE_DONT_CONFIG));
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_FRONT, "device-type", NULL, NULL);
