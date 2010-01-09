@@ -414,7 +414,6 @@ XenUsb_StartXenbusInit(PXENUSB_DEVICE_DATA xudd)
   xudd->urb_sring = NULL;
   xudd->event_channel = 0;
 
-  xudd->inactive = TRUE;
   ptr = xudd->config_page;
   while((type = GET_XEN_INIT_RSP(&ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
   {
@@ -441,9 +440,6 @@ XenUsb_StartXenbusInit(PXENUSB_DEVICE_DATA xudd)
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
       xudd->device_state = (PXENPCI_DEVICE_STATE)value;
       break;
-    case XEN_INIT_TYPE_ACTIVE:
-      xudd->inactive = FALSE;
-      break;
 #if 0
     case XEN_INIT_TYPE_GRANT_ENTRIES:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - entries = %d\n", PtrToUlong(setting)));
@@ -465,6 +461,7 @@ XenUsb_CompleteXenbusInit(PXENUSB_DEVICE_DATA xudd)
   PUCHAR ptr;
   USHORT type;
   PCHAR setting, value, value2;
+  ULONG i;
 
   ptr = xudd->config_page;
   while((type = GET_XEN_INIT_RSP(&ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
@@ -500,27 +497,19 @@ XenUsb_CompleteXenbusInit(PXENUSB_DEVICE_DATA xudd)
       break;
     }
   }
-  if (!xudd->inactive && (xudd->urb_sring == NULL || xudd->conn_sring == NULL || xudd->event_channel == 0))
+  if (xudd->urb_sring == NULL || xudd->conn_sring == NULL || xudd->event_channel == 0)
   {
     KdPrint((__DRIVER_NAME "     Missing settings\n"));
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
     return STATUS_UNSUCCESSFUL;
   }
   
-  if (xudd->inactive)
+  xudd->shadow_free = 0;
+  memset(xudd->shadows, 0, sizeof(usbif_shadow_t) * SHADOW_ENTRIES);
+  for (i = 0; i < SHADOW_ENTRIES; i++)
   {
-    KdPrint((__DRIVER_NAME "     Device is inactive\n"));
-  }
-  else
-  {
-    ULONG i;
-    xudd->shadow_free = 0;
-    memset(xudd->shadows, 0, sizeof(usbif_shadow_t) * SHADOW_ENTRIES);
-    for (i = 0; i < SHADOW_ENTRIES; i++)
-    {
-      xudd->shadows[i].id = (uint16_t)i;
-      put_shadow_on_freelist(xudd, &xudd->shadows[i]);
-    }
+    xudd->shadows[i].id = (uint16_t)i;
+    put_shadow_on_freelist(xudd, &xudd->shadows[i]);
   }
   
   return STATUS_SUCCESS;

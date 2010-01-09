@@ -211,7 +211,6 @@ typedef struct {
 
   evtchn_port_t event_channel;
 
-  BOOLEAN inactive;
   XENPCI_VECTORS vectors;
   PXENPCI_DEVICE_STATE device_state;
 
