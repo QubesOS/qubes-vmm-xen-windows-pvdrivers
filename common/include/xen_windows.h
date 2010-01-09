@@ -458,18 +458,21 @@ typedef struct {
 //#define XEN_INIT_TYPE_COPY_PTR                  9
 #define XEN_INIT_TYPE_RUN                       10
 #define XEN_INIT_TYPE_STATE_PTR                 11
-#define XEN_INIT_TYPE_ACTIVE                    12
+//#define XEN_INIT_TYPE_ACTIVE                    12
 #define XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION     13
-#define XEN_INIT_TYPE_MATCH_FRONT               14 /* string, value, action */
-#define XEN_INIT_TYPE_MATCH_BACK                15 /* string, value, action */
+//#define XEN_INIT_TYPE_MATCH_FRONT               14 /* string, value, action */
+//#define XEN_INIT_TYPE_MATCH_BACK                15 /* string, value, action */
 #define XEN_INIT_TYPE_EVENT_CHANNEL_DPC         16
+#define XEN_INIT_TYPE_QEMU_HIDE_FLAGS           17 /* qemu hide flags */
+#define XEN_INIT_TYPE_QEMU_HIDE_FILTER          18 /* qemu device hidden by class filter */
 
+#if 0
 #define XEN_INIT_MATCH_TYPE_IF_MATCH		0x0001
 #define XEN_INIT_MATCH_TYPE_IF_NOT_MATCH	0x0000
 #define XEN_INIT_MATCH_TYPE_ONLY_IF_QEMU_HIDE	0x0002 /* only if qemu hiding is supported */
 #define XEN_INIT_MATCH_TYPE_SET_INACTIVE	0x0100
 #define XEN_INIT_MATCH_TYPE_DONT_CONFIG		0x0200
-
+#endif
 
 static __inline VOID
 __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
@@ -572,19 +575,23 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2, PVOID p3)
   case XEN_INIT_TYPE_VECTORS:
   case XEN_INIT_TYPE_RUN:
   case XEN_INIT_TYPE_STATE_PTR:
-  case XEN_INIT_TYPE_ACTIVE:
+//  case XEN_INIT_TYPE_ACTIVE:
   case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
+  case XEN_INIT_TYPE_QEMU_HIDE_FLAGS:
+  case XEN_INIT_TYPE_QEMU_HIDE_FILTER:
     break;
   case XEN_INIT_TYPE_WRITE_STRING:
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p2);
     break;
+#if 0
   case XEN_INIT_TYPE_MATCH_FRONT:
   case XEN_INIT_TYPE_MATCH_BACK:
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p2);
     __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p3));
     break;
+#endif
   case XEN_INIT_TYPE_RING:
   case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ:
   case XEN_INIT_TYPE_READ_STRING_FRONT:
@@ -619,7 +626,7 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
   case XEN_INIT_TYPE_VECTORS:
   case XEN_INIT_TYPE_RUN:
   case XEN_INIT_TYPE_STATE_PTR:
-  case XEN_INIT_TYPE_ACTIVE:
+//  case XEN_INIT_TYPE_ACTIVE:
   case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
     *p1 = NULL;
     *p2 = NULL;
@@ -628,12 +635,14 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
     *p1 = __GET_XEN_INIT_STRING(ptr);
     *p2 = __GET_XEN_INIT_STRING(ptr);
     break;
+#if 0
   case XEN_INIT_TYPE_MATCH_FRONT:
   case XEN_INIT_TYPE_MATCH_BACK:
     *p1 = __GET_XEN_INIT_STRING(ptr);
     *p2 = __GET_XEN_INIT_STRING(ptr);
     *p3 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     break;
+#endif
   case XEN_INIT_TYPE_RING:
   case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ:
   case XEN_INIT_TYPE_READ_STRING_FRONT:
@@ -669,7 +678,8 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2, PVOID p3)
   case XEN_INIT_TYPE_END:
   case XEN_INIT_TYPE_WRITE_STRING: /* this shouldn't happen */
   case XEN_INIT_TYPE_RUN:
-  case XEN_INIT_TYPE_ACTIVE:
+//  case XEN_INIT_TYPE_ACTIVE:
+  case XEN_INIT_TYPE_QEMU_HIDE_FILTER:
     break;
   case XEN_INIT_TYPE_RING:
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
@@ -696,6 +706,9 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2, PVOID p3)
     memcpy(*ptr, p2, PtrToUlong(p1) * sizeof(grant_entry_t));
     *ptr += PtrToUlong(p1) * sizeof(grant_entry_t);
     break;
+  case XEN_INIT_TYPE_QEMU_HIDE_FLAGS:
+    __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p2));
+    break;
   case XEN_INIT_TYPE_STATE_PTR:
     __ADD_XEN_INIT_PTR(ptr, p2);
     break;
@@ -721,7 +734,8 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
   {
   case XEN_INIT_TYPE_END:
   case XEN_INIT_TYPE_RUN:
-  case XEN_INIT_TYPE_ACTIVE:
+//  case XEN_INIT_TYPE_ACTIVE:
+  case XEN_INIT_TYPE_QEMU_HIDE_FILTER:
     *p1 = NULL;
     *p2 = NULL;
     break;
@@ -758,6 +772,9 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
     break;
   case XEN_INIT_TYPE_STATE_PTR:
     *p2 = __GET_XEN_INIT_PTR(ptr);
+    break;
+  case XEN_INIT_TYPE_QEMU_HIDE_FLAGS:
+    *p2 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     break;
   case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
     *p2 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
