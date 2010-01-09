@@ -18,11 +18,11 @@ main(ULONG argc, PCHAR argv[])
     timeout = atoi(argv[1]);
   }
 
-  printf("timeout = %d\n", timeout);
+  //printf("timeout = %d\n", timeout);
 
   ret = CMP_WaitNoPendingInstallEvents(timeout);
 
-  printf("ret = %d\n", ret);
+  //printf("ret = %d\n", ret);
 
   return ret;
 }
