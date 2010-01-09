@@ -31,6 +31,20 @@
     <CustomAction Id='WaitNoPendingInstallEvents' BinaryKey='waitnopendinginstallevents.exe' ExeCommand='300000' Execute='deferred' Return='check'/>
     <CustomAction Id='CopyConfig' FileKey='copyconfig.exe' ExeCommand='' Execute='deferred' Return='check'/>
 
+    <Property Id="SYSTEMSTARTOPTIONS">
+      <RegistrySearch Id="SystemStartOptions"
+		    Root="HKLM"
+		    Key="SYSTEM\CurrentControlSet\Control"
+		    Name="SystemStartOptions"
+		    Type="raw" />
+    </Property>
+
+    <?if $(env._BUILDARCH) = AMD64 ?>
+      <Condition Message="Testsigning must be on for x64 when installing on Vista or newer.">
+        <![CDATA[(VersionNT < 600) OR (SYSTEMSTARTOPTIONS >< "/TESTSIGNING")]]>
+      </Condition>
+    <?endif ?>
+
     <Directory Id='TARGETDIR' Name='SourceDir'>
       <Directory Id='ProgramFilesFolder' Name='PFiles'>
         <Directory Id='XenProgramFilesDir' Name='Xen PV Drivers'>
@@ -96,7 +110,8 @@
         </Directory>
         <Component Id='Cert' Guid='11112EC8-8635-45fb-9AE8-C22310F1E82D'>
           <File Id='gplpv.cer' Name='gplpv.cer' DiskId='1' Source='gplpv.cer' />
-          <iis:Certificate Id='gplpv.cer' Name='gplpv.cer' Request='no' BinaryKey='gplpv.cer' StoreLocation='localMachine' StoreName='root' Overwrite='no' />
+          <iis:Certificate Id='gplpv.cer_root' Name='gplpv.cer' Request='no' BinaryKey='gplpv.cer' StoreLocation='localMachine' StoreName='root' Overwrite='no' />
+          <iis:Certificate Id='gplpv.cer_trustedPublisher' Name='gplpv.cer' Request='no' BinaryKey='gplpv.cer' StoreLocation='localMachine' StoreName='trustedPublisher' Overwrite='no' />
         </Component>
       </Directory>
     </Directory>
