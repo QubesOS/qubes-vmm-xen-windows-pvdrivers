@@ -44,8 +44,9 @@ main(
   CHAR value_name[256];
   DWORD value_name_len;
   DWORD value_type;
-  CHAR value_data[1024];
+  PCHAR value_data;
   DWORD value_data_len;
+  DWORD value_data_max_len;
   HKEY src_key_handle;
   HKEY dst_key_handle;
   
@@ -173,22 +174,58 @@ main(
         continue;
       }
       value_name_len = 256;
-      value_data_len = 1024;
+      value_data_max_len = 0;
+      value_data = NULL;
+      value_data_len = 0;
       while ((status = RegEnumValue(dst_key_handle, 0, value_name, &value_name_len, NULL, &value_type, (LPBYTE)value_data, &value_data_len)) != ERROR_NO_MORE_ITEMS)
       {
-        RegDeleteValue(dst_key_handle, value_name);
+        //printf("A status = %08x, value_data_max_len = %d, value_data_len = %d\n", status, value_data_max_len, value_data_len);
+        if (value_data_len > value_data_max_len || status == ERROR_MORE_DATA)
+        {
+          //printf("A Buffer %d too small. Allocating %d bytes\n", value_data_max_len, value_data_len);
+          if (value_data != NULL)
+            free(value_data);
+          value_data_max_len = value_data_len;
+          value_data = malloc(value_data_max_len);
+        }
+        else if (status != ERROR_SUCCESS)
+        {
+          printf("Failed to read registry %08x\n", status);
+          return 1;
+        }
+        else
+        {
+          RegDeleteValue(dst_key_handle, value_name);
+        }
         value_name_len = 256;
-        value_data_len = 1024;
+        value_data_len = value_data_max_len;
       }
       i = 0;
       value_name_len = 256;
-      value_data_len = 1024;
+      value_data_len = value_data_max_len;
       while ((status = RegEnumValue(src_key_handle, i, value_name, &value_name_len, NULL, &value_type, (LPBYTE)value_data, &value_data_len)) != ERROR_NO_MORE_ITEMS)
       {
-        RegSetValueEx(dst_key_handle, value_name, 0, value_type, (BYTE *)value_data, value_data_len);
+        //printf("B status = %08x, value_data_max_len = %d, value_data_len = %d\n", status, value_data_max_len, value_data_len);
+        if (value_data_len > value_data_max_len || status == ERROR_MORE_DATA)
+        {
+          //printf("B Buffer %d too small. Allocating %d bytes\n", value_data_max_len, value_data_len);
+          if (value_data != NULL)
+            free(value_data);
+          value_data_max_len = value_data_len;
+          value_data = malloc(value_data_max_len);
+        }
+        else if (status != ERROR_SUCCESS)
+        {
+          printf("Failed to read registry %08x\n", status);
+          return 1;
+        }
+        else
+        {
+          RegSetValueEx(dst_key_handle, value_name, 0, value_type, (BYTE *)value_data, value_data_len);
+          i++;
+        }
         value_name_len = 256;
-        value_data_len = 1024;
-        i++;
+        value_data_len = value_data_max_len;
       }
       printf(" Copied\n", buf);
     }
