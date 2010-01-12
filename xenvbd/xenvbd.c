@@ -882,9 +882,9 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 
   if (suspend_resume_state_pdo == SR_STATE_SUSPENDING)
   {
-    if (xvdd->shadow_free == SHADOW_ENTRIES)
+    if (xvdd->inactive || xvdd->shadow_free == SHADOW_ENTRIES)
     {
-      /* all entries are purged from the list. ready to suspend */
+      /* all entries are purged from the list (or we are inactive). ready to suspend */
       xvdd->device_state->suspend_resume_state_fdo = suspend_resume_state_pdo;
       KeMemoryBarrier();
       KdPrint((__DRIVER_NAME "     Set fdo state SR_STATE_SUSPENDING\n"));
@@ -925,10 +925,10 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
 
   if (xvdd->device_state->suspend_resume_state_pdo != SR_STATE_RUNNING)
   {
-    KdPrint((__DRIVER_NAME " --> HwScsiStartIo (Resuming)\n"));
+    KdPrint((__DRIVER_NAME " --> HwScsiStartIo (Suspending/Resuming)\n"));
     Srb->SrbStatus = SRB_STATUS_BUSY;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
-    KdPrint((__DRIVER_NAME " <-- HwScsiStartIo (Resuming)\n"));
+    KdPrint((__DRIVER_NAME " <-- HwScsiStartIo (Suspending/Resuming)\n"));
     return TRUE;
   }
 
