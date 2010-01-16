@@ -26,10 +26,10 @@
     <Binary Id='waitfordevices.vbs' SourceFile='waitnopendinginstallevents\waitfordevices.vbs'/>
     <Binary Id='waitnopendinginstallevents.exe' SourceFile='waitnopendinginstallevents\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\waitnopendinginstallevents.exe'/>
     <CustomAction Id='InstallShutdownMonService' FileKey='shutdownmon.exe' ExeCommand='-i' Execute='deferred' Return='check'/>
-    <CustomAction Id='UnInstallShutdownMonService' FileKey='shutdownmon.exe' ExeCommand='-u' Execute='deferred' Return='check'/>
-    <CustomAction Id='WaitForDevices' BinaryKey='waitfordevices.vbs' VBScriptCall='DoWaitForDevices' Execute='deferred' Return='check'/>
-    <CustomAction Id='WaitNoPendingInstallEvents' BinaryKey='waitnopendinginstallevents.exe' ExeCommand='300000' Execute='deferred' Return='check'/>
-    <CustomAction Id='CopyConfig' FileKey='copyconfig.exe' ExeCommand='' Execute='deferred' Return='check'/>
+    <CustomAction Id='UnInstallShutdownMonService' FileKey='shutdownmon.exe' ExeCommand='-u' Execute='deferred' Return='check' Impersonate='no'/>
+    <CustomAction Id='WaitForDevices' BinaryKey='waitfordevices.vbs' VBScriptCall='DoWaitForDevices' Execute='deferred' Return='check' Impersonate='no'/>
+    <CustomAction Id='WaitNoPendingInstallEvents' BinaryKey='waitnopendinginstallevents.exe' ExeCommand='300000' Execute='deferred' Return='check' Impersonate='no'/>
+    <CustomAction Id='CopyConfig' FileKey='copyconfig.exe' ExeCommand='' Execute='deferred' Return='check' Impersonate='no'/>
 
     <Property Id="SYSTEMSTARTOPTIONS">
       <RegistrySearch Id="SystemStartOptions"
