@@ -644,68 +644,6 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors, NULL);
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_STATE_PTR, NULL, &xppdd->device_state, NULL);
-
-#if 0
-  while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
-  {
-    BOOLEAN condition;
-    PCHAR xb_value;
-    switch (type)
-    {
-    case XEN_INIT_TYPE_MATCH_FRONT:
-    case XEN_INIT_TYPE_MATCH_BACK:
-      if (type == XEN_INIT_TYPE_MATCH_FRONT)
-      {
-        RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
-      }
-      else
-      {
-        RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->backend_path, setting);
-      }
-      KdPrint((__DRIVER_NAME "     testing path = %s\n", path));
-      res = XenBus_Read(xpdd, XBT_NIL, path, &xb_value);
-      if (res)
-      {
-        KdPrint((__DRIVER_NAME "     read failed (%s)\n", res));
-        XenPci_FreeMem(res);
-      }
-      else
-      {
-        KdPrint((__DRIVER_NAME "     testing %s vs %s\n", xb_value, value));
-        if (PtrToUlong(value2) & XEN_INIT_MATCH_TYPE_IF_MATCH)
-          condition = (strcmp(xb_value, value) == 0)?TRUE:FALSE;
-        else
-          condition = (strcmp(xb_value, value) != 0)?TRUE:FALSE;
-        KdPrint((__DRIVER_NAME "     condition = %d\n", condition));
-  
-        if ((PtrToUlong(value2) & XEN_INIT_MATCH_TYPE_ONLY_IF_QEMU_HIDE) && qemu_protocol_version && condition)
-          condition = FALSE;
-          
-        if (condition)
-        {
-          if (PtrToUlong(value2) & XEN_INIT_MATCH_TYPE_SET_INACTIVE)
-          {
-            active = FALSE;
-            KdPrint((__DRIVER_NAME "     set inactive\n"));
-          }
-          if (PtrToUlong(value2) & XEN_INIT_MATCH_TYPE_DONT_CONFIG)
-          {
-            dont_config = TRUE;
-            KdPrint((__DRIVER_NAME "     set inactive with dont config\n"));
-          }
-        }
-        XenPci_FreeMem(xb_value);
-      }
-      break;
-    }
-  }
-  if (dont_config)
-  {
-    ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
-    FUNCTION_EXIT();
-    return status;
-  }
-#endif
   
   // first pass, possibly before state == Connected
   in_ptr = src;
@@ -1257,7 +1195,7 @@ XenPciPdo_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE not
     break;
   }
 
-  FUNCTION_EXIT();  
+  FUNCTION_EXIT();
 }
 
 NTSTATUS
