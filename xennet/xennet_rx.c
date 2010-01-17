@@ -321,6 +321,7 @@ XenNet_SumPacketData(
   PUCHAR buffer;
   PMDL mdl;
   UINT total_length;
+  UINT data_length;
   UINT buffer_length;
   USHORT buffer_offset;
   ULONG csum;
@@ -335,10 +336,12 @@ XenNet_SumPacketData(
   ASSERT(mdl);
 
   ip4_length = GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 2]);
-
-  if ((USHORT)(ip4_length + XN_HDR_SIZE) != total_length)
+  data_length = ip4_length + XN_HDR_SIZE;
+  
+  if ((USHORT)data_length > total_length)
   {
     KdPrint((__DRIVER_NAME "     Size Mismatch %d (ip4_length + XN_HDR_SIZE) != %d (total_length)\n", ip4_length + XN_HDR_SIZE, total_length));
+    return FALSE;
   }
 
   switch (pi->ip_proto)
@@ -371,7 +374,7 @@ XenNet_SumPacketData(
   
   csum_span = FALSE;
   buffer_offset = i = XN_HDR_SIZE + pi->ip4_header_length;
-  while (i < total_length)
+  while (i < data_length)
   {
     /* don't include the checksum field itself in the calculation */
     if ((pi->ip_proto == 6 && i == XN_HDR_SIZE + pi->ip4_header_length + 16) || (pi->ip_proto == 17 && i == XN_HDR_SIZE + pi->ip4_header_length + 6))
