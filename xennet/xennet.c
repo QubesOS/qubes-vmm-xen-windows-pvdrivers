@@ -173,7 +173,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
           }
           s = e + 1;
         }
-        if (!(xi->curr_mac_addr[0] & 0x02))
+        if ((xi->curr_mac_addr[0] & 0x03) == 0x02)
         {
           /* only copy if curr_mac_addr is not a LUA */
           memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
@@ -624,9 +624,9 @@ XenNet_Init(
   
 
   NdisReadNetworkAddress(&status, &network_address, &network_address_length, config_handle);
-  if (!NT_SUCCESS(status) || network_address_length != ETH_ALEN || !(((PUCHAR)network_address)[0] & 0x02))
+  if (!NT_SUCCESS(status) || network_address_length != ETH_ALEN || ((((PUCHAR)network_address)[0] & 0x03) != 0x02))
   {
-    KdPrint(("Could not read NetworkAddress value (%08x)\n", status));
+    KdPrint(("Could not read NetworkAddress value (%08x) or value is invalid\n", status));
     memset(xi->curr_mac_addr, 0, ETH_ALEN);
   }
   else
