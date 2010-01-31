@@ -2,6 +2,8 @@
 C_DEFINES=$(C_DEFINES) -DBUILD_NUMBER=$(BUILD_NUMBER)
 !ENDIF
 MSC_WARNING_LEVEL=/W4
-INCLUDES = ..\common\include;..\common\include\public
+C_DEFINES=$(C_DEFINES) -DWIN_KERNEL_BUILD
+LIBLFDS_DIR = ..\liblfds.6
+INCLUDES = ..\common\include;..\common\include\public;$(LIBLFDS_DIR)\inc
 TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\ntstrsafe.lib
 NTTARGETFILES=

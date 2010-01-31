@@ -1330,6 +1330,14 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   child_power_capabilities.DeviceState[PowerSystemShutdown]  = PowerDeviceD3;
   WdfDeviceSetPowerCapabilities(child_device, &child_power_capabilities);  
 
+  status = WdfFdoQueryForInterface(xpdd->wdf_device, &GUID_BUS_INTERFACE_STANDARD, (PINTERFACE)&bus_interface,
+            sizeof(BUS_INTERFACE_STANDARD), 1, NULL);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     WdfFdoQueryForInterface failed - %08x\n", status));
+    return status;
+  }
+#if 0
   bus_interface.Size = sizeof(BUS_INTERFACE_STANDARD);
   bus_interface.Version = 1; //BUS_INTERFACE_STANDARD_VERSION;
   bus_interface.Context = xppdd;
@@ -1339,10 +1347,12 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   bus_interface.GetDmaAdapter = XenPci_BIS_GetDmaAdapter;
   bus_interface.SetBusData = XenPci_BIS_SetBusData;
   bus_interface.GetBusData = XenPci_BIS_GetBusData;
+#endif
   WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&bus_interface, &GUID_BUS_INTERFACE_STANDARD, NULL);
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
   {
+    KdPrint((__DRIVER_NAME "     WdfDeviceAddQueryInterface failed - %08x\n", status));
     return status;
   }
   

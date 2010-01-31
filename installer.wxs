@@ -41,7 +41,7 @@
 
     <?if $(env._BUILDARCH) = AMD64 ?>
       <Condition Message="Testsigning must be on for x64 when installing on Vista or newer.">
-        <![CDATA[(VersionNT < 600) OR (SYSTEMSTARTOPTIONS >< "/TESTSIGNING")]]>
+        <![CDATA[(VersionNT < 600) OR (SYSTEMSTARTOPTIONS >< "TESTSIGNING")]]>
       </Condition>
     <?endif ?>
 

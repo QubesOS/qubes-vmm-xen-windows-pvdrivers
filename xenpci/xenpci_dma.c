@@ -186,25 +186,31 @@ XenPci_DOP_AllocateCommonBuffer(
   PFN_NUMBER pfn;
   grant_ref_t gref;
   
-  UNREFERENCED_PARAMETER(DmaAdapter);
   UNREFERENCED_PARAMETER(CacheEnabled);
   
-  //FUNCTION_ENTER();
-
-  xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
-
+  FUNCTION_ENTER();
   //KdPrint((__DRIVER_NAME "     Length = %d\n", Length));
   
+  xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
+
   buffer = ExAllocatePoolWithTag(NonPagedPool, Length, XENPCI_POOL_TAG);
+  //KdPrint((__DRIVER_NAME "     buffer = %p\n", buffer));
+
   ASSERT(buffer); /* lazy */
 
   pfn = (PFN_NUMBER)(MmGetPhysicalAddress(buffer).QuadPart >> PAGE_SHIFT);
+  //KdPrint((__DRIVER_NAME "     pfn = %08x\n", (ULONG)pfn));
   ASSERT(pfn); /* lazy */
-  gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, INVALID_GRANT_REF);
-  ASSERT(gref != INVALID_GRANT_REF); /* lazy */
-  LogicalAddress->QuadPart = (gref << PAGE_SHIFT) | (PtrToUlong(buffer) & (PAGE_SIZE - 1));
   
-  //FUNCTION_EXIT();
+  gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, INVALID_GRANT_REF);
+  //KdPrint((__DRIVER_NAME "     gref = %08x\n", (ULONG)gref));
+  ASSERT(gref != INVALID_GRANT_REF); /* lazy */
+
+  LogicalAddress->QuadPart = (gref << PAGE_SHIFT) | (PtrToUlong(buffer) & (PAGE_SIZE - 1));
+  KdPrint((__DRIVER_NAME "     logical = %08x%08x\n", LogicalAddress->HighPart, LogicalAddress->LowPart));
+  
+  FUNCTION_EXIT();
+  
   return buffer;
 }
 
@@ -1222,7 +1228,7 @@ Windows accessed beyond the end of the structure :(
   }
   KdPrint((__DRIVER_NAME "     End of loop\n"));
 
-  xen_dma_adapter->adapter_object.DmaHeader.Size = sizeof(X_ADAPTER_OBJECT); //xen_dma_adapter_t);
+  xen_dma_adapter->adapter_object.DmaHeader.Size = sizeof(DMA_ADAPTER); //sizeof(X_ADAPTER_OBJECT); //xen_dma_adapter_t);
   xen_dma_adapter->adapter_object.MasterAdapter = NULL;
   if (xen_dma_adapter->dma_extension && xen_dma_adapter->dma_extension->max_sg_elements)
   {
@@ -1293,6 +1299,9 @@ Windows accessed beyond the end of the structure :(
 
   FUNCTION_EXIT();
 
+  if (KD_DEBUGGER_ENABLED)
+    KdBreakPoint();
+  
   return &xen_dma_adapter->adapter_object.DmaHeader;
 }
 

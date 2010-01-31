@@ -35,6 +35,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
 
+#include <liblfds.h>
+
 #define __DRIVER_NAME "XenPCI"
 
 #include <xen_windows.h>
@@ -146,12 +148,13 @@ typedef struct {
   evtchn_port_t xen_store_evtchn;
 
   /* grant related */
+  struct stack_state *gnttab_ss;
   grant_entry_t *gnttab_table;
   grant_entry_t *gnttab_table_copy;
   PHYSICAL_ADDRESS gnttab_table_physical;
-  grant_ref_t *gnttab_list;
-  int gnttab_list_free;
-  KSPIN_LOCK grant_lock;
+  //grant_ref_t *gnttab_list;
+  //int gnttab_list_free;
+  //KSPIN_LOCK grant_lock;
   ULONG grant_frames;
 
   ev_action_t ev_actions[NR_EVENTS];

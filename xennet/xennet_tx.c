@@ -51,10 +51,7 @@ get_cb_from_freelist(struct xennet_info *xi)
     return NULL;
   }
   xi->tx_cb_free--;
-  //KdPrint((__DRIVER_NAME "     xi->tx_cb_free = %d\n", xi->tx_cb_free));
-  //KdPrint((__DRIVER_NAME "     xi->tx_cb_list[xi->tx_cb_free] = %d\n", xi->tx_cb_list[xi->tx_cb_free]));
   cb = &xi->tx_cbs[xi->tx_cb_list[xi->tx_cb_free]];
-  //KdPrint((__DRIVER_NAME "     cb = %p\n", cb));
   //FUNCTION_EXIT();
   return cb;
 }
@@ -64,8 +61,6 @@ put_cb_on_freelist(struct xennet_info *xi, shared_buffer_t *cb)
 {
   //FUNCTION_ENTER();
   
-  //KdPrint((__DRIVER_NAME "     cb = %p\n", cb));
-  //KdPrint((__DRIVER_NAME "     xi->tx_cb_free = %d\n", xi->tx_cb_free));
   ASSERT(cb);
   xi->tx_cb_list[xi->tx_cb_free] = cb->id;
   xi->tx_cb_free++;
@@ -86,13 +81,11 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   struct netif_tx_request *txN = NULL;
   struct netif_extra_info *ei = NULL;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
-  //UINT total_packet_length;
   ULONG mss = 0;
   uint16_t flags = NETTXF_more_data;
   packet_info_t pi;
   BOOLEAN ndis_lso = FALSE;
   BOOLEAN xen_gso = FALSE;
-  //ULONG remaining;
   PSCATTER_GATHER_LIST sg = NULL;
   ULONG sg_element = 0;
   ULONG sg_offset = 0;
@@ -104,7 +97,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   
   XenNet_ClearPacketInfo(&pi);
   NdisQueryPacket(packet, NULL, (PUINT)&pi.mdl_count, &pi.first_buffer, (PUINT)&pi.total_length);
-  //KdPrint((__DRIVER_NAME "     A - packet = %p, mdl_count = %d, total_length = %d\n", packet, pi.mdl_count, pi.total_length));
 
   if (xi->config_sg)
   {
@@ -121,8 +113,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     parse_result = XenNet_ParsePacketHeader(&pi, coalesce_buf->virtual, pi.total_length);
   }
   
-  //KdPrint((__DRIVER_NAME "     B\n"));
-
   if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) == NDIS_PROTOCOL_ID_TCP_IP)
   {
     csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
@@ -236,26 +226,27 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
 * (C) rest of requests on the ring. Only (A) has csum flags.
 */
 
-  //KdPrint((__DRIVER_NAME "     C\n"));
   /* (A) */
-// if we coalesced the header then we want to put that on first, otherwise we put on the first sg element
   tx0 = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+  xi->tx.req_prod_pvt++;
   chunks++;
   xi->tx_ring_free--;
-  tx0->id = 0xFFFF;
+  tx0->id = get_id_from_freelist(xi);
+  ASSERT(xi->tx_shadows[tx0->id].gref == INVALID_GRANT_REF);
+// if we coalesced the header then we want to put that on first, otherwise we put on the first sg element
   if (coalesce_buf)
   {
     ULONG remaining = pi.header_length;
-    //ASSERT(pi.header_length < TX_HEADER_BUFFER_SIZE);
-    //KdPrint((__DRIVER_NAME "     D - header_length = %d\n", pi.header_length));
     memcpy(coalesce_buf->virtual, pi.header, pi.header_length);
     /* even though we haven't reported that we are capable of it, LSO demands that we calculate the IP Header checksum */
     if (ndis_lso)
     {
       XenNet_SumIpHeader(coalesce_buf->virtual, pi.ip4_header_length);
     }
-    tx0->gref = (grant_ref_t)(coalesce_buf->logical.QuadPart >> PAGE_SHIFT);
-    tx0->offset = (USHORT)coalesce_buf->logical.LowPart & (PAGE_SIZE - 1);
+    ASSERT(!xi->tx_shadows[tx0->id].cb);
+    xi->tx_shadows[tx0->id].cb = coalesce_buf;
+    tx0->gref = coalesce_buf->gref;
+    tx0->offset = coalesce_buf->offset;
     tx0->size = (USHORT)pi.header_length;
     ASSERT(tx0->offset + tx0->size <= PAGE_SIZE);
     ASSERT(tx0->size);
@@ -264,8 +255,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       /* TODO: if the next buffer contains only a small amount of data then put it on too */
       while (remaining)
       {
-        //KdPrint((__DRIVER_NAME "     D - remaining = %d\n", remaining));
-        //KdPrint((__DRIVER_NAME "     Da - sg_element = %d, sg->Elements[sg_element].Length = %d\n", sg_element, sg->Elements[sg_element].Length));
         if (sg->Elements[sg_element].Length <= remaining)
         {
           remaining -= sg->Elements[sg_element].Length;
@@ -282,22 +271,37 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   else
   {
     ASSERT(xi->config_sg);
-    tx0->gref = (grant_ref_t)(sg->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT);
+    tx0->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0,
+      (ULONG)(sg->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF);
+    ASSERT(tx0->gref != INVALID_GRANT_REF);
+    xi->tx_shadows[tx0->id].gref = tx0->gref;
     tx0->offset = (USHORT)sg->Elements[sg_element].Address.LowPart & (PAGE_SIZE - 1);
-    tx0->size = (USHORT)sg->Elements[sg_element].Length;
+    tx0->size = (USHORT)min(sg->Elements[sg_element].Length, PAGE_SIZE - tx0->offset);
+    if (tx0->offset + tx0->size > PAGE_SIZE)
+    {
+      KdPrint((__DRIVER_NAME "     offset + size = %d\n", tx0->offset + tx0->size));
+    }
     ASSERT(tx0->size);
-    sg_element++;
+    if (tx0->size != sg->Elements[sg_element].Length)
+    {
+      sg_offset = tx0->size;
+    }
+    else
+    {
+      sg_element++;
+    }
   }
   tx0->flags = flags;
   txN = tx0;
-  xi->tx.req_prod_pvt++;
+  ASSERT(txN->gref != INVALID_GRANT_REF);
 
   /* (B) */
   if (xen_gso)
   {
-    //KdPrint((__DRIVER_NAME "     Using extra_info\n"));
     ASSERT(flags & NETTXF_extra_info);
     ei = (struct netif_extra_info *)RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+    //KdPrint((__DRIVER_NAME "     pos = %d\n", xi->tx.req_prod_pvt));
+    xi->tx.req_prod_pvt++;
     xi->tx_ring_free--;
     ei->type = XEN_NETIF_EXTRA_TYPE_GSO;
     ei->flags = 0;
@@ -305,45 +309,50 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     ei->u.gso.type = XEN_NETIF_GSO_TYPE_TCPV4;
     ei->u.gso.pad = 0;
     ei->u.gso.features = 0;
-    xi->tx.req_prod_pvt++;
   }
 
-  //KdPrint((__DRIVER_NAME "     F\n"));
   if (xi->config_sg)
   {
     /* (C) - only if sg otherwise it was all sent on the first buffer */
     while (sg_element < sg->NumberOfElements)
     {
-      //KdPrint((__DRIVER_NAME "     G - sg_element = %d, sg_offset = %d\n", sg_element, sg_offset));
-      //KdPrint((__DRIVER_NAME "     H - address = %p, length = %d\n",
-      //  sg->Elements[sg_element].Address.LowPart + sg_offset, sg->Elements[sg_element].Length - sg_offset));
       txN = RING_GET_REQUEST(&xi->tx, xi->tx.req_prod_pvt);
+      xi->tx.req_prod_pvt++;
       chunks++;
       xi->tx_ring_free--;
-      txN->id = 0xFFFF;
-      txN->gref = (grant_ref_t)(sg->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT);
-      ASSERT((sg->Elements[sg_element].Address.LowPart & (PAGE_SIZE - 1)) + sg_offset <= PAGE_SIZE);
+      txN->id = get_id_from_freelist(xi);
+      txN->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0,
+        (ULONG)(sg->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF);
+      ASSERT(txN->gref != INVALID_GRANT_REF);
+      ASSERT(xi->tx_shadows[txN->id].gref == INVALID_GRANT_REF);
+      xi->tx_shadows[txN->id].gref = txN->gref;
       txN->offset = (USHORT)(sg->Elements[sg_element].Address.LowPart + sg_offset) & (PAGE_SIZE - 1);
       ASSERT(sg->Elements[sg_element].Length > sg_offset);
-      txN->size = (USHORT)(sg->Elements[sg_element].Length - sg_offset);
+      txN->size = (USHORT)min(sg->Elements[sg_element].Length - sg_offset, PAGE_SIZE - txN->offset);
+      if (txN->offset + txN->size > PAGE_SIZE)
+      {
+        KdPrint((__DRIVER_NAME "     offset (%d) + size (%d) = %d\n", txN->offset, txN->size, txN->offset + txN->size));
+      }
       ASSERT(txN->offset + txN->size <= PAGE_SIZE);
       ASSERT(txN->size);
       tx0->size = tx0->size + txN->size;
       txN->flags = NETTXF_more_data;
-      sg_offset = 0;
-      sg_element++;
-      xi->tx.req_prod_pvt++;
+      ASSERT(txN->gref != INVALID_GRANT_REF);
+      if (txN->size != sg->Elements[sg_element].Length - sg_offset)
+      {
+        sg_offset += txN->size;
+      }
+      else
+      {
+        sg_element++;
+        sg_offset = 0;
+      }
     }
   }
   txN->flags &= ~NETTXF_more_data;
-  txN->id = get_id_from_freelist(xi);
-//KdPrint((__DRIVER_NAME "     send - id = %d\n", tx0->id));
-  //KdPrint((__DRIVER_NAME "     TX: id = %d, cb = %p, xi->tx_shadows[txN->id].cb = %p\n", txN->id, coalesce_buf, xi->tx_shadows[txN->id].cb));
   ASSERT(tx0->size == pi.total_length);
-  ASSERT(!xi->tx_shadows[txN->id].cb);
   ASSERT(!xi->tx_shadows[txN->id].packet);
   xi->tx_shadows[txN->id].packet = packet;
-  xi->tx_shadows[txN->id].cb = coalesce_buf;
 
   if (ndis_lso)
   {
@@ -382,9 +391,9 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
   while (entry != &xi->tx_waiting_pkt_list)
   {
     packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
-    //KdPrint((__DRIVER_NAME "     Packet ready to send\n"));
     if (!XenNet_HWSendPacket(xi, packet))
     {
+      KdPrint((__DRIVER_NAME "     No room for packet\n"));
       InsertHeadList(&xi->tx_waiting_pkt_list, entry);
       break;
     }
@@ -435,36 +444,49 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     for (cons = xi->tx.rsp_cons; cons != prod; cons++)
     {
       struct netif_tx_response *txrsp;
+      tx_shadow_t *shadow;
+      
       txrsp = RING_GET_RESPONSE(&xi->tx, cons);
       
       xi->tx_ring_free++;
       
-      if (txrsp->status == NETIF_RSP_NULL || txrsp->id == 0xFFFF)
-        continue;
-
-      //KdPrint((__DRIVER_NAME "     GC: id = %d, cb = %p\n", txrsp->id, xi->tx_shadows[txrsp->id].cb));
-      if (xi->tx_shadows[txrsp->id].cb)
+      if (txrsp->status == NETIF_RSP_NULL)
       {
-        put_cb_on_freelist(xi, xi->tx_shadows[txrsp->id].cb);
-        xi->tx_shadows[txrsp->id].cb = NULL;
+        continue;
+      }
+
+      shadow = &xi->tx_shadows[txrsp->id];
+      if (shadow->cb)
+      {
+        ASSERT(shadow->gref == INVALID_GRANT_REF);
+        put_cb_on_freelist(xi, shadow->cb);
+        shadow->cb = NULL;
       }
       
-      if (xi->tx_shadows[txrsp->id].packet)
+      if (shadow->gref != INVALID_GRANT_REF)
       {
-        packet = xi->tx_shadows[txrsp->id].packet;
+        xi->vectors.GntTbl_EndAccess(xi->vectors.context,
+          shadow->gref, FALSE);
+        shadow->gref = INVALID_GRANT_REF;
+      }
+      
+      if (shadow->packet)
+      {
+        packet = shadow->packet;
         *(PNDIS_PACKET *)&packet->MiniportReservedEx[0] = NULL;
         if (head)
           *(PNDIS_PACKET *)&tail->MiniportReservedEx[0] = packet;
         else
           head = packet;
         tail = packet;
-        xi->tx_shadows[txrsp->id].packet = NULL;
+        shadow->packet = NULL;
       }
       put_id_on_freelist(xi, txrsp->id);
     }
 
     xi->tx.rsp_cons = prod;
-    xi->tx.sring->rsp_event = prod + (NET_TX_RING_SIZE >> 2);
+    /* resist the temptation to set the event more than +1... it breaks things */
+    xi->tx.sring->rsp_event = prod + 1;
     KeMemoryBarrier();
   } while (prod != xi->tx.sring->rsp_prod);
 
@@ -524,12 +546,9 @@ XenNet_SendPackets(
     
   KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
 
-//  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (packets = %d, free_requests = %d)\n", NumberOfPackets, free_requests(xi)));
   for (i = 0; i < NumberOfPackets; i++)
   {
     packet = PacketArray[i];
-//packets_outstanding++;
-//KdPrint(("+packet = %p\n", packet));
     ASSERT(packet);
     *(ULONG *)&packet->MiniportReservedEx = 0;
     entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
@@ -614,6 +633,7 @@ XenNet_TxResumeEnd(xennet_info_t *xi)
 BOOLEAN
 XenNet_TxInit(xennet_info_t *xi)
 {
+  NTSTATUS status;
   USHORT i, j;
   ULONG cb_size;
 
@@ -641,16 +661,28 @@ XenNet_TxInit(xennet_info_t *xi)
   for (i = 0; i < TX_COALESCE_BUFFERS / (PAGE_SIZE / cb_size); i++)
   {
     PVOID virtual;
-    NDIS_PHYSICAL_ADDRESS logical;
-    NdisMAllocateSharedMemory(xi->adapter_handle, PAGE_SIZE, TRUE, &virtual, &logical);
-    if (virtual == NULL)
+    grant_ref_t gref;
+    
+    status = NdisAllocateMemoryWithTag(&virtual, PAGE_SIZE, XENNET_POOL_TAG);
+    if (status != STATUS_SUCCESS)
+    {
       break;
+    }
+    gref = (grant_ref_t)xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0,
+      (ULONG)(MmGetPhysicalAddress(virtual).QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF);
+    if (gref == INVALID_GRANT_REF)
+    {
+      NdisFreeMemory(virtual, PAGE_SIZE, 0);
+      break;
+    }
+    
     for (j = 0; j < PAGE_SIZE / cb_size; j++)
     {
       USHORT index = (USHORT)(i * (PAGE_SIZE / cb_size) + j);
       xi->tx_cbs[index].id = index;
       xi->tx_cbs[index].virtual = (PUCHAR)virtual + j * cb_size;
-      xi->tx_cbs[index].logical.QuadPart = logical.QuadPart + j * cb_size;
+      xi->tx_cbs[index].gref = gref;
+      xi->tx_cbs[index].offset = (ULONG_PTR)xi->tx_cbs[index].virtual & (PAGE_SIZE - 1);
       put_cb_on_freelist(xi, &xi->tx_cbs[index]);
     }
   }
@@ -660,6 +692,8 @@ XenNet_TxInit(xennet_info_t *xi)
   xi->tx_id_free = 0;
   for (i = 0; i < NET_TX_RING_SIZE; i++)
   {
+    xi->tx_shadows[i].gref = INVALID_GRANT_REF;
+    xi->tx_shadows[i].cb = NULL;
     put_id_on_freelist(xi, i);
   }
 
@@ -705,16 +739,12 @@ XenNet_TxShutdown(xennet_info_t *xi)
     entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   }
   
-  //KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
-
   while((cb = get_cb_from_freelist(xi)) != NULL)
   {
     /* only free the actual buffers which were aligned on a page boundary */
     if ((PtrToUlong(cb->virtual) & (PAGE_SIZE - 1)) == 0)
-      NdisMFreeSharedMemory(xi->adapter_handle, PAGE_SIZE, TRUE, cb->virtual, cb->logical);
+      NdisFreeMemory(cb->virtual, PAGE_SIZE, 0);
   }
-
-  //KeReleaseSpinLock(&xi->tx_lock, OldIrql);
 
   FUNCTION_EXIT();
 

@@ -23,19 +23,8 @@ VOID
 GntTbl_PutRef(PVOID Context, grant_ref_t ref)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
-  KIRQL old_irql = 0; /* prevents compiler warnings due to Acquire done in if statement */
 
-  if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
-  {
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-    KeAcquireSpinLock(&xpdd->grant_lock, &old_irql);
-  }
-  xpdd->gnttab_list[xpdd->gnttab_list_free] = ref;
-  xpdd->gnttab_list_free++;
-  if (xpdd->suspend_state != SUSPEND_STATE_HIGH_IRQL)
-  {
-    KeReleaseSpinLock(&xpdd->grant_lock, old_irql);
-  }
+  stack_push(xpdd->gnttab_ss, (PVOID)ref);
 }
 
 grant_ref_t
@@ -43,25 +32,14 @@ GntTbl_GetRef(PVOID Context)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
   unsigned int ref;
-  KIRQL old_irql = 0; /* prevents compiler warnings due to Acquire done in if statement */
-  int suspend_state = xpdd->suspend_state;
-  
-  if (suspend_state != SUSPEND_STATE_HIGH_IRQL)
+  PVOID ptr_ref;
+
+  if (!stack_pop(xpdd->gnttab_ss, &ptr_ref))
   {
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-    KeAcquireSpinLock(&xpdd->grant_lock, &old_irql);
-  }
-  if (!xpdd->gnttab_list_free)
-  {
-    if (suspend_state != SUSPEND_STATE_HIGH_IRQL)
-      KeReleaseSpinLock(&xpdd->grant_lock, old_irql);
-    KdPrint((__DRIVER_NAME "     No free grant refs\n"));    
+    KdPrint((__DRIVER_NAME "     No free grant refs\n"));
     return INVALID_GRANT_REF;
   }
-  xpdd->gnttab_list_free--;
-  ref = xpdd->gnttab_list[xpdd->gnttab_list_free];
-  if (suspend_state != SUSPEND_STATE_HIGH_IRQL)
-    KeReleaseSpinLock(&xpdd->grant_lock, old_irql);
+  ref = (grant_ref_t)ptr_ref;
 
   return ref;
 }
@@ -177,8 +155,6 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
   
   FUNCTION_ENTER();
   
-  KeInitializeSpinLock(&xpdd->grant_lock);
-
   xpdd->grant_frames = GntTbl_QueryMaxFrames(xpdd);
   KdPrint((__DRIVER_NAME "     grant_frames = %d\n", xpdd->grant_frames));
   grant_entries = min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
@@ -187,8 +163,6 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
   ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
   xpdd->gnttab_table_copy = ExAllocatePoolWithTag(NonPagedPool, xpdd->grant_frames * PAGE_SIZE, XENPCI_POOL_TAG);
   ASSERT(xpdd->gnttab_table_copy); // lazy
-  xpdd->gnttab_list = ExAllocatePoolWithTag(NonPagedPool, sizeof(grant_ref_t) * grant_entries, XENPCI_POOL_TAG);
-  ASSERT(xpdd->gnttab_list); // lazy
   xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd, PAGE_SIZE * xpdd->grant_frames);
   xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical, PAGE_SIZE * xpdd->grant_frames, MmNonCached);
   if (!xpdd->gnttab_table)
@@ -197,11 +171,11 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
     // this should be a show stopper...
     return;
   }
+
+  stack_new(&xpdd->gnttab_ss, grant_entries);
   
-  RtlZeroMemory(xpdd->gnttab_list, sizeof(grant_ref_t) * grant_entries);
-  xpdd->gnttab_list_free = 0;
   for (i = NR_RESERVED_ENTRIES; i < grant_entries; i++)
-    GntTbl_PutRef(xpdd, i);
+    stack_push(xpdd->gnttab_ss, (PVOID)i);
   
   GntTbl_Map(xpdd, 0, xpdd->grant_frames - 1);
 

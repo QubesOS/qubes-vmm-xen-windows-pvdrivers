@@ -731,6 +731,18 @@ XenNet_PnPEventNotify(
   UNREFERENCED_PARAMETER(InformationBufferLength);
 
   FUNCTION_ENTER();
+  switch (PnPEvent)
+  {
+  case NdisDevicePnPEventSurpriseRemoved:
+    KdPrint((__DRIVER_NAME "     NdisDevicePnPEventSurpriseRemoved\n"));
+    break;
+  case NdisDevicePnPEventPowerProfileChanged :
+    KdPrint((__DRIVER_NAME "     NdisDevicePnPEventPowerProfileChanged\n"));
+    break;
+  default:
+    KdPrint((__DRIVER_NAME "     %d\n", PnPEvent));
+    break;
+  }
   FUNCTION_EXIT();
 }
 

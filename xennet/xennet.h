@@ -174,7 +174,8 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 typedef struct
 {
   PVOID next;
-  PHYSICAL_ADDRESS logical;
+  grant_ref_t gref;
+  USHORT offset;
   PVOID virtual;
   PNDIS_BUFFER buffer;
   USHORT id;
@@ -185,6 +186,7 @@ typedef struct
 {
   PNDIS_PACKET packet; /* only set on the last packet */
   shared_buffer_t *cb;
+  grant_ref_t gref;
 } tx_shadow_t;
 
 typedef struct {

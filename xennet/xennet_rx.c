@@ -52,10 +52,8 @@ static __inline VOID
 put_pb_on_freelist(struct xennet_info *xi, shared_buffer_t *pb)
 {
   pb->ref_count--;
-  //KdPrint((__DRIVER_NAME "     decremented pb %p ref to %d\n", pb, pb->ref_count));
   if (pb->ref_count == 0)
   {
-    //KdPrint((__DRIVER_NAME "     freeing pb %p\n", pb, pb->ref_count));
     NdisAdjustBufferLength(pb->buffer, PAGE_SIZE);
     NDIS_BUFFER_LINKAGE(pb->buffer) = NULL;
     pb->next = NULL;
@@ -101,7 +99,7 @@ XenNet_FillRing(struct xennet_info *xi)
     xi->rx_ring_pbs[id] = page_buf->id;
     req = RING_GET_REQUEST(&xi->rx, req_prod + i);
     req->id = id;
-    req->gref = (grant_ref_t)(page_buf->logical.QuadPart >> PAGE_SHIFT);
+    req->gref = page_buf->gref;
     ASSERT(req->gref != INVALID_GRANT_REF);
   }
   KeMemoryBarrier();
@@ -240,7 +238,6 @@ XenNet_MakePacket(struct xennet_info *xi)
     }
     xi->rx_outstanding++;
 
-    //status = NdisAllocateMemoryWithTag((PUCHAR *)&header_buf, sizeof(shared_buffer_t) + pi->header_length, XENNET_POOL_TAG);
     ASSERT(sizeof(shared_buffer_t) + pi->header_length < LOOKASIDE_LIST_ALLOC_SIZE);
     header_buf = NdisAllocateFromNPagedLookasideList(&xi->rx_lookaside_list);
     ASSERT(header_buf); // lazy
@@ -251,7 +248,6 @@ XenNet_MakePacket(struct xennet_info *xi)
     // TODO: if there are only a few bytes left on the first buffer then add them to the header buffer too
 
     NdisAllocateBuffer(&status, &out_buffer, xi->rx_buffer_pool, header_va, pi->header_length);
-    //KdPrint((__DRIVER_NAME "     about to add buffer with length = %d\n", MmGetMdlByteCount(out_buffer)));
     NdisChainBufferAtBack(packet, out_buffer);
     *(shared_buffer_t **)&packet->MiniportReservedEx[sizeof(LIST_ENTRY)] = header_buf;
     header_buf->next = pi->curr_pb;
@@ -611,20 +607,13 @@ XenNet_MakePackets(
   }
 
 done:
-  //buffer = pi->first_buffer;
   page_buf = pi->first_pb;
   while (page_buf)
   {
-    //PNDIS_BUFFER next_buffer;
     shared_buffer_t *next_pb;
 
-    //NdisGetNextBuffer(buffer, &next_buffer);
     next_pb = page_buf->next;
-
-    //NdisFreeBuffer(buffer);
     put_pb_on_freelist(xi, page_buf);
-    
-    //buffer = next_buffer;
     page_buf = next_pb;
   }
   XenNet_ClearPacketInfo(pi);
@@ -852,8 +841,6 @@ XenNet_ReturnPacket(
       PUCHAR va;
       UINT len;
       NdisQueryBufferSafe(buffer, &va, &len, NormalPagePriority);
-      //KdPrint((__DRIVER_NAME "     freeing header buffer %p\n", va - sizeof(shared_buffer_t)));
-      //NdisFreeMemory(va - sizeof(shared_buffer_t), len + sizeof(shared_buffer_t), 0);
       NdisFreeToNPagedLookasideList(&xi->rx_lookaside_list, va - sizeof(shared_buffer_t));
       NdisFreeBuffer(buffer);
     }
@@ -910,7 +897,9 @@ XenNet_BufferFree(struct xennet_info *xi)
   while ((pb = get_pb_from_freelist(xi)) != NULL)
   {
     NdisFreeBuffer(pb->buffer);
-    NdisMFreeSharedMemory(xi->adapter_handle, PAGE_SIZE, TRUE, pb->virtual, pb->logical);
+    xi->vectors.GntTbl_EndAccess(xi->vectors.context,
+        pb->gref, FALSE);
+    NdisFreeMemory(pb->virtual, PAGE_SIZE, 0);
   }
 }
 
@@ -945,10 +934,27 @@ XenNet_BufferAlloc(xennet_info_t *xi)
   for (i = 0; i < RX_PAGE_BUFFERS; i++)
   {
     xi->rx_pbs[i].id = (USHORT)i;
-    NdisMAllocateSharedMemory(xi->adapter_handle, PAGE_SIZE, TRUE, &xi->rx_pbs[i].virtual, &xi->rx_pbs[i].logical);
+    status = NdisAllocateMemoryWithTag(&xi->rx_pbs[i].virtual, PAGE_SIZE, XENNET_POOL_TAG);
+    if (status != STATUS_SUCCESS)
+    {
+      break;
+    }
+    xi->rx_pbs[i].gref = (grant_ref_t)xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0,
+              (ULONG)(MmGetPhysicalAddress(xi->rx_pbs[i].virtual).QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF);
+    if (xi->rx_pbs[i].gref == INVALID_GRANT_REF)
+    {
+      NdisFreeMemory(xi->rx_pbs[i].virtual, PAGE_SIZE, 0);
+      break;
+    }
+    xi->rx_pbs[i].offset = (ULONG_PTR)xi->rx_pbs[i].virtual & (PAGE_SIZE - 1);
     NdisAllocateBuffer(&status, &xi->rx_pbs[i].buffer, xi->rx_buffer_pool, (PUCHAR)xi->rx_pbs[i].virtual, PAGE_SIZE);
     if (status != STATUS_SUCCESS)
+    {
+      xi->vectors.GntTbl_EndAccess(xi->vectors.context,
+          xi->rx_pbs[i].gref, FALSE);
+      NdisFreeMemory(xi->rx_pbs[i].virtual, PAGE_SIZE, 0);
       break;
+    }
     xi->rx_pbs[i].ref_count = 1; /* when we put it back it will go to zero */
     put_pb_on_freelist(xi, &xi->rx_pbs[i]);
   }

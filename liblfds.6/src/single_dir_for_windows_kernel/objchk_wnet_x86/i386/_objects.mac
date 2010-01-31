@@ -1,0 +1,41 @@
+
+
+386_OBJECTS=\
+ $(OBJ_PATH)\$O\abstraction_aligned_free.obj \
+ $(OBJ_PATH)\$O\abstraction_aligned_malloc.obj \
+ $(OBJ_PATH)\$O\abstraction_cas.obj \
+ $(OBJ_PATH)\$O\abstraction_dcas.obj \
+ $(OBJ_PATH)\$O\abstraction_increment.obj \
+ $(OBJ_PATH)\$O\freelist_delete.obj \
+ $(OBJ_PATH)\$O\freelist_get_and_set.obj \
+ $(OBJ_PATH)\$O\freelist_new.obj \
+ $(OBJ_PATH)\$O\freelist_pop_push.obj \
+ $(OBJ_PATH)\$O\freelist_query.obj \
+ $(OBJ_PATH)\$O\queue_delete.obj \
+ $(OBJ_PATH)\$O\queue_new.obj \
+ $(OBJ_PATH)\$O\queue_query.obj \
+ $(OBJ_PATH)\$O\queue_queue.obj \
+ $(OBJ_PATH)\$O\ringbuffer_delete.obj \
+ $(OBJ_PATH)\$O\ringbuffer_get_and_put.obj \
+ $(OBJ_PATH)\$O\ringbuffer_new.obj \
+ $(OBJ_PATH)\$O\ringbuffer_query.obj \
+ $(OBJ_PATH)\$O\slist_delete.obj \
+ $(OBJ_PATH)\$O\slist_get_and_set.obj \
+ $(OBJ_PATH)\$O\slist_link.obj \
+ $(OBJ_PATH)\$O\slist_new.obj \
+ $(OBJ_PATH)\$O\stack_delete.obj \
+ $(OBJ_PATH)\$O\stack_new.obj \
+ $(OBJ_PATH)\$O\stack_push_pop.obj \
+ $(OBJ_PATH)\$O\stack_query.obj \
+
+
+
+
+
+# lowercased
+BASEDIR=c:\winddk\7600.16385.0
+OBJECT_ROOT=c:\winddk\7600.16385.0
+MAKEDIR_LOWERCASE=c:\projects\win-pvdrivers.hg\liblfds.6\src\single_dir_for_windows_kernel
+OBJ_PATH=c:\projects\win-pvdrivers.hg\liblfds.6\src\single_dir_for_windows_kernel
+CONCURRENT_MIDL=0
+CONCURRENT_MANIFEST_BUILD=0

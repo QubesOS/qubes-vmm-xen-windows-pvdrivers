@@ -77,6 +77,7 @@ DEFINE_RING_TYPES(blkif_other, struct blkif_other_request, struct blkif_other_re
 typedef struct {
   blkif_request_t req;
   PSCSI_REQUEST_BLOCK srb;
+  BOOLEAN aligned_buffer_in_use;
 } blkif_shadow_t;
 
 #define MAX_SHADOW_ENTRIES 64
@@ -131,7 +132,10 @@ struct
   XENPCI_VECTORS vectors;
   PXENPCI_DEVICE_STATE device_state;
   PSCSI_REQUEST_BLOCK pending_srb;
-  grant_ref_t dump_grant_refs[BLKIF_MAX_SEGMENTS_PER_REQUEST - 1];
+  //grant_ref_t dump_grant_refs[BLKIF_MAX_SEGMENTS_PER_REQUEST - 1];
+  BOOLEAN aligned_buffer_in_use;
+  PVOID aligned_buffer;
+  UCHAR aligned_buffer_data[(BLKIF_MAX_SEGMENTS_PER_REQUEST + 1) * PAGE_SIZE - 1];
 /*  
   ULONGLONG interrupts;
   ULONGLONG aligned_requests;
