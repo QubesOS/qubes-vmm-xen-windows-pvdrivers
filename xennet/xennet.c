@@ -173,7 +173,7 @@ XenNet_ConnectBackend(struct xennet_info *xi)
           }
           s = e + 1;
         }
-        if ((xi->curr_mac_addr[0] & 0x03) == 0x02)
+        if ((xi->curr_mac_addr[0] & 0x03) != 0x02)
         {
           /* only copy if curr_mac_addr is not a LUA */
           memcpy(xi->curr_mac_addr, xi->perm_mac_addr, ETH_ALEN);
