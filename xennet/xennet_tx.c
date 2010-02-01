@@ -322,7 +322,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       xi->tx_ring_free--;
       txN->id = get_id_from_freelist(xi);
       txN->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0,
-        (ULONG)(sg->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF);
+        (ULONG)((sg->Elements[sg_element].Address.QuadPart + sg_offset) >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF);
       ASSERT(txN->gref != INVALID_GRANT_REF);
       ASSERT(xi->tx_shadows[txN->id].gref == INVALID_GRANT_REF);
       xi->tx_shadows[txN->id].gref = txN->gref;
