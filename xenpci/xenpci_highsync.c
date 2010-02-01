@@ -99,6 +99,7 @@ XenPci_HighSyncCallFunctionN(
   FUNCTION_MSG("(CPU = %d)\n", KeGetCurrentProcessorNumber());
 
   KdPrint((__DRIVER_NAME "     CPU %d spinning...\n", KeGetCurrentProcessorNumber()));
+  _disable(); //__asm cli;  
   KeRaiseIrql(highsync_info->sync_level, &old_irql);
   InterlockedIncrement(&highsync_info->nr_spinning);
   while(highsync_info->do_spin)
@@ -108,6 +109,7 @@ XenPci_HighSyncCallFunctionN(
   }
   highsync_info->functionN(highsync_info->context);
   KeLowerIrql(old_irql);
+  _enable(); //__asm sti;
   InterlockedDecrement(&highsync_info->nr_spinning);
   FUNCTION_EXIT();
   return;
