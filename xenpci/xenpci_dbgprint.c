@@ -126,17 +126,44 @@ XenPci_DbgPrintCallback(PSTRING output, ULONG component_id, ULONG level)
   XenDbgPrint(output->Buffer, output->Length);
 }
 
+#if 0
+typedef struct _hook_info {
+  PIDT_ENTRY idt_entry;
+} hook_info_t;
+#endif
+
+#if (NTDDI_VERSION < NTDDI_VISTA)
+#ifndef _AMD64_ // can't patch IDT on AMD64 unfortunately - results in bug check 0x109
+static VOID
+XenPci_HookDbgPrint_High(PVOID context)
+{
+  IDT idt;
+  PIDT_ENTRY idt_entry;
+
+  UNREFERENCED_PARAMETER(context);  
+ 
+  idt.limit = 0;
+  __sidt(&idt);
+  idt_entry = &idt.entries[0x2D];
+  #ifdef _AMD64_ 
+  Int2dHandlerOld = (PVOID)((ULONG_PTR)idt_entry->addr_0_15 | ((ULONG_PTR)idt_entry->addr_16_31 << 16) | ((ULONG_PTR)idt_entry->addr_32_63 << 32));
+  #else
+  Int2dHandlerOld = (PVOID)((ULONG_PTR)idt_entry->addr_0_15 | ((ULONG_PTR)idt_entry->addr_16_31 << 16));
+  #endif
+  idt_entry->addr_0_15 = (USHORT)(ULONG_PTR)Int2dHandlerNew;
+  idt_entry->addr_16_31 = (USHORT)((ULONG_PTR)Int2dHandlerNew >> 16);
+  #ifdef _AMD64_ 
+  idt_entry->addr_32_63 = (ULONG)((ULONG_PTR)Int2dHandlerNew >> 32);
+  #endif
+}
+#endif
+#endif
+
 NTSTATUS
 XenPci_HookDbgPrint()
 {
   NTSTATUS status = STATUS_SUCCESS;
-#if (NTDDI_VERSION < NTDDI_VISTA)
-#ifndef _AMD64_ // can't patch IDT on AMD64 unfortunately - results in bug check 0x109
-  IDT idt;
-  PIDT_ENTRY idt_entry;
-  KIRQL old_irql;
-#endif
-#endif  
+
   if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0x49d2
     || READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0xd249)
   {
@@ -154,23 +181,7 @@ XenPci_HookDbgPrint()
 #else
     KdPrint((__DRIVER_NAME "     DbgSetDebugPrintCallback not found\n"));      
 #ifndef _AMD64_ // can't patch IDT on AMD64 unfortunately - results in bug check 0x109
-    idt.limit = 0;
-    __sidt(&idt);
-    idt_entry = &idt.entries[0x2D];
-    _disable();
-    KeRaiseIrql(HIGH_LEVEL, &old_irql);
-    #ifdef _AMD64_ 
-    Int2dHandlerOld = (PVOID)((ULONG_PTR)idt_entry->addr_0_15 | ((ULONG_PTR)idt_entry->addr_16_31 << 16) | ((ULONG_PTR)idt_entry->addr_32_63 << 32));
-    #else
-    Int2dHandlerOld = (PVOID)((ULONG_PTR)idt_entry->addr_0_15 | ((ULONG_PTR)idt_entry->addr_16_31 << 16));
-    #endif
-    idt_entry->addr_0_15 = (USHORT)(ULONG_PTR)Int2dHandlerNew;
-    idt_entry->addr_16_31 = (USHORT)((ULONG_PTR)Int2dHandlerNew >> 16);
-    #ifdef _AMD64_ 
-    idt_entry->addr_32_63 = (ULONG)((ULONG_PTR)Int2dHandlerNew >> 32);
-    #endif
-    KeLowerIrql(old_irql);
-    _enable();
+    XenPci_HighSync(XenPci_HookDbgPrint_High, XenPci_HookDbgPrint_High, NULL);
 #endif
 #endif
   }
