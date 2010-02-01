@@ -475,7 +475,7 @@ XenNet_Init(
 
   NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
     &xi->lower_do, NULL, NULL);
-  xi->packet_filter = NDIS_PACKET_TYPE_PROMISCUOUS;
+  xi->packet_filter = 0;
 
   status = IoGetDeviceProperty(xi->pdo, DevicePropertyDeviceDescription,
     NAME_SIZE, xi->dev_desc, &length);

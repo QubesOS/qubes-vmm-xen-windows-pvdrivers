@@ -449,30 +449,74 @@ XenNet_MakePackets(
   packet_info_t *pi = &xi->rxpi;
   PNDIS_BUFFER buffer;
   shared_buffer_t *page_buf;
+  BOOLEAN accept_packet = FALSE;
+  BOOLEAN is_multicast = FALSE;
+  BOOLEAN is_my_multicast = FALSE;
+  BOOLEAN is_broadcast = FALSE;
+  BOOLEAN is_directed = FALSE;
 
   //FUNCTION_ENTER();
 
   parse_result = XenNet_ParsePacketHeader(pi, NULL, 0);
   
   //KdPrint((__DRIVER_NAME "     ip4_length = %d, tcp_length = %d\n", pi->ip4_length, pi->tcp_length));
-
-  if ((xi->packet_filter & NDIS_PACKET_TYPE_MULTICAST)
-    && !(xi->packet_filter & NDIS_PACKET_TYPE_ALL_MULTICAST)
-    && (pi->header[0] & 0x01)
-    && !(pi->header[0] == 0xFF && pi->header[1] == 0xFF && pi->header[2] == 0xFF
-        && pi->header[3] == 0xFF && pi->header[4] == 0xFF && pi->header[5] == 0xFF))
+  
+  if (pi->header[0] == 0xFF && pi->header[1] == 0xFF
+      && pi->header[2] == 0xFF && pi->header[3] == 0xFF
+      && pi->header[4] == 0xFF && pi->header[5] == 0xFF)
   {
+    is_broadcast = TRUE;
+  }
+  else if (pi->header[0] & 0x01)
+  {
+    is_multicast = TRUE;
     for (i = 0; i < xi->multicast_list_size; i++)
     {
       if (memcmp(xi->multicast_list[i], pi->header, 6) == 0)
         break;
     }
-    if (i == xi->multicast_list_size)
+    if (i < xi->multicast_list_size)
     {
-      //KdPrint((__DRIVER_NAME "     Packet not for my MAC address\n"));
-      goto done;
-    }
+      is_my_multicast = TRUE;
+    }    
   }
+  if (memcmp(xi->curr_mac_addr, pi->header, ETH_ALEN) == 0)
+  {
+    is_directed = TRUE;
+  }
+
+  if (!accept_packet && (xi->packet_filter & NDIS_PACKET_TYPE_PROMISCUOUS))
+  {
+    //KdPrint((__DRIVER_NAME "     Accepting packet because NDIS_PACKET_TYPE_PROMISCUOUS\n"));
+    accept_packet = TRUE;
+  }
+  if (!accept_packet && is_broadcast && (xi->packet_filter & NDIS_PACKET_TYPE_BROADCAST))
+  {
+    //KdPrint((__DRIVER_NAME "     Accepting packet because NDIS_PACKET_TYPE_BROADCAST\n"));
+    accept_packet = TRUE;
+  }
+  if (!accept_packet && is_multicast && (xi->packet_filter & NDIS_PACKET_TYPE_ALL_MULTICAST))
+  {
+    //KdPrint((__DRIVER_NAME "     Accepting packet because NDIS_PACKET_TYPE_ALL_MULTICAST\n"));
+    accept_packet = TRUE;
+  }
+  if (!accept_packet && is_my_multicast && (xi->packet_filter & NDIS_PACKET_TYPE_MULTICAST))
+  {
+    //KdPrint((__DRIVER_NAME "     Accepting packet because NDIS_PACKET_TYPE_MULTICAST\n"));
+    accept_packet = TRUE;
+  }
+  if (!accept_packet && is_directed && (xi->packet_filter & NDIS_PACKET_TYPE_DIRECTED))
+  {
+    //KdPrint((__DRIVER_NAME "     Accepting packet because NDIS_PACKET_TYPE_DIRECTED\n"));
+    accept_packet = TRUE;
+  }
+
+  if (!accept_packet)
+  {
+    //KdPrint((__DRIVER_NAME "     Not accepting packet\n"));
+    goto done;
+  }
+
   switch (pi->ip_proto)
   {
   case 6:  // TCP

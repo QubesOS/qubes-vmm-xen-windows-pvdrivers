@@ -227,7 +227,7 @@ XenNet_QueryInformation(
       len = xi->multicast_list_size * 6;
       break;
     case OID_802_3_MAXIMUM_LIST_SIZE:
-      temp_data = MULTICAST_LIST_MAX_SIZE; /* no mcast support, but to return 0 is an error */
+      temp_data = MULTICAST_LIST_MAX_SIZE;
       break;
     case OID_TCP_TASK_OFFLOAD:
       KdPrint(("Get OID_TCP_TASK_OFFLOAD\n"));
@@ -599,8 +599,7 @@ XenNet_SetInformation(
             (ULONG)multicast_list[i * 6 + 0], (ULONG)multicast_list[i * 6 + 1], 
             (ULONG)multicast_list[i * 6 + 2], (ULONG)multicast_list[i * 6 + 3], 
             (ULONG)multicast_list[i * 6 + 4], (ULONG)multicast_list[i * 6 + 5]));
-          status = NDIS_STATUS_MULTICAST_FULL;
-          break;
+          /* the docs say that we should return NDIS_STATUS_MULTICAST_FULL if we get an invalid multicast address but I'm not sure if that's the case... */
         }
       }
       memcpy(xi->multicast_list, InformationBuffer, InformationBufferLength);
