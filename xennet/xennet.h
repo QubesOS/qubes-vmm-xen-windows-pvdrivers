@@ -164,12 +164,16 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 
 //#define MAX_BUFFERS_PER_PACKET NET_RX_RING_SIZE
 
-#define MAX_ETH_HEADER_SIZE 14
-#define MIN_IP4_HEADER_SIZE 20
-#define MAX_IP4_HEADER_SIZE (15 * 4)
-#define MIN_TCP_HEADER_SIZE 20
-#define MAX_TCP_HEADER_SIZE (15 * 4)
-#define MAX_PKT_HEADER_SIZE (MAX_ETH_HEADER_SIZE + MAX_IP_HEADER_SIZE + MAX_TCP_HEADER_SIZE)
+#define MIN_ETH_HEADER_LENGTH 14
+#define MAX_ETH_HEADER_LENGTH 14
+#define MIN_IP4_HEADER_LENGTH 20
+#define MAX_IP4_HEADER_LENGTH (15 * 4)
+#define MIN_TCP_HEADER_LENGTH 20
+#define MAX_TCP_HEADER_LENGTH (15 * 4)
+#define MAX_PKT_HEADER_LENGTH (MAX_ETH_HEADER_LENGTH + MAX_IP4_HEADER_LENGTH + MAX_TCP_HEADER_LENGTH)
+
+#define MIN_LOOKAHEAD_LENGTH (MAX_IP4_HEADER_LENGTH + MAX_TCP_HEADER_LENGTH)
+#define MAX_LOOKAHEAD_LENGTH 256
 
 typedef struct
 {
@@ -195,7 +199,6 @@ typedef struct {
   shared_buffer_t *first_pb;
   shared_buffer_t *curr_pb;
   PUCHAR first_buffer_virtual;
-  UCHAR header_data[132]; /* maximum possible size of ETH + IP + TCP/UDP headers */
   ULONG mdl_count;
   USHORT curr_mdl_offset;
   USHORT mss;
@@ -218,6 +221,8 @@ typedef struct {
   ULONG tcp_seq;
   BOOLEAN extra_info;
   BOOLEAN more_frags;
+  /* anything past here doesn't get cleared automatically by the ClearPacketInfo */
+  UCHAR header_data[MAX_LOOKAHEAD_LENGTH + MAX_ETH_HEADER_LENGTH];
 } packet_info_t;
 
 #define PAGE_LIST_SIZE (max(NET_RX_RING_SIZE, NET_TX_RING_SIZE) * 4)
@@ -244,6 +249,7 @@ struct xennet_info
   BOOLEAN rx_shutting_down;
   uint8_t perm_mac_addr[ETH_ALEN];
   uint8_t curr_mac_addr[ETH_ALEN];
+  ULONG current_lookahead;
 
   /* Misc. Xen vars */
   XENPCI_VECTORS vectors;
@@ -296,7 +302,6 @@ struct xennet_info
   ULONG rx_pb_list[RX_PAGE_BUFFERS];
   shared_buffer_t rx_pbs[RX_PAGE_BUFFERS];
   USHORT rx_ring_pbs[NET_RX_RING_SIZE];
-#define LOOKASIDE_LIST_ALLOC_SIZE 256
   NPAGED_LOOKASIDE_LIST rx_lookaside_list;
   /* Receive-ring batched refills. */
   ULONG rx_target;
@@ -395,8 +400,12 @@ XenNet_SetInformation(
 #define PARSE_TOO_SMALL 1 /* first buffer is too small */
 #define PARSE_UNKNOWN_TYPE 2
 
+BOOLEAN
+XenNet_BuildHeader(packet_info_t *pi, PVOID header, ULONG new_header_size);
 ULONG
 XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR buffer, ULONG min_header_size);
+BOOLEAN
+XenNet_FilterAcceptPacket(struct xennet_info *xi,packet_info_t *pi);
 
 VOID
 XenNet_SumIpHeader(
@@ -408,13 +417,12 @@ static __forceinline VOID
 XenNet_ClearPacketInfo(packet_info_t *pi)
 {
 #if 1
-  #if 0
-  RtlZeroMemory(&pi->mdl_count, sizeof(packet_info_t) - FIELD_OFFSET(packet_info_t, mdl_count));
-  #else
-  RtlZeroMemory(pi, sizeof(packet_info_t));
-  #endif
+  RtlZeroMemory(pi, sizeof(packet_info_t) - FIELD_OFFSET(packet_info_t, header_data));
 #else
   pi->mdl_count = 0;
+  pi->mss = 0;
+  pi->ip4_header_length = 0;
+  pi->tcp_header_length = 0;
   pi->curr_mdl_index = pi->curr_mdl_offset = 0;
   pi->extra_info = pi->more_frags = pi->csum_blank =
     pi->data_validated = pi->split_required = 0;

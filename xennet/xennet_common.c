@@ -25,18 +25,21 @@ Increase the header to a certain size
 */
 
 BOOLEAN
-XenNet_BuildHeader(packet_info_t *pi, ULONG new_header_size)
+XenNet_BuildHeader(packet_info_t *pi, PUCHAR header, ULONG new_header_size)
 {
   ULONG bytes_remaining;
 
   //FUNCTION_ENTER();
+
+  if (!header)
+    header = pi->header;
 
   if (new_header_size <= pi->header_length)
   {
     return TRUE; /* header is already at least the required size */
   }
 
-  if (pi->header == pi->first_buffer_virtual)
+  if (header == pi->first_buffer_virtual)
   {
     /* still working in the first buffer */
     if (new_header_size <= pi->first_buffer_length)
@@ -47,24 +50,25 @@ XenNet_BuildHeader(packet_info_t *pi, ULONG new_header_size)
       {
         NdisGetNextBuffer(pi->curr_buffer, &pi->curr_buffer);
         pi->curr_mdl_offset = 0;
+        if (pi->curr_pb)
+          pi->curr_pb = pi->curr_pb->next;
       }
       else
       {
         pi->curr_mdl_offset = (USHORT)new_header_size;
-        if (pi->curr_pb)
-          pi->curr_pb = pi->curr_pb->next;
       }      
       return TRUE;
     }
     else
     {
       //KdPrint((__DRIVER_NAME "     Switching to header_data\n"));
-      memcpy(pi->header_data, pi->header, pi->header_length);
-      pi->header = pi->header_data;
+      memcpy(pi->header_data, header, pi->header_length);
+      header = pi->header = pi->header_data;
     }
   }
   
   bytes_remaining = new_header_size - pi->header_length;
+  // TODO: if there are only a small number of bytes left in the current buffer then increase to consume that too...
 
   //KdPrint((__DRIVER_NAME "     A bytes_remaining = %d, pi->curr_buffer = %p, pi->mdl_count = %d\n", bytes_remaining, pi->curr_buffer, pi->mdl_count));
   while (bytes_remaining && pi->curr_buffer)
@@ -81,7 +85,7 @@ XenNet_BuildHeader(packet_info_t *pi, ULONG new_header_size)
         return FALSE;
       copy_size = min(bytes_remaining, MmGetMdlByteCount(pi->curr_buffer) - pi->curr_mdl_offset);
       //KdPrint((__DRIVER_NAME "     B copy_size = %d\n", copy_size));
-      memcpy(pi->header + pi->header_length,
+      memcpy(header + pi->header_length,
         src_addr + pi->curr_mdl_offset, copy_size);
       pi->curr_mdl_offset = (USHORT)(pi->curr_mdl_offset + copy_size);
       pi->header_length += copy_size;
@@ -121,8 +125,10 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
 
   pi->header_length = 0;
   pi->curr_mdl_offset = 0;
-    
-  if (!XenNet_BuildHeader(pi, max((ULONG)XN_HDR_SIZE, min_header_size)))
+
+  XenNet_BuildHeader(pi, NULL, min_header_size);
+  
+  if (!XenNet_BuildHeader(pi, NULL, (ULONG)XN_HDR_SIZE))
   {
     KdPrint((__DRIVER_NAME "     packet too small (Ethernet Header)\n"));
     return PARSE_TOO_SMALL;
@@ -134,7 +140,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
     //KdPrint((__DRIVER_NAME "     IP\n"));
     if (pi->header_length < (ULONG)(XN_HDR_SIZE + 20))
     {
-      if (!XenNet_BuildHeader(pi, (ULONG)(XN_HDR_SIZE + 20)))
+      if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + 20)))
       {
         KdPrint((__DRIVER_NAME "     packet too small (IP Header)\n"));
         return PARSE_TOO_SMALL;
@@ -149,7 +155,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
     pi->ip4_header_length = (pi->header[XN_HDR_SIZE + 0] & 0x0F) << 2;
     if (pi->header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20))
     {
-      if (!XenNet_BuildHeader(pi, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)))
+      if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)))
       {
         //KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header)\n"));
         return PARSE_TOO_SMALL;
@@ -175,7 +181,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
 
   if (pi->header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length))
   {
-    if (!XenNet_BuildHeader(pi, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)))
+    if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)))
     {
       //KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header + TCP Options)\n"));
       return PARSE_TOO_SMALL;
@@ -224,4 +230,60 @@ XenNet_SumIpHeader(
     csum = (csum & 0xFFFF) + (csum >> 16);
   csum = ~csum;
   SET_NET_USHORT(&header[XN_HDR_SIZE + 10], (USHORT)csum);
+}
+
+BOOLEAN
+XenNet_FilterAcceptPacket(struct xennet_info *xi,packet_info_t *pi)
+{
+  BOOLEAN is_multicast = FALSE;
+  BOOLEAN is_my_multicast = FALSE;
+  BOOLEAN is_broadcast = FALSE;
+  BOOLEAN is_directed = FALSE;
+  ULONG i;
+
+  if (pi->header[0] == 0xFF && pi->header[1] == 0xFF
+      && pi->header[2] == 0xFF && pi->header[3] == 0xFF
+      && pi->header[4] == 0xFF && pi->header[5] == 0xFF)
+  {
+    is_broadcast = TRUE;
+  }
+  else if (pi->header[0] & 0x01)
+  {
+    is_multicast = TRUE;
+    for (i = 0; i < xi->multicast_list_size; i++)
+    {
+      if (memcmp(xi->multicast_list[i], pi->header, 6) == 0)
+        break;
+    }
+    if (i < xi->multicast_list_size)
+    {
+      is_my_multicast = TRUE;
+    }    
+  }
+  if (memcmp(xi->curr_mac_addr, pi->header, ETH_ALEN) == 0)
+  {
+    is_directed = TRUE;
+  }
+
+  if (is_directed && (xi->packet_filter & NDIS_PACKET_TYPE_DIRECTED))
+  {
+    return TRUE;
+  }  
+  if (is_my_multicast && (xi->packet_filter & NDIS_PACKET_TYPE_MULTICAST))
+  {
+    return TRUE;
+  }
+  if (is_multicast && (xi->packet_filter & NDIS_PACKET_TYPE_ALL_MULTICAST))
+  {
+    return TRUE;
+  }
+  if (is_broadcast && (xi->packet_filter & NDIS_PACKET_TYPE_BROADCAST))
+  {
+    return TRUE;
+  }
+  if (xi->packet_filter & NDIS_PACKET_TYPE_PROMISCUOUS)
+  {
+    return TRUE;
+  }
+  return FALSE;
 }

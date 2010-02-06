@@ -406,6 +406,7 @@ XenNet_Init(
     |NDIS_ATTRIBUTE_BUS_MASTER,
     NdisInterfaceInternal);
   xi->multicast_list_size = 0;
+  xi->current_lookahead = MIN_LOOKAHEAD_LENGTH;
 
   nrl_length = 0;
   NdisMQueryAdapterResources(&status, WrapperConfigurationContext,
@@ -853,7 +854,8 @@ DriverEntry(
   /* added in v.4 -- use multiple pkts interface */
   mini_chars.ReturnPacketHandler = XenNet_ReturnPacket;
   mini_chars.SendPacketsHandler = XenNet_SendPackets;
-  mini_chars.CancelSendPacketsHandler = XenNet_CancelSendPackets;
+  /* don't support cancel - no point as packets are never queued for long */
+  //mini_chars.CancelSendPacketsHandler = XenNet_CancelSendPackets;
 
 #ifdef NDIS51_MINIPORT
   /* added in v.5.1 */

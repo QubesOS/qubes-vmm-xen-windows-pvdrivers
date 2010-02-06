@@ -276,7 +276,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     ASSERT(tx0->gref != INVALID_GRANT_REF);
     xi->tx_shadows[tx0->id].gref = tx0->gref;
     tx0->offset = (USHORT)sg->Elements[sg_element].Address.LowPart & (PAGE_SIZE - 1);
-    tx0->size = (USHORT)min(sg->Elements[sg_element].Length, PAGE_SIZE - tx0->offset);
+    tx0->size = (USHORT)min(sg->Elements[sg_element].Length, (ULONG)(PAGE_SIZE - tx0->offset));
     if (tx0->offset + tx0->size > PAGE_SIZE)
     {
       KdPrint((__DRIVER_NAME "     offset + size = %d\n", tx0->offset + tx0->size));
@@ -328,7 +328,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       xi->tx_shadows[txN->id].gref = txN->gref;
       txN->offset = (USHORT)(sg->Elements[sg_element].Address.LowPart + sg_offset) & (PAGE_SIZE - 1);
       ASSERT(sg->Elements[sg_element].Length > sg_offset);
-      txN->size = (USHORT)min(sg->Elements[sg_element].Length - sg_offset, PAGE_SIZE - txN->offset);
+      txN->size = (USHORT)min(sg->Elements[sg_element].Length - sg_offset, (ULONG)(PAGE_SIZE - txN->offset));
       if (txN->offset + txN->size > PAGE_SIZE)
       {
         KdPrint((__DRIVER_NAME "     offset (%d) + size (%d) = %d\n", txN->offset, txN->size, txN->offset + txN->size));
@@ -417,6 +417,7 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   RING_IDX cons, prod;
   PNDIS_PACKET head = NULL, tail = NULL;
   PNDIS_PACKET packet;
+  ULONG tx_packets = 0;
 
   UNREFERENCED_PARAMETER(dpc);
   UNREFERENCED_PARAMETER(arg1);
@@ -496,15 +497,21 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 
   KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
+  /* must be done without holding any locks */
   while (head)
   {
     packet = (PNDIS_PACKET)head;
     head = *(PNDIS_PACKET *)&packet->MiniportReservedEx[0];
     NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_SUCCESS);
-    xi->tx_outstanding--;
-    if (!xi->tx_outstanding && xi->tx_shutting_down)
-      KeSetEvent(&xi->tx_idle_event, IO_NO_INCREMENT, FALSE);
+    tx_packets++;
   }
+
+  /* must be done after we have truly given back all packets */
+  KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
+  xi->tx_outstanding -= tx_packets;
+  if (!xi->tx_outstanding && xi->tx_shutting_down)
+    KeSetEvent(&xi->tx_idle_event, IO_NO_INCREMENT, FALSE);
+  KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
   if (xi->device_state->suspend_resume_state_pdo == SR_STATE_SUSPENDING
     && xi->device_state->suspend_resume_state_fdo != SR_STATE_SUSPENDING
@@ -572,6 +579,7 @@ XenNet_CancelSendPackets(
   PLIST_ENTRY entry;
   PNDIS_PACKET packet;
   PNDIS_PACKET head = NULL, tail = NULL;
+  BOOLEAN result;
 
   FUNCTION_ENTER();
 
@@ -584,7 +592,9 @@ XenNet_CancelSendPackets(
     entry = entry->Flink;
     if (NDIS_GET_PACKET_CANCEL_ID(packet) == CancelId)
     {
-      RemoveEntryList((PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)]);
+      KdPrint((__DRIVER_NAME "     Found packet to cancel %p\n", packet));
+      result = RemoveEntryList((PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)]);
+      ASSERT(result);
       *(PNDIS_PACKET *)&packet->MiniportReservedEx[0] = NULL;
       if (head)
         *(PNDIS_PACKET *)&tail->MiniportReservedEx[0] = packet;
@@ -600,6 +610,7 @@ XenNet_CancelSendPackets(
   {
     packet = (PNDIS_PACKET)head;
     head = *(PNDIS_PACKET *)&packet->MiniportReservedEx[0];
+    KdPrint((__DRIVER_NAME "     NdisMSendComplete(%p)\n", packet));
     NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_REQUEST_ABORTED);
   }
   

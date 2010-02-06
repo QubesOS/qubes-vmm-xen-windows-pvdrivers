@@ -128,7 +128,7 @@ XenNet_QueryInformation(
       temp_data = NdisMedium802_3;
       break;
     case OID_GEN_MAXIMUM_LOOKAHEAD:
-      temp_data = xi->config_mtu;
+      temp_data = MAX_LOOKAHEAD_LENGTH; //xi->config_mtu;
       break;
     case OID_GEN_MAXIMUM_FRAME_SIZE:
       temp_data = xi->config_mtu;
@@ -160,7 +160,7 @@ XenNet_QueryInformation(
       temp_data = xi->packet_filter;
       break;
     case OID_GEN_CURRENT_LOOKAHEAD:
-      temp_data = xi->config_mtu;
+      temp_data = xi->current_lookahead;
       break;
     case OID_GEN_DRIVER_VERSION:
       temp_data = (NDIS_MINIPORT_MAJOR_VERSION << 8) | NDIS_MINIPORT_MINOR_VERSION;
@@ -489,7 +489,7 @@ XenNet_SetInformation(
       KdPrint(("Unsupported set OID_GEN_VENDOR_DESCRIPTION\n"));
       break;
     case OID_GEN_CURRENT_PACKET_FILTER:
-      KdPrint(("Set OID_GEN_CURRENT_PACKET_FILTER\n"));
+      KdPrint(("Set OID_GEN_CURRENT_PACKET_FILTER (xi = %p)\n", xi));
       if (*(ULONG *)data & NDIS_PACKET_TYPE_DIRECTED)
         KdPrint(("  NDIS_PACKET_TYPE_DIRECTED\n"));
       if (*(ULONG *)data & NDIS_PACKET_TYPE_MULTICAST)
@@ -503,7 +503,7 @@ XenNet_SetInformation(
       if (*(ULONG *)data & NDIS_PACKET_TYPE_ALL_FUNCTIONAL)
         KdPrint(("  NDIS_PACKET_TYPE_ALL_FUNCTIONAL (not supported)\n"));
       if (*(ULONG *)data & NDIS_PACKET_TYPE_ALL_LOCAL)
-        KdPrint(("  NDIS_PACKET_TYPE_ALL_LOCAL (not supported)\n"));
+        KdPrint(("  NDIS_PACKET_TYPE_ALL_LOCAL (not supported)\n"));  
       if (*(ULONG *)data & NDIS_PACKET_TYPE_FUNCTIONAL)
         KdPrint(("  NDIS_PACKET_TYPE_FUNCTIONAL (not supported)\n"));
       if (*(ULONG *)data & NDIS_PACKET_TYPE_GROUP)
@@ -518,8 +518,8 @@ XenNet_SetInformation(
       status = NDIS_STATUS_SUCCESS;
       break;
     case OID_GEN_CURRENT_LOOKAHEAD:
-      KdPrint(("Set OID_GEN_CURRENT_LOOKAHEAD %d\n", *(int *)data));
-      // TODO: We should do this...
+      xi->current_lookahead = *(ULONG *)data;
+      KdPrint(("Set OID_GEN_CURRENT_LOOKAHEAD %d (%p)\n", xi->current_lookahead, xi));
       status = NDIS_STATUS_SUCCESS;
       break;
     case OID_GEN_DRIVER_VERSION:
