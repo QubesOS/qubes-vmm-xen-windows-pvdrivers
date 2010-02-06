@@ -39,7 +39,7 @@ GntTbl_GetRef(PVOID Context)
     KdPrint((__DRIVER_NAME "     No free grant refs\n"));
     return INVALID_GRANT_REF;
   }
-  ref = (grant_ref_t)ptr_ref;
+  ref = (grant_ref_t)(ULONG_PTR)ptr_ref;
 
   return ref;
 }
