@@ -206,7 +206,7 @@ XenNet_MakePacket(struct xennet_info *xi)
   //KdPrint((__DRIVER_NAME "     ip4_header_length = %d\n", pi->ip4_header_length));
   //KdPrint((__DRIVER_NAME "     tcp_header_length = %d\n", pi->tcp_header_length));
   /* make sure we satisfy the lookahead requirement */
-  XenNet_BuildHeader(pi, header_va, min(MIN_LOOKAHEAD_LENGTH, xi->current_lookahead) + MAX_ETH_HEADER_LENGTH);
+  XenNet_BuildHeader(pi, header_va, max(MIN_LOOKAHEAD_LENGTH, xi->current_lookahead) + MAX_ETH_HEADER_LENGTH);
   header_extra = pi->header_length - (MAX_ETH_HEADER_LENGTH + pi->ip4_header_length + pi->tcp_header_length);
   ASSERT(pi->header_length <= MAX_ETH_HEADER_LENGTH + MAX_LOOKAHEAD_LENGTH);
   NdisAllocateBuffer(&status, &out_buffer, xi->rx_buffer_pool, header_va, pi->header_length);
