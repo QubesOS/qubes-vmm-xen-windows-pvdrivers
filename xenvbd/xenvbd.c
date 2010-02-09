@@ -407,7 +407,24 @@ XenVbd_PutSrbOnRing(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
     
     gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0,
               (ULONG)(physical_address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF);
-    ASSERT(gref != INVALID_GRANT_REF);
+    if (gref == INVALID_GRANT_REF)
+    {
+      ULONG i;
+      for (i = 0; i < shadow->req.nr_segments; i++)
+      {
+        xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
+          shadow->req.seg[i].gref, FALSE);
+      }
+      if (shadow->aligned_buffer_in_use)
+      {
+        shadow->aligned_buffer_in_use = FALSE;
+        xvdd->aligned_buffer_in_use = FALSE;
+      }
+      srb->SrbStatus = SRB_STATUS_BUSY;
+      ScsiPortNotification(RequestComplete, xvdd, srb);
+      KdPrint((__DRIVER_NAME "     Out of gref's. Deferring\n"));
+      return;
+    }
     offset = physical_address.LowPart & (PAGE_SIZE - 1);
     length = min(PAGE_SIZE - offset, remaining);
     ASSERT((offset & 511) == 0);
