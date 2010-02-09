@@ -20,10 +20,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xennet.h"
 
-/*
-Increase the header to a certain size
-*/
-
+/* Increase the header to a certain size */
 BOOLEAN
 XenNet_BuildHeader(packet_info_t *pi, PUCHAR header, ULONG new_header_size)
 {

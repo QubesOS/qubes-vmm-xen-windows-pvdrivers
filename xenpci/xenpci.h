@@ -474,9 +474,4 @@ GntTbl_PutRef(PVOID Context, grant_ref_t ref);
 grant_ref_t
 GntTbl_GetRef(PVOID Context);
 
-TRANSLATE_BUS_ADDRESS XenPci_BIS_TranslateBusAddress;
-GET_DMA_ADAPTER XenPci_BIS_GetDmaAdapter;
-GET_SET_DEVICE_DATA XenPci_BIS_SetBusData;
-GET_SET_DEVICE_DATA XenPci_BIS_GetBusData;
-
 #endif

@@ -175,6 +175,8 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 #define MIN_LOOKAHEAD_LENGTH (MAX_IP4_HEADER_LENGTH + MAX_TCP_HEADER_LENGTH)
 #define MAX_LOOKAHEAD_LENGTH 256
 
+#define LINUX_MAX_SG_ELEMENTS 19
+
 typedef struct
 {
   PVOID next;
@@ -189,7 +191,7 @@ typedef struct
 typedef struct
 {
   PNDIS_PACKET packet; /* only set on the last packet */
-  shared_buffer_t *cb;
+  PVOID *cb;
   grant_ref_t gref;
 } tx_shadow_t;
 
@@ -200,7 +202,7 @@ typedef struct {
   shared_buffer_t *curr_pb;
   PUCHAR first_buffer_virtual;
   ULONG mdl_count;
-  USHORT curr_mdl_offset;
+  ULONG curr_mdl_offset;
   USHORT mss;
   NDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
   BOOLEAN csum_blank;
@@ -278,10 +280,12 @@ struct xennet_info
   ULONG tx_outstanding;
   ULONG tx_id_free;
   USHORT tx_id_list[NET_TX_RING_SIZE];
-  ULONG tx_cb_free;
-  ULONG tx_cb_list[TX_COALESCE_BUFFERS];
-  shared_buffer_t tx_cbs[TX_COALESCE_BUFFERS];
+  //ULONG tx_cb_free;
+  //ULONG tx_cb_list[TX_COALESCE_BUFFERS];
+  //ULONG tx_cb_size;
+  //shared_buffer_t tx_cbs[TX_COALESCE_BUFFERS];
   KDPC tx_dpc;
+  NPAGED_LOOKASIDE_LIST tx_lookaside_list;
 
   /* rx_related - protected by rx_lock */
   KSPIN_LOCK rx_lock;
@@ -428,3 +432,32 @@ XenNet_ClearPacketInfo(packet_info_t *pi)
     pi->data_validated = pi->split_required = 0;
 #endif
 }
+
+/* Get some data from the current packet, but don't cross a page boundry. */
+static __forceinline ULONG
+XenNet_QueryData(packet_info_t *pi, ULONG length)
+{
+  ULONG offset_in_page;
+  
+  if (length > MmGetMdlByteCount(pi->curr_buffer) - pi->curr_mdl_offset)
+    length = MmGetMdlByteCount(pi->curr_buffer) - pi->curr_mdl_offset;
+
+  offset_in_page = (MmGetMdlByteOffset(pi->curr_buffer) + pi->curr_mdl_offset) & (PAGE_SIZE - 1);
+  if (offset_in_page + length > PAGE_SIZE)
+    length = PAGE_SIZE - offset_in_page;
+  
+  return length;
+}
+
+/* Move the pointers forward by the given amount. No error checking is done.  */
+static __forceinline VOID
+XenNet_EatData(packet_info_t *pi, ULONG length)
+{
+  pi->curr_mdl_offset += length;
+  if (pi->curr_mdl_offset >= MmGetMdlByteCount(pi->curr_buffer))
+  {
+    pi->curr_mdl_offset -= MmGetMdlByteCount(pi->curr_buffer);
+    NdisGetNextBuffer(pi->curr_buffer, &pi->curr_buffer);
+  }
+}
+

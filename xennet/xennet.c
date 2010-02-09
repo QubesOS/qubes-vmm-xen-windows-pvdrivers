@@ -678,24 +678,8 @@ XenNet_Init(
     goto err;
   }
 
-  if (xi->config_sg)
+  if (!xi->config_sg)
   {
-    KdPrint((__DRIVER_NAME "     SG Enabled\n"));
-    status = NdisMInitializeScatterGatherDma(xi->adapter_handle, TRUE, xi->config_gso);
-    if (!NT_SUCCESS(status))
-    {
-      KdPrint(("NdisMInitializeScatterGatherDma failed (%08x), disabling\n", status));
-      xi->config_sg = 0;
-    }
-  }
-  else
-  {
-    KdPrint((__DRIVER_NAME "     SG Disabled\n"));
-    status = NdisMAllocateMapRegisters(xi->adapter_handle, 0, NDIS_DMA_64BITS, 64, PAGE_SIZE);
-    if (status != NDIS_STATUS_SUCCESS)
-    {
-      KdPrint((__DRIVER_NAME "     Cannot allocate Map Registers\n"));
-    }
     /* without SG, GSO can be a maximum of PAGE_SIZE */
     xi->config_gso = min(xi->config_gso, PAGE_SIZE);
   }
@@ -804,8 +788,6 @@ XenNet_Reset(
   return NDIS_STATUS_SUCCESS;
 }
 
-dma_driver_extension_t *dma_driver_extension;
-
 NTSTATUS DDKAPI
 DriverEntry(
   PDRIVER_OBJECT DriverObject,
@@ -817,11 +799,6 @@ DriverEntry(
   NDIS_MINIPORT_CHARACTERISTICS mini_chars;
 
   FUNCTION_ENTER();
-
-  IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_DMA_DRIVER_EXTENSION_MAGIC), sizeof(dma_driver_extension_t), &dma_driver_extension);  
-  dma_driver_extension->need_virtual_address = NULL;
-  dma_driver_extension->get_alignment = NULL;
-  dma_driver_extension->max_sg_elements = 19; /* header + 18 fragments */
 
   KdPrint((__DRIVER_NAME "     DriverObject = %p, RegistryPath = %p\n", DriverObject, RegistryPath));
   RtlZeroMemory(&mini_chars, sizeof(mini_chars));

@@ -1337,17 +1337,6 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
     KdPrint((__DRIVER_NAME "     WdfFdoQueryForInterface failed - %08x\n", status));
     return status;
   }
-#if 0
-  bus_interface.Size = sizeof(BUS_INTERFACE_STANDARD);
-  bus_interface.Version = 1; //BUS_INTERFACE_STANDARD_VERSION;
-  bus_interface.Context = xppdd;
-  bus_interface.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
-  bus_interface.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
-  bus_interface.TranslateBusAddress = XenPci_BIS_TranslateBusAddress;
-  bus_interface.GetDmaAdapter = XenPci_BIS_GetDmaAdapter;
-  bus_interface.SetBusData = XenPci_BIS_SetBusData;
-  bus_interface.GetBusData = XenPci_BIS_GetBusData;
-#endif
   WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&bus_interface, &GUID_BUS_INTERFACE_STANDARD, NULL);
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
