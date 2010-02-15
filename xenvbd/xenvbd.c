@@ -982,6 +982,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
   //ULONG data_buffer_length;
   PCDB cdb;
   PXENVBD_DEVICE_DATA xvdd = DeviceExtension;
+  ULONG data_transfer_length = srb->DataTransferLength;
 
 
 if (xvdd->aligned_buffer_in_use)
@@ -1064,15 +1065,23 @@ if (xvdd->aligned_buffer_in_use)
       case XENVBD_DEVICETYPE_DISK:
         if ((srb->Cdb[1] & 1) == 0)
         {
-          PINQUIRYDATA id = (PINQUIRYDATA)data_buffer;
-          id->DeviceType = DIRECT_ACCESS_DEVICE;
-          id->Versions = 3;
-          id->ResponseDataFormat = 0;
-          id->AdditionalLength = FIELD_OFFSET(INQUIRYDATA, VendorSpecific) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength);
-          id->CommandQueue = 1;
-          memcpy(id->VendorId, scsi_device_manufacturer, 8); // vendor id
-          memcpy(id->ProductId, scsi_disk_model, 16); // product id
-          memcpy(id->ProductRevisionLevel, "0000", 4); // product revision level
+          if (srb->Cdb[2])
+          {
+            srb->SrbStatus = SRB_STATUS_ERROR;
+          }
+          else
+          {
+            PINQUIRYDATA id = (PINQUIRYDATA)data_buffer;
+            id->DeviceType = DIRECT_ACCESS_DEVICE;
+            id->Versions = 3;
+            id->ResponseDataFormat = 2; /* not sure about this but WHQL complains otherwise */
+            id->AdditionalLength = FIELD_OFFSET(INQUIRYDATA, VendorSpecific) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength);
+            id->CommandQueue = 1;
+            memcpy(id->VendorId, scsi_device_manufacturer, 8); // vendor id
+            memcpy(id->ProductId, scsi_disk_model, 16); // product id
+            memcpy(id->ProductRevisionLevel, "0000", 4); // product revision level
+            data_transfer_length = sizeof(INQUIRYDATA);
+          }
         }
         else
         {
@@ -1085,6 +1094,7 @@ if (xvdd->aligned_buffer_in_use)
             data_buffer[3] = 2;
             data_buffer[4] = 0x00;
             data_buffer[5] = 0x80;
+            data_transfer_length = 6;
             break;
           case 0x80:
             data_buffer[0] = DIRECT_ACCESS_DEVICE;
@@ -1092,6 +1102,7 @@ if (xvdd->aligned_buffer_in_use)
             data_buffer[2] = 0x00;
             data_buffer[3] = 8;
             memset(&data_buffer[4], ' ', 8);
+            data_transfer_length = 12;
             break;
           default:
             //KdPrint((__DRIVER_NAME "     Unknown Page %02x requested\n", srb->Cdb[2]));
@@ -1318,6 +1329,11 @@ if (xvdd->aligned_buffer_in_use)
     }
     else if (srb->SrbStatus != SRB_STATUS_PENDING)
     {
+      if (srb->SrbStatus == SRB_STATUS_SUCCESS && data_transfer_length < srb->DataTransferLength)
+      {
+        srb->SrbStatus = SRB_STATUS_DATA_OVERRUN;
+        srb->DataTransferLength = data_transfer_length;
+      }
       xvdd->last_sense_key = SCSI_SENSE_NO_SENSE;
       xvdd->last_additional_sense_code = SCSI_ADSENSE_NO_SENSE;
       ScsiPortNotification(RequestComplete, DeviceExtension, srb);
