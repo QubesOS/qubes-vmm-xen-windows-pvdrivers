@@ -75,6 +75,11 @@ typedef struct blkif_other_response blkif_other_response_t;
 DEFINE_RING_TYPES(blkif_other, struct blkif_other_request, struct blkif_other_response);
 
 typedef struct {
+  LIST_ENTRY list_entry;
+  PSCSI_REQUEST_BLOCK srb;
+} srb_list_entry_t;
+
+typedef struct {
   blkif_request_t req;
   PSCSI_REQUEST_BLOCK srb;
   BOOLEAN aligned_buffer_in_use;
@@ -131,7 +136,8 @@ struct
   ULONGLONG total_sectors;
   XENPCI_VECTORS vectors;
   PXENPCI_DEVICE_STATE device_state;
-  PSCSI_REQUEST_BLOCK pending_srb;
+  LIST_ENTRY srb_list;
+  ULONG next_request; // debug - true if nextrequest has been sent
   //grant_ref_t dump_grant_refs[BLKIF_MAX_SEGMENTS_PER_REQUEST - 1];
   BOOLEAN aligned_buffer_in_use;
   PVOID aligned_buffer;
