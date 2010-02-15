@@ -345,7 +345,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       offset = MmGetMdlByteOffset(pi.curr_buffer) + pi.curr_mdl_offset;
       pfn = MmGetMdlPfnArray(pi.curr_buffer)[offset >> PAGE_SHIFT];
       txN->offset = (USHORT)offset & (PAGE_SIZE - 1);
-      txN->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0, pfn, FALSE, gref);
+      txN->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0, (ULONG)pfn, FALSE, gref);
       ASSERT(xi->tx_shadows[txN->id].gref == INVALID_GRANT_REF);
       xi->tx_shadows[txN->id].gref = txN->gref;
       //ASSERT(sg->Elements[sg_element].Length > sg_offset);
