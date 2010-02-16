@@ -639,25 +639,26 @@ XenVbd_HwScsiInitialize(PVOID DeviceExtension)
 static ULONG
 XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
 {
-  PMODE_PARAMETER_HEADER parameter_header;
+  PMODE_PARAMETER_HEADER parameter_header = NULL;
+  PMODE_PARAMETER_HEADER10 parameter_header10 = NULL;
   PMODE_PARAMETER_BLOCK param_block;
   PMODE_FORMAT_PAGE format_page;
-  ULONG offset;
-  UCHAR buffer[256];
+  ULONG offset = 0;
+  UCHAR buffer[1024];
   BOOLEAN valid_page = FALSE;
   BOOLEAN cdb_llbaa;
   BOOLEAN cdb_dbd;
   UCHAR cdb_page_code;
   USHORT cdb_allocation_length;
-  PVOID data_buffer;
-  //ULONG data_buffer_length;
 
   UNREFERENCED_PARAMETER(xvdd);
 
+  RtlZeroMemory(srb->DataBuffer, srb->DataTransferLength);
+  RtlZeroMemory(buffer, ARRAY_SIZE(buffer));
+  offset = 0;
+
   //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
   
-  data_buffer = srb->DataBuffer;
-  //cdb = (PCDB)srb->Cdb;
   switch (srb->Cdb[0])
   {
   case SCSIOP_MODE_SENSE:
@@ -667,6 +668,15 @@ XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
     cdb_allocation_length = srb->Cdb[4];
     KdPrint((__DRIVER_NAME "     SCSIOP_MODE_SENSE llbaa = %d, dbd = %d, page_code = %d, allocation_length = %d\n",
       cdb_llbaa, cdb_dbd, cdb_page_code, cdb_allocation_length));
+    parameter_header = (PMODE_PARAMETER_HEADER)&buffer[offset];
+    parameter_header->MediumType = 0;
+    parameter_header->DeviceSpecificParameter = 0;
+    if (xvdd->device_mode == XENVBD_DEVICEMODE_READ)
+    {
+      KdPrint((__DRIVER_NAME " Mode sense to a read only disk.\n"));
+      parameter_header->DeviceSpecificParameter |= MODE_DSP_WRITE_PROTECT; 
+    }
+    offset += sizeof(MODE_PARAMETER_HEADER);
     break;
   case SCSIOP_MODE_SENSE10:
     cdb_llbaa = (BOOLEAN)!!(srb->Cdb[1] & 16);
@@ -675,31 +685,23 @@ XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
     cdb_allocation_length = (srb->Cdb[7] << 8) | srb->Cdb[8];
     KdPrint((__DRIVER_NAME "     SCSIOP_MODE_SENSE10 llbaa = %d, dbd = %d, page_code = %d, allocation_length = %d\n",
       cdb_llbaa, cdb_dbd, cdb_page_code, cdb_allocation_length));
+    parameter_header10 = (PMODE_PARAMETER_HEADER10)&buffer[offset];
+    parameter_header10->MediumType = 0;
+    parameter_header10->DeviceSpecificParameter = 0;
+    if (xvdd->device_mode == XENVBD_DEVICEMODE_READ)
+    {
+      KdPrint((__DRIVER_NAME " Mode sense to a read only disk.\n"));
+      parameter_header10->DeviceSpecificParameter |= MODE_DSP_WRITE_PROTECT; 
+    }
+    offset += sizeof(MODE_PARAMETER_HEADER10);
     break;
   default:
     KdPrint((__DRIVER_NAME "     SCSIOP_MODE_SENSE_WTF (%02x)\n", (ULONG)srb->Cdb[0]));
     return FALSE;
-  }
-  offset = 0;
-  
-  RtlZeroMemory(data_buffer, srb->DataTransferLength);
-  RtlZeroMemory(buffer, ARRAY_SIZE(buffer));
-
-  parameter_header = (PMODE_PARAMETER_HEADER)&buffer[offset];
-  parameter_header->MediumType = 0;
-  parameter_header->DeviceSpecificParameter = 0;
-  parameter_header->BlockDescriptorLength = 0;
-  offset += sizeof(MODE_PARAMETER_HEADER);
-  
-  if (xvdd->device_mode == XENVBD_DEVICEMODE_READ)
-  {
-    KdPrint((__DRIVER_NAME " Mode sense to a read only disk.\n"));
-    parameter_header->DeviceSpecificParameter|=MODE_DSP_WRITE_PROTECT; 
-  }
+  }  
   
   if (!cdb_dbd)
   {
-    parameter_header->BlockDescriptorLength += sizeof(MODE_PARAMETER_BLOCK);
     param_block = (PMODE_PARAMETER_BLOCK)&buffer[offset];
     if (xvdd->device_type == XENVBD_DEVICETYPE_DISK)
     {
@@ -723,6 +725,16 @@ XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
     }
     offset += sizeof(MODE_PARAMETER_BLOCK);
   }
+  switch (srb->Cdb[0])
+  {
+  case SCSIOP_MODE_SENSE:
+    parameter_header->BlockDescriptorLength = (UCHAR)(offset - sizeof(MODE_PARAMETER_HEADER));
+    break;
+  case SCSIOP_MODE_SENSE10:
+    parameter_header10->BlockDescriptorLength[0] = (UCHAR)((offset - sizeof(MODE_PARAMETER_HEADER10)) >> 8);
+    parameter_header10->BlockDescriptorLength[1] = (UCHAR)(offset - sizeof(MODE_PARAMETER_HEADER10));
+    break;
+  }
   if (xvdd->device_type == XENVBD_DEVICETYPE_DISK && (cdb_page_code == MODE_PAGE_FORMAT_DEVICE || cdb_page_code == MODE_SENSE_RETURN_ALL))
   {
     valid_page = TRUE;
@@ -739,7 +751,42 @@ XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
     format_page->SoftSectorFormating = TRUE;
     offset += sizeof(MODE_FORMAT_PAGE);
   }
-  parameter_header->ModeDataLength = (UCHAR)(offset - 1);
+  if (xvdd->device_type == XENVBD_DEVICETYPE_DISK && (cdb_page_code == MODE_PAGE_CACHING || cdb_page_code == MODE_SENSE_RETURN_ALL))
+  {
+    PMODE_CACHING_PAGE caching_page;
+    valid_page = TRUE;
+    caching_page = (PMODE_CACHING_PAGE)&buffer[offset];
+    caching_page->PageCode = MODE_PAGE_CACHING;
+    caching_page->PageLength = sizeof(MODE_CACHING_PAGE) - FIELD_OFFSET(MODE_CACHING_PAGE, PageLength);
+    // caching_page-> // all zeros is just fine... maybe
+    offset += sizeof(MODE_CACHING_PAGE);
+  }
+  if (xvdd->device_type == XENVBD_DEVICETYPE_DISK && (cdb_page_code == MODE_PAGE_MEDIUM_TYPES || cdb_page_code == MODE_SENSE_RETURN_ALL))
+  {
+    PUCHAR medium_types_page;
+    valid_page = TRUE;
+    medium_types_page = &buffer[offset];
+    medium_types_page[0] = MODE_PAGE_MEDIUM_TYPES;
+    medium_types_page[1] = 0x06;
+    medium_types_page[2] = 0;
+    medium_types_page[3] = 0;
+    medium_types_page[4] = 0;
+    medium_types_page[5] = 0;
+    medium_types_page[6] = 0;
+    medium_types_page[7] = 0;
+    offset += 8;
+  }
+  switch (srb->Cdb[0])
+  {
+  case SCSIOP_MODE_SENSE:
+    parameter_header->ModeDataLength = (UCHAR)(offset - 1);
+    break;
+  case SCSIOP_MODE_SENSE10:
+    parameter_header10->ModeDataLength[0] = (UCHAR)((offset - 2) >> 8);
+    parameter_header10->ModeDataLength[1] = (UCHAR)(offset - 2);
+    break;
+  }
+
   if (!valid_page && cdb_page_code != MODE_SENSE_RETURN_ALL)
   {
     srb->SrbStatus = SRB_STATUS_ERROR;
@@ -750,7 +797,7 @@ XenVbd_FillModePage(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
     srb->SrbStatus = SRB_STATUS_SUCCESS;
   srb->DataTransferLength = min(srb->DataTransferLength, offset);
   srb->ScsiStatus = 0;
-  memcpy(data_buffer, buffer, srb->DataTransferLength);
+  memcpy(srb->DataBuffer, buffer, srb->DataTransferLength);
   
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
@@ -1073,9 +1120,11 @@ if (xvdd->aligned_buffer_in_use)
           {
             PINQUIRYDATA id = (PINQUIRYDATA)data_buffer;
             id->DeviceType = DIRECT_ACCESS_DEVICE;
-            id->Versions = 3;
+            id->Versions = 4; /* minimum that WHQL says we must support */
             id->ResponseDataFormat = 2; /* not sure about this but WHQL complains otherwise */
-            id->AdditionalLength = FIELD_OFFSET(INQUIRYDATA, VendorSpecific) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength);
+            id->HiSupport = 1; /* WHQL test says we should set this */
+            //id->AdditionalLength = FIELD_OFFSET(INQUIRYDATA, VendorSpecific) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength);
+            id->AdditionalLength = sizeof(INQUIRYDATA) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength) - 1;
             id->CommandQueue = 1;
             memcpy(id->VendorId, scsi_device_manufacturer, 8); // vendor id
             memcpy(id->ProductId, scsi_disk_model, 16); // product id
@@ -1087,22 +1136,34 @@ if (xvdd->aligned_buffer_in_use)
         {
           switch (srb->Cdb[2])
           {
-          case 0x00:
+          case VPD_SUPPORTED_PAGES: /* list of pages we support */
             data_buffer[0] = DIRECT_ACCESS_DEVICE;
-            data_buffer[1] = 0x00;
+            data_buffer[1] = VPD_SUPPORTED_PAGES;
             data_buffer[2] = 0x00;
             data_buffer[3] = 2;
             data_buffer[4] = 0x00;
             data_buffer[5] = 0x80;
             data_transfer_length = 6;
             break;
-          case 0x80:
+          case VPD_SERIAL_NUMBER: /* serial number */
             data_buffer[0] = DIRECT_ACCESS_DEVICE;
-            data_buffer[1] = 0x80;
+            data_buffer[1] = VPD_SERIAL_NUMBER;
             data_buffer[2] = 0x00;
             data_buffer[3] = 8;
             memset(&data_buffer[4], ' ', 8);
             data_transfer_length = 12;
+            break;
+          case VPD_DEVICE_IDENTIFIERS: /* identification - we don't support any so just return zero */
+            data_buffer[0] = DIRECT_ACCESS_DEVICE;
+            data_buffer[1] = VPD_DEVICE_IDENTIFIERS;
+            data_buffer[2] = 0x00;
+            data_buffer[3] = 4 + (UCHAR)strlen(xvdd->vectors.path); /* length */
+            data_buffer[4] = 2; /* ASCII */
+            data_buffer[5] = 1; /* VendorId */
+            data_buffer[6] = 0;
+            data_buffer[7] = (UCHAR)strlen(xvdd->vectors.path);
+            memcpy(&data_buffer[8], xvdd->vectors.path, strlen(xvdd->vectors.path));
+            data_transfer_length = 8 + strlen(xvdd->vectors.path);
             break;
           default:
             //KdPrint((__DRIVER_NAME "     Unknown Page %02x requested\n", srb->Cdb[2]));
