@@ -1163,7 +1163,7 @@ if (xvdd->aligned_buffer_in_use)
             data_buffer[6] = 0;
             data_buffer[7] = (UCHAR)strlen(xvdd->vectors.path);
             memcpy(&data_buffer[8], xvdd->vectors.path, strlen(xvdd->vectors.path));
-            data_transfer_length = 8 + strlen(xvdd->vectors.path);
+            data_transfer_length = (ULONG)(8 + strlen(xvdd->vectors.path));
             break;
           default:
             //KdPrint((__DRIVER_NAME "     Unknown Page %02x requested\n", srb->Cdb[2]));
