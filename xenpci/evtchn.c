@@ -224,14 +224,14 @@ NTSTATUS
 EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
+  ev_action_t *action = &xpdd->ev_actions[Port];
 
   FUNCTION_ENTER();
   
-  if (xpdd->ev_actions[Port].type != EVT_ACTION_TYPE_EMPTY)
+  if (InterlockedCompareExchange((volatile LONG *)&action->type, EVT_ACTION_TYPE_NEW, EVT_ACTION_TYPE_EMPTY) != EVT_ACTION_TYPE_EMPTY)
   {
-    xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_EMPTY;
-    KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
-    KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
+    KdPrint((__DRIVER_NAME " Handler for port %d already registered\n", Port));
+    return STATUS_UNSUCCESSFUL;
   }
 
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
@@ -251,22 +251,21 @@ NTSTATUS
 EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
+  ev_action_t *action = &xpdd->ev_actions[Port];
 
   FUNCTION_ENTER();
-
-  if (xpdd->ev_actions[Port].type != EVT_ACTION_TYPE_EMPTY)
+  
+  if (InterlockedCompareExchange((volatile LONG *)&action->type, EVT_ACTION_TYPE_NEW, EVT_ACTION_TYPE_EMPTY) != EVT_ACTION_TYPE_EMPTY)
   {
-    xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_EMPTY;
-    KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
-    KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
+    KdPrint((__DRIVER_NAME " Handler for port %d already registered\n", Port));
+    return STATUS_UNSUCCESSFUL;
   }
 
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
   xpdd->ev_actions[Port].ServiceContext = ServiceContext;
   xpdd->ev_actions[Port].xpdd = xpdd;
-  KeInitializeDpc(&xpdd->ev_actions[Port].Dpc, EvtChn_DpcBounce, &xpdd->ev_actions[Port]);
   KeMemoryBarrier(); // make sure that the new service routine is only called once the context is set up
-  xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_DPC;
+  InterlockedExchange((volatile LONG *)&action->type, EVT_ACTION_TYPE_DPC);
 
   EvtChn_Unmask(Context, Port);
 
@@ -279,14 +278,14 @@ NTSTATUS
 EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
+  ev_action_t *action = &xpdd->ev_actions[Port];
 
   FUNCTION_ENTER();
-
-  if (xpdd->ev_actions[Port].type != EVT_ACTION_TYPE_EMPTY)
+  
+  if (InterlockedCompareExchange((volatile LONG *)&action->type, EVT_ACTION_TYPE_NEW, EVT_ACTION_TYPE_EMPTY) != EVT_ACTION_TYPE_EMPTY)
   {
-    xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_EMPTY;
-    KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
-    KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
+    KdPrint((__DRIVER_NAME " Handler for port %d already registered\n", Port));
+    return STATUS_UNSUCCESSFUL;
   }
 
   xpdd->ev_actions[Port].vector = vector;
@@ -306,21 +305,22 @@ NTSTATUS
 EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
+  ev_action_t *action = &xpdd->ev_actions[Port];
   int old_type;
   
   EvtChn_Mask(Context, Port);
-  old_type = xpdd->ev_actions[Port].type;
-  xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_EMPTY;
-  KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
-  xpdd->ev_actions[Port].ServiceRoutine = NULL;
-  xpdd->ev_actions[Port].ServiceContext = NULL;
-
-  if (old_type == EVT_ACTION_TYPE_DPC)
+  old_type = InterlockedExchange((volatile LONG *)&action->type, EVT_ACTION_TYPE_EMPTY);
+  
+  if (old_type == EVT_ACTION_TYPE_DPC || old_type == EVT_ACTION_TYPE_SUSPEND)
   {
     KeRemoveQueueDpc(&xpdd->ev_actions[Port].Dpc);
     KeFlushQueuedDpcs();
   }
   
+  KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
+  xpdd->ev_actions[Port].ServiceRoutine = NULL;
+  xpdd->ev_actions[Port].ServiceContext = NULL;
+
   return STATUS_SUCCESS;
 }
 
@@ -404,6 +404,7 @@ NTSTATUS
 EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 {
   ULONGLONG result;
+  ev_action_t *action;
   int i;
 
   FUNCTION_ENTER();
@@ -411,8 +412,10 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
   for (i = 0; i < NR_EVENTS; i++)
   {
     EvtChn_Mask(xpdd, i);
-    xpdd->ev_actions[i].type = EVT_ACTION_TYPE_EMPTY;
-    xpdd->ev_actions[i].count = 0;
+    action = &xpdd->ev_actions[i];
+    action->type = EVT_ACTION_TYPE_EMPTY;
+    action->count = 0;
+    KeInitializeDpc(&action->Dpc, EvtChn_DpcBounce, action);
   }
 
   for (i = 0; i < 8; i++)

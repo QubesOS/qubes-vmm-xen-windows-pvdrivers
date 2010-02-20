@@ -67,6 +67,7 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define EVT_ACTION_TYPE_DPC     2
 #define EVT_ACTION_TYPE_IRQ     3
 #define EVT_ACTION_TYPE_SUSPEND 4
+#define EVT_ACTION_TYPE_NEW     5 /* setup of event is in progress */
 
 #define XEN_PV_PRODUCT_NUMBER   0x0002
 #define XEN_PV_PRODUCT_BUILD    0x00000001
@@ -79,9 +80,11 @@ typedef struct _ev_action_t {
   CHAR description[128];
   ULONG type; /* EVT_ACTION_TYPE_* */
   KDPC Dpc;
+  ULONG port;
   ULONG vector;
   ULONG count;
   PVOID xpdd;
+  ULONG generation; /* increases each time the event is renewed */
 } ev_action_t;
 
 typedef struct _XENBUS_WATCH_RING
