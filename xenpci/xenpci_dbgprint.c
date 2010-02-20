@@ -82,6 +82,7 @@ XenPci_BugcheckCallback(PVOID buffer, ULONG length)
 }
 
 static BOOLEAN debug_port_enabled = FALSE;
+static volatile LONG debug_print_lock = 0;
 
 /* This appears to be called with interrupts disabled already, so no need to go to HIGH_LEVEL or anything like that */
 static void XenDbgPrint(PCHAR string, ULONG length)
@@ -89,10 +90,12 @@ static void XenDbgPrint(PCHAR string, ULONG length)
   ULONG i;
   //KIRQL old_irql = 0;
 
-  //KeRaiseIrql(HIGH_LEVEL, &old_irql);
+  while(InterlockedCompareExchange(&debug_print_lock, 1, 0) == 1)
+    KeStallExecutionProcessor(1);
   for (i = 0; i < length; i++)
     WRITE_PORT_UCHAR(XEN_IOPORT_LOG, string[i]);
-  //KeLowerIrql(old_irql);
+  /* release the lock */
+  InterlockedExchange(&debug_print_lock, 0);
 }
 
 VOID
