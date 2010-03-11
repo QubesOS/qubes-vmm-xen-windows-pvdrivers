@@ -62,11 +62,18 @@ typedef struct {
   UCHAR lun;
 } scsi_dev_t;
 
+#if 0
 #define SCSI_STATE_ENUM_PENDING     0
 #define SCSI_STATE_ENUM_IN_PROGRESS 1
 #define SCSI_STATE_ENUM_COMPLETE    2
 
 #define XENSCSI_MAX_ENUM_TIME 5
+#endif
+
+#define SHARED_PAUSED_SCSIPORT_UNPAUSED 0
+#define SHARED_PAUSED_PASSIVE_PAUSED    1
+#define SHARED_PAUSED_SCSIPORT_PAUSED   2
+#define SHARED_PAUSED_PASSIVE_UNPAUSED  3
 
 struct
 {
@@ -85,11 +92,12 @@ struct
   XENPCI_VECTORS vectors;
   
   LIST_ENTRY dev_list_head;
-  
-  //STOR_DPC dpc;
-  
-  BOOLEAN pause_req;
-  BOOLEAN pause_ack;
+    
+  //BOOLEAN pause_req;
+  //BOOLEAN pause_ack;
+  volatile LONG shared_paused;
+  ULONG scsiport_paused; /* scsiport code has acknowledged pause */
+  ULONG bus_changes[8];
 } typedef XENSCSI_DEVICE_DATA, *PXENSCSI_DEVICE_DATA;
 
 struct {

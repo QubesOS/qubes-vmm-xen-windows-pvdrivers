@@ -69,6 +69,40 @@ put_grant_on_freelist(PXENSCSI_DEVICE_DATA xsdd, grant_ref_t grant)
   xsdd->grant_free++;
 }
 
+static VOID
+XenScsi_CheckNewDevice(PVOID DeviceExtension)
+{
+  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
+
+  //FUNCTION_ENTER();
+  
+  if (InterlockedCompareExchange(&xsdd->shared_paused, SHARED_PAUSED_SCSIPORT_PAUSED, SHARED_PAUSED_PASSIVE_PAUSED) == SHARED_PAUSED_PASSIVE_PAUSED)
+  {
+    KdPrint((__DRIVER_NAME "     scsiport paused\n"));
+    xsdd->scsiport_paused = TRUE;
+  }
+  if (InterlockedCompareExchange(&xsdd->shared_paused, SHARED_PAUSED_SCSIPORT_UNPAUSED, SHARED_PAUSED_PASSIVE_UNPAUSED) == SHARED_PAUSED_PASSIVE_UNPAUSED)
+  {
+    int i;
+    KdPrint((__DRIVER_NAME "     scsiport unpaused\n"));
+    xsdd->scsiport_paused = FALSE;
+    for (i = 0; i < 8; i++)
+    {  
+      if (xsdd->bus_changes[i])
+      {
+        KdPrint((__DRIVER_NAME "     Sending BusChangeDetected for channel %d\n", i));
+        ScsiPortNotification(BusChangeDetected, DeviceExtension, i);
+      }
+    }
+    ScsiPortNotification(NextRequest, DeviceExtension);
+  }
+  if (xsdd->scsiport_paused) /* check more often if we are paused */
+    ScsiPortNotification(RequestTimerCall, DeviceExtension, XenScsi_CheckNewDevice, 100 * 1000); /* 100ms second from the last check */
+  else
+    ScsiPortNotification(RequestTimerCall, DeviceExtension, XenScsi_CheckNewDevice, 1 * 1000 * 1000); /* 1 second from the last check */
+  //FUNCTION_EXIT();
+}
+
 static BOOLEAN
 XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
 {
@@ -81,15 +115,8 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
   vscsiif_shadow_t *shadow;
   BOOLEAN last_interrupt = FALSE;
 
-  if (xsdd->pause_ack != xsdd->pause_req)
-  {
-    xsdd->pause_ack = xsdd->pause_req;
-    KdPrint((__DRIVER_NAME "     Pause state change to %d\n", xsdd->pause_ack));
-    if (!xsdd->pause_ack)
-    {
-      ScsiPortNotification(NextRequest, DeviceExtension);
-    }
-  }
+  XenScsi_CheckNewDevice(DeviceExtension);
+
   if (!dump_mode && !xsdd->vectors.EvtChn_AckEvent(xsdd->vectors.context, xsdd->event_channel, &last_interrupt))
   {
     return FALSE;
@@ -165,7 +192,7 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
       //remaining = Srb->DataTransferLength;
       for (j = 0; j < shadow->req.nr_segments; j++)
       {
-        xsdd->vectors.GntTbl_EndAccess(xsdd->vectors.context, shadow->req.seg[j].gref, TRUE);
+        xsdd->vectors.GntTbl_EndAccess(xsdd->vectors.context, shadow->req.seg[j].gref, TRUE, (ULONG)'XPDO');
         put_grant_on_freelist(xsdd, shadow->req.seg[j].gref);
         shadow->req.seg[j].gref = 0;
       }
@@ -180,7 +207,7 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
 
       put_shadow_on_freelist(xsdd, shadow);
       ScsiPortNotification(RequestComplete, xsdd, Srb);
-      if (!xsdd->pause_ack)
+      if (!xsdd->scsiport_paused)
         ScsiPortNotification(NextRequest, DeviceExtension);
     }
 
@@ -227,27 +254,6 @@ XenScsi_ParseBackendDevice(scsi_dev_t *dev, PCHAR value)
     dev->host, dev->channel, dev->id, dev->lun));  
 }
 
-static VOID
-XenScsi_WaitPause(PVOID DeviceExtension)
-{
-  //PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
-  //LARGE_INTEGER wait_time;
-
-  UNREFERENCED_PARAMETER(DeviceExtension);
-  FUNCTION_ENTER();
-#if 0
-  xsdd->vectors.EvtChn_Notify(xsdd->vectors.context, xsdd->device_state->pdo_event_channel);
-  while (xsdd->pause_ack != xsdd->pause_req)
-  {
-    KdPrint((__DRIVER_NAME "     Waiting...\n"));
-    wait_time.QuadPart = -1 * 1000 * 10; /* 1ms */
-    KeDelayExecutionThread(KernelMode, FALSE, &wait_time);
-    xsdd->vectors.EvtChn_Notify(xsdd->vectors.context, xsdd->device_state->pdo_event_channel);
-  }  
-#endif
-  FUNCTION_EXIT();
-}
-
 /* CALLED AT PASSIVE LEVEL */
 /* If Initialize fails then the watch still gets called but the waits will never be acked... */
 static VOID
@@ -262,14 +268,28 @@ XenScsi_DevWatch(PCHAR path, PVOID DeviceExtension)
   ULONG i;
   ULONG dev_no;
   ULONG state;
-  BOOLEAN changes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+  LARGE_INTEGER wait_time;
+  #if DBG
+  ULONG oldpause;
+  #endif
 
   UNREFERENCED_PARAMETER(path);
   
   /* this can only be called from a watch and so is always serialised */
   FUNCTION_ENTER();
-  xsdd->pause_req = TRUE;
-  XenScsi_WaitPause(DeviceExtension);
+
+  #if DBG
+  oldpause =
+  #endif
+    InterlockedExchange(&xsdd->shared_paused, SHARED_PAUSED_PASSIVE_PAUSED);
+  ASSERT(oldpause == SHARED_PAUSED_SCSIPORT_UNPAUSED);
+  
+  while (InterlockedCompareExchange(&xsdd->shared_paused, SHARED_PAUSED_SCSIPORT_PAUSED, SHARED_PAUSED_SCSIPORT_PAUSED) != SHARED_PAUSED_SCSIPORT_PAUSED)
+  {
+    KdPrint((__DRIVER_NAME "     Waiting for pause...\n"));
+    wait_time.QuadPart = -100 * 1000 * 10; /* 100ms */
+    KeDelayExecutionThread(KernelMode, FALSE, &wait_time);
+  }
   
   KdPrint((__DRIVER_NAME "     Watch triggered on %s\n", path));
   RtlStringCbCopyA(tmp_path, ARRAY_SIZE(tmp_path), xsdd->vectors.backend_path);
@@ -348,7 +368,7 @@ XenScsi_DevWatch(PCHAR path, PVOID DeviceExtension)
         continue;
       }
       KdPrint((__DRIVER_NAME "     setting changes[%d]\n", dev->channel));
-      changes[dev->channel] = TRUE;
+      xsdd->bus_changes[dev->channel] = 1;
       InsertTailList(&xsdd->dev_list_head, (PLIST_ENTRY)dev);
     }
     else
@@ -363,17 +383,18 @@ XenScsi_DevWatch(PCHAR path, PVOID DeviceExtension)
   }
   XenPci_FreeMem(devices);
 
-  for (i = 0; i < 8; i++)
-  {  
-    if (changes[i])
-    {
-      KdPrint((__DRIVER_NAME "     Sending BusChangeDetected for channel %d\n", i));
-      ScsiPortNotification(BusChangeDetected, DeviceExtension, i);
-    }
-  }
+  #if DBG
+  oldpause =
+  #endif
+    InterlockedExchange(&xsdd->shared_paused, SHARED_PAUSED_PASSIVE_UNPAUSED);
+  ASSERT(oldpause == SHARED_PAUSED_SCSIPORT_PAUSED);
 
-  xsdd->pause_req = FALSE;
-  XenScsi_WaitPause(DeviceExtension);
+  while (InterlockedCompareExchange(&xsdd->shared_paused, SHARED_PAUSED_SCSIPORT_UNPAUSED, SHARED_PAUSED_SCSIPORT_UNPAUSED) != SHARED_PAUSED_SCSIPORT_UNPAUSED)
+  {
+    KdPrint((__DRIVER_NAME "     Waiting for unpause...\n"));
+    wait_time.QuadPart = -100 * 1000 * 10; /* 100ms */
+    KeDelayExecutionThread(KernelMode, FALSE, &wait_time);
+  }
   KdPrint((__DRIVER_NAME "     Unpaused\n"));
 
   FUNCTION_EXIT();
@@ -399,8 +420,7 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));  
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
   
-  xsdd->pause_req = TRUE;
-  xsdd->pause_ack = TRUE;
+  xsdd->scsiport_paused = TRUE; /* wait for initial scan */
 
   KdPrint((__DRIVER_NAME "     BusInterruptLevel = %d\n", ConfigInfo->BusInterruptLevel));
   KdPrint((__DRIVER_NAME "     BusInterruptVector = %03x\n", ConfigInfo->BusInterruptVector));
@@ -543,10 +563,12 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
 static BOOLEAN
 XenScsi_HwScsiInitialize(PVOID DeviceExtension)
 {
-//  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
+  PXENSCSI_DEVICE_DATA xsdd = DeviceExtension;
   UNREFERENCED_PARAMETER(DeviceExtension);
 
   FUNCTION_ENTER();
+  xsdd->shared_paused = SHARED_PAUSED_SCSIPORT_UNPAUSED;
+  ScsiPortNotification(RequestTimerCall, DeviceExtension, XenScsi_CheckNewDevice, 1 * 1000 * 1000); /* 1 second */
   
   FUNCTION_EXIT();
 
@@ -616,7 +638,7 @@ XenScsi_PutSrbOnRing(PXENSCSI_DEVICE_DATA xsdd, PSCSI_REQUEST_BLOCK Srb)
     {
       return; /* better than crashing... */
     }
-    xsdd->vectors.GntTbl_GrantAccess(xsdd->vectors.context, 0, (ULONG)pfn, 0, shadow->req.seg[shadow->req.nr_segments].gref);
+    xsdd->vectors.GntTbl_GrantAccess(xsdd->vectors.context, 0, (ULONG)pfn, 0, shadow->req.seg[shadow->req.nr_segments].gref, (ULONG)'XPDO');
     shadow->req.seg[shadow->req.nr_segments].offset = (USHORT)(physical_address.LowPart & (PAGE_SIZE - 1));
     shadow->req.seg[shadow->req.nr_segments].length = (USHORT)min(PAGE_SIZE - (ULONG)shadow->req.seg[shadow->req.nr_segments].offset, remaining);
     remaining -= (ULONG)shadow->req.seg[shadow->req.nr_segments].length;
@@ -643,18 +665,14 @@ XenScsi_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
 
   //FUNCTION_ENTER();
   
-  if (xsdd->pause_ack != xsdd->pause_req)
-  {
-    xsdd->pause_ack = xsdd->pause_req;
-  }
+  XenScsi_CheckNewDevice(DeviceExtension);
 
-  if (xsdd->pause_ack)
+  if (xsdd->scsiport_paused)
   {
-    FUNCTION_ENTER();
     KdPrint((__DRIVER_NAME "     Busy\n"));
     Srb->SrbStatus = SRB_STATUS_BUSY;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
-    FUNCTION_EXIT();
+    //FUNCTION_EXIT();
     return TRUE;
   }
 
@@ -669,7 +687,7 @@ XenScsi_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   {
     Srb->SrbStatus = SRB_STATUS_NO_DEVICE;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
-    //KdPrint((__DRIVER_NAME "     Out of bounds\n"));
+    KdPrint((__DRIVER_NAME "     Out of bounds\n"));
     ScsiPortNotification(NextRequest, DeviceExtension);
     //FUNCTION_EXIT();
     return TRUE;
