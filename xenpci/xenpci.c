@@ -459,7 +459,7 @@ XenPci_FixLoadOrder()
     WdfObjectDelete(old_load_order);
     return;
   }
-  KdPrint((__DRIVER_NAME "     Current Order:\n"));        
+  //KdPrint((__DRIVER_NAME "     Current Order:\n"));        
   for (i = 0; i < WdfCollectionGetCount(old_load_order); i++)
   {
     WDFOBJECT ws = WdfCollectionGetItem(old_load_order, i);
@@ -473,7 +473,7 @@ XenPci_FixLoadOrder()
       xenpci_group_index = (ULONG)i;         
     if (!RtlCompareUnicodeString(&val, &boot_bus_extender_name, TRUE))
       boot_bus_extender_index = (ULONG)i;         
-    KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
+    //KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
   }
   KdPrint((__DRIVER_NAME "     dummy_group_index = %d\n", dummy_group_index));
   KdPrint((__DRIVER_NAME "     wdf_load_group_index = %d\n", wdf_load_group_index));
@@ -523,13 +523,13 @@ XenPci_FixLoadOrder()
     WdfCollectionAdd(new_load_order, ws);
   }
   WdfRegistryAssignMultiString(sgo_key, &list_name, new_load_order);
-  KdPrint((__DRIVER_NAME "     New Order:\n"));        
+  //KdPrint((__DRIVER_NAME "     New Order:\n"));        
   for (i = 0; i < WdfCollectionGetCount(new_load_order); i++)
   {
     WDFOBJECT ws = WdfCollectionGetItem(new_load_order, i);
     UNICODE_STRING val;
     WdfStringGetUnicodeString(ws, &val);
-    KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
+    //KdPrint((__DRIVER_NAME "       %wZ\n", &val));        
   }
   WdfObjectDelete(new_load_order);
   WdfObjectDelete(old_load_order);
@@ -568,7 +568,9 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     KdPrint((__DRIVER_NAME "     AuxKlibInitialize failed %08x - expect a crash soon\n", status));
   }
   
+  #if DBG
   XenPci_HookDbgPrint();
+  #endif
 
   XenPci_FixLoadOrder();
 
