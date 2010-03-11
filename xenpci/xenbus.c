@@ -235,6 +235,8 @@ XenBus_WatchWorkItemProc(WDFWORKITEM workitem)
   PCHAR path;
   int index;
   PXENBUS_WATCH_ENTRY entry;
+  PXENBUS_WATCH_CALLBACK service_routine;
+  PVOID service_context;  
 
   //FUNCTION_ENTER();
   msg = WdfObjectGetTypedContext(workitem, xsd_sockmsg_t);
@@ -244,6 +246,7 @@ XenBus_WatchWorkItemProc(WDFWORKITEM workitem)
   {
     KdPrint((__DRIVER_NAME "     Watch index %d out of range\n", index));
     WdfObjectDelete(workitem);
+    //FUNCTION_ENTER();
     return;
   }
   ExAcquireFastMutex(&xpdd->xb_watch_mutex);
@@ -253,13 +256,16 @@ XenBus_WatchWorkItemProc(WDFWORKITEM workitem)
     KdPrint((__DRIVER_NAME "     No watch for index %d\n", index));
     ExReleaseFastMutex(&xpdd->xb_watch_mutex);
     WdfObjectDelete(workitem);
+    //FUNCTION_ENTER();
     return;
   }
   entry->Count++;
-  entry->ServiceRoutine(path, entry->ServiceContext);
+  service_routine = entry->ServiceRoutine;
+  service_context = entry->ServiceContext;
+  service_routine(path, service_context);
   ExReleaseFastMutex(&xpdd->xb_watch_mutex);
   WdfObjectDelete(workitem);
-  //FUNCTION_ENTER();
+  //FUNCTION_EXIT();
 }    
 
 /* Called at DISPATCH_LEVEL */
@@ -284,7 +290,7 @@ XenBus_Dpc(PVOID ServiceContext)
     {
       if (xpdd->xen_store_interface->rsp_prod - xpdd->xen_store_interface->rsp_cons < sizeof(xsd_sockmsg_t))
       {
-        KdPrint((__DRIVER_NAME " +++ Message incomplete (not even a full header)\n"));
+        //KdPrint((__DRIVER_NAME " +++ Message incomplete (not even a full header)\n"));
         break;
       }
       KeMemoryBarrier();
@@ -308,7 +314,7 @@ XenBus_Dpc(PVOID ServiceContext)
 
     if (xpdd->xb_msg_offset < sizeof(xsd_sockmsg_t) + xpdd->xb_msg->len)
     {
-      KdPrint((__DRIVER_NAME " +++ Message incomplete (header but not full body)\n"));
+      //KdPrint((__DRIVER_NAME " +++ Message incomplete (header but not full body)\n"));
       EvtChn_Notify(xpdd, xpdd->xen_store_evtchn); /* there is room on the ring now */
       break;
     }

@@ -20,19 +20,29 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xenpci.h"
 
 VOID
-GntTbl_PutRef(PVOID Context, grant_ref_t ref)
+GntTbl_PutRef(PVOID Context, grant_ref_t ref, ULONG tag)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 
+  UNREFERENCED_PARAMETER(tag);
+  
+#if DBG
+  if (xpdd->gnttab_tag[ref] != tag)
+    KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s doesn't match %.4s\n", ref, (PUCHAR)&tag, (PUCHAR)&xpdd->gnttab_tag[ref]));
+  ASSERT(xpdd->gnttab_tag[ref] == tag);
+  xpdd->gnttab_tag[ref] = 0;
+#endif
   stack_push(xpdd->gnttab_ss, (PVOID)ref);
 }
 
 grant_ref_t
-GntTbl_GetRef(PVOID Context)
+GntTbl_GetRef(PVOID Context, ULONG tag)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
   unsigned int ref;
   PVOID ptr_ref;
+
+  UNREFERENCED_PARAMETER(tag);
 
   if (!stack_pop(xpdd->gnttab_ss, &ptr_ref))
   {
@@ -40,6 +50,12 @@ GntTbl_GetRef(PVOID Context)
     return INVALID_GRANT_REF;
   }
   ref = (grant_ref_t)(ULONG_PTR)ptr_ref;
+#if DBG
+  if (xpdd->gnttab_tag[ref])
+    KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s in use by %.4s\n", ref, (PUCHAR)&tag, (PUCHAR)&xpdd->gnttab_tag[ref]));
+  ASSERT(!xpdd->gnttab_tag[ref]);
+  xpdd->gnttab_tag[ref] = tag;
+#endif
 
   return ref;
 }
@@ -72,31 +88,36 @@ GntTbl_GrantAccess(
   domid_t domid,
   uint32_t frame, // xen api limits pfn to 32bit, so no guests over 8TB
   int readonly,
-  grant_ref_t ref)
+  grant_ref_t ref,
+  ULONG tag)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
 
   //KdPrint((__DRIVER_NAME " --> GntTbl_GrantAccess\n"));
 
-  //KdPrint((__DRIVER_NAME "     Granting access to frame %08x\n", frame));
-
   if (ref == INVALID_GRANT_REF)
-    ref = GntTbl_GetRef(Context);
+    ref = GntTbl_GetRef(Context, tag);
   if (ref == INVALID_GRANT_REF)
     return ref;
+
+  ASSERT(xpdd->gnttab_tag[ref] == tag);
   
   xpdd->gnttab_table[ref].frame = frame;
   xpdd->gnttab_table[ref].domid = domid;
 
   if (xpdd->gnttab_table[ref].flags)
-    KdPrint((__DRIVER_NAME "     WARNING: Attempting to re-use grant entry that is already in use!\n"));
+  {
+#if DBG
+    KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s still in use by %.4s\n", ref, (PUCHAR)&tag, (PUCHAR)&xpdd->gnttab_tag[ref]));
+#else
+    KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s still in use\n", ref, (PUCHAR)&tag));
+#endif
+  }
   ASSERT(!xpdd->gnttab_table[ref].flags);
 
   KeMemoryBarrier();
   readonly *= GTF_readonly;
   xpdd->gnttab_table[ref].flags = GTF_permit_access | (uint16_t)readonly;
-
-  //KdPrint((__DRIVER_NAME " <-- GntTbl_GrantAccess (ref = %d)\n", ref));
 
   return ref;
 }
@@ -105,27 +126,27 @@ BOOLEAN
 GntTbl_EndAccess(
   PVOID Context,
   grant_ref_t ref,
-  BOOLEAN keepref)
+  BOOLEAN keepref,
+  ULONG tag)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
   unsigned short flags, nflags;
 
-  //KdPrint((__DRIVER_NAME " --> GntTbl_EndAccess\n"));
-
   ASSERT(ref != INVALID_GRANT_REF);
+  ASSERT(xpdd->gnttab_tag[ref] == tag);
   
   nflags = xpdd->gnttab_table[ref].flags;
   do {
     if ((flags = nflags) & (GTF_reading|GTF_writing))
     {
-      KdPrint((__DRIVER_NAME "     WARNING: g.e. %d still in use!\n", ref));
+      KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s still use\n", ref, (PUCHAR)&tag));
       return FALSE;
     }
   } while ((nflags = InterlockedCompareExchange16(
     (volatile SHORT *)&xpdd->gnttab_table[ref].flags, 0, flags)) != flags);
 
   if (!keepref)
-    GntTbl_PutRef(Context, ref);
+    GntTbl_PutRef(Context, ref, tag);
   //KdPrint((__DRIVER_NAME " <-- GntTbl_EndAccess\n"));
   return TRUE;
 }
@@ -152,6 +173,8 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
 {
   int i;
   int grant_entries;
+
+  ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
   
   FUNCTION_ENTER();
   
@@ -159,8 +182,10 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
   KdPrint((__DRIVER_NAME "     grant_frames = %d\n", xpdd->grant_frames));
   grant_entries = min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
   KdPrint((__DRIVER_NAME "     grant_entries = %d\n", grant_entries));
-  
-  ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+  #if DBG
+  xpdd->gnttab_tag = ExAllocatePoolWithTag(NonPagedPool, grant_entries * sizeof(ULONG), XENPCI_POOL_TAG);
+  RtlZeroMemory(xpdd->gnttab_tag, grant_entries * sizeof(ULONG));
+  #endif
   xpdd->gnttab_table_copy = ExAllocatePoolWithTag(NonPagedPool, xpdd->grant_frames * PAGE_SIZE, XENPCI_POOL_TAG);
   ASSERT(xpdd->gnttab_table_copy); // lazy
   xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd, PAGE_SIZE * xpdd->grant_frames);

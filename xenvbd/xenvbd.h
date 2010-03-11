@@ -137,8 +137,7 @@ struct
   XENPCI_VECTORS vectors;
   PXENPCI_DEVICE_STATE device_state;
   LIST_ENTRY srb_list;
-  ULONG next_request; // debug - true if nextrequest has been sent
-  //grant_ref_t dump_grant_refs[BLKIF_MAX_SEGMENTS_PER_REQUEST - 1];
+  grant_ref_t dump_grant_refs[BLKIF_MAX_SEGMENTS_PER_REQUEST];
   BOOLEAN aligned_buffer_in_use;
   PVOID aligned_buffer;
   UCHAR aligned_buffer_data[(BLKIF_MAX_SEGMENTS_PER_REQUEST + 1) * PAGE_SIZE - 1];

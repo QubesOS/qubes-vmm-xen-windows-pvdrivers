@@ -52,7 +52,7 @@ XenNet_PutCbOnRing(struct xennet_info *xi, PVOID coalesce_buf, ULONG length, gra
   ASSERT(xi->tx_shadows[tx->id].gref == INVALID_GRANT_REF);
   ASSERT(!xi->tx_shadows[tx->id].cb);
   xi->tx_shadows[tx->id].cb = coalesce_buf;
-  tx->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0, (ULONG)(MmGetPhysicalAddress(coalesce_buf).QuadPart >> PAGE_SHIFT), FALSE, gref);
+  tx->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0, (ULONG)(MmGetPhysicalAddress(coalesce_buf).QuadPart >> PAGE_SHIFT), FALSE, gref, (ULONG)'XNTX');
   xi->tx_shadows[tx->id].gref = tx->gref;
   tx->offset = 0;
   tx->size = (USHORT)length;
@@ -88,7 +88,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   
   //FUNCTION_ENTER();
 
-  gref = xi->vectors.GntTbl_GetRef(xi->vectors.context);
+  gref = xi->vectors.GntTbl_GetRef(xi->vectors.context, (ULONG)'XNTX');
   if (gref == INVALID_GRANT_REF)
   {
     KdPrint((__DRIVER_NAME "     out of grefs\n"));
@@ -97,7 +97,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   coalesce_buf = NdisAllocateFromNPagedLookasideList(&xi->tx_lookaside_list);
   if (!coalesce_buf)
   {
-    xi->vectors.GntTbl_PutRef(xi->vectors.context, gref);
+    xi->vectors.GntTbl_PutRef(xi->vectors.context, gref, (ULONG)'XNTX');
     KdPrint((__DRIVER_NAME "     out of memory\n"));
     return FALSE;
   }
@@ -139,7 +139,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
   /* if we have enough space on the ring then we have enough id's so no need to check for that */
   if (xi->tx_ring_free < frags + 1)
   {
-    xi->vectors.GntTbl_PutRef(xi->vectors.context, gref);
+    xi->vectors.GntTbl_PutRef(xi->vectors.context, gref, (ULONG)'XNTX');
     NdisFreeToNPagedLookasideList(&xi->tx_lookaside_list, coalesce_buf);
     //KdPrint((__DRIVER_NAME "     Full on send - ring full\n"));
     return FALSE;
@@ -276,7 +276,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       PVOID va;
       if (!coalesce_buf)
       {
-        gref = xi->vectors.GntTbl_GetRef(xi->vectors.context);
+        gref = xi->vectors.GntTbl_GetRef(xi->vectors.context, (ULONG)'XNTX');
         if (gref == INVALID_GRANT_REF)
         {
           KdPrint((__DRIVER_NAME "     out of grefs - partial send\n"));
@@ -285,7 +285,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
         coalesce_buf = NdisAllocateFromNPagedLookasideList(&xi->tx_lookaside_list);
         if (!coalesce_buf)
         {
-          xi->vectors.GntTbl_PutRef(xi->vectors.context, gref);
+          xi->vectors.GntTbl_PutRef(xi->vectors.context, gref, (ULONG)'XNTX');
           KdPrint((__DRIVER_NAME "     out of memory - partial send\n"));
           break;
         }
@@ -331,7 +331,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
     {
       ULONG offset;
       
-      gref = xi->vectors.GntTbl_GetRef(xi->vectors.context);
+      gref = xi->vectors.GntTbl_GetRef(xi->vectors.context, (ULONG)'XNTX');
       if (gref == INVALID_GRANT_REF)
       {
         KdPrint((__DRIVER_NAME "     out of grefs - partial send\n"));
@@ -345,7 +345,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       offset = MmGetMdlByteOffset(pi.curr_buffer) + pi.curr_mdl_offset;
       pfn = MmGetMdlPfnArray(pi.curr_buffer)[offset >> PAGE_SHIFT];
       txN->offset = (USHORT)offset & (PAGE_SIZE - 1);
-      txN->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0, (ULONG)pfn, FALSE, gref);
+      txN->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0, (ULONG)pfn, FALSE, gref, (ULONG)'XNTX');
       ASSERT(xi->tx_shadows[txN->id].gref == INVALID_GRANT_REF);
       xi->tx_shadows[txN->id].gref = txN->gref;
       //ASSERT(sg->Elements[sg_element].Length > sg_offset);
@@ -432,7 +432,8 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 
   //FUNCTION_ENTER();
 
-  ASSERT(xi->connected);
+  if (!xi->connected)
+    return; /* a delayed DPC could let this come through... just do nothing */
   ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
 
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
@@ -473,7 +474,7 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
       if (shadow->gref != INVALID_GRANT_REF)
       {
         xi->vectors.GntTbl_EndAccess(xi->vectors.context,
-          shadow->gref, FALSE);
+          shadow->gref, FALSE, (ULONG)'XNTX');
         shadow->gref = INVALID_GRANT_REF;
       }
       

@@ -63,7 +63,7 @@ get_shadow_from_freelist(PXENVBD_DEVICE_DATA xvdd)
 {
   if (xvdd->shadow_free == 0)
   {
-    KdPrint((__DRIVER_NAME "     No more shadow entries\n"));    
+    KdPrint((__DRIVER_NAME "     No more shadow entries\n"));
     return NULL;
   }
   xvdd->shadow_free--;
@@ -228,7 +228,7 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       break;
     case XEN_INIT_TYPE_GRANT_ENTRIES:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - entries = %d\n", PtrToUlong(setting)));
-      //memcpy(xvdd->dump_grant_refs, value, PtrToUlong(setting) * sizeof(grant_ref_t));
+      memcpy(xvdd->dump_grant_refs, value, PtrToUlong(setting) * sizeof(grant_ref_t));
       break;
     case XEN_INIT_TYPE_QEMU_HIDE_FLAGS:
       qemu_hide_flags_value = PtrToUlong(value);
@@ -362,7 +362,6 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
   grant_ref_t gref;
   PUCHAR ptr;
   int notify;
-  
 
   //FUNCTION_ENTER();
 
@@ -419,15 +418,24 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
     {
       PHYSICAL_ADDRESS physical_address = MmGetPhysicalAddress(ptr);
       
-      gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0,
-                (ULONG)(physical_address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF);
+      if (dump_mode)
+      {
+        gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0,
+                 (ULONG)(physical_address.QuadPart >> PAGE_SHIFT), FALSE,
+                 xvdd->dump_grant_refs[shadow->req.nr_segments], (ULONG)'XPDO');
+      }
+      else
+      {
+        gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0,
+                 (ULONG)(physical_address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF, (ULONG)'XVBD');
+      }
       if (gref == INVALID_GRANT_REF)
       {
         ULONG i;
         for (i = 0; i < shadow->req.nr_segments; i++)
         {
           xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
-            shadow->req.seg[i].gref, FALSE);
+            shadow->req.seg[i].gref, FALSE, (ULONG)'XVBD');
         }
         if (shadow->aligned_buffer_in_use)
         {
@@ -911,14 +919,17 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         KdPrint((__DRIVER_NAME "     premature IRQ\n"));
         break;
       case RING_DETECT_STATE_DETECT1:
-        KdPrint((__DRIVER_NAME "     ring_detect_state = %d, operation = %x, id = %lx, status = %d\n", xvdd->ring_detect_state, rep->operation, rep->id, rep->status));
+        KdPrint((__DRIVER_NAME "     ring_detect_state = %d, index = %d, operation = %x, id = %lx, status = %d\n", xvdd->ring_detect_state, i, rep->operation, rep->id, rep->status));
+        KdPrint((__DRIVER_NAME "     req_prod = %d, rsp_prod = %d, rsp_cons = %d\n", xvdd->sring->req_prod, xvdd->sring->rsp_prod, xvdd->ring.rsp_cons));
         xvdd->ring_detect_state = RING_DETECT_STATE_DETECT2;
         break;
       case RING_DETECT_STATE_DETECT2:
-        KdPrint((__DRIVER_NAME "     ring_detect_state = %d, operation = %x, id = %lx, status = %d\n", xvdd->ring_detect_state, rep->operation, rep->id, rep->status));
+        KdPrint((__DRIVER_NAME "     ring_detect_state = %d, index = %d, operation = %x, id = %lx, status = %d\n", xvdd->ring_detect_state, i, rep->operation, rep->id, rep->status));
+        KdPrint((__DRIVER_NAME "     req_prod = %d, rsp_prod = %d, rsp_cons = %d\n", xvdd->sring->req_prod, xvdd->sring->rsp_prod, xvdd->ring.rsp_cons));
         *xvdd->event_channel_ptr |= 0x80000000;
         if (rep->operation != 0xff)
         {
+          KdPrint((__DRIVER_NAME "     switching to 'other' ring size\n"));
           xvdd->ring.nr_ents = BLK_OTHER_RING_SIZE;
           xvdd->use_other = TRUE;
           *xvdd->event_channel_ptr |= 0x40000000;
@@ -979,8 +990,16 @@ KdPrint((__DRIVER_NAME "     Completed request while aligned buffer in use\n"));
 #endif
         for (j = 0; j < shadow->req.nr_segments; j++)
         {
-          xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
-            shadow->req.seg[j].gref, FALSE);
+          if (dump_mode)
+          {
+            xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
+              shadow->req.seg[j].gref, TRUE, (ULONG)'XPDO');
+          }
+          else
+          {
+            xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
+              shadow->req.seg[j].gref, FALSE, (ULONG)'XVBD');
+          }
         }
         shadow->aligned_buffer_in_use = FALSE;
         shadow->srb = NULL;
@@ -1031,12 +1050,6 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
   PXENVBD_DEVICE_DATA xvdd = DeviceExtension;
   ULONG data_transfer_length = srb->DataTransferLength;
 
-
-if (xvdd->aligned_buffer_in_use)
-{
-  KdPrint((__DRIVER_NAME "     New request while aligned buffer in use - Function = %x, next_request = %d\n", srb->Function, xvdd->next_request));
-}
-
   if (xvdd->inactive)
   {
     KdPrint((__DRIVER_NAME "     Inactive srb->Function = %08X\n", srb->Function));
@@ -1077,11 +1090,6 @@ if (xvdd->aligned_buffer_in_use)
   {
   case SRB_FUNCTION_EXECUTE_SCSI:
     cdb = (PCDB)srb->Cdb;
-
-if (xvdd->aligned_buffer_in_use)
-{
-  KdPrint((__DRIVER_NAME "     New request while aligned buffer in use - OP = %x, next_request = %d\n", cdb->CDB6GENERIC.OperationCode, xvdd->next_request));
-}
 
     switch(cdb->CDB6GENERIC.OperationCode)
     {
@@ -1506,7 +1514,6 @@ XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Con
     break;
   case ScsiStopAdapter:
     KdPrint((__DRIVER_NAME "     ScsiStopAdapter\n"));
-    //KdBreakPoint();
     /* I don't think we actually have to do anything here... xenpci cleans up all the xenbus stuff for us */
     break;
   case ScsiRestartAdapter:
@@ -1571,7 +1578,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mode", NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sectors", NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sector-size", NULL, NULL);
-    //ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, NULL, ULongToPtr(BLKIF_MAX_SEGMENTS_PER_REQUEST), NULL); /* for use in crash dump */
+    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, NULL, ULongToPtr(BLKIF_MAX_SEGMENTS_PER_REQUEST), NULL); /* for use in crash dump */
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
 
     InitializeObjectAttributes(&oa, RegistryPath, OBJ_CASE_INSENSITIVE, NULL, NULL);

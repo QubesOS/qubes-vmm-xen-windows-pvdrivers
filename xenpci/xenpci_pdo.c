@@ -340,43 +340,43 @@ XenPci_EvtChn_Sync(PVOID context, PXEN_EVTCHN_SYNC_ROUTINE sync_routine, PVOID s
 }
 
 static grant_ref_t
-XenPci_GntTbl_GrantAccess(PVOID context, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref)
+XenPci_GntTbl_GrantAccess(PVOID context, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref, ULONG tag)
 {
   WDFDEVICE device = context;
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
   
-  return GntTbl_GrantAccess(xpdd, domid, frame, readonly, ref);
+  return GntTbl_GrantAccess(xpdd, domid, frame, readonly, ref, tag);
 }
 
 static BOOLEAN
-XenPci_GntTbl_EndAccess(PVOID context, grant_ref_t ref, BOOLEAN keepref)
+XenPci_GntTbl_EndAccess(PVOID context, grant_ref_t ref, BOOLEAN keepref, ULONG tag)
 {
   WDFDEVICE device = context;
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
   
-  return GntTbl_EndAccess(xpdd, ref, keepref);
+  return GntTbl_EndAccess(xpdd, ref, keepref, tag);
 }
 
 static VOID
-XenPci_GntTbl_PutRef(PVOID context, grant_ref_t ref)
+XenPci_GntTbl_PutRef(PVOID context, grant_ref_t ref, ULONG tag)
 {
   WDFDEVICE device = context;
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
   
-  GntTbl_PutRef(xpdd, ref);
+  GntTbl_PutRef(xpdd, ref, tag);
 }
 
 static grant_ref_t
-XenPci_GntTbl_GetRef(PVOID context)
+XenPci_GntTbl_GetRef(PVOID context, ULONG tag)
 {
   WDFDEVICE device = context;
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
   
-  return GntTbl_GetRef(xpdd);
+  return GntTbl_GetRef(xpdd, tag);
 }
 
 PCHAR
@@ -564,7 +564,7 @@ XenPci_XenShutdownDevice(PVOID context)
         break;
       case XEN_INIT_TYPE_GRANT_ENTRIES:
         for (i = 0; i < PtrToUlong(setting); i++)
-          GntTbl_EndAccess(xpdd, ((grant_ref_t *)value)[i], FALSE);
+          GntTbl_EndAccess(xpdd, ((grant_ref_t *)value)[i], FALSE, (ULONG)'XPDO');
         break;
       }
     }
@@ -679,7 +679,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
         //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, address));
         SHARED_RING_INIT((struct dummy_sring *)address);
         if ((gref = GntTbl_GrantAccess(
-          xpdd, 0, (ULONG)*MmGetMdlPfnArray(ring), FALSE, INVALID_GRANT_REF)) != INVALID_GRANT_REF)
+          xpdd, 0, (ULONG)*MmGetMdlPfnArray(ring), FALSE, INVALID_GRANT_REF, (ULONG)'XPDO')) != INVALID_GRANT_REF)
         {
           RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
           XenBus_Printf(xpdd, XBT_NIL, path, "%d", gref);
@@ -787,7 +787,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
       __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, PtrToUlong(value));
       for (i = 0; i < PtrToUlong(value); i++)
       {
-        gref = GntTbl_GetRef(xpdd);
+        gref = GntTbl_GetRef(xpdd, 'XPDO');
         __ADD_XEN_INIT_ULONG(&out_ptr, gref);
         __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, gref);
       }

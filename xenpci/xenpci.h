@@ -154,6 +154,9 @@ typedef struct {
   struct stack_state *gnttab_ss;
   grant_entry_t *gnttab_table;
   grant_entry_t *gnttab_table_copy;
+  #if DBG
+  PULONG gnttab_tag;
+  #endif
   PHYSICAL_ADDRESS gnttab_table_physical;
   //grant_ref_t *gnttab_list;
   //int gnttab_list_free;
@@ -186,7 +189,7 @@ typedef struct {
   ULONG xb_msg_offset;
   
   WDFCHILDLIST child_list;
-
+  
   KSPIN_LOCK suspend_lock;  
   evtchn_port_t suspend_evtchn;
   int suspend_state;
@@ -469,12 +472,12 @@ GntTbl_Suspend(PXENPCI_DEVICE_DATA xpdd);
 VOID
 GntTbl_Resume(PXENPCI_DEVICE_DATA xpdd);
 grant_ref_t
-GntTbl_GrantAccess(PVOID Context, domid_t domid, uint32_t, int readonly, grant_ref_t ref);
+GntTbl_GrantAccess(PVOID Context, domid_t domid, uint32_t, int readonly, grant_ref_t ref, ULONG tag);
 BOOLEAN
-GntTbl_EndAccess(PVOID Context, grant_ref_t ref, BOOLEAN keepref);
+GntTbl_EndAccess(PVOID Context, grant_ref_t ref, BOOLEAN keepref, ULONG tag);
 VOID
-GntTbl_PutRef(PVOID Context, grant_ref_t ref);
+GntTbl_PutRef(PVOID Context, grant_ref_t ref, ULONG tag);
 grant_ref_t
-GntTbl_GetRef(PVOID Context);
+GntTbl_GetRef(PVOID Context, ULONG tag);
 
 #endif

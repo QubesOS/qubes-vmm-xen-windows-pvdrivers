@@ -615,7 +615,8 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 
   //FUNCTION_ENTER();
 
-  ASSERT(xi->connected);
+  if (!xi->connected)
+    return; /* a delayed DPC could let this come through... just do nothing */
 
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
   
@@ -855,7 +856,7 @@ XenNet_BufferFree(struct xennet_info *xi)
   {
     NdisFreeBuffer(pb->buffer);
     xi->vectors.GntTbl_EndAccess(xi->vectors.context,
-        pb->gref, FALSE);
+        pb->gref, FALSE, (ULONG)'XNRX');
     NdisFreeMemory(pb->virtual, PAGE_SIZE, 0);
   }
 }
@@ -897,7 +898,7 @@ XenNet_BufferAlloc(xennet_info_t *xi)
       break;
     }
     xi->rx_pbs[i].gref = (grant_ref_t)xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0,
-              (ULONG)(MmGetPhysicalAddress(xi->rx_pbs[i].virtual).QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF);
+              (ULONG)(MmGetPhysicalAddress(xi->rx_pbs[i].virtual).QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF, (ULONG)'XNRX');
     if (xi->rx_pbs[i].gref == INVALID_GRANT_REF)
     {
       NdisFreeMemory(xi->rx_pbs[i].virtual, PAGE_SIZE, 0);
@@ -908,7 +909,7 @@ XenNet_BufferAlloc(xennet_info_t *xi)
     if (status != STATUS_SUCCESS)
     {
       xi->vectors.GntTbl_EndAccess(xi->vectors.context,
-          xi->rx_pbs[i].gref, FALSE);
+          xi->rx_pbs[i].gref, FALSE, (ULONG)'XNRX');
       NdisFreeMemory(xi->rx_pbs[i].virtual, PAGE_SIZE, 0);
       break;
     }
