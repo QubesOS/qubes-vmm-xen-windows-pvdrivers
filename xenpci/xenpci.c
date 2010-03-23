@@ -555,6 +555,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   char Buf[300];// Sometimes bigger then 200 if system reboot from crash
   ULONG BufLen = 300;
   PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
+  WDFKEY param_key;
   
   UNREFERENCED_PARAMETER(RegistryPath);
 
@@ -642,21 +643,25 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   if (wcsstr(SystemStartOptions, L"NOGPLPV"))
     KdPrint((__DRIVER_NAME "     NOGPLPV found\n"));
   conf_info = IoGetConfigurationInformation();
-  if ((conf_info == NULL || conf_info->DiskCount == 0)
-      && !wcsstr(SystemStartOptions, L"NOGPLPV")
-      && !*InitSafeBootMode)
+  
+  status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &param_key);
+  if (NT_SUCCESS(status))
   {
-    if (wcsstr(SystemStartOptions, L"GPLPVUSEFILTERHIDE") == 0 && XenPci_CheckHideQemuDevices())
+    ULONG always_hide = 0;
+    DECLARE_CONST_UNICODE_STRING(always_hide_name, L"hide_qemu_always");
+    
+    WdfRegistryQueryULong(param_key, &always_hide_name, &always_hide);
+    if (always_hide || ((conf_info == NULL || conf_info->DiskCount == 0)
+        && !wcsstr(SystemStartOptions, L"NOGPLPV")
+        && !*InitSafeBootMode))
     {
-      DECLARE_CONST_UNICODE_STRING(qemu_hide_flags_name, L"qemu_hide_flags");
-      WDFCOLLECTION qemu_hide_flags;
-      WDFKEY param_key;
-      ULONG i;
-      
-      WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &qemu_hide_flags);
-      status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &param_key);
-      if (NT_SUCCESS(status))
+      if (wcsstr(SystemStartOptions, L"GPLPVUSEFILTERHIDE") == 0 && XenPci_CheckHideQemuDevices())
       {
+        DECLARE_CONST_UNICODE_STRING(qemu_hide_flags_name, L"qemu_hide_flags");
+        WDFCOLLECTION qemu_hide_flags;
+        ULONG i;
+        
+        WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &qemu_hide_flags);
         status = WdfRegistryQueryMultiString(param_key, &qemu_hide_flags_name, WDF_NO_OBJECT_ATTRIBUTES, qemu_hide_flags);
         if (!NT_SUCCESS(status))
         {
@@ -675,33 +680,23 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
             qemu_hide_flags_value |= value;
           }
         }
-        WdfRegistryClose(param_key);
+        XenPci_HideQemuDevices();
       }
       else
       {
-        KdPrint(("Error opening parameters key %08x\n", status));
-      }
-      XenPci_HideQemuDevices();
-    }
-    else
-    {
-      DECLARE_CONST_UNICODE_STRING(hide_devices_name, L"hide_devices");
-      WDFKEY param_key;
-      status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &param_key);
-      if (NT_SUCCESS(status))
-      {
+        DECLARE_CONST_UNICODE_STRING(hide_devices_name, L"hide_devices");
         status = WdfRegistryQueryMultiString(param_key, &hide_devices_name, WDF_NO_OBJECT_ATTRIBUTES, qemu_hide_devices);
         if (!NT_SUCCESS(status))
         {
           KdPrint(("Error reading parameters/hide_devices value %08x\n", status));
         }
-        WdfRegistryClose(param_key);
-      }
-      else
-      {
-        KdPrint(("Error opening parameters key %08x\n", status));
       }
     }
+    WdfRegistryClose(param_key);
+  }
+  else
+  {
+    KdPrint(("Error opening parameters key %08x\n", status));
   }
 
   FUNCTION_EXIT();
