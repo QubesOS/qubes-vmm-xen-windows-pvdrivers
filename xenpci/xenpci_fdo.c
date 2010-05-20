@@ -229,13 +229,18 @@ XenPci_BalloonThreadProc(PVOID StartContext)
   LARGE_INTEGER timeout;
   PLARGE_INTEGER ptimeout;
   PMDL head = NULL;
-  // use the memory_op(unsigned int op, void *arg) hypercall to adjust memory
-  // use XENMEM_increase_reservation and XENMEM_decrease_reservation
-
+  PMDL mdl;      
+  struct xen_memory_reservation reservation;
+  xen_pfn_t *pfns;
+  int i;
+  ULONG ret;
+  int pfn_count;
+  
   FUNCTION_ENTER();
 
   for(;;)
   {
+    /* wait for 1 second if we have adjustments to make, or forever if we don't */
     if (xpdd->current_memory != new_target)
     {
       timeout.QuadPart = (LONGLONG)-1 * 1000 * 1000 * 10;
@@ -262,12 +267,30 @@ XenPci_BalloonThreadProc(PVOID StartContext)
     }
     else if (xpdd->current_memory < new_target)
     {
-      PMDL mdl;      
       KdPrint((__DRIVER_NAME "     Trying to take %d MB from Xen\n", new_target - xpdd->current_memory));
       while ((mdl = head) != NULL && xpdd->current_memory < new_target)
       {
         head = mdl->Next;
         mdl->Next = NULL;
+        
+        pfn_count = ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(mdl), MmGetMdlByteCount(mdl));
+        pfns = ExAllocatePoolWithTag(NonPagedPool, pfn_count * sizeof(xen_pfn_t), XENPCI_POOL_TAG);
+        /* sizeof(xen_pfn_t) may not be the same as PPFN_NUMBER */
+        for (i = 0; i < pfn_count; i++)
+          pfns[i] = (xen_pfn_t)(MmGetMdlPfnArray(mdl)[i]);
+        reservation.address_bits = 0;
+        reservation.extent_order = 0;
+        reservation.domid = DOMID_SELF;
+        reservation.nr_extents = pfn_count;
+        #pragma warning(disable: 4127) /* conditional expression is constant */
+        set_xen_guest_handle(reservation.extent_start, pfns);
+        
+        KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_populate_physmap) - pfn_count = %d\n", pfn_count));
+        ret = HYPERVISOR_memory_op(xpdd, XENMEM_populate_physmap, &reservation);
+        ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
+        KdPrint((__DRIVER_NAME "     populated %d pages\n", ret));
+        /* TODO: what do we do if less than the required number of pages were populated??? */
+        
         MmFreePagesFromMdl(mdl);
         ExFreePool(mdl);
         xpdd->current_memory++;
@@ -281,11 +304,10 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         PHYSICAL_ADDRESS alloc_low;
         PHYSICAL_ADDRESS alloc_high;
         PHYSICAL_ADDRESS alloc_skip;
-        PMDL mdl;
         alloc_low.QuadPart = 0;
         alloc_high.QuadPart = 0xFFFFFFFFFFFFFFFFULL;
         alloc_skip.QuadPart = 0;
-        mdl = MmAllocatePagesForMdl(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS);
+        mdl = MmAllocatePagesForMdlEx(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS, MmCached, MM_DONT_ZERO_ALLOCATION);
         if (!mdl)
         {
           KdPrint((__DRIVER_NAME "     Allocation failed - try again in 1 second\n"));
@@ -293,6 +315,32 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         }
         else
         {
+          int i;
+          ULONG ret;
+          int pfn_count = ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(mdl), MmGetMdlByteCount(mdl));
+          if (pfn_count != BALLOON_UNIT_PAGES)
+          {
+            /* we could probably do this better but it will only happen in low memory conditions... */
+            KdPrint((__DRIVER_NAME "     wanted %d pages got %d pages\n", BALLOON_UNIT_PAGES, pfn_count));
+            MmFreePagesFromMdl(mdl);
+            ExFreePool(mdl);
+            break;
+          }
+          pfns = ExAllocatePoolWithTag(NonPagedPool, pfn_count * sizeof(xen_pfn_t), XENPCI_POOL_TAG);
+          /* sizeof(xen_pfn_t) may not be the same as PPFN_NUMBER */
+          for (i = 0; i < pfn_count; i++)
+            pfns[i] = (xen_pfn_t)(MmGetMdlPfnArray(mdl)[i]);
+          reservation.address_bits = 0;
+          reservation.extent_order = 0;
+          reservation.domid = DOMID_SELF;
+          reservation.nr_extents = pfn_count;
+          #pragma warning(disable: 4127) /* conditional expression is constant */
+          set_xen_guest_handle(reservation.extent_start, pfns);
+          
+          KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_decrease_reservation) - pfn_count = %d\n", pfn_count));
+          ret = HYPERVISOR_memory_op(xpdd, XENMEM_decrease_reservation, &reservation);
+          ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
+          KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
           if (head)
           {
             mdl->Next = head;
