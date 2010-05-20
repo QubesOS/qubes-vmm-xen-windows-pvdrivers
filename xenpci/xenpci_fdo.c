@@ -289,7 +289,7 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         ret = HYPERVISOR_memory_op(xpdd, XENMEM_populate_physmap, &reservation);
         ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
         KdPrint((__DRIVER_NAME "     populated %d pages\n", ret));
-        /* TODO: what do we do if less than the required number of pages were populated??? */
+        /* TODO: what do we do if less than the required number of pages were populated??? can this happen??? */
         
         MmFreePagesFromMdl(mdl);
         ExFreePool(mdl);
@@ -307,7 +307,11 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         alloc_low.QuadPart = 0;
         alloc_high.QuadPart = 0xFFFFFFFFFFFFFFFFULL;
         alloc_skip.QuadPart = 0;
+        #if (NTDDI_VERSION >= NTDDI_WS03SP1)
         mdl = MmAllocatePagesForMdlEx(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS, MmCached, MM_DONT_ZERO_ALLOCATION);
+        #else
+        mdl = MmAllocatePagesForMdl(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS);
+        #endif
         if (!mdl)
         {
           KdPrint((__DRIVER_NAME "     Allocation failed - try again in 1 second\n"));
