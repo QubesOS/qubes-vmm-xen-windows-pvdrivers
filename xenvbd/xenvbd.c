@@ -356,12 +356,14 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
 {
   PSCSI_REQUEST_BLOCK srb;
   srb_list_entry_t *srb_entry;
+  ULONGLONG sector_number;
   ULONG block_count;
   blkif_shadow_t *shadow;
   ULONG remaining, offset, length;
   grant_ref_t gref;
   PUCHAR ptr;
   int notify;
+  int i;
 
   //FUNCTION_ENTER();
 
@@ -373,14 +375,63 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
     srb = srb_entry->srb;
     block_count = decode_cdb_length(srb);;
     block_count *= xvdd->bytes_per_sector / 512;
-    remaining = block_count * 512;
+    sector_number = decode_cdb_sector(srb);
+    sector_number *= xvdd->bytes_per_sector / 512;
+    
+    /* look for pending writes that overlap this one */
+    /* we get warnings from drbd if we don't */
+    for (i = 0; i < MAX_SHADOW_ENTRIES; i++)
+    {
+      PSCSI_REQUEST_BLOCK srb2;
+      ULONGLONG sector_number2;
+      ULONG block_count2;
+      
+      srb2 = xvdd->shadows[i].srb;
+      if (!srb2)
+        continue;
+      if (decode_cdb_is_read(srb2))
+        continue;
+      block_count2 = decode_cdb_length(srb2);;
+      block_count2 *= xvdd->bytes_per_sector / 512;
+      sector_number2 = decode_cdb_sector(srb2);
+      sector_number2 *= xvdd->bytes_per_sector / 512;
+      
+      if (sector_number < sector_number2 && sector_number + block_count <= sector_number2)
+        continue;
+      if (sector_number2 < sector_number && sector_number2 + block_count2 <= sector_number)
+        continue;
 
+#if 0
+      /* check if the data being written is identical to the data in the pipe */
+      {
+        PUCHAR buf, buf2;
+        ULONG byte_count;
+        int j;
+
+        buf = (PUCHAR)srb->DataBuffer + (max(sector_number, sector_number2) - sector_number) * xvdd->bytes_per_sector;
+        buf2 = (PUCHAR)srb2->DataBuffer + (max(sector_number, sector_number2) - sector_number2) * xvdd->bytes_per_sector;
+        byte_count = (ULONG)(min(sector_number + block_count, sector_number2 + block_count2) - max(sector_number, sector_number2)) * xvdd->bytes_per_sector;
+        for (j = 0; j < (int)byte_count; j++)
+        {
+          if (buf[j] != buf2[j])
+            break;
+        }
+      }
+#endif
+
+      KdPrint((__DRIVER_NAME "     Concurrent outstanding write detected (%I64d, %d) (%I64d, %d)\n",
+        sector_number, block_count, sector_number2, block_count2));
+      /* put the srb back at the start of the queue */
+      InsertHeadList(&xvdd->srb_list, (PLIST_ENTRY)srb->SrbExtension);
+      return; /* stall the queue */
+    }
+
+    remaining = block_count * 512;
     shadow = get_shadow_from_freelist(xvdd);
     ASSERT(shadow);
     ASSERT(!shadow->aligned_buffer_in_use);
     ASSERT(!shadow->srb);
-    shadow->req.sector_number = decode_cdb_sector(srb);
-    shadow->req.sector_number *= xvdd->bytes_per_sector / 512;
+    shadow->req.sector_number = sector_number;
     shadow->req.handle = 0;
     shadow->req.operation = decode_cdb_is_read(srb)?BLKIF_OP_READ:BLKIF_OP_WRITE;
     shadow->req.nr_segments = 0;
