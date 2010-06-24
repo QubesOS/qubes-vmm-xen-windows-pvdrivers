@@ -388,7 +388,7 @@ VOID
 XenPci_HideQemuDevices()
 {
   WRITE_PORT_USHORT(XEN_IOPORT_DEVICE_MASK, (USHORT)qemu_hide_flags_value); //QEMU_UNPLUG_ALL_IDE_DISKS|QEMU_UNPLUG_ALL_NICS);
-  KdPrint((__DRIVER_NAME "     Disabled qemu devices\n"));\
+  KdPrint((__DRIVER_NAME "     Disabled qemu devices %02x\n", qemu_hide_flags_value));
 }
 
 static BOOLEAN
@@ -540,6 +540,18 @@ XenPci_FixLoadOrder()
   return;
 }
 
+EVT_WDF_DRIVER_UNLOAD EvtDriverUnload;
+
+VOID
+XenPci_EvtDriverUnload(WDFDRIVER driver)
+{
+  UNREFERENCED_PARAMETER(driver);
+  
+  #if DBG
+  XenPci_UnHookDbgPrint();
+  #endif  
+}
+
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -628,6 +640,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   }
   
   WDF_DRIVER_CONFIG_INIT(&config, XenPci_EvtDeviceAdd);
+  config.EvtDriverUnload = XenPci_EvtDriverUnload;
   status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, &driver);
 
   WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &qemu_hide_devices);

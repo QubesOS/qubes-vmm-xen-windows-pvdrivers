@@ -159,6 +159,24 @@ XenPci_HookDbgPrint_High(PVOID context)
   idt_entry->addr_32_63 = (ULONG)((ULONG_PTR)Int2dHandlerNew >> 32);
   #endif
 }
+
+static VOID
+XenPci_UnHookDbgPrint_High(PVOID context)
+{
+  IDT idt;
+  PIDT_ENTRY idt_entry;
+
+  UNREFERENCED_PARAMETER(context);  
+ 
+  idt.limit = 0;
+  __sidt(&idt);
+  idt_entry = &idt.entries[0x2D];
+  idt_entry->addr_0_15 = (USHORT)(ULONG_PTR)Int2dHandlerOld;
+  idt_entry->addr_16_31 = (USHORT)((ULONG_PTR)Int2dHandlerOld >> 16);
+  #ifdef _AMD64_ 
+  idt_entry->addr_32_63 = (ULONG)((ULONG_PTR)Int2dHandlerOld >> 32);
+  #endif
+}
 #endif
 #endif
 
@@ -202,3 +220,44 @@ XenPci_HookDbgPrint()
 
   return status;
 }
+
+NTSTATUS
+XenPci_UnHookDbgPrint()
+{
+  NTSTATUS status = STATUS_SUCCESS;
+
+  if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0x49d2
+    || READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0xd249)
+  {
+    //#pragma warning(suppress:4055)
+    //DbgSetDebugPrintCallback = (PDBG_SET_DEBUGPRINT_CALLBACK)MmGetSystemRoutineAddress((PUNICODE_STRING)&DbgSetDebugPrintCallbackName);
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+    KdPrint((__DRIVER_NAME "     DbgSetDebugPrintCallback found\n"));
+    status = DbgSetDebugPrintCallback(XenPci_DbgPrintCallback, FALSE);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint((__DRIVER_NAME "     DbgSetDebugPrintCallback failed - %08x\n", status));
+    }
+    //DbgSetDebugFilterState(componentid, level, state);
+    //DbgSetDebugFilterState(DPFLTR_DEFAULT_ID, 0xFFFFFFFF, TRUE);
+#else
+    KdPrint((__DRIVER_NAME "     DbgSetDebugPrintCallback not found\n"));      
+#ifndef _AMD64_ // can't patch IDT on AMD64 unfortunately - results in bug check 0x109
+    XenPci_HighSync(XenPci_UnHookDbgPrint_High, XenPci_UnHookDbgPrint_High, NULL);
+#endif
+#endif
+  }
+  else
+  {
+    status = STATUS_UNSUCCESSFUL;
+  }
+  
+  if (!KeDeregisterBugCheckCallback(&callback_record))
+  {
+    KdPrint((__DRIVER_NAME "     KeDeregisterBugCheckCallback failed\n"));
+    status = STATUS_UNSUCCESSFUL;
+  }
+
+  return status;
+}
+
