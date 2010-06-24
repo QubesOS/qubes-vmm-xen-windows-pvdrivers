@@ -308,7 +308,8 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         alloc_high.QuadPart = 0xFFFFFFFFFFFFFFFFULL;
         alloc_skip.QuadPart = 0;
         #if (NTDDI_VERSION >= NTDDI_WS03SP1)
-        mdl = MmAllocatePagesForMdlEx(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS, MmCached, MM_DONT_ZERO_ALLOCATION);
+        /* our contract says that we must zero pages before returning to xen, so we can't use MM_DONT_ZERO_ALLOCATION */
+        mdl = MmAllocatePagesForMdlEx(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS, MmCached, 0);
         #else
         mdl = MmAllocatePagesForMdl(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS);
         #endif
