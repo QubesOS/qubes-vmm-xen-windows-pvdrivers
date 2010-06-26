@@ -973,6 +973,8 @@ XenPci_EvtChildListScanForChildren(WDFCHILDLIST child_list)
   CHAR path[128];
   XENPCI_PDO_IDENTIFICATION_DESCRIPTION child_description;
   PVOID entry;
+  WDFDEVICE child_device;
+  WDF_CHILD_RETRIEVE_INFO retrieve_info;
   
   FUNCTION_ENTER();
 
@@ -1009,6 +1011,44 @@ XenPci_EvtChildListScanForChildren(WDFCHILDLIST child_list)
           RtlStringCbCopyA(child_description.path, ARRAY_SIZE(child_description.path), path);
           RtlStringCbCopyA(child_description.device, ARRAY_SIZE(child_description.device), devices[i]);
           child_description.index = atoi(instances[j]);
+          WDF_CHILD_RETRIEVE_INFO_INIT(&retrieve_info, &child_description.header);
+          child_device = WdfChildListRetrievePdo(child_list, &retrieve_info);
+          if (child_device)
+          {
+            PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(child_device);
+            char *err;
+            char *value;
+            char backend_state_path[128];
+            
+            if (xppdd->do_not_enumerate)
+            {
+              RtlStringCbPrintfA(backend_state_path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
+            
+              err = XenBus_Read(xpdd, XBT_NIL, backend_state_path, &value);
+              if (err)
+              {
+                XenPci_FreeMem(err);
+                xppdd->backend_state = XenbusStateUnknown;
+              }
+              else
+              {
+                xppdd->backend_state = atoi(value);
+                XenPci_FreeMem(value);
+              }
+              if (xppdd->backend_state == XenbusStateClosing || xppdd->backend_state == XenbusStateClosed)
+              {
+                KdPrint((__DRIVER_NAME "     Surprise removing %s due to backend initiated remove\n", path));
+                XenPci_FreeMem(instances[j]);
+                continue;
+              }
+              else
+              {
+                /* I guess we are being added again ... */
+                xppdd->backend_initiated_remove = FALSE;
+                xppdd->do_not_enumerate = FALSE;
+              }
+            }
+          }
           status = WdfChildListAddOrUpdateChildDescriptionAsPresent(child_list, &child_description.header, NULL);
           if (!NT_SUCCESS(status))
           {

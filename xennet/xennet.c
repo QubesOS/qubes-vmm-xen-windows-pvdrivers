@@ -644,8 +644,8 @@ XenNet_Init(
 
   ptr = xi->config_page;
   // two XEN_INIT_TYPE_RUNs means go straight to XenbusStateConnected - skip XenbusStateInitialised
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
+  //ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
+  //ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "tx-ring-ref", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL, NULL);
   #pragma warning(suppress:4054)
@@ -661,6 +661,24 @@ XenNet_Init(
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", buf, NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !!xi->config_gso);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-gso-tcpv4", buf, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
+  __ADD_XEN_INIT_UCHAR(&ptr, 0); /* no pre-connect required */
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT, NULL, NULL, NULL);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+  __ADD_XEN_INIT_UCHAR(&ptr, 20);
+  __ADD_XEN_INIT_UCHAR(&ptr, 0);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN, NULL, NULL, NULL);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
+  __ADD_XEN_INIT_UCHAR(&ptr, 50);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
+  __ADD_XEN_INIT_UCHAR(&ptr, 50);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitialising);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitWait);
+  __ADD_XEN_INIT_UCHAR(&ptr, 50);
+  __ADD_XEN_INIT_UCHAR(&ptr, 0);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
   
   status = xi->vectors.XenPci_XenConfigDevice(xi->vectors.context);

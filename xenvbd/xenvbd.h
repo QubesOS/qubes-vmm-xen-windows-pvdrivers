@@ -43,6 +43,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <xen_public.h>
 #include <io/ring.h>
 #include <io/blkif.h>
+#include <io/xenbus.h>
 
 #define XENVBD_POOL_TAG (ULONG) 'XVBD'
 

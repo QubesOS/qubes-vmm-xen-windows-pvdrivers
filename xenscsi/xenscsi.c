@@ -417,7 +417,7 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
   UNREFERENCED_PARAMETER(ArgumentString);
   UNREFERENCED_PARAMETER(Reserved3);
 
-  KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));  
+  FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
   
   xsdd->scsiport_paused = TRUE; /* wait for initial scan */
@@ -504,16 +504,13 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
       break;
     }
   }
-#if 0
-  if (xsdd->device_type == XENSCSI_DEVICETYPE_UNKNOWN
-    || sring == NULL
-    || xsdd->event_channel == 0)
+
+  if (sring == NULL || xsdd->event_channel == 0)
   {
     KdPrint((__DRIVER_NAME "     Missing settings\n"));
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
     return SP_RETURN_BAD_CONFIG;
   }
-#endif
   
   ConfigInfo->ScatterGather = TRUE;
   ConfigInfo->NumberOfPhysicalBreaks = VSCSIIF_SG_TABLESIZE - 1;
@@ -555,7 +552,7 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
     xsdd->vectors.XenBus_AddWatch(xsdd->vectors.context, XBT_NIL, path,
       XenScsi_DevWatch, xsdd);
   }
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
 
   return SP_RETURN_FOUND;
 }
@@ -687,7 +684,7 @@ XenScsi_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
   {
     Srb->SrbStatus = SRB_STATUS_NO_DEVICE;
     ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
-    KdPrint((__DRIVER_NAME "     Out of bounds\n"));
+    //KdPrint((__DRIVER_NAME "     Out of bounds\n"));
     ScsiPortNotification(NextRequest, DeviceExtension);
     //FUNCTION_EXIT();
     return TRUE;
@@ -829,10 +826,30 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_INIT_DRIVER_EXTENSION_MAGIC), PAGE_SIZE, &driver_extension);
   ptr = driver_extension;
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, NULL, UlongToPtr(144), NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitialised);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+  __ADD_XEN_INIT_UCHAR(&ptr, 20);
+  __ADD_XEN_INIT_UCHAR(&ptr, 0);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT, NULL, NULL, NULL);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+  __ADD_XEN_INIT_UCHAR(&ptr, 20);
+  __ADD_XEN_INIT_UCHAR(&ptr, 0);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN, NULL, NULL, NULL);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
+  __ADD_XEN_INIT_UCHAR(&ptr, 50);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
+  __ADD_XEN_INIT_UCHAR(&ptr, 50);
+  //__ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitWait); //ialising);
+  //__ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitWait);
+  //__ADD_XEN_INIT_UCHAR(&ptr, 50);
+  __ADD_XEN_INIT_UCHAR(&ptr, 0);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
   /* RegistryPath == NULL when we are invoked as a crash dump driver */
   if (!RegistryPath)

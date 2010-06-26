@@ -33,6 +33,7 @@ static EVT_WDF_DEVICE_RELEASE_HARDWARE XenPciPdo_EvtDeviceReleaseHardware;
 static EVT_WDF_DEVICE_USAGE_NOTIFICATION XenPciPdo_EvtDeviceUsageNotification;
 static EVT_WDFDEVICE_WDM_IRP_PREPROCESS XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE;
 static EVT_WDF_DEVICE_RESOURCE_REQUIREMENTS_QUERY XenPciPdo_EvtDeviceResourceRequirementsQuery;
+static EVT_WDF_DEVICE_PNP_STATE_CHANGE_NOTIFICATION  EvtDevicePnpStateChange;
 
 /*
 Called at PASSIVE_LEVEL(?)
@@ -107,7 +108,7 @@ XenPci_UpdateBackendState(PVOID context)
     ExReleaseFastMutex(&xppdd->backend_state_mutex);
     return;
   }
-
+  
   xppdd->backend_state = new_backend_state;
 
   switch (xppdd->backend_state)
@@ -136,6 +137,7 @@ XenPci_UpdateBackendState(PVOID context)
     KdPrint((__DRIVER_NAME "     Backend State Changed to Closing\n"));
     if (xppdd->frontend_state != XenbusStateClosing)
     {
+      xppdd->backend_initiated_remove = TRUE;
       KdPrint((__DRIVER_NAME "     Requesting eject\n"));
       WdfPdoRequestEject(device);
     }
@@ -514,6 +516,26 @@ XenPci_ChangeFrontendState(WDFDEVICE device, ULONG frontend_state_set, ULONG bac
 }
 
 static NTSTATUS
+XenPci_ChangeFrontendStateMap(WDFDEVICE device, PXENPCI_STATE_MAP_ELEMENT map)
+{
+  NTSTATUS status;
+  
+  FUNCTION_ENTER();
+  while(map->front_target)
+  {
+    //KdPrint((__DRIVER_NAME "     Changing state to %d expecting %d\n", (ULONG)map->front_target, (ULONG)map->back_expected));
+    if (!NT_SUCCESS(status = XenPci_ChangeFrontendState(device, (ULONG)map->front_target, (ULONG)map->back_expected, (ULONG)map->wait * 100)))
+    {
+      FUNCTION_EXIT();
+      return status;
+    }
+    map++;
+  }
+  FUNCTION_EXIT();
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 XenPci_XenConfigDevice(WDFDEVICE device);
 
 static NTSTATUS
@@ -533,11 +555,7 @@ XenPci_XenShutdownDevice(PVOID context)
 
   if (xppdd->backend_state == XenbusStateConnected)
   {
-    XenPci_ChangeFrontendState(device, XenbusStateClosing, XenbusStateClosing, 30000);
-    if (xppdd->backend_state == XenbusStateClosing)
-      XenPci_ChangeFrontendState(device, XenbusStateClosed, XenbusStateClosed, 30000);
-    if (xppdd->backend_state == XenbusStateClosed)
-      XenPci_ChangeFrontendState(device, XenbusStateInitialising, XenbusStateInitWait, 30000);
+    XenPci_ChangeFrontendStateMap(device, xppdd->xb_shutdown_map);
   }
   else
   {
@@ -599,14 +617,17 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   PUCHAR out_ptr;
   XENPCI_VECTORS vectors;
   ULONG event_channel;
-  ULONG run_type = 0;
   PMDL ring;
   grant_ref_t gref;
-  BOOLEAN done_xenbus_init = FALSE;
   PVOID value2;
+  int map_no;
  
   FUNCTION_ENTER();
 
+  xppdd->xb_pre_connect_map[0].front_target = 0;
+  xppdd->xb_post_connect_map[0].front_target = 0;
+  xppdd->xb_shutdown_map[0].front_target = 0;
+  
   in_ptr = src;
   out_ptr = dst;
   
@@ -645,27 +666,16 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_VECTORS, NULL, &vectors, NULL);
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_STATE_PTR, NULL, &xppdd->device_state, NULL);
   
+  // need to make sure we never get here while backend state is connected or closing...
   // first pass, possibly before state == Connected
   in_ptr = src;
   while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
   {
-    if (!done_xenbus_init)
-    {
-      if (XenPci_ChangeFrontendState(device, XenbusStateInitialising, XenbusStateInitWait, 2000) != STATUS_SUCCESS)
-      {
-        status = STATUS_UNSUCCESSFUL;
-        goto error;
-      }
-      done_xenbus_init = TRUE;
-    }
-    
+//KdPrint((__DRIVER_NAME "     in_ptr = %p, type = %d\n", in_ptr, type));
     ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, type, setting, value, value2);
 
     switch (type)
     {
-    case XEN_INIT_TYPE_RUN:
-      run_type++;
-      break;
     case XEN_INIT_TYPE_WRITE_STRING: /* frontend setting = value */
       //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_WRITE_STRING - %s = %s\n", setting, value));
       RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
@@ -676,12 +686,13 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
       if ((ring = AllocatePage()) != 0)
       {
         address = MmGetMdlVirtualAddress(ring);
-        //KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, address));
+        KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, address));
         SHARED_RING_INIT((struct dummy_sring *)address);
         if ((gref = GntTbl_GrantAccess(
           xpdd, 0, (ULONG)*MmGetMdlPfnArray(ring), FALSE, INVALID_GRANT_REF, (ULONG)'XPDO')) != INVALID_GRANT_REF)
         {
           RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
+          KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %d\n", setting, gref));
           XenBus_Printf(xpdd, XBT_NIL, path, "%d", gref);
           ADD_XEN_INIT_RSP(&out_ptr, type, setting, address, NULL);
           ADD_XEN_INIT_RSP(&xppdd->assigned_resources_ptr, type, setting, ring, NULL);
@@ -734,20 +745,56 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
         goto error;
       }
       break;
+    case XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT:
+      map_no = 0;
+      while ((xppdd->xb_pre_connect_map[map_no].front_target = __GET_XEN_INIT_UCHAR(&in_ptr)) != 0)
+      {
+         xppdd->xb_pre_connect_map[map_no].back_expected = __GET_XEN_INIT_UCHAR(&in_ptr);
+         xppdd->xb_pre_connect_map[map_no].wait = __GET_XEN_INIT_UCHAR(&in_ptr);
+         __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, xppdd->xb_pre_connect_map[map_no].front_target);
+         __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, xppdd->xb_pre_connect_map[map_no].back_expected);
+         __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, xppdd->xb_pre_connect_map[map_no].wait);
+         map_no++;
+      }
+      __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, 0);
+      break;
+    case XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT:
+      map_no = 0;
+      while ((xppdd->xb_post_connect_map[map_no].front_target = __GET_XEN_INIT_UCHAR(&in_ptr)) != 0)
+      {
+         xppdd->xb_post_connect_map[map_no].back_expected = __GET_XEN_INIT_UCHAR(&in_ptr);
+         xppdd->xb_post_connect_map[map_no].wait = __GET_XEN_INIT_UCHAR(&in_ptr);
+         __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, xppdd->xb_post_connect_map[map_no].front_target);
+         __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, xppdd->xb_post_connect_map[map_no].back_expected);
+         __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, xppdd->xb_post_connect_map[map_no].wait);
+         map_no++;
+      }
+      __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, 0);
+      break;
+    case XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN:
+      map_no = 0;
+      while ((xppdd->xb_shutdown_map[map_no].front_target = __GET_XEN_INIT_UCHAR(&in_ptr)) != 0)
+      {
+         xppdd->xb_shutdown_map[map_no].back_expected = __GET_XEN_INIT_UCHAR(&in_ptr);
+         xppdd->xb_shutdown_map[map_no].wait = __GET_XEN_INIT_UCHAR(&in_ptr);
+         __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, xppdd->xb_shutdown_map[map_no].front_target);
+         __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, xppdd->xb_shutdown_map[map_no].back_expected);
+         __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, xppdd->xb_shutdown_map[map_no].wait);
+         map_no++;
+      }
+      __ADD_XEN_INIT_UCHAR(&xppdd->requested_resources_ptr, 0);
+      break;
     }
   }
   if (!NT_SUCCESS(status))
   {
     goto error;
   }
-  // If XEN_INIT_TYPE_RUN was specified more than once then we skip XenbusStateInitialised here and go straight to XenbusStateConnected at the end
-  if (run_type == 1)
+
+  if (XenPci_ChangeFrontendStateMap(device, xppdd->xb_pre_connect_map) != STATUS_SUCCESS)
   {
-    if (XenPci_ChangeFrontendState(device, XenbusStateInitialised, XenbusStateConnected, 2000) != STATUS_SUCCESS)
-    {
-      status = STATUS_UNSUCCESSFUL;
-      goto error;
-    }
+    status = STATUS_UNSUCCESSFUL;
+    goto error;
   }
 
   // second pass, possibly after state == Connected
@@ -792,6 +839,16 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
         __ADD_XEN_INIT_ULONG(&xppdd->assigned_resources_ptr, gref);
       }
       break;
+    /* just need to eat these */
+    case XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT:
+    case XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT:
+    case XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN:
+      while ((__GET_XEN_INIT_UCHAR(&in_ptr)) != 0)
+      {
+         __GET_XEN_INIT_UCHAR(&in_ptr);
+         __GET_XEN_INIT_UCHAR(&in_ptr);
+      }
+      break;
     }
   }
   if (qemu_hide_flags_value)
@@ -821,18 +878,16 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   
   ADD_XEN_INIT_RSP(&out_ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
 
-  if (run_type)
+  if (XenPci_ChangeFrontendStateMap(device, xppdd->xb_post_connect_map) != STATUS_SUCCESS)
   {
-    if (XenPci_ChangeFrontendState(device, XenbusStateConnected, XenbusStateConnected, 2000) != STATUS_SUCCESS)
-    {
-      status = STATUS_UNSUCCESSFUL;
-      goto error;
-    }
+    status = STATUS_UNSUCCESSFUL;
+    goto error;
   }
   FUNCTION_EXIT();
   return status;
 
 error:
+  KdPrint((__DRIVER_NAME "     Error\n"));
   XenPci_ChangeFrontendState(device, XenbusStateInitialising, XenbusStateInitWait, 2000);
   FUNCTION_EXIT_STATUS(status);
   return status;
@@ -1198,6 +1253,30 @@ XenPciPdo_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE not
   FUNCTION_EXIT();
 }
 
+static NTSTATUS
+XenPci_EvtDevicePnpStateChange(WDFDEVICE device, PCWDF_DEVICE_PNP_NOTIFICATION_DATA notification_data)
+{
+  PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
+  
+  //FUNCTION_ENTER();
+  
+  if (xppdd->backend_initiated_remove
+    && notification_data->Type == StateNotificationEnterState
+    && notification_data->Data.EnterState.CurrentState == WdfDevStatePnpQueryRemovePending 
+    && notification_data->Data.EnterState.NewState == WdfDevStatePnpQueryCanceled)
+  {
+    PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+    
+    KdPrint((__DRIVER_NAME "     Eject failed, doing surprise removal\n"));
+    xppdd->do_not_enumerate = TRUE;
+    XenPci_EvtChildListScanForChildren(xpdd->child_list);
+  }
+  
+  //FUNCTION_EXIT();
+  
+  return STATUS_SUCCESS;
+}
+
 NTSTATUS
 XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER identification_header,
@@ -1283,6 +1362,8 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   WdfPdoInitSetDefaultLocale(child_init, 0x0409);
 
   WdfDeviceInitSetPowerNotPageable(child_init);
+
+  WdfDeviceInitRegisterPnpStateChangeCallback(child_init, WdfDevStatePnpQueryCanceled, XenPci_EvtDevicePnpStateChange, StateNotificationEnterState);
   
   WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&child_attributes, XENPCI_PDO_DEVICE_DATA);
   status = WdfDeviceCreate(&child_init, &child_attributes, &child_device);

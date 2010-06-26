@@ -1622,7 +1622,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   {
     IoAllocateDriverObjectExtension(DriverObject, UlongToPtr(XEN_INIT_DRIVER_EXTENSION_MAGIC), PAGE_SIZE, &driver_extension);
     ptr = driver_extension;
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
+    //ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_FRONT, "device-type", NULL, NULL);
@@ -1630,6 +1630,28 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sectors", NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sector-size", NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, NULL, ULongToPtr(BLKIF_MAX_SEGMENTS_PER_REQUEST), NULL); /* for use in crash dump */
+    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
+    __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+    __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+    __ADD_XEN_INIT_UCHAR(&ptr, 20);
+    __ADD_XEN_INIT_UCHAR(&ptr, 0);
+    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT, NULL, NULL, NULL);
+    //__ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+    //__ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+    //__ADD_XEN_INIT_UCHAR(&ptr, 20);
+    __ADD_XEN_INIT_UCHAR(&ptr, 0);
+    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN, NULL, NULL, NULL);
+    __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
+    __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
+    __ADD_XEN_INIT_UCHAR(&ptr, 50);
+    __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
+    __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
+    __ADD_XEN_INIT_UCHAR(&ptr, 50);
+    __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitialising);
+    __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitWait);
+    __ADD_XEN_INIT_UCHAR(&ptr, 50);
+    __ADD_XEN_INIT_UCHAR(&ptr, 0);
+    
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
 
     InitializeObjectAttributes(&oa, RegistryPath, OBJ_CASE_INSENSITIVE, NULL, NULL);

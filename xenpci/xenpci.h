@@ -217,6 +217,12 @@ typedef struct {
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_DATA, GetXpdd)
 
+typedef struct {
+  UCHAR front_target;
+  UCHAR back_expected;
+  UCHAR wait; /* units = 100ms */
+} XENPCI_STATE_MAP_ELEMENT, *PXENPCI_STATE_MAP_ELEMENT;
+
 typedef struct {  
   WDFDEVICE wdf_device;
   WDFDEVICE wdf_device_bus_fdo;
@@ -242,8 +248,16 @@ typedef struct {
   PUCHAR assigned_resources_ptr;
   XENPCI_DEVICE_STATE device_state;
   BOOLEAN restart_on_resume;
+  BOOLEAN backend_initiated_remove;
+  BOOLEAN do_not_enumerate;
   
-  BOOLEAN hiber_usage_kludge;  
+  XENPCI_STATE_MAP_ELEMENT xb_pre_connect_map[5];
+  XENPCI_STATE_MAP_ELEMENT xb_post_connect_map[5];
+  XENPCI_STATE_MAP_ELEMENT xb_shutdown_map[5];
+  
+  
+  
+  BOOLEAN hiber_usage_kludge;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_PDO_DEVICE_DATA, GetXppdd)
@@ -398,6 +412,8 @@ XenPci_PatchKernel(PXENPCI_DEVICE_DATA xpdd, PVOID base, ULONG length);
 
 NTSTATUS
 XenPci_HookDbgPrint();
+NTSTATUS
+XenPci_UnHookDbgPrint();
 
 struct xsd_sockmsg *
 XenBus_Raw(PXENPCI_DEVICE_DATA xpdd, struct xsd_sockmsg *msg);

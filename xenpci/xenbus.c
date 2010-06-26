@@ -210,8 +210,6 @@ XenBus_Write(
   struct xsd_sockmsg *rep;
   char *msg;
 
-  //KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
   ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
   rep = xenbus_format_msg_reply(xpdd, XS_WRITE, xbt, req, ARRAY_SIZE(req));
@@ -219,8 +217,6 @@ XenBus_Write(
   if (msg)
     return msg;
   ExFreePoolWithTag(rep, XENPCI_POOL_TAG);
-
-  //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return NULL;
 }

@@ -44,6 +44,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <xen_windows.h>
 #include <io/ring.h>
 #include <io/usbif.h>
+#include <io/xenbus.h>
 #include <usb.h>
 #include <usbioctl.h>
 #include <usbdlib.h>
