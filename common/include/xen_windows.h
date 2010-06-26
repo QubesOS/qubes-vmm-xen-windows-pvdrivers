@@ -206,91 +206,10 @@ the wrong width is used with the wrong defined port
 #define QEMU_UNPLUG_ALL_NICS 2
 #define QEMU_UNPLUG_AUX_IDE_DISKS 4
 
-#if 0
-
-static BOOLEAN debug_port_probed = FALSE;
-static BOOLEAN debug_port_enabled;
-
-static void XenDbgPrintOld(PCHAR format, ...)
-{
-  CHAR buf[512];
-  va_list ap;
-  ULONG i;
-  //int cpu;
-  KIRQL old_irql = 0;
-
-  if (!debug_port_probed)
-  {
-    if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0x49d2
-        || READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0xd249)
-    {
-      debug_port_enabled = TRUE;
-    }
-    else
-    {
-      debug_port_enabled = FALSE;
-    }
-    debug_port_probed = TRUE;
-  }
-  va_start(ap, format);
-  RtlStringCbVPrintfA(buf, ARRAY_SIZE(buf), format, ap);
-  va_end(ap);
-  DbgPrint(buf);
-
-  if (debug_port_enabled)
-  {
-    KeRaiseIrql(HIGH_LEVEL, &old_irql);
-    //cpu = KeGetCurrentProcessorNumber() & 0x07;
-    for (i = 0; i < strlen(buf); i++)
-    {
-      WRITE_PORT_UCHAR(XEN_IOPORT_LOG, buf[i]);
-    }
-    KeLowerIrql(old_irql);
-  }
-}
-
-
-static VOID
-XenRtlAssert(PCHAR expr, PCHAR filename, ULONG line_number)
-{
-  XenDbgPrintOld("Failed ASSERTion '%s' at %s:%d\n", expr, filename, line_number);
-  RtlAssert(expr, filename, line_number, NULL);
-}
-
-
-#if 1
-#ifdef KdPrint
-  #undef KdPrint
-#endif
-#define KdPrint(_x_) XenDbgPrintOld _x_
-#endif
-
-#ifdef ASSERT
-  #undef ASSERT
-#endif
-#define ASSERT( exp ) ((!(exp)) ? (XenRtlAssert( #exp, __FILE__, __LINE__), FALSE) : TRUE)
-
-#define FUNCTION_ENTER()       XenDbgPrintOld(__DRIVER_NAME " --> %s\n", __FUNCTION__)
-#define FUNCTION_EXIT()        XenDbgPrintOld(__DRIVER_NAME " <-- %s\n", __FUNCTION__)
-#define FUNCTION_EXIT_STATUS(_status) XenDbgPrintOld(__DRIVER_NAME " <-- %s, status = %08x\n", __FUNCTION__, _status)
-#define FUNCTION_ERROR_EXIT()  XenDbgPrintOld(__DRIVER_NAME " <-- %s (error path)\n", __FUNCTION__)
-#define FUNCTION_CALLED()      XenDbgPrintOld(__DRIVER_NAME " %s called (line %d)\n", __FUNCTION__, __LINE__)
-#ifdef __MINGW32__
-#define FUNCTION_MSG(_x) _FUNCTION_MSG _x
-#define _FUNCTION_MSG(format, args...) XenDbgPrintOld(__DRIVER_NAME " %s called: " format, __FUNCTION__, ##args)
-#else
-#define FUNCTION_MSG(format, ...) XenDbgPrintOld(__DRIVER_NAME "     " format, __VA_ARGS__)
-#endif
-
-#else
-
 #define FUNCTION_ENTER()       KdPrint((__DRIVER_NAME " --> %s\n", __FUNCTION__))
 #define FUNCTION_EXIT()        KdPrint((__DRIVER_NAME " <-- %s\n", __FUNCTION__))
 #define FUNCTION_EXIT_STATUS(_status) KdPrint((__DRIVER_NAME " <-- %s, status = %08x\n", __FUNCTION__, _status))
 #define FUNCTION_MSG(...) KdPrint((__DRIVER_NAME "     " __VA_ARGS__))
-
-#endif
-
 
 #define INVALID_GRANT_REF 0xFFFFFFFF
 
@@ -455,24 +374,21 @@ typedef struct {
 #define XEN_INIT_TYPE_READ_STRING_BACK          6
 #define XEN_INIT_TYPE_VECTORS                   7
 #define XEN_INIT_TYPE_GRANT_ENTRIES             8
-//#define XEN_INIT_TYPE_COPY_PTR                  9
-#define XEN_INIT_TYPE_RUN                       10
 #define XEN_INIT_TYPE_STATE_PTR                 11
-//#define XEN_INIT_TYPE_ACTIVE                    12
 #define XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION     13
-//#define XEN_INIT_TYPE_MATCH_FRONT               14 /* string, value, action */
-//#define XEN_INIT_TYPE_MATCH_BACK                15 /* string, value, action */
 #define XEN_INIT_TYPE_EVENT_CHANNEL_DPC         16
 #define XEN_INIT_TYPE_QEMU_HIDE_FLAGS           17 /* qemu hide flags */
 #define XEN_INIT_TYPE_QEMU_HIDE_FILTER          18 /* qemu device hidden by class filter */
-
-#if 0
-#define XEN_INIT_MATCH_TYPE_IF_MATCH		0x0001
-#define XEN_INIT_MATCH_TYPE_IF_NOT_MATCH	0x0000
-#define XEN_INIT_MATCH_TYPE_ONLY_IF_QEMU_HIDE	0x0002 /* only if qemu hiding is supported */
-#define XEN_INIT_MATCH_TYPE_SET_INACTIVE	0x0100
-#define XEN_INIT_MATCH_TYPE_DONT_CONFIG		0x0200
-#endif
+/*
+ state maps consist of 3 bytes: (maximum of 4 x 3 bytes)
+  front - state to set frontend to
+  back - state to expect from backend
+  wait - time in 100ms intervals to wait for backend
+ a single 0 byte terminates the list
+*/
+#define XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT  19
+#define XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT 20
+#define XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN     21
 
 static __inline VOID
 __ADD_XEN_INIT_UCHAR(PUCHAR *ptr, UCHAR val)
@@ -573,25 +489,18 @@ ADD_XEN_INIT_REQ(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2, PVOID p3)
   {
   case XEN_INIT_TYPE_END:
   case XEN_INIT_TYPE_VECTORS:
-  case XEN_INIT_TYPE_RUN:
   case XEN_INIT_TYPE_STATE_PTR:
-//  case XEN_INIT_TYPE_ACTIVE:
   case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
   case XEN_INIT_TYPE_QEMU_HIDE_FLAGS:
   case XEN_INIT_TYPE_QEMU_HIDE_FILTER:
+  case XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT:
+  case XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT:
+  case XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN:
     break;
   case XEN_INIT_TYPE_WRITE_STRING:
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
     __ADD_XEN_INIT_STRING(ptr, (PCHAR) p2);
     break;
-#if 0
-  case XEN_INIT_TYPE_MATCH_FRONT:
-  case XEN_INIT_TYPE_MATCH_BACK:
-    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p1);
-    __ADD_XEN_INIT_STRING(ptr, (PCHAR) p2);
-    __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p3));
-    break;
-#endif
   case XEN_INIT_TYPE_RING:
   case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ:
   case XEN_INIT_TYPE_READ_STRING_FRONT:
@@ -624,10 +533,11 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
   {
   case XEN_INIT_TYPE_END:
   case XEN_INIT_TYPE_VECTORS:
-  case XEN_INIT_TYPE_RUN:
   case XEN_INIT_TYPE_STATE_PTR:
-//  case XEN_INIT_TYPE_ACTIVE:
   case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
+  case XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT:
+  case XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT:
+  case XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN:
     *p1 = NULL;
     *p2 = NULL;
     break;
@@ -635,14 +545,6 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
     *p1 = __GET_XEN_INIT_STRING(ptr);
     *p2 = __GET_XEN_INIT_STRING(ptr);
     break;
-#if 0
-  case XEN_INIT_TYPE_MATCH_FRONT:
-  case XEN_INIT_TYPE_MATCH_BACK:
-    *p1 = __GET_XEN_INIT_STRING(ptr);
-    *p2 = __GET_XEN_INIT_STRING(ptr);
-    *p3 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
-    break;
-#endif
   case XEN_INIT_TYPE_RING:
   case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ:
   case XEN_INIT_TYPE_READ_STRING_FRONT:
@@ -659,10 +561,6 @@ GET_XEN_INIT_REQ(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
   case XEN_INIT_TYPE_GRANT_ENTRIES:
     *p2 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     break;
-//  case XEN_INIT_TYPE_COPY_PTR:
-//    *p1 = __GET_XEN_INIT_STRING(ptr);
-//    *p2 = __GET_XEN_INIT_PTR(ptr);
-//    break;
   }
   return retval;
 }
@@ -677,8 +575,6 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2, PVOID p3)
   {
   case XEN_INIT_TYPE_END:
   case XEN_INIT_TYPE_WRITE_STRING: /* this shouldn't happen */
-  case XEN_INIT_TYPE_RUN:
-//  case XEN_INIT_TYPE_ACTIVE:
   case XEN_INIT_TYPE_QEMU_HIDE_FILTER:
     break;
   case XEN_INIT_TYPE_RING:
@@ -715,10 +611,6 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2, PVOID p3)
   case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
     __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p2));
     break;
-//  case XEN_INIT_TYPE_COPY_PTR:
-//    __ADD_XEN_INIT_STRING(ptr, p1);
-//    __ADD_XEN_INIT_PTR(ptr, p2);
-//    break;
   }
 }
 
@@ -733,8 +625,6 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
   switch (retval)
   {
   case XEN_INIT_TYPE_END:
-  case XEN_INIT_TYPE_RUN:
-//  case XEN_INIT_TYPE_ACTIVE:
   case XEN_INIT_TYPE_QEMU_HIDE_FILTER:
     *p1 = NULL;
     *p2 = NULL;
@@ -779,9 +669,6 @@ GET_XEN_INIT_RSP(PUCHAR *ptr, PVOID *p1, PVOID *p2, PVOID *p3)
   case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
     *p2 = UlongToPtr(__GET_XEN_INIT_ULONG(ptr));
     break;
-//  case XEN_INIT_TYPE_COPY_PTR:
-//    *p1 = __GET_XEN_INIT_STRING(ptr);
-//    *p2 = __GET_XEN_INIT_PTR(ptr);
   }
   return retval;
 }
