@@ -1,6 +1,6 @@
 _LNG=$(LANGUAGE)
-STAMP=stampinf -f $@ -a $(_BUILDARCH) -d * -v $(GPLPV_VERSION) -k $(KMDF_VERSION_MAJOR).$(KMDF_VERSION_MINOR)
+STAMP=stampinf -f $@ -a $(_BUILDARCH) -d * -k $(KMDF_VERSION_MAJOR).$(KMDF_VERSION_MINOR) -v $(GPLPV_VERSION)
 
-$(OBJ_PATH)\$(O)\$(TARGETNAME).inf: $(TARGETNAME).inx sources ..\common.inc
+$(OBJ_PATH)\$(O)\$(INF_NAME).inf: $(INF_NAME).inx sources ..\common.inc
     copy $(@B).inx $@
     $(STAMP)
