@@ -731,6 +731,7 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
     {
       XenPci_MapHalThenPatchKernel(xpdd);
       xpdd->tpr_patched = TRUE;
+      xpdd->removable = FALSE;
     }
     GntTbl_Init(xpdd);
     EvtChn_Init(xpdd);

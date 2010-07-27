@@ -65,6 +65,11 @@ HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97D-E325-11CE-BFC1-08002BE1031
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00018002,XenHide
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E96A-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00018002,XenHide
 HKLM,SYSTEM\CurrentControlSet\Control\Class\{4D36E97B-E325-11CE-BFC1-08002BE10318},UpperFilters,0x00018002,XenHide
+; Remove anything that might have been added during text mode setup
+HKR,"Parameters", "txt_qemu_hide_flags"
+HKR,"Parameters", "txt_hide_qemu_always"
+HKR,"Parameters", "txt_patch_tpr_always"
+
 
 [DestinationDirs]
 XenPCI_Device_CoInstaller_CopyFiles = 11

@@ -491,6 +491,7 @@ XenPci_FixLoadOrder()
     && wdf_load_group_index < xenpci_group_index
     && xenpci_group_index < boot_bus_extender_index)))
   {
+    FUNCTION_EXIT();
     return; /* our work here is done */
   }
   for (i = 0; i < WdfCollectionGetCount(old_load_order); i++)
@@ -558,161 +559,144 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   NTSTATUS status = STATUS_SUCCESS;
   WDF_DRIVER_CONFIG config;
   WDFDRIVER driver;
+  WDF_OBJECT_ATTRIBUTES parent_attributes;
   PCONFIGURATION_INFORMATION conf_info;
-  WCHAR *SystemStartOptions;
-  UNICODE_STRING RegKeyName;
-  UNICODE_STRING RegValueName;
-  HANDLE RegHandle;
-  OBJECT_ATTRIBUTES RegObjectAttributes;
-  char Buf[300];// Sometimes bigger then 200 if system reboot from crash
-  ULONG BufLen = 300;
-  PKEY_VALUE_PARTIAL_INFORMATION KeyPartialValue;
+  WDFKEY control_key;
   WDFKEY param_key;
+  ULONG always_patch = 0;
+  ULONG always_hide = 0;
+  DECLARE_CONST_UNICODE_STRING(control_key_name, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
+  DECLARE_CONST_UNICODE_STRING(system_start_options_name, L"SystemStartOptions");
+  DECLARE_CONST_UNICODE_STRING(txt_always_hide_name, L"txt_hide_qemu_always");
+  DECLARE_CONST_UNICODE_STRING(hide_devices_name, L"hide_devices");
+  DECLARE_CONST_UNICODE_STRING(txt_always_patch_name, L"txt_patch_tpr_always");
+  WDFSTRING wdf_system_start_options;
+  UNICODE_STRING system_start_options;
   
   UNREFERENCED_PARAMETER(RegistryPath);
 
+  FUNCTION_ENTER();
+
   KdPrint((__DRIVER_NAME " " VER_FILEVERSION_STR "\n"));
 
-  FUNCTION_ENTER();
+  #if DBG
+  XenPci_HookDbgPrint();
+  #endif
+  /* again after enabling DbgPrint hooking */
+  KdPrint((__DRIVER_NAME " " VER_FILEVERSION_STR "\n"));
+
+  WDF_DRIVER_CONFIG_INIT(&config, XenPci_EvtDeviceAdd);
+  config.EvtDriverUnload = XenPci_EvtDriverUnload;
+  status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, &driver);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint((__DRIVER_NAME "     WdfDriverCreate failed with status 0x%x\n", status));
+    FUNCTION_EXIT();
+    #if DBG
+    XenPci_UnHookDbgPrint();
+    #endif
+    return status;
+  }
+  WDF_OBJECT_ATTRIBUTES_INIT(&parent_attributes);
+  parent_attributes.ParentObject = driver;
+  
+  status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, &parent_attributes, &param_key);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Error opening parameters key %08x\n", status));
+    goto error;
+  }
 
   status = AuxKlibInitialize();
   if(!NT_SUCCESS(status))
   {
-    KdPrint((__DRIVER_NAME "     AuxKlibInitialize failed %08x - expect a crash soon\n", status));
+    KdPrint((__DRIVER_NAME "     AuxKlibInitialize failed %08x\n", status));
+    goto error;
   }
-  
-  #if DBG
-  XenPci_HookDbgPrint();
-  #endif
 
   XenPci_FixLoadOrder();
 
-  RtlInitUnicodeString(&RegKeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
-  InitializeObjectAttributes(&RegObjectAttributes, &RegKeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
-  status = ZwOpenKey(&RegHandle, KEY_READ, &RegObjectAttributes);
-  if(!NT_SUCCESS(status))
+  RtlInitUnicodeString(&system_start_options, L"failed to read");
+  status = WdfRegistryOpenKey(NULL, &control_key_name, GENERIC_READ, &parent_attributes, &control_key);
+  if (NT_SUCCESS(status))
   {
-    KdPrint((__DRIVER_NAME "     ZwOpenKey returned %08x\n", status));
+    status = WdfStringCreate(NULL, &parent_attributes, &wdf_system_start_options);
+    status = WdfRegistryQueryString(control_key, &system_start_options_name, wdf_system_start_options);
+    if (NT_SUCCESS(status))
+      WdfStringGetUnicodeString(wdf_system_start_options, &system_start_options);
   }
+  WdfRegistryClose(control_key);
 
-  RtlInitUnicodeString(&RegValueName, L"SystemStartOptions");
-  status = ZwQueryValueKey(RegHandle, &RegValueName, KeyValuePartialInformation, Buf, BufLen, &BufLen);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     ZwQueryKeyValue returned %08x\n", status));
-  }
-  else
-    ZwClose(RegHandle);
-  KeyPartialValue = (PKEY_VALUE_PARTIAL_INFORMATION)Buf;
-  SystemStartOptions = (WCHAR *)KeyPartialValue->Data;
-
-  KdPrint((__DRIVER_NAME "     SystemStartOptions = %S\n", SystemStartOptions));
+  KdPrint((__DRIVER_NAME "     SystemStartOptions = %S\n", system_start_options));
   
-  if (wcsstr(SystemStartOptions, L"PATCHTPR"))
+  always_patch = 0;
+  WdfRegistryQueryULong(param_key, &txt_always_patch_name, &always_patch);
+  if (always_patch || (system_start_options.Buffer && wcsstr(system_start_options.Buffer, L"PATCHTPR")))
   {
+    DECLARE_CONST_UNICODE_STRING(verifier_key_name, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Session Manager\\Memory Management");
     WDFKEY memory_key;
-    UNICODE_STRING verifier_key_name;
-    UNICODE_STRING verifier_value_name;
     ULONG verifier_value;
     
     KdPrint((__DRIVER_NAME "     PATCHTPR found\n"));
     
-    RtlInitUnicodeString(&verifier_key_name, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Session Manager\\Memory Management");
-    status = WdfRegistryOpenKey(NULL, &verifier_key_name, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &memory_key);
-    if (!NT_SUCCESS(status))
+    tpr_patch_requested = TRUE;
+    status = WdfRegistryOpenKey(NULL, &verifier_key_name, KEY_READ, &parent_attributes, &memory_key);
+    if (NT_SUCCESS(status))
     {
-      tpr_patch_requested = TRUE;
-    }  
-    else
-    {
-      RtlInitUnicodeString(&verifier_value_name, L"VerifyDriverLevel");
+      DECLARE_CONST_UNICODE_STRING(verifier_value_name, L"VerifyDriverLevel");
       status = WdfRegistryQueryULong(memory_key, &verifier_value_name, &verifier_value);
       if (NT_SUCCESS(status) && verifier_value != 0)
       {
         KdPrint((__DRIVER_NAME "     Verifier active - not patching\n"));
-      }
-      else
-      {
-        tpr_patch_requested = TRUE;
+        tpr_patch_requested = FALSE;
       }
       WdfRegistryClose(memory_key);
     }
   }
-  
-  WDF_DRIVER_CONFIG_INIT(&config, XenPci_EvtDeviceAdd);
-  config.EvtDriverUnload = XenPci_EvtDriverUnload;
-  status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, &driver);
 
-  WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &qemu_hide_devices);
-
-  if (!NT_SUCCESS(status)) {
-    KdPrint((__DRIVER_NAME "     WdfDriverCreate failed with status 0x%x\n", status));
-    FUNCTION_EXIT();
-    return status;
-  }
-
-  qemu_hide_flags_value = 0;
-
-  if (wcsstr(SystemStartOptions, L"NOGPLPV"))
-    KdPrint((__DRIVER_NAME "     NOGPLPV found\n"));
-  conf_info = IoGetConfigurationInformation();
-  
-  status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &param_key);
-  if (NT_SUCCESS(status))
+  WdfCollectionCreate(&parent_attributes, &qemu_hide_devices);
+  WdfRegistryQueryULong(param_key, &txt_always_hide_name, &always_hide);
+  conf_info = IoGetConfigurationInformation();      
+  if (always_hide || ((conf_info == NULL || conf_info->DiskCount == 0)
+      && !(system_start_options.Buffer && wcsstr(system_start_options.Buffer, L"NOGPLPV"))
+      && !*InitSafeBootMode))
   {
-    ULONG always_hide = 0;
-    DECLARE_CONST_UNICODE_STRING(always_hide_name, L"hide_qemu_always");
-    
-    WdfRegistryQueryULong(param_key, &always_hide_name, &always_hide);
-    if (always_hide || ((conf_info == NULL || conf_info->DiskCount == 0)
-        && !wcsstr(SystemStartOptions, L"NOGPLPV")
-        && !*InitSafeBootMode))
+    if (!(system_start_options.Buffer && wcsstr(system_start_options.Buffer, L"GPLPVUSEFILTERHIDE")) && XenPci_CheckHideQemuDevices())
     {
-      if (wcsstr(SystemStartOptions, L"GPLPVUSEFILTERHIDE") == 0 && XenPci_CheckHideQemuDevices())
+      DECLARE_CONST_UNICODE_STRING(qemu_hide_flags_name, L"qemu_hide_flags");
+      DECLARE_CONST_UNICODE_STRING(txt_qemu_hide_flags_name, L"txt_qemu_hide_flags");
+      WDFCOLLECTION qemu_hide_flags;
+      ULONG i;
+
+      WdfCollectionCreate(&parent_attributes, &qemu_hide_flags);
+      WdfRegistryQueryMultiString(param_key, &qemu_hide_flags_name, &parent_attributes, qemu_hide_flags);
+      WdfRegistryQueryMultiString(param_key, &txt_qemu_hide_flags_name, &parent_attributes, qemu_hide_flags);
+      for (i = 0; i < WdfCollectionGetCount(qemu_hide_flags); i++)
       {
-        DECLARE_CONST_UNICODE_STRING(qemu_hide_flags_name, L"qemu_hide_flags");
-        WDFCOLLECTION qemu_hide_flags;
-        ULONG i;
-        
-        WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &qemu_hide_flags);
-        status = WdfRegistryQueryMultiString(param_key, &qemu_hide_flags_name, WDF_NO_OBJECT_ATTRIBUTES, qemu_hide_flags);
-        if (!NT_SUCCESS(status))
-        {
-          KdPrint(("Error reading parameters/qemu_hide_flags value %08x\n", status));
-        }
-        else
-        {
-          for (i = 0; i < WdfCollectionGetCount(qemu_hide_flags); i++)
-          {
-            ULONG value;
-            WDFSTRING wdf_string = WdfCollectionGetItem(qemu_hide_flags, i);
-            UNICODE_STRING unicode_string;
-            WdfStringGetUnicodeString(wdf_string, &unicode_string);
-            KdPrint(("\n", status));
-            status = RtlUnicodeStringToInteger(&unicode_string, 0, &value);
-            qemu_hide_flags_value |= value;
-          }
-        }
-        XenPci_HideQemuDevices();
+        ULONG value;
+        WDFSTRING wdf_string = WdfCollectionGetItem(qemu_hide_flags, i);
+        UNICODE_STRING unicode_string;
+        WdfStringGetUnicodeString(wdf_string, &unicode_string);
+        status = RtlUnicodeStringToInteger(&unicode_string, 0, &value);
+        qemu_hide_flags_value |= value;
       }
-      else
-      {
-        DECLARE_CONST_UNICODE_STRING(hide_devices_name, L"hide_devices");
-        status = WdfRegistryQueryMultiString(param_key, &hide_devices_name, WDF_NO_OBJECT_ATTRIBUTES, qemu_hide_devices);
-        if (!NT_SUCCESS(status))
-        {
-          KdPrint(("Error reading parameters/hide_devices value %08x\n", status));
-        }
-      }
+      WdfObjectDelete(qemu_hide_flags);
+      XenPci_HideQemuDevices();
     }
-    WdfRegistryClose(param_key);
+    else
+    {
+      WdfRegistryQueryMultiString(param_key, &hide_devices_name, &parent_attributes, qemu_hide_devices);      
+    }
   }
-  else
-  {
-    KdPrint(("Error opening parameters key %08x\n", status));
-  }
-
+  WdfRegistryClose(param_key);
   FUNCTION_EXIT();
-
   return STATUS_SUCCESS;
+
+error:
+  #if DBG
+  XenPci_UnHookDbgPrint();
+  #endif
+  KdPrint(("Failed, returning %08x\n", status));
+  FUNCTION_EXIT();
+  return status;
 }
