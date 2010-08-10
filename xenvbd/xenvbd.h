@@ -141,7 +141,6 @@ struct
   grant_ref_t dump_grant_refs[BLKIF_MAX_SEGMENTS_PER_REQUEST];
   BOOLEAN aligned_buffer_in_use;
   PVOID aligned_buffer;
-  UCHAR aligned_buffer_data[(BLKIF_MAX_SEGMENTS_PER_REQUEST + 1) * PAGE_SIZE - 1];
 /*  
   ULONGLONG interrupts;
   ULONGLONG aligned_requests;
@@ -149,6 +148,12 @@ struct
   ULONGLONG unaligned_requests;
   ULONGLONG unaligned_bytes;
 */
+  #define BLKIF_MAX_SEGMENTS_PER_REQUEST_DUMP_MODE 1
+  #define UNALIGNED_BUFFER_DATA_SIZE ((BLKIF_MAX_SEGMENTS_PER_REQUEST + 1) * PAGE_SIZE - 1)
+  #define UNALIGNED_BUFFER_DATA_SIZE_DUMP_MODE ((BLKIF_MAX_SEGMENTS_PER_REQUEST_DUMP_MODE + 1) * PAGE_SIZE - 1)
+  /* this has to be right at the end of DeviceExtension */
+  /* can't allocate too much data in dump mode so size DeviceExtensionSize accordingly */
+  UCHAR aligned_buffer_data[1];
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 
 #endif

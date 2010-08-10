@@ -548,17 +548,6 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
   KdPrint((__DRIVER_NAME "     xvdd = %p\n", xvdd));
 
-  {
-  int i;
-  for (i = 0; i < sizeof(XENVBD_DEVICE_DATA); i++)
-  {
-    if (((PUCHAR)xvdd)[i])
-    {
-      KdPrint((__DRIVER_NAME "     DeviceExtension is not zeroed!!!\n"));
-      break;
-    }
-  }
-  }
   RtlZeroMemory(xvdd, sizeof(XENVBD_DEVICE_DATA));
   *Again = FALSE;
 
@@ -601,30 +590,25 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   KdPrint((__DRIVER_NAME "     aligned_buffer_data = %p\n", xvdd->aligned_buffer_data));
   KdPrint((__DRIVER_NAME "     aligned_buffer = %p\n", xvdd->aligned_buffer));
 
-  ConfigInfo->MaximumTransferLength = BLKIF_MAX_SEGMENTS_PER_REQUEST * PAGE_SIZE;
-  ConfigInfo->NumberOfPhysicalBreaks = BLKIF_MAX_SEGMENTS_PER_REQUEST - 1;
-  ConfigInfo->ScatterGather = TRUE;
-
-#if 0
   if (!dump_mode)
   {
     ConfigInfo->MaximumTransferLength = BLKIF_MAX_SEGMENTS_PER_REQUEST * PAGE_SIZE;
     ConfigInfo->NumberOfPhysicalBreaks = BLKIF_MAX_SEGMENTS_PER_REQUEST - 1;
-    ConfigInfo->ScatterGather = TRUE;
+    //ConfigInfo->ScatterGather = TRUE;
   }
   else
   {
-    ConfigInfo->MaximumTransferLength = 4096;
-    ConfigInfo->NumberOfPhysicalBreaks = 0;
-    ConfigInfo->ScatterGather = FALSE;
+    ConfigInfo->MaximumTransferLength = BLKIF_MAX_SEGMENTS_PER_REQUEST_DUMP_MODE * PAGE_SIZE;
+    ConfigInfo->NumberOfPhysicalBreaks = BLKIF_MAX_SEGMENTS_PER_REQUEST_DUMP_MODE - 1;
+    //ConfigInfo->ScatterGather = FALSE;
   }
-#endif
+  ConfigInfo->ScatterGather = FALSE;
   ConfigInfo->AlignmentMask = 0;
   ConfigInfo->NumberOfBuses = 1;
   ConfigInfo->InitiatorBusId[0] = 1;
   ConfigInfo->MaximumNumberOfLogicalUnits = 1;
   ConfigInfo->MaximumNumberOfTargets = 2;
-  ConfigInfo->BufferAccessScsiPortControlled = TRUE;
+  ConfigInfo->BufferAccessScsiPortControlled = FALSE;
   if (ConfigInfo->Dma64BitAddresses == SCSI_DMA64_SYSTEM_SUPPORTED)
   {
     ConfigInfo->Master = TRUE;
@@ -1708,7 +1692,10 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   HwInitializationData.HwInitializationDataSize = sizeof(HW_INITIALIZATION_DATA);
   HwInitializationData.AdapterInterfaceType = PNPBus;
-  HwInitializationData.DeviceExtensionSize = sizeof(XENVBD_DEVICE_DATA);
+  if (!dump_mode)
+    HwInitializationData.DeviceExtensionSize = FIELD_OFFSET(XENVBD_DEVICE_DATA, aligned_buffer_data) + UNALIGNED_BUFFER_DATA_SIZE;
+  else
+    HwInitializationData.DeviceExtensionSize = FIELD_OFFSET(XENVBD_DEVICE_DATA, aligned_buffer_data) + UNALIGNED_BUFFER_DATA_SIZE_DUMP_MODE;
   HwInitializationData.SpecificLuExtensionSize = 0;
   HwInitializationData.SrbExtensionSize = sizeof(srb_list_entry_t);
   HwInitializationData.NumberOfAccessRanges = 1;
