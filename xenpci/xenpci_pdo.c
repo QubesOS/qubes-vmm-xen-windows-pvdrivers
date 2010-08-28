@@ -1071,6 +1071,7 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
   CHAR path[128];
   
   FUNCTION_ENTER();
+  KdPrint((__DRIVER_NAME "     path = %s\n", xppdd->path));
 
   switch (previous_state)
   {
@@ -1148,9 +1149,7 @@ XenPciPdo_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
   UNREFERENCED_PARAMETER(target_state);
   
   FUNCTION_ENTER();
-
   KdPrint((__DRIVER_NAME "     path = %s\n", xppdd->path));
-
   
   switch (target_state)
   {

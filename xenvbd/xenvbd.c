@@ -439,6 +439,7 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
 
     if ((ULONG_PTR)srb->DataBuffer & 511)
     {
+      ASSERT(!dump_mode || block_count * 512 < BLKIF_MAX_SEGMENTS_PER_REQUEST_DUMP_MODE * PAGE_SIZE);
       xvdd->aligned_buffer_in_use = TRUE;
       ptr = xvdd->aligned_buffer;
       if (!decode_cdb_is_read(srb))
