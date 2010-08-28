@@ -252,6 +252,9 @@ struct xennet_info
   uint8_t perm_mac_addr[ETH_ALEN];
   uint8_t curr_mac_addr[ETH_ALEN];
   ULONG current_lookahead;
+  NDIS_DEVICE_POWER_STATE new_power_state;
+  NDIS_DEVICE_POWER_STATE power_state;
+  PIO_WORKITEM power_workitem;
 
   /* Misc. Xen vars */
   XENPCI_VECTORS vectors;
@@ -398,6 +401,13 @@ XenNet_SetInformation(
   OUT PULONG BytesRead,
   OUT PULONG BytesNeeded
   );
+
+NDIS_STATUS
+XenNet_D0Entry(struct xennet_info *xi);
+NDIS_STATUS
+XenNet_D0Exit(struct xennet_info *xi);
+IO_WORKITEM_ROUTINE
+XenNet_SetPower;
 
 /* return values */
 #define PARSE_OK 0

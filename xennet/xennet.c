@@ -275,7 +275,7 @@ XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   case SR_STATE_SUSPENDING:
     KdPrint((__DRIVER_NAME "     New state SUSPENDING\n"));
     KeAcquireSpinLock(&xi->rx_lock, &old_irql);
-    if (xi->tx_id_free == NET_TX_RING_SIZE)
+    if (xi->rx_id_free == NET_TX_RING_SIZE)
     {  
       xi->device_state->suspend_resume_state_fdo = SR_STATE_SUSPENDING;
       KdPrint((__DRIVER_NAME "     Notifying event channel %d\n", xi->device_state->pdo_event_channel));
@@ -325,8 +325,133 @@ XenNet_HandleEvent(PVOID context)
   return TRUE;
 }
 
+VOID
+XenNet_SetPower(PDEVICE_OBJECT device_object, PVOID context)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  KIRQL old_irql;
+  struct xennet_info *xi = context;
+  
+  FUNCTION_ENTER();
+  UNREFERENCED_PARAMETER(device_object);
+
+  switch (xi->new_power_state)
+  {
+  case NdisDeviceStateD0:
+    KdPrint(("       NdisDeviceStateD0\n"));
+    status = XenNet_D0Entry(xi);
+    break;
+  case NdisDeviceStateD1:
+    KdPrint(("       NdisDeviceStateD1\n"));
+    if (xi->power_state == NdisDeviceStateD0)
+      status = XenNet_D0Exit(xi);
+    break;
+  case NdisDeviceStateD2:
+    KdPrint(("       NdisDeviceStateD2\n"));
+    if (xi->power_state == NdisDeviceStateD0)
+      status = XenNet_D0Exit(xi);
+    break;
+  case NdisDeviceStateD3:
+    KdPrint(("       NdisDeviceStateD3\n"));
+    if (xi->power_state == NdisDeviceStateD0)
+      status = XenNet_D0Exit(xi);
+    break;
+  default:
+    KdPrint(("       NdisDeviceState??\n"));
+    status = NDIS_STATUS_NOT_SUPPORTED;
+    break;
+  }
+  xi->power_state = xi->new_power_state;
+
+  old_irql = KeRaiseIrqlToDpcLevel();
+  NdisMSetInformationComplete(xi->adapter_handle, status);
+  KeLowerIrql(old_irql);
+  
+  FUNCTION_EXIT();
+}
+
+NDIS_STATUS
+XenNet_D0Entry(struct xennet_info *xi)
+{
+  NDIS_STATUS status;
+  PUCHAR ptr;
+  CHAR buf[128];
+  
+  FUNCTION_ENTER();
+
+  xi->shutting_down = FALSE;
+  
+  ptr = xi->config_page;
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "tx-ring-ref", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL, NULL);
+  #pragma warning(suppress:4054)
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL, "event-channel", (PVOID)XenNet_HandleEvent, xi);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-sg", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-gso-tcpv4", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1", NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1", NULL);
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", buf, NULL);
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", (int)xi->config_sg);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", buf, NULL);
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !!xi->config_gso);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-gso-tcpv4", buf, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
+  __ADD_XEN_INIT_UCHAR(&ptr, 0); /* no pre-connect required */
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT, NULL, NULL, NULL);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+  __ADD_XEN_INIT_UCHAR(&ptr, 20);
+  __ADD_XEN_INIT_UCHAR(&ptr, 0);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN, NULL, NULL, NULL);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
+  __ADD_XEN_INIT_UCHAR(&ptr, 50);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
+  __ADD_XEN_INIT_UCHAR(&ptr, 50);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitialising);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitWait);
+  __ADD_XEN_INIT_UCHAR(&ptr, 50);
+  __ADD_XEN_INIT_UCHAR(&ptr, 0);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
+
+  status = xi->vectors.XenPci_XenConfigDevice(xi->vectors.context);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Failed to complete device configuration (%08x)\n", status));
+    return status;
+  }
+
+  status = XenNet_ConnectBackend(xi);
+  
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Failed to complete device configuration (%08x)\n", status));
+    return status;
+  }
+
+  if (!xi->config_sg)
+  {
+    /* without SG, GSO can be a maximum of PAGE_SIZE */
+    xi->config_gso = min(xi->config_gso, PAGE_SIZE);
+  }
+
+  XenNet_TxInit(xi);
+  XenNet_RxInit(xi);
+
+  xi->connected = TRUE;
+
+  KeMemoryBarrier(); // packets could be received anytime after we set Frontent to Connected
+
+  FUNCTION_EXIT();
+
+  return status;
+}
+
 // Called at <= DISPATCH_LEVEL
-static DDKAPI NDIS_STATUS
+static NDIS_STATUS
 XenNet_Init(
   OUT PNDIS_STATUS OpenErrorStatus,
   OUT PUINT SelectedMediumIndex,
@@ -353,7 +478,7 @@ XenNet_Init(
   UCHAR type;
   PCHAR setting, value;
   ULONG length;
-  CHAR buf[128];
+  //CHAR buf[128];
   PVOID network_address;
   UINT network_address_length;
   BOOLEAN qemu_hide_filter = FALSE;
@@ -365,8 +490,6 @@ XenNet_Init(
 
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
-  length = NdisReadPciSlotInformation(MiniportAdapterHandle, 0, 0, &buf, 128);
-  KdPrint((__DRIVER_NAME "     NdisReadPciSlotInformation = %d\n", length));
   /* deal with medium stuff */
   for (i = 0; i < MediumArraySize; i++)
   {
@@ -509,12 +632,6 @@ XenNet_Init(
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_DEVICE_STATE - %p\n", PtrToUlong(value)));
       xi->device_state = (PXENPCI_DEVICE_STATE)value;
       break;
-#if 0
-    case XEN_INIT_TYPE_ACTIVE:
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_ACTIVE\n"));
-      xi->inactive = FALSE;
-      break;
-#endif
     case XEN_INIT_TYPE_QEMU_HIDE_FLAGS:
       qemu_hide_flags_value = PtrToUlong(value);
       break;
@@ -529,6 +646,9 @@ XenNet_Init(
 
   if ((qemu_hide_flags_value & QEMU_UNPLUG_ALL_IDE_DISKS) || qemu_hide_filter)
     xi->inactive = FALSE;
+
+  xi->power_state = NdisDeviceStateD0;
+  xi->power_workitem = IoAllocateWorkItem(xi->fdo);
 
   // now build config page
   
@@ -642,10 +762,8 @@ XenNet_Init(
   
   NdisCloseConfiguration(config_handle);
 
+#if 0
   ptr = xi->config_page;
-  // two XEN_INIT_TYPE_RUNs means go straight to XenbusStateConnected - skip XenbusStateInitialised
-  //ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
-  //ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RUN, NULL, NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "tx-ring-ref", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL, NULL);
   #pragma warning(suppress:4054)
@@ -680,39 +798,16 @@ XenNet_Init(
   __ADD_XEN_INIT_UCHAR(&ptr, 50);
   __ADD_XEN_INIT_UCHAR(&ptr, 0);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
-  
-  status = xi->vectors.XenPci_XenConfigDevice(xi->vectors.context);
+#endif
+
+  status = XenNet_D0Entry(xi);
   if (!NT_SUCCESS(status))
   {
-    KdPrint(("Failed to complete device configuration (%08x)\n", status));
+    KdPrint(("Failed to go to D0 (%08x)\n", status));
     goto err;
   }
-
-  status = XenNet_ConnectBackend(xi);
-  
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint(("Failed to complete device configuration (%08x)\n", status));
-    goto err;
-  }
-
-  if (!xi->config_sg)
-  {
-    /* without SG, GSO can be a maximum of PAGE_SIZE */
-    xi->config_gso = min(xi->config_gso, PAGE_SIZE);
-  }
-
-  XenNet_TxInit(xi);
-  XenNet_RxInit(xi);
-
-  xi->connected = TRUE;
-
-  KeMemoryBarrier(); // packets could be received anytime after we set Frontent to Connected
-
-  FUNCTION_EXIT();
-
   return NDIS_STATUS_SUCCESS;
-
+  
 err:
   NdisFreeMemory(xi, 0, 0);
   *OpenErrorStatus = status;
@@ -772,6 +867,19 @@ XenNet_Halt(
 
   FUNCTION_ENTER();
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  
+  XenNet_D0Exit(xi);
+
+  NdisFreeMemory(xi, 0, 0);
+
+  FUNCTION_EXIT();
+}
+
+NDIS_STATUS
+XenNet_D0Exit(struct xennet_info *xi)
+{
+  FUNCTION_ENTER();
+  KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
   xi->shutting_down = TRUE;
   KeMemoryBarrier(); /* make sure everyone sees that we are now shutting down */
@@ -784,14 +892,16 @@ XenNet_Halt(
 
   xi->vectors.XenPci_XenShutdownDevice(xi->vectors.context);
 
+  #if 0
   if (!xi->config_sg)
   {
     NdisMFreeMapRegisters(xi->adapter_handle);
   }
-
-  NdisFreeMemory(xi, 0, 0);
+  #endif
 
   FUNCTION_EXIT();
+  
+  return STATUS_SUCCESS;
 }
 
 NDIS_STATUS 

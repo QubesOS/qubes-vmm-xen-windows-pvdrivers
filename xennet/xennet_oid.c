@@ -758,25 +758,9 @@ XenNet_SetInformation(
       break;
     case OID_PNP_SET_POWER:
       KdPrint(("     Set OID_PNP_SET_POWER\n"));
-      switch (*(PNDIS_DEVICE_POWER_STATE )InformationBuffer)
-      {
-      case NdisDeviceStateD0:
-        KdPrint(("       NdisDeviceStateD0\n"));
-        break;
-      case NdisDeviceStateD1:
-        KdPrint(("       NdisDeviceStateD1\n"));
-        break;
-      case NdisDeviceStateD2:
-        KdPrint(("       NdisDeviceStateD2\n"));
-        break;
-      case NdisDeviceStateD3:
-        KdPrint(("       NdisDeviceStateD3\n"));
-        break;
-      default:
-        KdPrint(("       NdisDeviceState??\n"));
-        break;
-      }
-      status = NDIS_STATUS_SUCCESS;
+      xi->new_power_state = *(PNDIS_DEVICE_POWER_STATE)InformationBuffer;
+      IoQueueWorkItem(xi->power_workitem, XenNet_SetPower, DelayedWorkQueue, xi);
+      status = NDIS_STATUS_PENDING;
       break;
     default:
       KdPrint(("Set Unknown OID 0x%x\n", Oid));
