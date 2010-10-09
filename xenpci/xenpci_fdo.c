@@ -27,7 +27,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 /* Not really necessary but keeps PREfast happy */
 static EVT_WDF_WORKITEM XenPci_SuspendResume;
+#if (NTDDI_VERSION >= NTDDI_WINXP)
 static KSTART_ROUTINE XenPci_BalloonThreadProc;
+#endif
 
 static VOID
 XenPci_MapHalThenPatchKernel(PXENPCI_DEVICE_DATA xpdd)

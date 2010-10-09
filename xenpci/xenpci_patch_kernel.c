@@ -306,11 +306,18 @@ MapVlapic(PXENPCI_DEVICE_DATA xpdd)
 {
   struct xen_add_to_physmap xatp;
   ULONG rc = EINVAL;
+  ULONG ActiveProcessorCount;
   int i;
 
   FUNCTION_ENTER();
   
-  for (i = 0; i < KeNumberProcessors; i++)
+#if (NTDDI_VERSION >= NTDDI_WINXP)
+  ActiveProcessorCount = (ULONG)KeNumberProcessors;
+#else
+  ActiveProcessorCount = (ULONG)*KeNumberProcessors;
+#endif
+
+  for (i = 0; i < (int)ActiveProcessorCount; i++)
   {
     KdPrint((__DRIVER_NAME "     mapping lapic for cpu = %d\n", i));
 
@@ -340,11 +347,16 @@ XenPci_PatchKernel(PXENPCI_DEVICE_DATA xpdd, PVOID base, ULONG length)
 {
   patch_info_t patch_info;
   ULONG rc;
+#if (NTDDI_VERSION >= NTDDI_WINXP)
   RTL_OSVERSIONINFOEXW version_info;
+#endif
 
   FUNCTION_ENTER();
 
+/* if we're compiled for 2000 then assume we need patching */
+#if (NTDDI_VERSION >= NTDDI_WINXP)
   version_info.dwOSVersionInfoSize = sizeof(RTL_OSVERSIONINFOEXW);
+
   RtlGetVersion((PRTL_OSVERSIONINFOW)&version_info);
   if (version_info.dwMajorVersion >= 6)
   {
@@ -364,7 +376,7 @@ XenPci_PatchKernel(PXENPCI_DEVICE_DATA xpdd, PVOID base, ULONG length)
     KdPrint((__DRIVER_NAME "     Windows 2003 sp2 or newer - no need for patch\n"));
     return;
   }
-
+#endif
   if (IsMoveCr8Supported())
   {
     KdPrint((__DRIVER_NAME "     Using LOCK MOVE CR0 TPR patch\n"));

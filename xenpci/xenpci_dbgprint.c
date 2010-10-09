@@ -54,8 +54,9 @@ typedef struct _IDT
 #pragma pack()
 
 /* Not really necessary but keeps PREfast happy */
+#if (NTDDI_VERSION >= NTDDI_WINXP)
 static KBUGCHECK_CALLBACK_ROUTINE XenPci_BugcheckCallback;
-
+#endif
 KBUGCHECK_CALLBACK_RECORD callback_record;
 
 extern VOID Int2dHandlerNew(VOID);
@@ -210,7 +211,7 @@ XenPci_HookDbgPrint()
   {
     status = STATUS_UNSUCCESSFUL;
   }
-  
+
   KeInitializeCallbackRecord(&callback_record);
   if (!KeRegisterBugCheckCallback(&callback_record, XenPci_BugcheckCallback, NULL, 0, (PUCHAR)"XenPci"))
   {
@@ -260,4 +261,3 @@ XenPci_UnHookDbgPrint()
 
   return status;
 }
-

@@ -33,7 +33,7 @@ static EVT_WDF_DEVICE_RELEASE_HARDWARE XenPciPdo_EvtDeviceReleaseHardware;
 static EVT_WDF_DEVICE_USAGE_NOTIFICATION XenPciPdo_EvtDeviceUsageNotification;
 static EVT_WDFDEVICE_WDM_IRP_PREPROCESS XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE;
 static EVT_WDF_DEVICE_RESOURCE_REQUIREMENTS_QUERY XenPciPdo_EvtDeviceResourceRequirementsQuery;
-static EVT_WDF_DEVICE_PNP_STATE_CHANGE_NOTIFICATION  EvtDevicePnpStateChange;
+static EVT_WDF_DEVICE_PNP_STATE_CHANGE_NOTIFICATION XenPci_EvtDevicePnpStateChange;
 
 /*
 Called at PASSIVE_LEVEL(?)
@@ -1252,7 +1252,7 @@ XenPciPdo_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE not
   FUNCTION_EXIT();
 }
 
-static NTSTATUS
+static VOID
 XenPci_EvtDevicePnpStateChange(WDFDEVICE device, PCWDF_DEVICE_PNP_NOTIFICATION_DATA notification_data)
 {
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
@@ -1273,7 +1273,7 @@ XenPci_EvtDevicePnpStateChange(WDFDEVICE device, PCWDF_DEVICE_PNP_NOTIFICATION_D
   
   //FUNCTION_EXIT();
   
-  return STATUS_SUCCESS;
+  //return STATUS_SUCCESS;
 }
 
 NTSTATUS

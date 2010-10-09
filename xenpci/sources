@@ -6,6 +6,7 @@ KMDF_VERSION_MAJOR=1
 NTTARGETFILES=$(NTTARGETFILES) $(OBJ_PATH)\$(O)\$(INF_NAME).inf
 TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\wdmsec.lib $(DDK_LIB_PATH)\Rtlver.lib \
            $(DDK_LIB_PATH)\..\..\wlh\*\aux_klib.lib
+
 !IF $(386)
 TARGETLIBS=$(TARGETLIBS) $(LIBLFDS_DIR)\bin\i386\liblfds.lib
 !ELSE

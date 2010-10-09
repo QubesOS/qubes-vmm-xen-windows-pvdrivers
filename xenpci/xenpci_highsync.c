@@ -20,8 +20,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xenpci.h"
 
 /* Not really necessary but keeps PREfast happy */
+#if (NTDDI_VERSION >= NTDDI_WINXP)
 static KDEFERRED_ROUTINE XenPci_HighSyncCallFunction0;
 static KDEFERRED_ROUTINE XenPci_HighSyncCallFunctionN;
+#endif
 
 /*
 we need these intrinsics as even going to HIGH_LEVEL doesn't ensure that interrupts are completely disabled
@@ -57,7 +59,11 @@ XenPci_HighSyncCallFunction0(
   UNREFERENCED_PARAMETER(SystemArgument2);
 
   FUNCTION_ENTER();
+#if (NTDDI_VERSION >= NTDDI_WINXP)
   ActiveProcessorCount = (ULONG)KeNumberProcessors;
+#else
+  ActiveProcessorCount = (ULONG)*KeNumberProcessors;
+#endif
   InterlockedIncrement(&highsync_info->nr_procs_at_dispatch_level);
   if (highsync_info->sync_level > DISPATCH_LEVEL)
   {
@@ -113,7 +119,11 @@ XenPci_HighSyncCallFunctionN(
   InterlockedIncrement(&highsync_info->nr_procs_at_dispatch_level);
   if (highsync_info->sync_level > DISPATCH_LEVEL)
   {
+#if (NTDDI_VERSION >= NTDDI_WINXP)
     ActiveProcessorCount = (ULONG)KeNumberProcessors;
+#else
+    ActiveProcessorCount = (ULONG)*KeNumberProcessors;
+#endif
     while (highsync_info->nr_procs_at_dispatch_level < (LONG)ActiveProcessorCount)
     {
       KeStallExecutionProcessor(1);
@@ -156,7 +166,11 @@ XenPci_HighSync(PXENPCI_HIGHSYNC_FUNCTION function0, PXENPCI_HIGHSYNC_FUNCTION f
   highsync_info->context = context;
   highsync_info->sync_level = HIGH_LEVEL;
 
+#if (NTDDI_VERSION >= NTDDI_WINXP)
   ActiveProcessorCount = (ULONG)KeNumberProcessors;
+#else
+  ActiveProcessorCount = (ULONG)*KeNumberProcessors;
+#endif
 
   /* Go to HIGH_LEVEL to prevent any races with Dpc's on the current processor */
   KeRaiseIrql(highsync_info->sync_level, &old_irql);

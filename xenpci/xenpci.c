@@ -30,6 +30,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 /* Not really necessary but keeps PREfast happy */
 DRIVER_INITIALIZE DriverEntry;
+static EVT_WDF_DRIVER_UNLOAD XenPci_EvtDriverUnload;
 static EVT_WDF_DRIVER_DEVICE_ADD XenPci_EvtDeviceAdd;
 static EVT_WDF_DEVICE_USAGE_NOTIFICATION XenPci_EvtDeviceUsageNotification;
 static EVT_WDF_DEVICE_PREPARE_HARDWARE XenHide_EvtDevicePrepareHardware;
@@ -541,8 +542,6 @@ XenPci_FixLoadOrder()
   return;
 }
 
-EVT_WDF_DRIVER_UNLOAD EvtDriverUnload;
-
 VOID
 XenPci_EvtDriverUnload(WDFDRIVER driver)
 {
@@ -582,6 +581,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   #if DBG
   XenPci_HookDbgPrint();
   #endif
+
   /* again after enabling DbgPrint hooking */
   KdPrint((__DRIVER_NAME " " VER_FILEVERSION_STR "\n"));
 

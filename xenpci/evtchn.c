@@ -20,7 +20,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xenpci.h"
 
 /* Not really necessary but keeps PREfast happy */
+#if (NTDDI_VERSION >= NTDDI_WINXP)
 static KDEFERRED_ROUTINE EvtChn_DpcBounce;
+#endif
 
 #if defined(_X86_)
   #define xchg(p1, p2) InterlockedExchange(p1, p2)
@@ -314,7 +316,9 @@ EvtChn_Unbind(PVOID Context, evtchn_port_t Port)
   if (old_type == EVT_ACTION_TYPE_DPC || old_type == EVT_ACTION_TYPE_SUSPEND)
   {
     KeRemoveQueueDpc(&xpdd->ev_actions[Port].Dpc);
+#if (NTDDI_VERSION >= NTDDI_WINXP)
     KeFlushQueuedDpcs();
+#endif
   }
   
   KeMemoryBarrier(); // make sure we don't call the old Service Routine with the new data...
@@ -471,8 +475,9 @@ EvtChn_Suspend(PXENPCI_DEVICE_DATA xpdd)
       KeRemoveQueueDpc(&xpdd->ev_actions[i].Dpc);
     }
   }
+#if (NTDDI_VERSION >= NTDDI_WINXP)
   KeFlushQueuedDpcs();
-
+#endif
   return STATUS_SUCCESS;
 }
 
