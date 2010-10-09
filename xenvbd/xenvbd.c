@@ -341,7 +341,8 @@ decode_cdb_is_read(PSCSI_REQUEST_BLOCK srb)
   }
 }
 
-ULONG max_dump_mode_size = 0;
+ULONG max_dump_mode_blocks = 0;
+ULONG max_dump_mode_length = 0;
 
 static VOID
 XenVbd_PutSrbOnList(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
@@ -439,6 +440,8 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
 
     if ((ULONG_PTR)srb->DataBuffer & 511)
     {
+      if (dump_mode)
+        KdPrint((__DRIVER_NAME "     unaligned dump mode buffer = %d bytes\n", block_count * 512));
       ASSERT(!dump_mode || block_count * 512 < BLKIF_MAX_SEGMENTS_PER_REQUEST_DUMP_MODE * PAGE_SIZE);
       xvdd->aligned_buffer_in_use = TRUE;
       ptr = xvdd->aligned_buffer;
@@ -452,10 +455,15 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
       shadow->aligned_buffer_in_use = FALSE;
     }
 
-    if (dump_mode && block_count > max_dump_mode_size)
+    if (dump_mode && block_count > max_dump_mode_blocks)
     {
-      max_dump_mode_size = block_count;
-      KdPrint((__DRIVER_NAME "     max_dump_mode_size = %d\n", max_dump_mode_size));
+      max_dump_mode_blocks = block_count;
+      KdPrint((__DRIVER_NAME "     max_dump_mode_blocks = %d\n", max_dump_mode_blocks));
+    }
+    if (dump_mode && srb->DataTransferLength > max_dump_mode_length)
+    {
+      max_dump_mode_length = srb->DataTransferLength;
+      KdPrint((__DRIVER_NAME "     max_dump_mode_length = %d\n", max_dump_mode_length));
     }
 
     //KdPrint((__DRIVER_NAME "     sector_number = %d, block_count = %d\n", (ULONG)shadow->req.sector_number, block_count));
@@ -523,7 +531,6 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
       //KdPrint((__DRIVER_NAME "     Notifying\n"));
       xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
     }
-
   }
   if (xvdd->shadow_free && !xvdd->aligned_buffer_in_use)
   {
@@ -603,6 +610,8 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
     ConfigInfo->NumberOfPhysicalBreaks = BLKIF_MAX_SEGMENTS_PER_REQUEST_DUMP_MODE - 1;
     //ConfigInfo->ScatterGather = FALSE;
   }
+  KdPrint((__DRIVER_NAME "     ConfigInfo->MaximumTransferLength = %d\n", ConfigInfo->MaximumTransferLength));
+  KdPrint((__DRIVER_NAME "     ConfigInfo->NumberOfPhysicalBreaks = %d\n", ConfigInfo->NumberOfPhysicalBreaks));
   ConfigInfo->ScatterGather = FALSE;
   ConfigInfo->AlignmentMask = 0;
   ConfigInfo->NumberOfBuses = 1;
@@ -1113,7 +1122,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
     return TRUE;
   }
 
-  if (srb->PathId != 0 || srb->TargetId != 0)
+  if (srb->PathId != 0 || srb->TargetId != 0 || srb->Lun != 0)
   {
     srb->SrbStatus = SRB_STATUS_NO_DEVICE;
     ScsiPortNotification(RequestComplete, DeviceExtension, srb);
@@ -1684,6 +1693,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
           wcstombs(scsi_cdrom_model, (PWCHAR)kpv->Data, min(kpv->DataLength, 16));
         else
           RtlStringCbCopyA(scsi_cdrom_model, 16, "PV CDROM        ");
+        ZwClose(param_handle);
       }
       ZwClose(service_handle);
     }
