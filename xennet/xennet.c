@@ -27,6 +27,8 @@ DRIVER_INITIALIZE DriverEntry;
 static IO_WORKITEM_ROUTINE XenNet_Resume;
 static KDEFERRED_ROUTINE XenNet_SuspendResume;
 
+#pragma NDIS_INIT_FUNCTION(DriverEntry)
+
 /* ----- BEGIN Other people's code --------- */
 /* from linux/include/linux/ctype.h, used under GPLv2 */
 #define _U      0x01    /* upper */
@@ -916,20 +918,21 @@ XenNet_Reset(
   return NDIS_STATUS_SUCCESS;
 }
 
-NTSTATUS DDKAPI
+NTSTATUS
 DriverEntry(
   PDRIVER_OBJECT DriverObject,
   PUNICODE_STRING RegistryPath
   )
 {
-  NTSTATUS status;
+  NTSTATUS status;  
   NDIS_HANDLE ndis_wrapper_handle = NULL;
   NDIS_MINIPORT_CHARACTERISTICS mini_chars;
 
   FUNCTION_ENTER();
 
   KdPrint((__DRIVER_NAME "     DriverObject = %p, RegistryPath = %p\n", DriverObject, RegistryPath));
-  RtlZeroMemory(&mini_chars, sizeof(mini_chars));
+  
+  NdisZeroMemory(&mini_chars, sizeof(mini_chars));
 
   KdPrint((__DRIVER_NAME "     NdisGetVersion = %x\n", NdisGetVersion()));
 
