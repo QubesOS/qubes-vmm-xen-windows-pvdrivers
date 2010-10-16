@@ -21,7 +21,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xennet.h"
 
 /* Not really necessary but keeps PREfast happy */
+#if (NTDDI_VERSION >= NTDDI_WINXP)
 static KDEFERRED_ROUTINE XenNet_RxBufferCheck;
+#endif
 
 static __inline shared_buffer_t *
 get_pb_from_freelist(struct xennet_info *xi)
@@ -904,7 +906,7 @@ XenNet_BufferAlloc(xennet_info_t *xi)
       NdisFreeMemory(xi->rx_pbs[i].virtual, PAGE_SIZE, 0);
       break;
     }
-    xi->rx_pbs[i].offset = (ULONG_PTR)xi->rx_pbs[i].virtual & (PAGE_SIZE - 1);
+    xi->rx_pbs[i].offset = (USHORT)(ULONG_PTR)xi->rx_pbs[i].virtual & (PAGE_SIZE - 1);
     NdisAllocateBuffer(&status, &xi->rx_pbs[i].buffer, xi->rx_buffer_pool, (PUCHAR)xi->rx_pbs[i].virtual, PAGE_SIZE);
     if (status != STATUS_SUCCESS)
     {
@@ -989,7 +991,9 @@ XenNet_RxShutdown(xennet_info_t *xi)
   }
 
   KeRemoveQueueDpc(&xi->rx_dpc);
+#if (NTDDI_VERSION >= NTDDI_WINXP)
   KeFlushQueuedDpcs();
+#endif
 
   while (xi->rx_outstanding)
   {

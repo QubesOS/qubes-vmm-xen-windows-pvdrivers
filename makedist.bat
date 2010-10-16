@@ -29,7 +29,7 @@ IF NOT EXIST gplpv.cer "%DDK_PATH%"\bin\selfsign\makecert -r -pe -ss PrivateCert
 
 mkdir symbols\%GPLPV_VERSION%
 
-cmd /C "%DDK_PATH_2K%\bin\setenv.bat %DDK_PATH_2K%\ chk W2K && CD /D "%PV_DIR%" && build -cZg ~xennet ~copyconfig ~xenusb ~waitnopendinginstallevents && call sign.bat && call archive.bat && call wix.bat"
+cmd /C "%DDK_PATH_2K%\bin\setenv.bat %DDK_PATH_2K%\ chk W2K && CD /D "%PV_DIR%" && build -cZg ~xenusb ~copyconfig ~waitnopendinginstallevents && call sign.bat && call archive.bat && call wix.bat"
 
 cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk WXP && CD /D "%PV_DIR%" && build -cZg && call sign.bat && call archive.bat && call wix.bat"
 
@@ -41,7 +41,7 @@ cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk WLH && CD /D "%PV_DIR%" && bui
 
 cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ chk x64 WLH && CD /D "%PV_DIR%" && build -cZg && call sign.bat && call archive.bat && call wix.bat"
 
-cmd /C "%DDK_PATH_2K%\bin\setenv.bat %DDK_PATH_2K%\ fre W2K && CD /D "%PV_DIR%" && build -cZg ~xennet ~copyconfig ~xenusb ~waitnopendinginstallevents && call sign.bat && call wix.bat"
+cmd /C "%DDK_PATH_2K%\bin\setenv.bat %DDK_PATH_2K%\ fre W2K && CD /D "%PV_DIR%" && build -cZg ~xenusb ~copyconfig ~waitnopendinginstallevents && call sign.bat && call wix.bat"
 
 cmd /C "%DDK_PATH%\bin\setenv.bat %DDK_PATH%\ fre WXP && CD /D "%PV_DIR%" && build -cZg && call sign.bat && call wix.bat"
 

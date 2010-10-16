@@ -25,7 +25,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 /* Not really necessary but keeps PREfast happy */
 DRIVER_INITIALIZE DriverEntry;
 static IO_WORKITEM_ROUTINE XenNet_Resume;
+#if (NTDDI_VERSION >= NTDDI_WINXP)
 static KDEFERRED_ROUTINE XenNet_SuspendResume;
+#endif
 
 #pragma NDIS_INIT_FUNCTION(DriverEntry)
 
@@ -522,9 +524,9 @@ XenNet_Init(
   xi->rx_min_target = RX_DFL_MIN_TARGET;
   xi->rx_max_target = RX_MAX_TARGET;
   xi->inactive      = TRUE;
-  NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi, 0,
+  NdisMSetAttributesEx(xi->adapter_handle, (NDIS_HANDLE) xi, 0, 0 /* the last zero is to give the next | something to | with */
 #ifdef NDIS51_MINIPORT
-    NDIS_ATTRIBUTE_USES_SAFE_BUFFER_APIS
+    |NDIS_ATTRIBUTE_USES_SAFE_BUFFER_APIS
 #endif
     |NDIS_ATTRIBUTE_DESERIALIZE
     |NDIS_ATTRIBUTE_SURPRISE_REMOVE_OK

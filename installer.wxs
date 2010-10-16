@@ -94,6 +94,7 @@
                 <difx:Driver Sequence='2' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
               </Component>
             </Directory>
+            <?endif ?>
             <Directory Id='XenNetDir' Name='xennet'>
               <Component Id='XenNet' Guid='F16B1EC7-35B1-42c2-9017-22DC23D80BE7'>
                 <File Id='xennet.cat' Name='xennet.cat' DiskId='1' Source='xennet\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xennet.cat' />
@@ -102,6 +103,7 @@
                 <difx:Driver Sequence='3' Legacy='yes' PlugAndPlayPrompt='no' ForceInstall='yes' />
               </Component>
             </Directory>
+            <?if $(env.DDK_TARGET_OS) != Win2K ?>
             <Directory Id='XenUsbDir' Name='xenusb'>
               <Component Id='XenUsb' Guid='83746E68-DBCC-4feb-B521-09D5328D3BB0'>
                 <File Id='xenusb.cat' Name='xenusb.cat' DiskId='1' Source='xenusb\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\xenusb.cat' />
@@ -142,9 +144,11 @@
       <Feature Id='XenScsi' Title='XenScsi Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
         <ComponentRef Id='XenScsi' />
       </Feature>
+      <?endif ?>
       <Feature Id='XenNet' Title='XenNet Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
         <ComponentRef Id='XenNet' />
       </Feature>
+      <?if $(env.DDK_TARGET_OS) != Win2K ?>
       <Feature Id='XenUsb' Title='XenUsb Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
         <ComponentRef Id='XenUsb' />
       </Feature>

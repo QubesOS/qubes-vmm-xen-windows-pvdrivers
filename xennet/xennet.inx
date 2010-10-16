@@ -17,6 +17,9 @@ ExcludeFromSelect=*
 [XenGplPv.NT$ARCH$]
 %XenNet.DRVDESC%=XenNet_Inst, XEN\VIF
 
+[XenGplPv]
+%XenNet.DRVDESC%=XenNet_Inst, XEN\VIF
+
 [XenNet_Inst.NT]
 CopyFiles=XenNet.CopyFiles
 Characteristics = 0x1 ; NCF_VIRTUAL

@@ -21,7 +21,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xennet.h"
 
 /* Not really necessary but keeps PREfast happy */
+#if (NTDDI_VERSION >= NTDDI_WINXP)
 static KDEFERRED_ROUTINE XenNet_TxBufferGC;
+#endif
 
 static USHORT
 get_id_from_freelist(struct xennet_info *xi)
@@ -706,7 +708,9 @@ XenNet_TxShutdown(xennet_info_t *xi)
   }
 
   KeRemoveQueueDpc(&xi->tx_dpc);
+#if (NTDDI_VERSION >= NTDDI_WINXP)
   KeFlushQueuedDpcs();
+#endif
 
   /* Free packets in tx queue */
   entry = RemoveHeadList(&xi->tx_waiting_pkt_list);

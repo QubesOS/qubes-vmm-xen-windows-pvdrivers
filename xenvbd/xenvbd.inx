@@ -17,6 +17,9 @@ ExcludeFromSelect=*
 [XenGplPv.NT$ARCH$]
 %XenVbd.DRVDESC%=XenVbd_Inst, XEN\VBD
 
+[XenGplPv]
+%XenVbd.DRVDESC%=XenVbd_Inst, XEN\VBD
+
 [XenVbd_Inst.NT]
 CopyFiles=XenVbd.CopyFiles
 
