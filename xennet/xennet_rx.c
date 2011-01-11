@@ -214,9 +214,8 @@ XenNet_MakePacket(struct xennet_info *xi)
   NdisAllocateBuffer(&status, &out_buffer, xi->rx_buffer_pool, header_va, pi->header_length);
   ASSERT(status == STATUS_SUCCESS);
   NdisChainBufferAtBack(packet, out_buffer);
-  *(shared_buffer_t **)&packet->MiniportReservedEx[sizeof(LIST_ENTRY)] = header_buf;
+  *(shared_buffer_t **)&packet->MiniportReservedEx[0] = header_buf;
   header_buf->next = pi->curr_pb;
-
 
   // TODO: if there are only a few bytes left on the first buffer then add them to the header buffer too... maybe
 
@@ -504,7 +503,7 @@ XenNet_MakePackets(
         }
       }
     }
-    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[0];
+    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
     packet_count = 1;
     goto done;
@@ -517,7 +516,7 @@ XenNet_MakePackets(
       packet_count = 0;
       goto done;
     }
-    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[0];
+    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
     packet_count = 1;
     goto done;
@@ -555,7 +554,7 @@ XenNet_MakePackets(
         header_va[XN_HDR_SIZE + pi->ip4_header_length + 13] |= 8;
     }
     XenNet_SumPacketData(pi, packet, TRUE);
-    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[0];
+    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     InsertTailList(rx_packet_list, entry);
     packet_count++;
   }
@@ -760,7 +759,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   packet_count = 0;
   while (entry != &rx_packet_list)
   {
-    PNDIS_PACKET packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[0]);
+    PNDIS_PACKET packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
     packets[packet_count++] = packet;
     entry = RemoveHeadList(&rx_packet_list);
     if (packet_count == MAXIMUM_PACKETS_PER_INDICATE || entry == &rx_packet_list)
@@ -783,7 +782,7 @@ XenNet_ReturnPacket(
 {
   struct xennet_info *xi = MiniportAdapterContext;
   PNDIS_BUFFER buffer;
-  shared_buffer_t *page_buf = *(shared_buffer_t **)&Packet->MiniportReservedEx[sizeof(LIST_ENTRY)];
+  shared_buffer_t *page_buf = *(shared_buffer_t **)&Packet->MiniportReservedEx[0];
 
   //FUNCTION_ENTER();
 
@@ -794,7 +793,9 @@ XenNet_ReturnPacket(
   NdisUnchainBufferAtFront(Packet, &buffer);
   while (buffer)
   {
-    shared_buffer_t *next_buf = page_buf->next;
+    shared_buffer_t *next_buf;
+    ASSERT(page_buf);
+    next_buf = page_buf->next;
     if (!page_buf->virtual)
     {
       /* this isn't actually a share_buffer, it is some memory allocated for the header - just free it */
