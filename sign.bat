@@ -24,6 +24,10 @@ xcopy /D %BASEDIR%\redist\wdf\%_BUILDARCH%\%WDFFILENAME% xenusb\%BUILDDIR%
 %DDK_PATH%\bin\selfsign\inf2cat /driver:xenvbd\%BUILDDIR% /os:%SIGN_OS%
 %SIGNTOOL% sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenvbd\%BUILDDIR%\xenvbd.cat
 
+%SIGNTOOL% sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xennet\%BUILDDIR%\xennet.sys
+%DDK_PATH%\bin\selfsign\inf2cat /driver:xennet\%BUILDDIR% /os:%SIGN_OS%
+%SIGNTOOL% sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xennet\%BUILDDIR%\xennet.cat
+
 IF %DDK_TARGET_OS%==Win2K GOTO DONT_SIGN
 
 %SIGNTOOL% sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenscsi\%BUILDDIR%\xenscsi.sys
@@ -33,10 +37,5 @@ IF %DDK_TARGET_OS%==Win2K GOTO DONT_SIGN
 %SIGNTOOL% sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenusb\%BUILDDIR%\xenusb.sys
 %DDK_PATH%\bin\selfsign\inf2cat /driver:xenusb\%BUILDDIR% /os:%SIGN_OS%
 %SIGNTOOL% sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xenusb\%BUILDDIR%\xenusb.cat
-
-%SIGNTOOL% sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xennet\%BUILDDIR%\xennet.sys
-%DDK_PATH%\bin\selfsign\inf2cat /driver:xennet\%BUILDDIR% /os:%SIGN_OS%
-%SIGNTOOL% sign /v /s PrivateCertStore /n %CERT_NAME% /t http://timestamp.verisign.com/scripts/timestamp.dll xennet\%BUILDDIR%\xennet.cat
-
 
 :DONT_SIGN
