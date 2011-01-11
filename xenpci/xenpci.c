@@ -487,10 +487,10 @@ XenPci_FixLoadOrder()
     WdfRegistryClose(sgo_key);
     return; /* something is very wrong */
   }
-  if (dummy_group_index == 1 && (wdf_load_group_index == -1 || 
+  if (dummy_group_index == 1 && wdf_load_group_index != -1 &&
     (dummy_group_index < wdf_load_group_index
     && wdf_load_group_index < xenpci_group_index
-    && xenpci_group_index < boot_bus_extender_index)))
+    && xenpci_group_index < boot_bus_extender_index))
   {
     FUNCTION_EXIT();
     return; /* our work here is done */
@@ -505,7 +505,7 @@ XenPci_FixLoadOrder()
       WdfCollectionAdd(new_load_order, tmp_wdf_string);
       WdfObjectDelete(tmp_wdf_string);
     }
-    if (i == 1 && wdf_load_group_index != -1)
+    if (i == 1)
     {
       WDFSTRING tmp_wdf_string;
       WdfStringCreate(&wdf_load_group_name, WDF_NO_OBJECT_ATTRIBUTES, &tmp_wdf_string);
