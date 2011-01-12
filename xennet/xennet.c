@@ -896,13 +896,6 @@ XenNet_D0Exit(struct xennet_info *xi)
 
   xi->vectors.XenPci_XenShutdownDevice(xi->vectors.context);
 
-  #if 0
-  if (!xi->config_sg)
-  {
-    NdisMFreeMapRegisters(xi->adapter_handle);
-  }
-  #endif
-
   FUNCTION_EXIT();
   
   return STATUS_SUCCESS;
