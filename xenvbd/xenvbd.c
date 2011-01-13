@@ -897,6 +897,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   blkif_shadow_t *shadow;
   ULONG suspend_resume_state_pdo;
   BOOLEAN last_interrupt = FALSE;
+  ULONG start_ring_detect_state = xvdd->ring_detect_state;
 
   /* in dump mode I think we get called on a timer, not by an actual IRQ */
   if (!dump_mode && !xvdd->vectors.EvtChn_AckEvent(xvdd->vectors.context, xvdd->event_channel, &last_interrupt))
