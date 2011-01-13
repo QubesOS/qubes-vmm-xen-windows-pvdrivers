@@ -1067,7 +1067,8 @@ KdPrint((__DRIVER_NAME "     Completed request while aligned buffer in use\n"));
     }
   }
 
-  XenVbd_PutQueuedSrbsOnRing(xvdd);
+  if (start_ring_detect_state == RING_DETECT_STATE_COMPLETE)
+    XenVbd_PutQueuedSrbsOnRing(xvdd);
 
   if (suspend_resume_state_pdo == SR_STATE_SUSPENDING)
   {
