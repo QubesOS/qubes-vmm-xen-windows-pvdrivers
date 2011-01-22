@@ -690,8 +690,6 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
 {
   NTSTATUS status = STATUS_SUCCESS;
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(device);
-  ULONG i;
-  ULONG ret;
 
   FUNCTION_ENTER();
 
@@ -738,6 +736,8 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
     GntTbl_Init(xpdd);
     EvtChn_Init(xpdd);
 
+    /* need to give some memory back to xen to balance the books */
+#if 0
     for (i = 0; i < NR_GRANT_FRAMES + 1; i++)
     {
       struct xen_memory_reservation reservation;
@@ -751,10 +751,13 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
       #pragma warning(disable: 4127) /* conditional expression is constant */
       set_xen_guest_handle(reservation.extent_start, &pfn);
       
-      //KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op - pfn = %x\n", (ULONG)pfn));
+      KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op - pfn = %x\n", (ULONG)pfn));
       ret = HYPERVISOR_memory_op(xpdd, XENMEM_decrease_reservation, &reservation);
-      //KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
+      KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
+      *(PUCHAR*)MmGetMdlVirtualAddress(mdl) = (UCHAR)0x42;
+      KdPrint((__DRIVER_NAME "     touched decreased page\n"));
     }
+#endif
     
   // use the memory_op(unsigned int op, void *arg) hypercall to adjust memory
   // use XENMEM_increase_reservation and XENMEM_decrease_reservation

@@ -153,11 +153,12 @@ typedef struct {
   /* grant related */
   struct stack_state *gnttab_ss;
   grant_entry_t *gnttab_table;
+  PMDL gnttab_mdl;
   grant_entry_t *gnttab_table_copy;
   #if DBG
   PULONG gnttab_tag;
   #endif
-  PHYSICAL_ADDRESS gnttab_table_physical;
+  //PHYSICAL_ADDRESS gnttab_table_physical;
   //grant_ref_t *gnttab_list;
   //int gnttab_list_free;
   //KSPIN_LOCK grant_lock;

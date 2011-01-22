@@ -1107,13 +1107,14 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
   {
   }
 
+#if 0
   if (previous_state == WdfPowerDevicePrepareForHibernation || previous_state == WdfPowerDeviceD3 || previous_state == WdfPowerDeviceD3Final)
   {
     xppdd->requested_resources_ptr = xppdd->requested_resources_start;
     xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
   }
-
   XenConfig_InitConfigPage(device);
+#endif
 
   status = XenPci_GetBackendAndAddWatch(device);
   if (!NT_SUCCESS(status))
@@ -1122,7 +1123,31 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
     FUNCTION_EXIT_STATUS(status);
     return status;
   }
-  status = XenPci_XenConfigDevice(device);
+
+  if (previous_state == WdfPowerDeviceD3 || previous_state == WdfPowerDeviceD3Final)
+  {
+    xppdd->requested_resources_ptr = xppdd->requested_resources_start;
+    xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+    XenConfig_InitConfigPage(device);
+    status = XenPci_XenConfigDevice(device);
+  }
+  else if (previous_state == WdfPowerDevicePrepareForHibernation)
+  {
+    PVOID src, dst;
+    
+    ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
+    src = xppdd->requested_resources_start;
+    xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
+    xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;
+
+    dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
+
+    status = XenPci_XenConfigDeviceSpecifyBuffers(device, src, dst);
+
+    MmUnmapIoSpace(dst, xppdd->config_page_length);
+    ExFreePoolWithTag(src, XENPCI_POOL_TAG);
+  }
+
   if (!NT_SUCCESS(status))
   {
     RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
@@ -1424,7 +1449,7 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
     KdPrint((__DRIVER_NAME "     WdfDeviceAddQueryInterface failed - %08x\n", status));
     return status;
   }
-  
+
   RtlStringCbCopyA(xppdd->path, ARRAY_SIZE(xppdd->path), identification->path);
   RtlStringCbCopyA(xppdd->device, ARRAY_SIZE(xppdd->device), identification->device);
   xppdd->index = identification->index;
@@ -1551,9 +1576,9 @@ XenPci_Pdo_Resume(WDFDEVICE device)
       src = xppdd->requested_resources_start;
       xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
       xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;
-      
+
       dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
-      
+
       status = XenPci_XenConfigDeviceSpecifyBuffers(device, src, dst);
 
       MmUnmapIoSpace(dst, xppdd->config_page_length);

@@ -67,17 +67,20 @@ GntTbl_Map(PVOID Context, unsigned int start_idx, unsigned int end_idx)
   struct xen_add_to_physmap xatp;
   unsigned int i = end_idx;
 
+  FUNCTION_ENTER();
   /* Loop backwards, so that the first hypercall has the largest index,  ensuring that the table will grow only once.  */
   do {
     xatp.domid = DOMID_SELF;
     xatp.idx = i;
     xatp.space = XENMAPSPACE_grant_table;
-    xatp.gpfn = (xen_pfn_t)(xpdd->gnttab_table_physical.QuadPart >> PAGE_SHIFT) + i;
+    //xatp.gpfn = (xen_pfn_t)(xpdd->gnttab_table_physical.QuadPart >> PAGE_SHIFT) + i;
+    xatp.gpfn = (xen_pfn_t)MmGetMdlPfnArray(xpdd->gnttab_mdl)[i];
     if (HYPERVISOR_memory_op(xpdd, XENMEM_add_to_physmap, &xatp))
     {
-      KdPrint((__DRIVER_NAME "     ***ERROR MAPPING FRAME***\n"));
+      KdPrint((__DRIVER_NAME "     *** ERROR MAPPING FRAME %d ***\n", i));
     }
   } while (i-- > start_idx);
+  FUNCTION_EXIT();
 
   return 0;
 }
@@ -188,6 +191,34 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
   #endif
   xpdd->gnttab_table_copy = ExAllocatePoolWithTag(NonPagedPool, xpdd->grant_frames * PAGE_SIZE, XENPCI_POOL_TAG);
   ASSERT(xpdd->gnttab_table_copy); // lazy
+  xpdd->gnttab_table = ExAllocatePoolWithTag(NonPagedPool, xpdd->grant_frames * PAGE_SIZE, XENPCI_POOL_TAG);
+  ASSERT(xpdd->gnttab_table); // lazy
+  /* dom0 crashes if we allocate the wrong amount of memory here! */
+  xpdd->gnttab_mdl = IoAllocateMdl(xpdd->gnttab_table, xpdd->grant_frames * PAGE_SIZE, FALSE, FALSE, NULL);
+  ASSERT(xpdd->gnttab_mdl); // lazy
+  MmBuildMdlForNonPagedPool(xpdd->gnttab_mdl);
+
+  for (i = 0; i < (int)xpdd->grant_frames; i++)
+  {
+    struct xen_memory_reservation reservation;
+    xen_pfn_t pfn;
+    ULONG ret;
+    
+    reservation.address_bits = 0;
+    reservation.extent_order = 0;
+    reservation.domid = DOMID_SELF;
+    reservation.nr_extents = 1;
+    #pragma warning(disable: 4127) /* conditional expression is constant */
+    pfn = (xen_pfn_t)MmGetMdlPfnArray(xpdd->gnttab_mdl)[i];
+    KdPrint((__DRIVER_NAME "     pfn = %x\n", (ULONG)pfn));
+    set_xen_guest_handle(reservation.extent_start, &pfn);
+    
+    KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op - pfn = %x\n", (ULONG)pfn));
+    ret = HYPERVISOR_memory_op(xpdd, XENMEM_decrease_reservation, &reservation);
+    KdPrint((__DRIVER_NAME "     decreased %d pages for grant table frame %d\n", ret, i));
+  }
+
+#if 0
   xpdd->gnttab_table_physical = XenPci_AllocMMIO(xpdd, PAGE_SIZE * xpdd->grant_frames);
   xpdd->gnttab_table = MmMapIoSpace(xpdd->gnttab_table_physical, PAGE_SIZE * xpdd->grant_frames, MmNonCached);
   if (!xpdd->gnttab_table)
@@ -196,6 +227,7 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
     // this should be a show stopper...
     return;
   }
+#endif
 
   stack_new(&xpdd->gnttab_ss, grant_entries);
   
