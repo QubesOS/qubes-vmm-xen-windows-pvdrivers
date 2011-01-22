@@ -3,6 +3,11 @@
 !UNDEF KMDF_VERSION_MAJOR
 TARGETNAME=xenvbd
 TARGETTYPE=DRIVER
+!IF "$(DDK_TARGET_OS)" == "Win2K" || "$(DDK_TARGET_OS)" == "WinXP"
 TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\scsiport.lib
+SOURCES=xenvbd.rc xenvbd_scsiport.c
+!ELSE
+TARGETLIBS=$(TARGETLIBS) $(DDK_LIB_PATH)\storport.lib
+SOURCES=xenvbd.rc xenvbd_storport.c
+!ENDIF
 NTTARGETFILES=$(NTTARGETFILES) $(OBJ_PATH)\$(O)\$(TARGETNAME).inf
-SOURCES=xenvbd.rc xenvbd.c
