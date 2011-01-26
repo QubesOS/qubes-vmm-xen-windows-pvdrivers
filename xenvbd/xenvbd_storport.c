@@ -1251,10 +1251,10 @@ XenVbd_HwStorStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
 
   if (!dump_mode && xvdd->device_state->suspend_resume_state_pdo != SR_STATE_RUNNING)
   {
-    KdPrint((__DRIVER_NAME " --> HwStorStartIo (Suspending/Resuming)\n"));
+    //KdPrint((__DRIVER_NAME " --> HwStorStartIo (Suspending/Resuming)\n"));
     srb->SrbStatus = SRB_STATUS_BUSY;
     StorPortNotification(RequestComplete, DeviceExtension, srb);
-    KdPrint((__DRIVER_NAME " <-- HwStorStartIo (Suspending/Resuming)\n"));
+    //KdPrint((__DRIVER_NAME " <-- HwStorStartIo (Suspending/Resuming)\n"));
     return TRUE;
   }
 
