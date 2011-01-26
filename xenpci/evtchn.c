@@ -170,22 +170,31 @@ to CPU != 0, but we should always use vcpu_info[0]
         KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_SUSPEND\n"));
         for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt[pcpu]); i++)
         {
-          if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_IRQ)
+          switch(xpdd->ev_actions[i].type)
           {
-            int suspend_bit = i & (BITS_PER_LONG - 1);
-            int suspend_word = i >> BITS_PER_LONG_SHIFT;
-            synch_set_bit(suspend_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[pcpu][suspend_word]);
-          }
-          else if (xpdd->ev_actions[i].type == EVT_ACTION_TYPE_NORMAL && xpdd->ev_actions[i].ServiceRoutine)
-          {
-            xpdd->ev_actions[i].ServiceRoutine(xpdd->ev_actions[i].ServiceContext);
+          case EVT_ACTION_TYPE_IRQ:
+            {
+              int suspend_bit = i & (BITS_PER_LONG - 1);
+              int suspend_word = i >> BITS_PER_LONG_SHIFT;
+              synch_set_bit(suspend_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[pcpu][suspend_word]);
+            }
+            break;
+          case EVT_ACTION_TYPE_NORMAL:
+            if (xpdd->ev_actions[i].ServiceRoutine)
+            {
+              xpdd->ev_actions[i].ServiceRoutine(xpdd->ev_actions[i].ServiceContext);
+            }
+            break;
+          case EVT_ACTION_TYPE_DPC:
+            KeInsertQueueDpc(&xpdd->ev_actions[i].Dpc, NULL, NULL);
+            break;
           }
         }
         KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
         deferred = TRUE;
         break;
       default:
-        KdPrint((__DRIVER_NAME "     Unhandled Event!!!\n"));
+        KdPrint((__DRIVER_NAME "     Unhandled Event!!! port=%d\n", port));
         break;
       }
     }
