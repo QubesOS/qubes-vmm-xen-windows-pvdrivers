@@ -55,7 +55,6 @@ hvm_set_parameter(PXENPCI_DEVICE_DATA xpdd, int hvm_param, ULONGLONG value)
   a.domid = DOMID_SELF;
   a.index = hvm_param;
   a.value = value;
-  //a.value = via;
   retval = HYPERVISOR_hvm_op(xpdd, HVMOP_set_param, &a);
   KdPrint((__DRIVER_NAME " HYPERVISOR_hvm_op retval = %d\n", retval));
   FUNCTION_EXIT();

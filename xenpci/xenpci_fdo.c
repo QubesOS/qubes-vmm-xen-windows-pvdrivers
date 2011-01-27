@@ -409,12 +409,34 @@ XenPci_Suspend0(PVOID context)
 {
   PXENPCI_DEVICE_DATA xpdd = context;
   ULONG cancelled;
+  ULONGLONG sysenter_cs, sysenter_esp, sysenter_eip;
   
   FUNCTION_ENTER();
 
   GntTbl_Suspend(xpdd);
+
+  sysenter_cs = __readmsr(0x174);
+  sysenter_esp = __readmsr(0x175);
+  sysenter_eip = __readmsr(0x176);
   
   cancelled = hvm_shutdown(xpdd, SHUTDOWN_suspend);
+
+  if (__readmsr(0x174) != sysenter_cs)
+  {
+    KdPrint((__DRIVER_NAME "     sysenter_cs not restored. Fixing.\n"));
+    __writemsr(0x174, sysenter_cs);
+  }
+  if (__readmsr(0x175) != sysenter_esp)
+  {
+    KdPrint((__DRIVER_NAME "     sysenter_esp not restored. Fixing.\n"));
+    __writemsr(0x175, sysenter_esp);
+  }
+  if (__readmsr(0x176) != sysenter_eip)
+  {
+      KdPrint((__DRIVER_NAME "     sysenter_eip not restored. Fixing.\n"));
+    __writemsr(0x176, sysenter_eip);
+  }
+
   KdPrint((__DRIVER_NAME "     back from suspend, cancelled = %d\n", cancelled));
 
   if (qemu_hide_flags_value)
@@ -485,7 +507,6 @@ XenPci_SuspendResume(WDFWORKITEM workitem)
       KdPrint((__DRIVER_NAME "     Suspending child\n"));
       XenPci_Pdo_Suspend(child_device);
     }
-    KdPrint((__DRIVER_NAME "     WdfChildListRetrieveNextDevice = %08x, STATUS_NO_MORE_ENTRIES = %08x\n", status, STATUS_NO_MORE_ENTRIES));
     WdfChildListEndIteration(child_list, &child_iterator);
 
     XenBus_Suspend(xpdd);
@@ -503,7 +524,6 @@ XenPci_SuspendResume(WDFWORKITEM workitem)
       KdPrint((__DRIVER_NAME "     Resuming child\n"));
       XenPci_Pdo_Resume(child_device);
     }
-    KdPrint((__DRIVER_NAME "     WdfChildListRetrieveNextDevice = %08x, STATUS_NO_MORE_ENTRIES = %08x\n", status, STATUS_NO_MORE_ENTRIES));
     WdfChildListEndIteration(child_list, &child_iterator);
 
     xpdd->suspend_state = SUSPEND_STATE_NONE;
@@ -736,29 +756,6 @@ XenPci_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
     GntTbl_Init(xpdd);
     EvtChn_Init(xpdd);
 
-    /* need to give some memory back to xen to balance the books */
-#if 0
-    for (i = 0; i < NR_GRANT_FRAMES + 1; i++)
-    {
-      struct xen_memory_reservation reservation;
-      xen_pfn_t pfn;
-      PMDL mdl = AllocatePage();
-      pfn = (xen_pfn_t)(MmGetMdlPfnArray(mdl)[0]);
-      reservation.address_bits = 0;
-      reservation.extent_order = 0;
-      reservation.domid = DOMID_SELF;
-      reservation.nr_extents = 1;
-      #pragma warning(disable: 4127) /* conditional expression is constant */
-      set_xen_guest_handle(reservation.extent_start, &pfn);
-      
-      KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op - pfn = %x\n", (ULONG)pfn));
-      ret = HYPERVISOR_memory_op(xpdd, XENMEM_decrease_reservation, &reservation);
-      KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
-      *(PUCHAR*)MmGetMdlVirtualAddress(mdl) = (UCHAR)0x42;
-      KdPrint((__DRIVER_NAME "     touched decreased page\n"));
-    }
-#endif
-    
   // use the memory_op(unsigned int op, void *arg) hypercall to adjust memory
   // use XENMEM_increase_reservation and XENMEM_decrease_reservation
   }

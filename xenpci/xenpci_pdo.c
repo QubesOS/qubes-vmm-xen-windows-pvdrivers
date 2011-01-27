@@ -671,7 +671,6 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   in_ptr = src;
   while((type = GET_XEN_INIT_REQ(&in_ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
   {
-//KdPrint((__DRIVER_NAME "     in_ptr = %p, type = %d\n", in_ptr, type));
     ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, type, setting, value, value2);
 
     switch (type)
@@ -1531,7 +1530,7 @@ XenPci_Pdo_Suspend(WDFDEVICE device)
     }
 
     RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
-    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, xppdd);  
+    XenBus_RemWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, device);  
   }
   else
   {

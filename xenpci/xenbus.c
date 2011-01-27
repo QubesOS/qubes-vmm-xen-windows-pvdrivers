@@ -571,10 +571,11 @@ XenBus_Resume(PXENPCI_DEVICE_DATA xpdd)
   {
     if (xpdd->XenBus_WatchEntries[i].Active)
     {
-      //KdPrint((__DRIVER_NAME "     Adding watch for path = %s\n", xpdd->XenBus_WatchEntries[i].Path));
+      KdPrint((__DRIVER_NAME "     Adding watch for path = %s\n", xpdd->XenBus_WatchEntries[i].Path));
       XenBus_SendAddWatch(xpdd, XBT_NIL, xpdd->XenBus_WatchEntries[i].Path, i);
     }
   }
+
   FUNCTION_EXIT();
   
   return STATUS_SUCCESS;
@@ -665,7 +666,7 @@ XenBus_RemWatch(
   if (i == MAX_WATCH_ENTRIES)
   {
     ExReleaseFastMutex(&xpdd->xb_watch_mutex);
-    KdPrint((__DRIVER_NAME "     Watch not set - can't remove\n"));
+    KdPrint((__DRIVER_NAME "     Watch not set for %s - can't remove\n", Path));
     return NULL;
   }
 

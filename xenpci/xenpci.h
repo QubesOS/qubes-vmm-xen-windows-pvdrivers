@@ -151,17 +151,13 @@ typedef struct {
   evtchn_port_t xen_store_evtchn;
 
   /* grant related */
-  struct stack_state *gnttab_ss;
-  grant_entry_t *gnttab_table;
-  PMDL gnttab_mdl;
-  grant_entry_t *gnttab_table_copy;
+  struct stack_state *gnttbl_ss;
+  grant_entry_t *gnttbl_table;
+  PMDL gnttbl_mdl;
+  grant_entry_t *gnttbl_table_copy;
   #if DBG
-  PULONG gnttab_tag;
+  PULONG gnttbl_tag;
   #endif
-  //PHYSICAL_ADDRESS gnttab_table_physical;
-  //grant_ref_t *gnttab_list;
-  //int gnttab_list_free;
-  //KSPIN_LOCK grant_lock;
   ULONG grant_frames;
 
   ev_action_t ev_actions[NR_EVENTS];
