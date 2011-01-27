@@ -18,7 +18,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
 #define INITGUID
-#include "xenvbd.h"
+#include "xenvbd_scsiport.h"
 #include <io/blkif.h>
 #include <scsi.h>
 #include <ntddscsi.h>
