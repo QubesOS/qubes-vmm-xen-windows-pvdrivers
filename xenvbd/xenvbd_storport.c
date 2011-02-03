@@ -503,7 +503,12 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
 
     remaining = block_count * 512;
     shadow = get_shadow_from_freelist(xvdd);
-    ASSERT(shadow);
+    if (!shadow)
+    {
+      /* put the srb back at the start of the queue */
+      InsertHeadList(&xvdd->srb_list, (PLIST_ENTRY)srb->SrbExtension);
+      return; /* stall the queue */
+    }
     ASSERT(!shadow->aligned_buffer_in_use);
     ASSERT(!shadow->srb);
     shadow->req.sector_number = sector_number;
@@ -1192,9 +1197,12 @@ static BOOLEAN
 XenVbd_HandleEvent(PVOID DeviceExtension)
 {
   BOOLEAN retval;
+  STOR_LOCK_HANDLE lock_handle;
   
   //if (dump_mode) FUNCTION_ENTER();
+  StorPortAcquireSpinLock(DeviceExtension, StartIoLock, NULL, &lock_handle);
   retval = StorPortSynchronizeAccess(DeviceExtension, XenVbd_HandleEventSynchronised, NULL);
+  StorPortReleaseSpinLock (DeviceExtension, &lock_handle);
   //if (dump_mode) FUNCTION_EXIT();
   return retval;
 }
@@ -1221,9 +1229,12 @@ XenVbd_HwStorStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
   PXENVBD_DEVICE_DATA xvdd = DeviceExtension;
   ULONG data_transfer_length;
   UCHAR srb_status = SRB_STATUS_PENDING;
+  STOR_LOCK_HANDLE lock_handle;
 
   //if (dump_mode) FUNCTION_ENTER();
   //if (dump_mode) KdPrint((__DRIVER_NAME "     srb = %p\n", srb));
+
+  StorPortAcquireSpinLock(DeviceExtension, StartIoLock, NULL, &lock_handle);
 
   data_transfer_length = srb->DataTransferLength;
   
@@ -1232,6 +1243,7 @@ XenVbd_HwStorStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
     KdPrint((__DRIVER_NAME "     Inactive srb->Function = %08X\n", srb->Function));
     srb->SrbStatus = SRB_STATUS_NO_DEVICE;
     StorPortNotification(RequestComplete, DeviceExtension, srb);
+    StorPortReleaseSpinLock (DeviceExtension, &lock_handle);
     return TRUE;
   }
 
@@ -1246,6 +1258,7 @@ XenVbd_HwStorStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
     srb->SrbStatus = SRB_STATUS_BUSY;
     StorPortNotification(RequestComplete, DeviceExtension, srb);
     KdPrint((__DRIVER_NAME " --- HwStorStartIo (Still figuring out ring)\n"));
+    StorPortReleaseSpinLock (DeviceExtension, &lock_handle);
     return TRUE;
   }
 
@@ -1255,6 +1268,7 @@ XenVbd_HwStorStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
     srb->SrbStatus = SRB_STATUS_BUSY;
     StorPortNotification(RequestComplete, DeviceExtension, srb);
     //KdPrint((__DRIVER_NAME " <-- HwStorStartIo (Suspending/Resuming)\n"));
+    StorPortReleaseSpinLock (DeviceExtension, &lock_handle);
     return TRUE;
   }
 
@@ -1263,6 +1277,7 @@ XenVbd_HwStorStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
     srb->SrbStatus = SRB_STATUS_NO_DEVICE;
     StorPortNotification(RequestComplete, DeviceExtension, srb);
     KdPrint((__DRIVER_NAME " --- HwStorStartIo (Out of bounds - PathId = %d, TargetId = %d, Lun = %d)\n", srb->PathId, srb->TargetId, srb->Lun));
+    StorPortReleaseSpinLock (DeviceExtension, &lock_handle);
     return TRUE;
   }
 
@@ -1713,6 +1728,7 @@ XenVbd_HwStorStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
   }
 
   //if (dump_mode) FUNCTION_EXIT();
+  StorPortReleaseSpinLock(DeviceExtension, &lock_handle);
   return TRUE;
 }
 
