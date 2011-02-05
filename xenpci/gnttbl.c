@@ -234,7 +234,9 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
 VOID
 GntTbl_Suspend(PXENPCI_DEVICE_DATA xpdd)
 {
+  #if DBG
   int grant_entries;
+  #endif
   int i;
   
   FUNCTION_ENTER();
@@ -288,7 +290,9 @@ GntTbl_Resume(PXENPCI_DEVICE_DATA xpdd)
   ULONG new_grant_frames;
   ULONG result;
   int i;  
+  #if DBG
   int grant_entries;
+  #endif
 
   FUNCTION_ENTER();
 
