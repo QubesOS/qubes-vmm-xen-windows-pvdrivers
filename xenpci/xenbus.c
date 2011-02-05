@@ -358,7 +358,7 @@ XenBus_Connect(PXENPCI_DEVICE_DATA xpdd)
   pa_xen_store_interface.QuadPart = (ULONGLONG)xen_store_mfn << PAGE_SHIFT;
   xpdd->xen_store_interface = MmMapIoSpace(pa_xen_store_interface, PAGE_SIZE, MmNonCached);
 
-  EvtChn_BindDpc(xpdd, xpdd->xen_store_evtchn, XenBus_Dpc, xpdd);
+  EvtChn_BindDpc(xpdd, xpdd->xen_store_evtchn, XenBus_Dpc, xpdd, EVT_ACTION_FLAGS_NO_SUSPEND);
   
   return STATUS_SUCCESS;
 }

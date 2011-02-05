@@ -154,40 +154,43 @@ to CPU != 0, but we should always use vcpu_info[0]
       switch (ev_action->type)
       {
       case EVT_ACTION_TYPE_NORMAL:
-        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_NORMAL\n"));
+        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_NORMAL port = %d\n", port));
         ev_action->ServiceRoutine(ev_action->ServiceContext);
         break;
       case EVT_ACTION_TYPE_IRQ:
-        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_IRQ\n"));
+        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_IRQ port = %d\n", port));
         synch_set_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[pcpu][evt_word]);
         deferred = TRUE;
         break;
       case EVT_ACTION_TYPE_DPC:
-        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_DPC\n"));
+        //KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_DPC port = %d\n", port));
         KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
         break;
       case EVT_ACTION_TYPE_SUSPEND:
         KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_SUSPEND\n"));
         for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt[pcpu]); i++)
         {
-          switch(xpdd->ev_actions[i].type)
+          if (!(xpdd->ev_actions[i].flags & EVT_ACTION_FLAGS_NO_SUSPEND))
           {
-          case EVT_ACTION_TYPE_IRQ:
+            switch(xpdd->ev_actions[i].type)
             {
-              int suspend_bit = i & (BITS_PER_LONG - 1);
-              int suspend_word = i >> BITS_PER_LONG_SHIFT;
-              synch_set_bit(suspend_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[pcpu][suspend_word]);
+            case EVT_ACTION_TYPE_IRQ:
+              {
+                int suspend_bit = i & (BITS_PER_LONG - 1);
+                int suspend_word = i >> BITS_PER_LONG_SHIFT;
+                synch_set_bit(suspend_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[pcpu][suspend_word]);
+              }
+              break;
+            case EVT_ACTION_TYPE_NORMAL:
+              if (xpdd->ev_actions[i].ServiceRoutine)
+              {
+                xpdd->ev_actions[i].ServiceRoutine(xpdd->ev_actions[i].ServiceContext);
+              }
+              break;
+            case EVT_ACTION_TYPE_DPC:
+              KeInsertQueueDpc(&xpdd->ev_actions[i].Dpc, NULL, NULL);
+              break;
             }
-            break;
-          case EVT_ACTION_TYPE_NORMAL:
-            if (xpdd->ev_actions[i].ServiceRoutine)
-            {
-              xpdd->ev_actions[i].ServiceRoutine(xpdd->ev_actions[i].ServiceContext);
-            }
-            break;
-          case EVT_ACTION_TYPE_DPC:
-            KeInsertQueueDpc(&xpdd->ev_actions[i].Dpc, NULL, NULL);
-            break;
           }
         }
         KeInsertQueueDpc(&ev_action->Dpc, NULL, NULL);
@@ -232,7 +235,7 @@ EvtChn_EvtInterruptDisable(WDFINTERRUPT interrupt, WDFDEVICE device)
 }
 
 NTSTATUS
-EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
+EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
   ev_action_t *action = &xpdd->ev_actions[Port];
@@ -248,6 +251,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE Servi
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
   xpdd->ev_actions[Port].ServiceContext = ServiceContext;
   xpdd->ev_actions[Port].xpdd = xpdd;
+  xpdd->ev_actions[Port].flags = flags;
   KeMemoryBarrier();
   xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_NORMAL;
 
@@ -259,7 +263,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE Servi
 }
 
 NTSTATUS
-EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext)
+EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
   ev_action_t *action = &xpdd->ev_actions[Port];
@@ -275,6 +279,7 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE Se
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
   xpdd->ev_actions[Port].ServiceContext = ServiceContext;
   xpdd->ev_actions[Port].xpdd = xpdd;
+  xpdd->ev_actions[Port].flags = flags;
   KeMemoryBarrier(); // make sure that the new service routine is only called once the context is set up
   InterlockedExchange((volatile LONG *)&action->type, EVT_ACTION_TYPE_DPC);
 
@@ -286,7 +291,7 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE Se
 }
 
 NTSTATUS
-EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description)
+EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description, ULONG flags)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
   ev_action_t *action = &xpdd->ev_actions[Port];
@@ -304,7 +309,8 @@ EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR descriptio
   KeMemoryBarrier();
   xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_IRQ;
   RtlStringCbCopyA(xpdd->ev_actions[Port].description, 128, description);
-
+  xpdd->ev_actions[Port].flags = flags;
+  
   EvtChn_Unmask(Context, Port);
 
   FUNCTION_EXIT();
@@ -455,7 +461,7 @@ EvtChn_Init(PXENPCI_DEVICE_DATA xpdd)
 
   KeInitializeEvent(&xpdd->pdo_suspend_event, SynchronizationEvent, FALSE);
   xpdd->pdo_event_channel = EvtChn_AllocIpi(xpdd, 0);
-  EvtChn_BindDpc(xpdd, xpdd->pdo_event_channel, EvtChn_PdoEventChannelDpc, xpdd);
+  EvtChn_BindDpc(xpdd, xpdd->pdo_event_channel, EvtChn_PdoEventChannelDpc, xpdd, EVT_ACTION_FLAGS_DEFAULT);
   xpdd->ev_actions[xpdd->pdo_event_channel].type = EVT_ACTION_TYPE_SUSPEND; /* override dpc type */
   
   KdPrint((__DRIVER_NAME "     pdo_event_channel = %d\n", xpdd->pdo_event_channel));

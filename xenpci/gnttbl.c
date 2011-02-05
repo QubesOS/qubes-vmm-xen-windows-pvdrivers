@@ -187,6 +187,7 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
   #if DBG
   xpdd->gnttbl_tag = ExAllocatePoolWithTag(NonPagedPool, grant_entries * sizeof(ULONG), XENPCI_POOL_TAG);
   RtlZeroMemory(xpdd->gnttbl_tag, grant_entries * sizeof(ULONG));
+  xpdd->gnttbl_tag_copy = ExAllocatePoolWithTag(NonPagedPool, grant_entries * sizeof(ULONG), XENPCI_POOL_TAG);
   #endif
   xpdd->gnttbl_table_copy = ExAllocatePoolWithTag(NonPagedPool, xpdd->grant_frames * PAGE_SIZE, XENPCI_POOL_TAG);
   ASSERT(xpdd->gnttbl_table_copy); // lazy
@@ -233,7 +234,52 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
 VOID
 GntTbl_Suspend(PXENPCI_DEVICE_DATA xpdd)
 {
+  int grant_entries;
+  int i;
+  
+  FUNCTION_ENTER();
+  
+  /* copy some grant refs and switch to an alternate freelist, but only on hiber */
+  if (KeGetCurrentIrql() <= DISPATCH_LEVEL)
+  {
+    KdPrint((__DRIVER_NAME "     backing up grant ref stack\n"));
+    for (i = 0; i < HIBER_GREF_COUNT; i++)
+    {
+      xpdd->hiber_grefs[i] = INVALID_GRANT_REF;
+    }
+    for (i = 0; i < HIBER_GREF_COUNT; i++)
+    {
+      if ((xpdd->hiber_grefs[i] = GntTbl_GetRef(xpdd, (ULONG)'HIBR')) == INVALID_GRANT_REF)
+        break;
+    }
+    KdPrint((__DRIVER_NAME "     %d grant refs reserved\n", i));
+    xpdd->gnttbl_ss_copy = xpdd->gnttbl_ss;
+    stack_new(&xpdd->gnttbl_ss, HIBER_GREF_COUNT);
+  }
+  else
+  {
+    xpdd->gnttbl_ss_copy = NULL;
+  }
+  
   memcpy(xpdd->gnttbl_table_copy, xpdd->gnttbl_table, xpdd->grant_frames * PAGE_SIZE);
+  #if DBG
+  /* even though gnttbl_tag is actually preserved, it is used by the dump driver so must be restored to exactly the same state as it was on suspend */
+  grant_entries = min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
+  memcpy(xpdd->gnttbl_tag_copy, xpdd->gnttbl_tag, grant_entries * sizeof(ULONG));
+  #endif
+
+  /* put the grant entries on the new freelist, after copying the tables above */
+  if (KeGetCurrentIrql() <= DISPATCH_LEVEL)
+  {
+    for (i = 0; i < HIBER_GREF_COUNT; i++)
+    {
+      if (xpdd->hiber_grefs[i] == INVALID_GRANT_REF)
+        break;
+      GntTbl_PutRef(xpdd, xpdd->hiber_grefs[i], (ULONG)'HIBR');
+    }
+  }
+  
+  FUNCTION_EXIT();
 }
 
 VOID
@@ -242,8 +288,10 @@ GntTbl_Resume(PXENPCI_DEVICE_DATA xpdd)
   ULONG new_grant_frames;
   ULONG result;
   int i;  
+  int grant_entries;
+
   FUNCTION_ENTER();
-  
+
   for (i = 0; i < (int)xpdd->grant_frames; i++)
   {
     struct xen_memory_reservation reservation;
@@ -270,6 +318,25 @@ GntTbl_Resume(PXENPCI_DEVICE_DATA xpdd)
   result = GntTbl_Map(xpdd, 0, xpdd->grant_frames - 1);
   KdPrint((__DRIVER_NAME "     GntTbl_Map result = %d\n", result));
   memcpy(xpdd->gnttbl_table, xpdd->gnttbl_table_copy, xpdd->grant_frames * PAGE_SIZE);
-  
+  #if DBG
+  grant_entries = min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
+  memcpy(xpdd->gnttbl_tag, xpdd->gnttbl_tag_copy, grant_entries * sizeof(ULONG));
+  #endif
+
+  /* switch back and put the hiber grants back again */
+  if (xpdd->gnttbl_ss_copy)
+  {
+    KdPrint((__DRIVER_NAME "     restoring grant ref stack\n"));
+    stack_delete(xpdd->gnttbl_ss, NULL, NULL);
+    xpdd->gnttbl_ss = xpdd->gnttbl_ss_copy;
+    for (i = 0; i < HIBER_GREF_COUNT; i++)
+    {
+      if (xpdd->hiber_grefs[i] == INVALID_GRANT_REF)
+        break;
+      GntTbl_PutRef(xpdd, xpdd->hiber_grefs[i], (ULONG)'HIBR');
+    }
+    xpdd->gnttbl_ss_copy = NULL;
+  }
+    
   FUNCTION_EXIT();
 }

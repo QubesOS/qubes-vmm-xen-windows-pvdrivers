@@ -69,6 +69,10 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define EVT_ACTION_TYPE_SUSPEND 4
 #define EVT_ACTION_TYPE_NEW     5 /* setup of event is in progress */
 
+#define EVT_ACTION_FLAGS_DEFAULT    0 /* no special flags */
+#define EVT_ACTION_FLAGS_NO_SUSPEND 1 /* should not be fired on EVT_ACTION_TYPE_SUSPEND event */
+
+
 #define XEN_PV_PRODUCT_NUMBER   0x0002
 #define XEN_PV_PRODUCT_BUILD    0x00000001
 
@@ -79,6 +83,7 @@ typedef struct _ev_action_t {
   PVOID ServiceContext;
   CHAR description[128];
   ULONG type; /* EVT_ACTION_TYPE_* */
+  ULONG flags; /* EVT_ACTION_FLAGS_* */
   KDPC Dpc;
   ULONG port;
   ULONG vector;
@@ -117,6 +122,9 @@ typedef struct _XENBUS_WATCH_ENTRY {
 #define SUSPEND_STATE_HIGH_IRQL 2 /* all processors are at high IRQL and spinning */
 #define SUSPEND_STATE_RESUMING  3 /* we are the other side of the suspend and things are starting to get back to normal */
 
+/* we take some grant refs out and put them aside so that we dont get corrupted by hibernate */
+#define HIBER_GREF_COUNT 128
+
 typedef struct {  
   WDFDEVICE wdf_device;
   
@@ -152,11 +160,14 @@ typedef struct {
 
   /* grant related */
   struct stack_state *gnttbl_ss;
-  grant_entry_t *gnttbl_table;
+  struct stack_state *gnttbl_ss_copy;
+  grant_ref_t hiber_grefs[HIBER_GREF_COUNT];
   PMDL gnttbl_mdl;
+  grant_entry_t *gnttbl_table;
   grant_entry_t *gnttbl_table_copy;
   #if DBG
   PULONG gnttbl_tag;
+  PULONG gnttbl_tag_copy;
   #endif
   ULONG grant_frames;
 
@@ -251,8 +262,6 @@ typedef struct {
   XENPCI_STATE_MAP_ELEMENT xb_pre_connect_map[5];
   XENPCI_STATE_MAP_ELEMENT xb_post_connect_map[5];
   XENPCI_STATE_MAP_ELEMENT xb_shutdown_map[5];
-  
-  
   
   BOOLEAN hiber_usage_kludge;
 } XENPCI_PDO_DEVICE_DATA, *PXENPCI_PDO_DEVICE_DATA;
@@ -460,11 +469,11 @@ EvtChn_Mask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
 EvtChn_Unmask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
-EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
+EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags);
 NTSTATUS
-EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext);
+EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags);
 NTSTATUS
-EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description);
+EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description, ULONG flags);
 evtchn_port_t
 EvtChn_AllocIpi(PVOID context, ULONG vcpu);
 NTSTATUS

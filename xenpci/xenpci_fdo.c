@@ -476,7 +476,7 @@ XenPci_ConnectSuspendEvt(PXENPCI_DEVICE_DATA xpdd)
   KdPrint((__DRIVER_NAME "     suspend event channel = %d\n", xpdd->suspend_evtchn));
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "device/suspend/event-channel");
   XenBus_Printf(xpdd, XBT_NIL, path, "%d", xpdd->suspend_evtchn);
-  EvtChn_BindDpc(xpdd, xpdd->suspend_evtchn, XenPci_SuspendEvtDpc, xpdd->wdf_device);
+  EvtChn_BindDpc(xpdd, xpdd->suspend_evtchn, XenPci_SuspendEvtDpc, xpdd->wdf_device, EVT_ACTION_FLAGS_NO_SUSPEND);
   
   return STATUS_SUCCESS;
 }
@@ -940,7 +940,9 @@ XenPci_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
   }
   else
   {
+    EvtChn_Suspend(xpdd);
     GntTbl_Suspend(xpdd);
+    
   }
 
   FUNCTION_EXIT();

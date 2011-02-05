@@ -76,12 +76,18 @@ DEFINE_RING_TYPES(blkif_other, struct blkif_other_request, struct blkif_other_re
 typedef struct {
   LIST_ENTRY list_entry;
   PSCSI_REQUEST_BLOCK srb;
+  ULONG length; /* cached srb length */
+  ULONG offset; /* current srb offset */
+  ULONG outstanding_requests; /* number of requests sent to xen for this srb */
+  BOOLEAN error; /* true if any sub requests have returned an error */
 } srb_list_entry_t;
 
 typedef struct {
   blkif_request_t req;
+  srb_list_entry_t *srb_list_entry;
   PSCSI_REQUEST_BLOCK srb;
   PVOID system_address;
+  ULONG length;
   BOOLEAN aligned_buffer_in_use;
 } blkif_shadow_t;
 
@@ -106,6 +112,9 @@ typedef enum {
 #define RING_DETECT_STATE_DETECT2      2
 #define RING_DETECT_STATE_COMPLETE     3
 
+/* if this is ever increased to more than 1 then we need a way of tracking it properly */
+#define DUMP_MODE_UNALIGNED_PAGES 1 /* only for unaligned buffer use */
+
 struct
 {
   BOOLEAN inactive;
@@ -114,6 +123,7 @@ struct
   USHORT shadow_free_list[MAX_SHADOW_ENTRIES];
   USHORT shadow_free;
   USHORT shadow_min_free;
+  ULONG grant_tag;
 
   PUCHAR device_base;
 
@@ -137,8 +147,8 @@ struct
   XENPCI_VECTORS vectors;
   PXENPCI_DEVICE_STATE device_state;
   LIST_ENTRY srb_list;
-  grant_ref_t dump_grant_refs[BLKIF_MAX_SEGMENTS_PER_REQUEST];
   BOOLEAN aligned_buffer_in_use;
+  ULONG aligned_buffer_size;
   PVOID aligned_buffer;
 /*  
   ULONGLONG interrupts;
@@ -147,13 +157,12 @@ struct
   ULONGLONG unaligned_requests;
   ULONGLONG unaligned_bytes;
 */
-  #define BLKIF_MAX_SEGMENTS_PER_REQUEST_DUMP_MODE 1
+  /* this is the size of the buffer to allocate at the end of DeviceExtenstion. It includes an extra PAGE_SIZE-1 bytes to assure that we can always align to PAGE_SIZE */
   #define UNALIGNED_BUFFER_DATA_SIZE ((BLKIF_MAX_SEGMENTS_PER_REQUEST + 1) * PAGE_SIZE - 1)
-  #define UNALIGNED_BUFFER_DATA_SIZE_DUMP_MODE ((BLKIF_MAX_SEGMENTS_PER_REQUEST_DUMP_MODE + 1) * PAGE_SIZE - 1)
+  #define UNALIGNED_BUFFER_DATA_SIZE_DUMP_MODE ((DUMP_MODE_UNALIGNED_PAGES + 1) * PAGE_SIZE - 1)
   /* this has to be right at the end of DeviceExtension */
   /* can't allocate too much data in dump mode so size DeviceExtensionSize accordingly */
   UCHAR aligned_buffer_data[1];
 } typedef XENVBD_DEVICE_DATA, *PXENVBD_DEVICE_DATA;
 
 #endif
-
