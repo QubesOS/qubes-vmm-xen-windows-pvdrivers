@@ -152,11 +152,14 @@ XenVbd_InitConfig(PXENVBD_DEVICE_DATA xvdd)
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sectors", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sector-size", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
-  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitialised);
   __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
   __ADD_XEN_INIT_UCHAR(&ptr, 20);
   __ADD_XEN_INIT_UCHAR(&ptr, 0);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT, NULL, NULL, NULL);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
+  __ADD_XEN_INIT_UCHAR(&ptr, 20);
   __ADD_XEN_INIT_UCHAR(&ptr, 0);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN, NULL, NULL, NULL);
   __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
