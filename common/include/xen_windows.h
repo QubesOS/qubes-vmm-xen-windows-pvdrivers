@@ -602,8 +602,8 @@ ADD_XEN_INIT_RSP(PUCHAR *ptr, UCHAR type, PVOID p1, PVOID p2, PVOID p3)
   case XEN_INIT_TYPE_GRANT_ENTRIES:
     __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p1));
     __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p2));
-    memcpy(*ptr, p2, PtrToUlong(p1) * sizeof(grant_entry_t));
-    *ptr += PtrToUlong(p1) * sizeof(grant_entry_t);
+    memcpy(*ptr, p3, PtrToUlong(p2) * sizeof(grant_entry_t));
+    *ptr += PtrToUlong(p2) * sizeof(grant_entry_t);
     break;
   case XEN_INIT_TYPE_QEMU_HIDE_FLAGS:
     __ADD_XEN_INIT_ULONG(ptr, PtrToUlong(p2));

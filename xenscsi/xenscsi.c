@@ -192,7 +192,7 @@ XenScsi_HwScsiInterrupt(PVOID DeviceExtension)
       //remaining = Srb->DataTransferLength;
       for (j = 0; j < shadow->req.nr_segments; j++)
       {
-        xsdd->vectors.GntTbl_EndAccess(xsdd->vectors.context, shadow->req.seg[j].gref, TRUE, (ULONG)'XPDO');
+        xsdd->vectors.GntTbl_EndAccess(xsdd->vectors.context, shadow->req.seg[j].gref, TRUE, (ULONG)'SCSI');
         put_grant_on_freelist(xsdd, shadow->req.seg[j].gref);
         shadow->req.seg[j].gref = 0;
       }
@@ -494,9 +494,9 @@ XenScsi_HwScsiFindAdapter(PVOID DeviceExtension, PVOID Reserved1, PVOID Reserved
         memcpy(&xsdd->vectors, value, sizeof(XENPCI_VECTORS));
       break;
     case XEN_INIT_TYPE_GRANT_ENTRIES:
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(setting)));
-      xsdd->grant_entries = (USHORT)PtrToUlong(setting);
-      memcpy(&xsdd->grant_free_list, value, sizeof(grant_ref_t) * xsdd->grant_entries);
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - %d\n", PtrToUlong(value)));
+      xsdd->grant_entries = (USHORT)PtrToUlong(value);
+      memcpy(&xsdd->grant_free_list, value2, sizeof(grant_ref_t) * xsdd->grant_entries);
       xsdd->grant_free = xsdd->grant_entries;
       break;
     default:
@@ -635,7 +635,7 @@ XenScsi_PutSrbOnRing(PXENSCSI_DEVICE_DATA xsdd, PSCSI_REQUEST_BLOCK Srb)
     {
       return; /* better than crashing... */
     }
-    xsdd->vectors.GntTbl_GrantAccess(xsdd->vectors.context, 0, (ULONG)pfn, 0, shadow->req.seg[shadow->req.nr_segments].gref, (ULONG)'XPDO');
+    xsdd->vectors.GntTbl_GrantAccess(xsdd->vectors.context, 0, (ULONG)pfn, 0, shadow->req.seg[shadow->req.nr_segments].gref, (ULONG)'SCSI');
     shadow->req.seg[shadow->req.nr_segments].offset = (USHORT)(physical_address.LowPart & (PAGE_SIZE - 1));
     shadow->req.seg[shadow->req.nr_segments].length = (USHORT)min(PAGE_SIZE - (ULONG)shadow->req.seg[shadow->req.nr_segments].offset, remaining);
     remaining -= (ULONG)shadow->req.seg[shadow->req.nr_segments].length;
@@ -828,7 +828,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   ptr = driver_extension;
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "ring-ref", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_IRQ, "event-channel", NULL, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, NULL, UlongToPtr(144), NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, UlongToPtr((ULONG)'SCSI'), UlongToPtr(144), NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
   __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitialised);
   __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
