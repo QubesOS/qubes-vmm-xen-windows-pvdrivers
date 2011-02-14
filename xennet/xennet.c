@@ -24,7 +24,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 /* Not really necessary but keeps PREfast happy */
 DRIVER_INITIALIZE DriverEntry;
-static IO_WORKITEM_ROUTINE XenNet_Resume;
+static IO_WORKITEM_ROUTINE XenNet_ResumeWorkItem;
 #if (NTDDI_VERSION >= NTDDI_WINXP)
 static KDEFERRED_ROUTINE XenNet_SuspendResume;
 #endif
@@ -235,28 +235,33 @@ XenNet_ConnectBackend(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
-static DDKAPI VOID
-XenNet_Resume(PDEVICE_OBJECT device_object, PVOID context)
+static VOID
+XenNet_ResumeWorkItem(PDEVICE_OBJECT device_object, PVOID context)
 {
   struct xennet_info *xi = context;
+  KIRQL old_irql;
   
   UNREFERENCED_PARAMETER(device_object);
   
   FUNCTION_ENTER();
-  
-  ASSERT(xi->resume_work_item);
+
+  ASSERT(!xi->resume_work_item);
+
   IoFreeWorkItem(xi->resume_work_item);
-  xi->resume_work_item = NULL;
   
   XenNet_TxResumeStart(xi);
   XenNet_RxResumeStart(xi);
   XenNet_ConnectBackend(xi);
   XenNet_RxResumeEnd(xi);
   XenNet_TxResumeEnd(xi);
+
+  KeAcquireSpinLock(&xi->resume_lock, &old_irql);
+  xi->resume_work_item = NULL;
   KdPrint((__DRIVER_NAME "     *Setting suspend_resume_state_fdo = %d\n", xi->device_state->suspend_resume_state_pdo));
   xi->device_state->suspend_resume_state_fdo = xi->device_state->suspend_resume_state_pdo;
   KdPrint((__DRIVER_NAME "     *Notifying event channel %d\n", xi->device_state->pdo_event_channel));
   xi->vectors.EvtChn_Notify(xi->vectors.context, xi->device_state->pdo_event_channel);
+  KeReleaseSpinLock(&xi->resume_lock, old_irql);
 
   FUNCTION_EXIT();
 
@@ -267,6 +272,7 @@ XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 {
   struct xennet_info *xi = context;
   KIRQL old_irql;
+  PIO_WORKITEM resume_work_item;
 
   UNREFERENCED_PARAMETER(dpc);
   UNREFERENCED_PARAMETER(arg1);
@@ -279,7 +285,7 @@ XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   case SR_STATE_SUSPENDING:
     KdPrint((__DRIVER_NAME "     New state SUSPENDING\n"));
     KeAcquireSpinLock(&xi->rx_lock, &old_irql);
-    if (xi->rx_id_free == NET_TX_RING_SIZE)
+    if (xi->rx_id_free == NET_RX_RING_SIZE)
     {  
       xi->device_state->suspend_resume_state_fdo = SR_STATE_SUSPENDING;
       KdPrint((__DRIVER_NAME "     Notifying event channel %d\n", xi->device_state->pdo_event_channel));
@@ -289,9 +295,18 @@ XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     break;
   case SR_STATE_RESUMING:
     KdPrint((__DRIVER_NAME "     New state SR_STATE_RESUMING\n"));
-    ASSERT(!xi->resume_work_item);
-    xi->resume_work_item = IoAllocateWorkItem(xi->fdo);
-    IoQueueWorkItem(xi->resume_work_item, XenNet_Resume, DelayedWorkQueue, xi);
+    /* do it like this so we don't race and double-free the work item */
+    resume_work_item = IoAllocateWorkItem(xi->fdo);
+    KeAcquireSpinLock(&xi->resume_lock, &old_irql);
+    if (xi->resume_work_item || xi->device_state->suspend_resume_state_fdo == SR_STATE_RESUMING)
+    {
+      KeReleaseSpinLock(&xi->resume_lock, old_irql);
+      IoFreeWorkItem(resume_work_item);
+      return;
+    }
+    xi->resume_work_item = resume_work_item;
+    KeReleaseSpinLock(&xi->resume_lock, old_irql);
+    IoQueueWorkItem(xi->resume_work_item, XenNet_ResumeWorkItem, DelayedWorkQueue, xi);
     break;
   default:
     KdPrint((__DRIVER_NAME "     New state %d\n", xi->device_state->suspend_resume_state_fdo));
@@ -600,6 +615,7 @@ XenNet_Init(
   }
 
   KeInitializeDpc(&xi->suspend_dpc, XenNet_SuspendResume, xi);
+  KeInitializeSpinLock(&xi->resume_lock);
 
   NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
     &xi->lower_do, NULL, NULL);

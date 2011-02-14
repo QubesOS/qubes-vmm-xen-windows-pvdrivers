@@ -268,6 +268,7 @@ struct xennet_info
   ULONG multicast_list_size;
   KDPC suspend_dpc;
   PIO_WORKITEM resume_work_item;
+  KSPIN_LOCK resume_lock;
 
   /* tx related - protected by tx_lock */
   KSPIN_LOCK tx_lock;
