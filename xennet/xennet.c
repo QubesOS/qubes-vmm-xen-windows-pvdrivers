@@ -245,7 +245,7 @@ XenNet_ResumeWorkItem(PDEVICE_OBJECT device_object, PVOID context)
   
   FUNCTION_ENTER();
 
-  ASSERT(!xi->resume_work_item);
+  ASSERT(xi->resume_work_item);
 
   IoFreeWorkItem(xi->resume_work_item);
   
