@@ -1501,6 +1501,7 @@ XenPci_Pdo_Suspend(WDFDEVICE device)
   PVOID setting;
   PVOID value;
   PVOID value2;
+  int i;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ " (%s)\n", xppdd->path));
 
@@ -1522,11 +1523,18 @@ XenPci_Pdo_Suspend(WDFDEVICE device)
       {
         switch (type)
         {
+        case XEN_INIT_TYPE_RING: /* frontend ring */
+          FreePages(value);
+          break;
         case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
         case XEN_INIT_TYPE_EVENT_CHANNEL_DPC: /* frontend event channel bound to dpc */
         case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
           EvtChn_Unbind(xpdd, PtrToUlong(value));
           EvtChn_Close(xpdd, PtrToUlong(value));
+          break;
+        case XEN_INIT_TYPE_GRANT_ENTRIES:
+          for (i = 0; i < (int)PtrToUlong(value); i++)
+            GntTbl_EndAccess(xpdd, ((grant_ref_t *)value2)[i], FALSE, PtrToUlong(setting));
           break;
         }
       }
