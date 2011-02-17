@@ -275,21 +275,23 @@ XenBus_Dpc(PVOID ServiceContext)
   WDF_WORKITEM_CONFIG workitem_config;
   WDF_OBJECT_ATTRIBUTES workitem_attributes;
   WDFWORKITEM workitem;
+  ULONG rsp_prod;
 
   //FUNCTION_ENTER();
   
   KeAcquireSpinLockAtDpcLevel(&xpdd->xb_ring_spinlock);
 
-  while (xpdd->xen_store_interface->rsp_prod != xpdd->xen_store_interface->rsp_cons)
+  /* snapshot rsp_prod so it doesn't change while we are looking at it */
+  while ((rsp_prod = xpdd->xen_store_interface->rsp_prod) != xpdd->xen_store_interface->rsp_cons)
   {
+    KeMemoryBarrier(); /* make sure the data in the ring is valid */
     if (!xpdd->xb_msg)
     {
-      if (xpdd->xen_store_interface->rsp_prod - xpdd->xen_store_interface->rsp_cons < sizeof(xsd_sockmsg_t))
+      if (rsp_prod - xpdd->xen_store_interface->rsp_cons < sizeof(xsd_sockmsg_t))
       {
         //KdPrint((__DRIVER_NAME " +++ Message incomplete (not even a full header)\n"));
         break;
       }
-      KeMemoryBarrier();
       memcpy_from_ring(xpdd->xen_store_interface->rsp, &msg,
         MASK_XENSTORE_IDX(xpdd->xen_store_interface->rsp_cons), sizeof(xsd_sockmsg_t));
       xpdd->xb_msg = ExAllocatePoolWithTag(NonPagedPool, sizeof(xsd_sockmsg_t) + msg.len, XENPCI_POOL_TAG);
@@ -298,8 +300,7 @@ XenBus_Dpc(PVOID ServiceContext)
       xpdd->xen_store_interface->rsp_cons += sizeof(xsd_sockmsg_t);
     }
 
-    msg_len = min(xpdd->xen_store_interface->rsp_prod - xpdd->xen_store_interface->rsp_cons, sizeof(xsd_sockmsg_t) + xpdd->xb_msg->len - xpdd->xb_msg_offset);
-    KeMemoryBarrier(); /* make sure the data in the ring is valid */
+    msg_len = min(rsp_prod - xpdd->xen_store_interface->rsp_cons, sizeof(xsd_sockmsg_t) + xpdd->xb_msg->len - xpdd->xb_msg_offset);
     ASSERT(xpdd->xb_msg_offset + msg_len <= sizeof(xsd_sockmsg_t) + xpdd->xb_msg->len);
     memcpy_from_ring(xpdd->xen_store_interface->rsp,
       (PUCHAR)xpdd->xb_msg + xpdd->xb_msg_offset,
