@@ -62,26 +62,6 @@ KBUGCHECK_CALLBACK_RECORD callback_record;
 extern VOID Int2dHandlerNew(VOID);
 extern PVOID Int2dHandlerOld;
 
-static VOID
-XenPci_BugcheckCallback(PVOID buffer, ULONG length)
-{
-  NTSTATUS status;
-  KBUGCHECK_DATA bugcheck_data;
-  
-  UNREFERENCED_PARAMETER(buffer);
-  UNREFERENCED_PARAMETER(length);
-  
-  bugcheck_data.BugCheckDataSize  = sizeof(bugcheck_data);
-  status = AuxKlibGetBugCheckData(&bugcheck_data);
-  if(!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     AuxKlibGetBugCheckData returned %08x\n", status));
-    return;
-  }
-  KdPrint((__DRIVER_NAME "     Bug check 0x%08X (0x%p, 0x%p, 0x%p, 0x%p)\n",
-    bugcheck_data.BugCheckCode, bugcheck_data.Parameter1, bugcheck_data.Parameter2, bugcheck_data.Parameter3, bugcheck_data.Parameter4));
-}
-
 static BOOLEAN debug_port_enabled = FALSE;
 static volatile LONG debug_print_lock = 0;
 
@@ -97,6 +77,77 @@ static void XenDbgPrint(PCHAR string, ULONG length)
     WRITE_PORT_UCHAR(XEN_IOPORT_LOG, string[i]);
   /* release the lock */
   InterlockedExchange(&debug_print_lock, 0);
+}
+
+static VOID
+XenPci_DbgWriteChar(CHAR c)
+{
+  WRITE_PORT_UCHAR(XEN_IOPORT_LOG, c);
+}
+
+static VOID
+XenPci_DbgWriteString(PCHAR string)
+{
+  while (*string)
+  {
+    WRITE_PORT_UCHAR(XEN_IOPORT_LOG, *string);
+    string++;
+  }
+}
+
+static VOID
+XenPci_DbgWriteHexByte(UCHAR byte)
+{
+  char *digits = "0123456789ABCDEF";
+  XenPci_DbgWriteChar(digits[byte >> 4]);
+  XenPci_DbgWriteChar(digits[byte & 0x0F]);
+}
+
+static VOID
+XenPci_DbgWriteULONG(ULONG data)
+{
+  int i;
+  for (i = 0; i < sizeof(data); i++)
+    XenPci_DbgWriteHexByte((UCHAR)(data >> ((sizeof(data) - 1 - i) << 3)));
+}
+
+static VOID
+XenPci_DbgWriteULONG_PTR(ULONG_PTR data)
+{
+  int i;
+  for (i = 0; i < sizeof(data); i++)
+    XenPci_DbgWriteHexByte((UCHAR)(data >> ((sizeof(data) - 1 - i) << 3)));
+}
+
+static VOID
+XenPci_BugcheckCallback(PVOID buffer, ULONG length)
+{
+  NTSTATUS status;
+  KBUGCHECK_DATA bugcheck_data;
+  
+  UNREFERENCED_PARAMETER(buffer);
+  UNREFERENCED_PARAMETER(length);
+  
+  bugcheck_data.BugCheckDataSize  = sizeof(bugcheck_data);
+  status = AuxKlibGetBugCheckData(&bugcheck_data);
+  if(!NT_SUCCESS(status))
+  {
+    XenPci_DbgWriteString(__DRIVER_NAME "     AuxKlibGetBugCheckData returned ");
+    XenPci_DbgWriteULONG(status);
+    XenPci_DbgWriteString("\n");
+    return;
+  }
+  XenPci_DbgWriteString(__DRIVER_NAME "     Bug check 0x");
+  XenPci_DbgWriteULONG(bugcheck_data.BugCheckCode);
+  XenPci_DbgWriteString(" (0x");
+  XenPci_DbgWriteULONG_PTR(bugcheck_data.Parameter1);
+  XenPci_DbgWriteString(", 0x");
+  XenPci_DbgWriteULONG_PTR(bugcheck_data.Parameter2);
+  XenPci_DbgWriteString(", 0x");
+  XenPci_DbgWriteULONG_PTR(bugcheck_data.Parameter3);
+  XenPci_DbgWriteString(", 0x");
+  XenPci_DbgWriteULONG_PTR(bugcheck_data.Parameter4);
+  XenPci_DbgWriteString(")\n");
 }
 
 VOID
