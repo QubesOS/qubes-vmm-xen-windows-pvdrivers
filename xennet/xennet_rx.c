@@ -200,7 +200,12 @@ XenNet_MakePacket(struct xennet_info *xi)
   }
   
   header_buf = NdisAllocateFromNPagedLookasideList(&xi->rx_lookaside_list);
-  ASSERT(header_buf); // lazy
+  if (!header_buf)
+  {
+    KdPrint((__DRIVER_NAME "     No free header buffers\n"));
+    put_packet_on_freelist(xi, packet);
+    return NULL;
+  }
   header_va = (PUCHAR)(header_buf + 1);
   NdisZeroMemory(header_buf, sizeof(shared_buffer_t));
   NdisMoveMemory(header_va, pi->header, pi->header_length);
@@ -212,7 +217,13 @@ XenNet_MakePacket(struct xennet_info *xi)
   header_extra = pi->header_length - (MAX_ETH_HEADER_LENGTH + pi->ip4_header_length + pi->tcp_header_length);
   ASSERT(pi->header_length <= MAX_ETH_HEADER_LENGTH + MAX_LOOKAHEAD_LENGTH);
   NdisAllocateBuffer(&status, &out_buffer, xi->rx_buffer_pool, header_va, pi->header_length);
-  ASSERT(status == STATUS_SUCCESS);
+  if (status != STATUS_SUCCESS)
+  {
+    KdPrint((__DRIVER_NAME "     No free header buffers\n"));
+    NdisFreeToNPagedLookasideList(&xi->rx_lookaside_list, header_buf);
+    put_packet_on_freelist(xi, packet);
+    return NULL;
+  }
   NdisChainBufferAtBack(packet, out_buffer);
   *(shared_buffer_t **)&packet->MiniportReservedEx[0] = header_buf;
   header_buf->next = pi->curr_pb;
