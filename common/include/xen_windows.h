@@ -130,7 +130,6 @@ AllocatePagesExtra(int Pages, int ExtraSize)
   }
 //  KdPrint((__DRIVER_NAME " --- AllocatePages IRQL = %d, Buf = %p\n", KeGetCurrentIrql(), Buf));
   Mdl = (PMDL)ExAllocatePoolWithTag(NonPagedPool, MmSizeOfMdl(Buf, Pages * PAGE_SIZE) + ExtraSize, ALLOCATE_PAGES_POOL_TAG);
-  //Mdl = IoAllocateMdl(Buf, Pages * PAGE_SIZE, FALSE, FALSE, NULL);
   if (Mdl == NULL)
   {
     // free the memory here
