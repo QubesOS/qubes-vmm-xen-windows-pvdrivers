@@ -72,9 +72,10 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define EVT_ACTION_FLAGS_DEFAULT    0 /* no special flags */
 #define EVT_ACTION_FLAGS_NO_SUSPEND 1 /* should not be fired on EVT_ACTION_TYPE_SUSPEND event */
 
-
 #define XEN_PV_PRODUCT_NUMBER   0x0002
 #define XEN_PV_PRODUCT_BUILD    0x00000001
+
+#define BALLOON_UNIT_PAGES (BALLOON_UNITS >> PAGE_SHIFT)
 
 extern ULONG qemu_protocol_version;
 
@@ -330,14 +331,27 @@ EVT_WDF_FILE_CLOSE XenPci_EvtFileClose;
 EVT_WDF_FILE_CLEANUP XenPci_EvtFileCleanup;
 EVT_WDF_IO_QUEUE_IO_DEFAULT XenPci_EvtIoDefault;
 
+#define HYPERVISOR_memory_op(xpdd, cmd, arg) _HYPERVISOR_memory_op(xpdd->hypercall_stubs, cmd, arg)
+#define HYPERVISOR_xen_version(xpdd, cmd, arg) _HYPERVISOR_xen_version(xpdd->hypercall_stubs, cmd, arg)
+#define HYPERVISOR_grant_table_op(xpdd, cmd, uop, count) _HYPERVISOR_grant_table_op(xpdd->hypercall_stubs, cmd, uop, count)
+#define HYPERVISOR_hvm_op(xpdd, op, arg) _HYPERVISOR_hvm_op(xpdd->hypercall_stubs, op, arg)
+#define HYPERVISOR_event_channel_op(xpdd, cmd, op) _HYPERVISOR_event_channel_op(xpdd->hypercall_stubs, cmd, op)
+#define HYPERVISOR_sched_op(xpdd, cmd, arg) _HYPERVISOR_sched_op(xpdd->hypercall_stubs, cmd, arg)
+#define HYPERVISOR_shutdown(xpdd, reason) _HYPERVISOR_shutdown(xpdd->hypercall_stubs, reason)
+
+#define hvm_get_parameter(xvdd, hvm_param) _hvm_get_parameter(xvdd->hypercall_stubs, hvm_param);
+#define hvm_set_parameter(xvdd, hvm_param, value) _hvm_set_parameter(xvdd->hypercall_stubs, hvm_param, value);
+#define hvm_shutdown(xvdd, reason) _hvm_shutdown(xvdd->hypercall_stubs, reason);
+#define HYPERVISOR_yield(xvdd) _HYPERVISOR_yield(xvdd->hypercall_stubs);
+
 #include "hypercall.h"
 
 #define XBT_NIL ((xenbus_transaction_t)0)
 
-NTSTATUS
-hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd);
-NTSTATUS
-hvm_free_stubs(PXENPCI_DEVICE_DATA xpdd);
+PVOID
+hvm_get_hypercall_stubs();
+VOID
+hvm_free_hypercall_stubs(PVOID hypercall_stubs);
 
 EVT_WDF_DEVICE_PREPARE_HARDWARE XenPci_EvtDevicePrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE XenPci_EvtDeviceReleaseHardware;
@@ -353,57 +367,6 @@ VOID
 XenPci_HideQemuDevices();
 extern WDFCOLLECTION qemu_hide_devices;
 extern USHORT qemu_hide_flags_value;
-
-#if 0
-NTSTATUS
-XenPci_Power_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Dummy_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Pnp_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Create_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Close_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Read_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Write_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Cleanup_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_SystemControl_Fdo(PDEVICE_OBJECT device_object, PIRP irp);
-
-NTSTATUS
-XenPci_Irp_Create_XenBus(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Close_XenBus(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Read_XenBus(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Write_XenBus(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Cleanup_XenBus(PDEVICE_OBJECT device_object, PIRP irp);
-
-NTSTATUS
-XenPci_Power_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
-//NTSTATUS
-//XenPci_Dummy_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Pnp_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Create_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Close_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Read_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Write_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_Irp_Cleanup_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
-NTSTATUS
-XenPci_SystemControl_Pdo(PDEVICE_OBJECT device_object, PIRP irp);
-#endif
 
 NTSTATUS
 XenPci_Pdo_Suspend(WDFDEVICE device);

@@ -21,111 +21,65 @@ extern int _hypercall2(VOID *address, xen_ulong_t a1, xen_ulong_t a2);
 extern int _hypercall3(VOID *address, xen_ulong_t a1, xen_ulong_t a2, xen_ulong_t a3);
 
 static __inline int
-HYPERVISOR_memory_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *arg)
+_HYPERVISOR_memory_op(PVOID hypercall_stubs, int cmd, void *arg)
 {
-  PCHAR memory_op_func = xpdd->hypercall_stubs;
+  PCHAR memory_op_func = hypercall_stubs;
   memory_op_func += __HYPERVISOR_memory_op * 32;
   return _hypercall2(memory_op_func, (xen_ulong_t)cmd, (xen_ulong_t)arg);
 }
 
 static __inline int
-HYPERVISOR_xen_version(PXENPCI_DEVICE_DATA xpdd, int cmd, void *arg)
+_HYPERVISOR_xen_version(PVOID hypercall_stubs, int cmd, void *arg)
 {
-  PCHAR xen_version_func = xpdd->hypercall_stubs;
+  PCHAR xen_version_func = hypercall_stubs;
   xen_version_func += __HYPERVISOR_xen_version * 32;
   return _hypercall2(xen_version_func, (xen_ulong_t)cmd, (xen_ulong_t)arg);
 }
 
 static __inline int
-HYPERVISOR_grant_table_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *uop, unsigned int count)
+_HYPERVISOR_grant_table_op(PVOID hypercall_stubs, int cmd, void *uop, unsigned int count)
 {
-  PCHAR grant_table_op_func = xpdd->hypercall_stubs;
+  PCHAR grant_table_op_func = hypercall_stubs;
   grant_table_op_func += __HYPERVISOR_grant_table_op * 32;
   return _hypercall3(grant_table_op_func, (xen_ulong_t)cmd, (xen_ulong_t)uop, (xen_ulong_t)count);
 }
 
-#if 0
 static __inline int
-HYPERVISOR_mmu_update(PXENPCI_DEVICE_DATA xpdd, mmu_update_t *req, int count, int *success_count, domid_t domid)
+_HYPERVISOR_hvm_op(PVOID hypercall_stubs, int op, struct xen_hvm_param *arg)
 {
-  ASSERTMSG("mmu_update not yet supported under AMD64", FALSE);
-/*
-  char *hypercall_stubs = xpdd->hypercall_stubs;
-  long __res;
-  long _domid = (long)domid;
-  __asm {
-    mov ebx, req
-    mov ecx, count
-    mov edx, success_count
-    mov edi, _domid
-    mov eax, hypercall_stubs
-    add eax, (__HYPERVISOR_mmu_update * 32)
-    call eax
-    mov [__res], eax
-  }
-  return __res;
-*/
-  return -1;
-}
-#endif
-
-static __inline int
-HYPERVISOR_hvm_op(PXENPCI_DEVICE_DATA xpdd, int op, struct xen_hvm_param *arg)
-{
-  PCHAR hvm_op_func = xpdd->hypercall_stubs;
+  PCHAR hvm_op_func = hypercall_stubs;
   hvm_op_func += __HYPERVISOR_hvm_op * 32;
   return _hypercall2(hvm_op_func, (xen_ulong_t)op, (xen_ulong_t)arg);
 }
 
 static __inline int
-HYPERVISOR_event_channel_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *op)
+_HYPERVISOR_event_channel_op(PVOID hypercall_stubs, int cmd, void *op)
 {
-  PCHAR event_channel_op_func = xpdd->hypercall_stubs;
+  PCHAR event_channel_op_func = hypercall_stubs;
   event_channel_op_func += __HYPERVISOR_event_channel_op * 32;
   return _hypercall2(event_channel_op_func, (xen_ulong_t)cmd, (xen_ulong_t)op);
 }
 
 static __inline int
-HYPERVISOR_sched_op(PXENPCI_DEVICE_DATA xpdd, int cmd, void *arg)
+_HYPERVISOR_sched_op(PVOID hypercall_stubs, int cmd, void *arg)
 {
-  PCHAR sched_op_func = xpdd->hypercall_stubs;
+  PCHAR sched_op_func = hypercall_stubs;
   sched_op_func += __HYPERVISOR_sched_op * 32;
   return _hypercall2(sched_op_func, (xen_ulong_t)cmd, (xen_ulong_t)arg);
 }
 
 static __inline int
-HYPERVISOR_shutdown(PXENPCI_DEVICE_DATA xpdd, unsigned int reason)
+_HYPERVISOR_shutdown(PVOID hypercall_stubs, unsigned int reason)
 {
   struct sched_shutdown ss;
   int retval;
 
   KdPrint((__DRIVER_NAME " --> " __FUNCTION__ "\n"));
-
+  
   ss.reason = reason;
-
-  KdPrint((__DRIVER_NAME "     A\n"));
-
-  retval = HYPERVISOR_sched_op(xpdd, SCHEDOP_shutdown, &ss);
-
+  retval = _HYPERVISOR_sched_op(hypercall_stubs, SCHEDOP_shutdown, &ss);
+  
   KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
 
   return retval;
 }
-
-#if 0
-static __inline ULONGLONG
-hvm_get_parameter(PXENPCI_DEVICE_DATA xpdd, int hvm_param)
-{
-  struct xen_hvm_param a;
-  int retval;
-
-  KdPrint((__DRIVER_NAME " --> hvm_get_parameter\n"));
-  a.domid = DOMID_SELF;
-  a.index = hvm_param;
-  retval = HYPERVISOR_hvm_op(xpdd, HVMOP_get_param, &a);
-  KdPrint((__DRIVER_NAME " hvm_get_parameter retval = %d\n", retval));
-  KdPrint((__DRIVER_NAME " hvm_get_parameter value = %ld\n", a.value));
-  KdPrint((__DRIVER_NAME " <-- hvm_get_parameter\n"));
-  return a.value;
-}
-#endif

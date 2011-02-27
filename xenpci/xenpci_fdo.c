@@ -104,15 +104,18 @@ XenPci_EvtDeviceQueryRemove(WDFDEVICE device)
 static NTSTATUS
 XenPci_Init(PXENPCI_DEVICE_DATA xpdd)
 {
-  NTSTATUS status;
   struct xen_add_to_physmap xatp;
   int ret;
 
   FUNCTION_ENTER();
 
-  status = hvm_get_stubs(xpdd);
-  if (!NT_SUCCESS(status))
-    return status;
+  if (!xpdd->hypercall_stubs)
+  {
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    xpdd->hypercall_stubs = hvm_get_hypercall_stubs();
+  }
+  if (!xpdd->hypercall_stubs)
+    return STATUS_UNSUCCESSFUL;
 
   if (!xpdd->shared_info_area)
   {
@@ -221,8 +224,6 @@ XenPci_PrintPendingInterrupts()
 }
 #endif
 
-#define BALLOON_UNIT_PAGES (BALLOON_UNITS >> PAGE_SHIFT)
-
 static VOID
 XenPci_BalloonThreadProc(PVOID StartContext)
 {
@@ -237,16 +238,20 @@ XenPci_BalloonThreadProc(PVOID StartContext)
   int i;
   ULONG ret;
   int pfn_count;
+  int timeout_ms = 1000;
   
   FUNCTION_ENTER();
 
   for(;;)
   {
-    /* wait for 1 second if we have adjustments to make, or forever if we don't */
+    /* back off exponentially if we have adjustments to make, or wait for event if we don't */
     if (xpdd->current_memory != new_target)
     {
-      timeout.QuadPart = (LONGLONG)-1 * 1000 * 1000 * 10;
+      timeout.QuadPart = WDF_REL_TIMEOUT_IN_MS(timeout_ms);
       ptimeout = &timeout;
+      timeout_ms <<= 1;
+      if (timeout_ms > 60000)
+        timeout_ms = 60000;
     }
     else
     {
@@ -272,9 +277,6 @@ XenPci_BalloonThreadProc(PVOID StartContext)
       KdPrint((__DRIVER_NAME "     Trying to take %d MB from Xen\n", new_target - xpdd->current_memory));
       while ((mdl = head) != NULL && xpdd->current_memory < new_target)
       {
-        head = mdl->Next;
-        mdl->Next = NULL;
-        
         pfn_count = ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(mdl), MmGetMdlByteCount(mdl));
         pfns = ExAllocatePoolWithTag(NonPagedPool, pfn_count * sizeof(xen_pfn_t), XENPCI_POOL_TAG);
         /* sizeof(xen_pfn_t) may not be the same as PPFN_NUMBER */
@@ -289,10 +291,22 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         
         KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_populate_physmap) - pfn_count = %d\n", pfn_count));
         ret = HYPERVISOR_memory_op(xpdd, XENMEM_populate_physmap, &reservation);
-        ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
         KdPrint((__DRIVER_NAME "     populated %d pages\n", ret));
-        /* TODO: what do we do if less than the required number of pages were populated??? can this happen??? */
-        
+        if(ret < (ULONG)pfn_count)
+        {
+          if(ret > 0)
+          {
+            /* We hit the Xen hard limit: reprobe. */
+            reservation.nr_extents = ret;
+            ret = HYPERVISOR_memory_op(xpdd, XENMEM_decrease_reservation, &reservation);
+            KdPrint((__DRIVER_NAME "     decreased %d pages (xen is out of pages)\n", ret));
+          }
+          ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
+          break;
+        }
+        ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
+        head = mdl->Next;
+        mdl->Next = NULL;        
         MmFreePagesFromMdl(mdl);
         ExFreePool(mdl);
         xpdd->current_memory++;
@@ -361,6 +375,7 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         }
       }
     }
+    timeout_ms = 1000;
   }
   //FUNCTION_EXIT();
 }
@@ -778,9 +793,6 @@ XenPci_EvtDeviceD0EntryPostInterruptsEnabled(WDFDEVICE device, WDF_POWER_DEVICE_
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(device);
   PCHAR response;
   char *value;
-  domid_t domid = DOMID_SELF;
-  ULONG ret;
-  xen_ulong_t *max_ram_page;
   HANDLE thread_handle;
 
   UNREFERENCED_PARAMETER(previous_state);
@@ -798,13 +810,6 @@ XenPci_EvtDeviceD0EntryPostInterruptsEnabled(WDFDEVICE device, WDF_POWER_DEVICE_
     response = XenBus_AddWatch(xpdd, XBT_NIL, SHUTDOWN_PATH, XenPci_ShutdownHandler, device);
 
     response = XenBus_AddWatch(xpdd, XBT_NIL, "device", XenPci_DeviceWatchHandler, xpdd);
-
-    ret = HYPERVISOR_memory_op(xpdd, XENMEM_current_reservation, &domid);
-    KdPrint((__DRIVER_NAME "     XENMEM_current_reservation = %d\n", ret));
-    ret = HYPERVISOR_memory_op(xpdd, XENMEM_maximum_reservation, &domid);
-    KdPrint((__DRIVER_NAME "     XENMEM_maximum_reservation = %d\n", ret));
-    ret = HYPERVISOR_memory_op(xpdd, XENMEM_maximum_ram_page, &max_ram_page);
-    KdPrint((__DRIVER_NAME "     XENMEM_maximum_ram_page = %d\n", ret));
 
     if (!xpdd->initial_memory)
     {

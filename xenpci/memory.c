@@ -2,14 +2,13 @@
 
 /* must be called at <= DISPATCH_LEVEL if hypercall_stubs == NULL */
 
-#if !defined(__ia64__)
-
 #define XEN_SIGNATURE_LOWER 0x40000000
 #define XEN_SIGNATURE_UPPER 0x4000FFFF
 
-NTSTATUS
-hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
+PVOID
+hvm_get_hypercall_stubs()
 {
+  PVOID hypercall_stubs;
   ULONG base;
   DWORD32 cpuid_output[4];
   char xensig[13];
@@ -31,53 +30,29 @@ hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
   if (base > XEN_SIGNATURE_UPPER)
   {
     KdPrint((__DRIVER_NAME "     Cannot find Xen signature\n"));
-    return STATUS_UNSUCCESSFUL;
+    return NULL;
   }
 
   __cpuid(cpuid_output, base + 2);
   pages = cpuid_output[0];
   msr = cpuid_output[1];
 
-  if (!xpdd->hypercall_stubs)
-  {
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
-    xpdd->hypercall_stubs = ExAllocatePoolWithTag(NonPagedPool, pages * PAGE_SIZE, XENPCI_POOL_TAG);
-  }
-  KdPrint((__DRIVER_NAME "     Hypercall area at %p\n", xpdd->hypercall_stubs));
+  hypercall_stubs = ExAllocatePoolWithTag(NonPagedPool, pages * PAGE_SIZE, XENPCI_POOL_TAG);
+  KdPrint((__DRIVER_NAME "     Hypercall area at %p\n", hypercall_stubs));
 
-  if (!xpdd->hypercall_stubs)
-    return 1;
+  if (!hypercall_stubs)
+    return NULL;
   for (i = 0; i < pages; i++) {
     ULONGLONG pfn;
-    pfn = (MmGetPhysicalAddress(xpdd->hypercall_stubs + i * PAGE_SIZE).QuadPart >> PAGE_SHIFT);
+    pfn = (MmGetPhysicalAddress((PUCHAR)hypercall_stubs + i * PAGE_SIZE).QuadPart >> PAGE_SHIFT);
     //KdPrint((__DRIVER_NAME "     pfn = %16lX\n", pfn));
     __writemsr(msr, (pfn << PAGE_SHIFT) + i);
   }
-  return STATUS_SUCCESS;
+  return hypercall_stubs;
 }
 
-NTSTATUS
-hvm_free_stubs(PXENPCI_DEVICE_DATA xpdd)
+VOID
+hvm_free_hypercall_stubs(PVOID hypercall_stubs)
 {
-  ExFreePoolWithTag(xpdd->hypercall_stubs, XENPCI_POOL_TAG);
-
-  return STATUS_SUCCESS;
+  ExFreePoolWithTag(hypercall_stubs, XENPCI_POOL_TAG);
 }
-
-#else
-
-NTSTATUS
-hvm_get_stubs(PXENPCI_DEVICE_DATA xpdd)
-{
-  UNREFERENCED_PARAMETER(xpdd);
-  return STATUS_SUCCESS;
-}
-
-NTSTATUS
-hvm_free_stubs(PXENPCI_DEVICE_DATA xpdd)
-{
-  UNREFERENCED_PARAMETER(xpdd);
-  return STATUS_SUCCESS;
-}
-
-#endif

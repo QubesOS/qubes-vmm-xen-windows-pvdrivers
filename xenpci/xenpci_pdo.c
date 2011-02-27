@@ -1494,7 +1494,6 @@ XenPci_Pdo_Suspend(WDFDEVICE device)
   NTSTATUS status = STATUS_SUCCESS;
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
-  //LARGE_INTEGER wait_time;
   char path[128];
   PUCHAR in_ptr;
   UCHAR type;
@@ -1548,7 +1547,7 @@ XenPci_Pdo_Suspend(WDFDEVICE device)
     xppdd->restart_on_resume = FALSE;
   }
 
-  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+  FUNCTION_EXIT();
   
   return status;
 }

@@ -35,6 +35,18 @@ static EVT_WDF_DRIVER_DEVICE_ADD XenPci_EvtDeviceAdd;
 static EVT_WDF_DEVICE_USAGE_NOTIFICATION XenPci_EvtDeviceUsageNotification;
 static EVT_WDF_DEVICE_PREPARE_HARDWARE XenHide_EvtDevicePrepareHardware;
 
+/* this is supposed to be defined in wdm.h, but isn't */
+NTSTATUS 
+  KeInitializeCrashDumpHeader(
+    IN ULONG  Type,
+    IN ULONG  Flags,
+    OUT PVOID  Buffer,
+    IN ULONG  BufferSize,
+    OUT PULONG  BufferNeeded OPTIONAL
+    );
+
+#define DUMP_TYPE_FULL 1
+
 static VOID
 XenPci_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE notification_type, BOOLEAN is_in_notification_path)
 {
@@ -552,6 +564,109 @@ XenPci_EvtDriverUnload(WDFDRIVER driver)
   #endif  
 }
 
+/* we need to balloon down very early on in the case of PoD, so things get a little messy */
+static PMDL
+XenPci_InitialBalloonDown()
+{
+  PVOID hypercall_stubs;
+  domid_t domid = DOMID_SELF;
+  ULONG maximum_reservation;
+  ULONG current_reservation;
+  ULONG extra_kb;
+  ULONG extra_mb;
+  ULONG ret;
+  struct xen_memory_reservation reservation;
+  xen_pfn_t *pfns;
+  PMDL head = NULL;
+  PMDL mdl;
+  int i, j;
+
+  FUNCTION_ENTER();
+  
+  hypercall_stubs = hvm_get_hypercall_stubs();
+  if (!hypercall_stubs)
+  {
+    KdPrint((__DRIVER_NAME "     Failed to copy hypercall stubs. Maybe not running under Xen?\n"));
+    return NULL;
+  }
+  ret = _HYPERVISOR_memory_op(hypercall_stubs, XENMEM_maximum_reservation, &domid);
+  KdPrint((__DRIVER_NAME "     XENMEM_maximum_reservation = %d\n", ret));
+  maximum_reservation = ret;
+  ret = _HYPERVISOR_memory_op(hypercall_stubs, XENMEM_current_reservation, &domid);
+  KdPrint((__DRIVER_NAME "     XENMEM_current_reservation = %d\n", ret));
+  current_reservation = ret;
+
+  extra_kb = (maximum_reservation - current_reservation) << 2;
+  extra_mb = ((extra_kb + 1023) >> 10);
+
+  KdPrint((__DRIVER_NAME "     Trying to give %d MB to Xen\n", extra_mb));
+
+  /* this code is mostly duplicated from the actual balloon thread... too hard to reuse */
+  for (j = 0; j < (int)extra_mb; j++)
+  {  
+    PHYSICAL_ADDRESS alloc_low;
+    PHYSICAL_ADDRESS alloc_high;
+    PHYSICAL_ADDRESS alloc_skip;
+    alloc_low.QuadPart = 0;
+    alloc_high.QuadPart = 0xFFFFFFFFFFFFFFFFULL;
+    alloc_skip.QuadPart = 0;
+    #if (NTDDI_VERSION >= NTDDI_WS03SP1)
+    /* our contract says that we must zero pages before returning to xen, so we can't use MM_DONT_ZERO_ALLOCATION */
+    mdl = MmAllocatePagesForMdlEx(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS, MmCached, 0);
+    #else
+    mdl = MmAllocatePagesForMdl(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS);
+    #endif
+    if (!mdl)
+    {
+      /* this should actually never happen. If we can't allocate the memory it means windows is using it, and if it was using it we would have crashed already... */
+      KdPrint((__DRIVER_NAME "     Initial Balloon Down failed\n"));
+      break;
+    }
+    else
+    {
+      int pfn_count = ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(mdl), MmGetMdlByteCount(mdl));
+      if (pfn_count != BALLOON_UNIT_PAGES)
+      {
+        /* we could probably do this better but it will only happen in low memory conditions... */
+        KdPrint((__DRIVER_NAME "     wanted %d pages got %d pages\n", BALLOON_UNIT_PAGES, pfn_count));
+        MmFreePagesFromMdl(mdl);
+        ExFreePool(mdl);
+        break;
+      }
+      pfns = ExAllocatePoolWithTag(NonPagedPool, pfn_count * sizeof(xen_pfn_t), XENPCI_POOL_TAG);
+      /* sizeof(xen_pfn_t) may not be the same as PPFN_NUMBER */
+      for (i = 0; i < pfn_count; i++)
+        pfns[i] = (xen_pfn_t)(MmGetMdlPfnArray(mdl)[i]);
+      reservation.address_bits = 0;
+      reservation.extent_order = 0;
+      reservation.domid = DOMID_SELF;
+      reservation.nr_extents = pfn_count;
+      #pragma warning(disable: 4127) /* conditional expression is constant */
+      set_xen_guest_handle(reservation.extent_start, pfns);
+      
+      KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_decrease_reservation) - pfn_count = %d\n", pfn_count));
+      ret = _HYPERVISOR_memory_op(hypercall_stubs, XENMEM_decrease_reservation, &reservation);
+      ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
+      KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
+      if (head)
+      {
+        mdl->Next = head;
+        head = mdl;
+      }
+      else
+      {
+        head = mdl;
+      }
+    }
+  }
+  
+  hvm_free_hypercall_stubs(hypercall_stubs);
+  
+  FUNCTION_EXIT();
+  
+  return head;
+}
+
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -571,6 +686,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   DECLARE_CONST_UNICODE_STRING(txt_always_patch_name, L"txt_patch_tpr_always");
   WDFSTRING wdf_system_start_options;
   UNICODE_STRING system_start_options;
+  PVOID dump_page;
+  ULONG dump_header_size;
   
   UNREFERENCED_PARAMETER(RegistryPath);
 
@@ -582,9 +699,16 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   XenPci_HookDbgPrint();
   #endif
 
+  XenPci_InitialBalloonDown();
+    
+  dump_page = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+  status = KeInitializeCrashDumpHeader(DUMP_TYPE_FULL, 0, dump_page, PAGE_SIZE, &dump_header_size);
+  KdPrint((__DRIVER_NAME "     KeInitializeCrashDumpHeader status = %08x, size = %d\n", status, dump_header_size));
+
   /* again after enabling DbgPrint hooking */
   KdPrint((__DRIVER_NAME " " VER_FILEVERSION_STR "\n"));
 
+  
   WDF_DRIVER_CONFIG_INIT(&config, XenPci_EvtDeviceAdd);
   config.EvtDriverUnload = XenPci_EvtDriverUnload;
   status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, &driver);
