@@ -474,7 +474,7 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
       if (StorPortGetSystemAddress(xvdd, srb, &system_address) != STOR_STATUS_SUCCESS)
       {
         KdPrint((__DRIVER_NAME "     Failed to map DataBuffer\n"));
-        srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
+        srb->SrbStatus = SRB_STATUS_BUSY;
         StorPortNotification(RequestComplete, xvdd, srb);
         continue;
       }
