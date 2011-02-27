@@ -261,6 +261,7 @@ XenPci_BalloonThreadProc(PVOID StartContext)
     else
     {
       ptimeout = NULL;
+      timeout_ms = 1000;
     }
     KeWaitForSingleObject(&xpdd->balloon_event, Executive, KernelMode, FALSE, ptimeout);
     if (xpdd->balloon_shutdown)
@@ -294,12 +295,12 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         #pragma warning(disable: 4127) /* conditional expression is constant */
         set_xen_guest_handle(reservation.extent_start, pfns);
         
-        KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_populate_physmap) - pfn_count = %d\n", pfn_count));
+        //KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_populate_physmap) - pfn_count = %d\n", pfn_count));
         ret = HYPERVISOR_memory_op(xpdd, XENMEM_populate_physmap, &reservation);
-        KdPrint((__DRIVER_NAME "     populated %d pages\n", ret));
-        if(ret < (ULONG)pfn_count)
+        //KdPrint((__DRIVER_NAME "     populated %d pages\n", ret));
+        if (ret < (ULONG)pfn_count)
         {
-          if(ret > 0)
+          if (ret > 0)
           {
             /* We hit the Xen hard limit: reprobe. */
             reservation.nr_extents = ret;
@@ -336,7 +337,7 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         #endif
         if (!mdl)
         {
-          KdPrint((__DRIVER_NAME "     Allocation failed - try again in 1 second\n"));
+          KdPrint((__DRIVER_NAME "     Allocation failed - try again soon\n"));
           break;
         }
         else
@@ -363,10 +364,10 @@ XenPci_BalloonThreadProc(PVOID StartContext)
           #pragma warning(disable: 4127) /* conditional expression is constant */
           set_xen_guest_handle(reservation.extent_start, pfns);
           
-          KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_decrease_reservation) - pfn_count = %d\n", pfn_count));
+          //KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_decrease_reservation) - pfn_count = %d\n", pfn_count));
           ret = HYPERVISOR_memory_op(xpdd, XENMEM_decrease_reservation, &reservation);
           ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
-          KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
+          //KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
           if (head)
           {
             mdl->Next = head;
@@ -380,7 +381,6 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         }
       }
     }
-    timeout_ms = 1000;
   }
   //FUNCTION_EXIT();
 }

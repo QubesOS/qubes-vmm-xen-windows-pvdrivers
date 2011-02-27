@@ -622,6 +622,7 @@ XenPci_InitialBalloonDown()
     {
       /* this should actually never happen. If we can't allocate the memory it means windows is using it, and if it was using it we would have crashed already... */
       KdPrint((__DRIVER_NAME "     Initial Balloon Down failed\n"));
+      KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000002, extra_mb, j, 0x00000000);
       break;
     }
     else
@@ -646,10 +647,10 @@ XenPci_InitialBalloonDown()
       #pragma warning(disable: 4127) /* conditional expression is constant */
       set_xen_guest_handle(reservation.extent_start, pfns);
       
-      KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_decrease_reservation) - pfn_count = %d\n", pfn_count));
+      //KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_decrease_reservation) - pfn_count = %d\n", pfn_count));
       ret = _HYPERVISOR_memory_op(hypercall_stubs, XENMEM_decrease_reservation, &reservation);
       ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
-      KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
+      //KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
       if (head)
       {
         mdl->Next = head;
