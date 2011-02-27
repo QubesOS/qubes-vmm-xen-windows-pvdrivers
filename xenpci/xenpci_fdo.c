@@ -25,6 +25,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define SHUTDOWN_PATH "control/shutdown"
 #define BALLOON_PATH "memory/target"
 
+extern PMDL balloon_mdl_head;
+
 /* Not really necessary but keeps PREfast happy */
 static EVT_WDF_WORKITEM XenPci_SuspendResume;
 #if (NTDDI_VERSION >= NTDDI_WINXP)
@@ -231,7 +233,7 @@ XenPci_BalloonThreadProc(PVOID StartContext)
   ULONG new_target = xpdd->current_memory;
   LARGE_INTEGER timeout;
   PLARGE_INTEGER ptimeout;
-  PMDL head = NULL;
+  PMDL head;
   PMDL mdl;      
   struct xen_memory_reservation reservation;
   xen_pfn_t *pfns;
@@ -241,6 +243,9 @@ XenPci_BalloonThreadProc(PVOID StartContext)
   int timeout_ms = 1000;
   
   FUNCTION_ENTER();
+  
+  head = balloon_mdl_head;
+  balloon_mdl_head = NULL;
 
   for(;;)
   {

@@ -28,6 +28,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #pragma warning(disable : 4200) // zero-sized array
 
+PMDL balloon_mdl_head = NULL;
+
 /* Not really necessary but keeps PREfast happy */
 DRIVER_INITIALIZE DriverEntry;
 static EVT_WDF_DRIVER_UNLOAD XenPci_EvtDriverUnload;
@@ -699,7 +701,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   XenPci_HookDbgPrint();
   #endif
 
-  XenPci_InitialBalloonDown();
+  ASSERT(!balloon_mdl_head);
+  balloon_mdl_head = XenPci_InitialBalloonDown();
     
   dump_page = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
   status = KeInitializeCrashDumpHeader(DUMP_TYPE_FULL, 0, dump_page, PAGE_SIZE, &dump_header_size);
