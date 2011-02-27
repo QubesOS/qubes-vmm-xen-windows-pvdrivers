@@ -27,10 +27,11 @@ GntTbl_PutRef(PVOID Context, grant_ref_t ref, ULONG tag)
   UNREFERENCED_PARAMETER(tag);
   
 #if DBG
-  if (xpdd->gnttbl_tag[ref] != tag)
-    KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s doesn't match %.4s\n", ref, (PUCHAR)&tag, (PUCHAR)&xpdd->gnttbl_tag[ref]));
-  ASSERT(xpdd->gnttbl_tag[ref] == tag);
-  xpdd->gnttbl_tag[ref] = 0;
+  if (xpdd->gnttbl_tag[ref].tag != tag)
+    KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s doesn't match %.4s\n", ref, (PUCHAR)&tag, (PUCHAR)&xpdd->gnttbl_tag[ref].tag));
+  ASSERT(xpdd->gnttbl_tag[ref].tag == tag);
+  xpdd->gnttbl_tag[ref].tag = 0;
+  xpdd->gnttbl_tag[ref].generation = (ULONG)-1;
 #endif
   stack_push(xpdd->gnttbl_ss, (PVOID)ref);
 }
@@ -51,10 +52,11 @@ GntTbl_GetRef(PVOID Context, ULONG tag)
   }
   ref = (grant_ref_t)(ULONG_PTR)ptr_ref;
 #if DBG
-  if (xpdd->gnttbl_tag[ref])
-    KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s in use by %.4s\n", ref, (PUCHAR)&tag, (PUCHAR)&xpdd->gnttbl_tag[ref]));
-  ASSERT(!xpdd->gnttbl_tag[ref]);
-  xpdd->gnttbl_tag[ref] = tag;
+  if (xpdd->gnttbl_tag[ref].tag)
+    KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s in use by %.4s\n", ref, (PUCHAR)&tag, (PUCHAR)&xpdd->gnttbl_tag[ref].tag));
+  ASSERT(!xpdd->gnttbl_tag[ref].tag);
+  xpdd->gnttbl_tag[ref].generation = xpdd->gnttbl_generation;
+  xpdd->gnttbl_tag[ref].tag = tag;
 #endif
 
   return ref;
@@ -102,7 +104,7 @@ GntTbl_GrantAccess(
   if (ref == INVALID_GRANT_REF)
     return ref;
 
-  ASSERT(xpdd->gnttbl_tag[ref] == tag);
+  ASSERT(xpdd->gnttbl_tag[ref].tag == tag);
   
   xpdd->gnttbl_table[ref].frame = frame;
   xpdd->gnttbl_table[ref].domid = domid;
@@ -110,7 +112,7 @@ GntTbl_GrantAccess(
   if (xpdd->gnttbl_table[ref].flags)
   {
 #if DBG
-    KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s still in use by %.4s\n", ref, (PUCHAR)&tag, (PUCHAR)&xpdd->gnttbl_tag[ref]));
+    KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s still in use by %.4s\n", ref, (PUCHAR)&tag, (PUCHAR)&xpdd->gnttbl_tag[ref].tag));
 #else
     KdPrint((__DRIVER_NAME "     Grant Entry %d for %.4s still in use\n", ref, (PUCHAR)&tag));
 #endif
@@ -135,7 +137,7 @@ GntTbl_EndAccess(
   unsigned short flags, nflags;
 
   ASSERT(ref != INVALID_GRANT_REF);
-  ASSERT(xpdd->gnttbl_tag[ref] == tag);
+  ASSERT(xpdd->gnttbl_tag[ref].tag == tag);
   
   nflags = xpdd->gnttbl_table[ref].flags;
   do {
@@ -185,9 +187,10 @@ GntTbl_Init(PXENPCI_DEVICE_DATA xpdd)
   grant_entries = min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
   KdPrint((__DRIVER_NAME "     grant_entries = %d\n", grant_entries));
   #if DBG
-  xpdd->gnttbl_tag = ExAllocatePoolWithTag(NonPagedPool, grant_entries * sizeof(ULONG), XENPCI_POOL_TAG);
-  RtlZeroMemory(xpdd->gnttbl_tag, grant_entries * sizeof(ULONG));
-  xpdd->gnttbl_tag_copy = ExAllocatePoolWithTag(NonPagedPool, grant_entries * sizeof(ULONG), XENPCI_POOL_TAG);
+  xpdd->gnttbl_tag = ExAllocatePoolWithTag(NonPagedPool, grant_entries * sizeof(grant_tag_t), XENPCI_POOL_TAG);
+  RtlZeroMemory(xpdd->gnttbl_tag, grant_entries * sizeof(grant_tag_t));
+  xpdd->gnttbl_tag_copy = ExAllocatePoolWithTag(NonPagedPool, grant_entries * sizeof(grant_tag_t), XENPCI_POOL_TAG);
+  xpdd->gnttbl_generation = 0;
   #endif
   xpdd->gnttbl_table_copy = ExAllocatePoolWithTag(NonPagedPool, xpdd->grant_frames * PAGE_SIZE, XENPCI_POOL_TAG);
   ASSERT(xpdd->gnttbl_table_copy); // lazy
@@ -241,6 +244,17 @@ GntTbl_Suspend(PXENPCI_DEVICE_DATA xpdd)
   
   FUNCTION_ENTER();
   
+  #if DBG
+  for (i = 0; i < (int)min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t))); i++)
+  {
+    if (xpdd->gnttbl_tag[i].tag != 0) // && xpdd->gnttbl_tag[i].generation < xpdd->gnttbl_generation)
+    {
+      KdPrint((__DRIVER_NAME "     grant entry for %.4s from generation %d\n", (PUCHAR)&xpdd->gnttbl_tag[i].tag, xpdd->gnttbl_tag[i].generation));
+    }
+  }
+  xpdd->gnttbl_generation++;
+  #endif
+
   /* copy some grant refs and switch to an alternate freelist, but only on hiber */
   if (KeGetCurrentIrql() <= DISPATCH_LEVEL)
   {
@@ -267,7 +281,7 @@ GntTbl_Suspend(PXENPCI_DEVICE_DATA xpdd)
   #if DBG
   /* even though gnttbl_tag is actually preserved, it is used by the dump driver so must be restored to exactly the same state as it was on suspend */
   grant_entries = min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
-  memcpy(xpdd->gnttbl_tag_copy, xpdd->gnttbl_tag, grant_entries * sizeof(ULONG));
+  memcpy(xpdd->gnttbl_tag_copy, xpdd->gnttbl_tag, grant_entries * sizeof(grant_tag_t));
   #endif
 
   /* put the grant entries on the new freelist, after copying the tables above */
@@ -324,7 +338,7 @@ GntTbl_Resume(PXENPCI_DEVICE_DATA xpdd)
   memcpy(xpdd->gnttbl_table, xpdd->gnttbl_table_copy, xpdd->grant_frames * PAGE_SIZE);
   #if DBG
   grant_entries = min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t)));
-  memcpy(xpdd->gnttbl_tag, xpdd->gnttbl_tag_copy, grant_entries * sizeof(ULONG));
+  memcpy(xpdd->gnttbl_tag, xpdd->gnttbl_tag_copy, grant_entries * sizeof(grant_tag_t));
   #endif
 
   /* switch back and put the hiber grants back again */

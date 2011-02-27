@@ -125,6 +125,11 @@ typedef struct _XENBUS_WATCH_ENTRY {
 /* we take some grant refs out and put them aside so that we dont get corrupted by hibernate */
 #define HIBER_GREF_COUNT 128
 
+typedef struct {
+  ULONG generation;
+  ULONG tag;
+} grant_tag_t;
+
 typedef struct {  
   WDFDEVICE wdf_device;
   
@@ -166,8 +171,9 @@ typedef struct {
   grant_entry_t *gnttbl_table;
   grant_entry_t *gnttbl_table_copy;
   #if DBG
-  PULONG gnttbl_tag;
-  PULONG gnttbl_tag_copy;
+  ULONG gnttbl_generation; /* incremented once per save or hibernate */
+  grant_tag_t *gnttbl_tag;
+  grant_tag_t *gnttbl_tag_copy;
   #endif
   ULONG grant_frames;
 
