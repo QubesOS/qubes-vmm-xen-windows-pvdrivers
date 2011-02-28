@@ -241,12 +241,29 @@ XenPci_BalloonThreadProc(PVOID StartContext)
   ULONG ret;
   int pfn_count;
   int timeout_ms = 1000;
+  DECLARE_CONST_UNICODE_STRING(low_mem_name, L"\\KernelObjects\\LowMemoryCondition");
+  //DECLARE_CONST_UNICODE_STRING(high_commit_name, L"\\KernelObjects\\HighCommitCondition");
+  //DECLARE_CONST_UNICODE_STRING(max_commit_name, L"\\KernelObjects\\MaximumCommitCondition");
+  PKEVENT low_mem_event;
+  //PKEVENT high_commit_event;
+  //PKEVENT max_commit_event;
+  HANDLE low_mem_handle;
+  //HANDLE high_commit_handle;
+  //HANDLE max_commit_handle;
   
   FUNCTION_ENTER();
   
   head = balloon_mdl_head;
   balloon_mdl_head = NULL;
 
+  low_mem_event = IoCreateNotificationEvent((PUNICODE_STRING)&low_mem_name, &low_mem_handle);
+  //high_commit_event = IoCreateNotificationEvent((PUNICODE_STRING)&high_commit_name, &high_commit_handle);
+  //max_commit_event = IoCreateNotificationEvent((PUNICODE_STRING)&max_commit_name, &max_commit_handle);
+
+  KdPrint((__DRIVER_NAME "     low_mem_event = %p, state = %d\n", low_mem_event, low_mem_event?KeReadStateEvent(low_mem_event):(ULONG)-1));
+  //KdPrint((__DRIVER_NAME "     high_commit_event = %p, state = %d\n", high_commit_event, high_commit_event?KeReadStateEvent(high_commit_event):(ULONG)-1));
+  //KdPrint((__DRIVER_NAME "     max_commit_event = %p, state = %d\n", max_commit_event, max_commit_event?KeReadStateEvent(max_commit_event):(ULONG)-1));
+  
   for(;;)
   {
     /* back off exponentially if we have adjustments to make, or wait for event if we don't */
@@ -329,6 +346,16 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         alloc_low.QuadPart = 0;
         alloc_high.QuadPart = 0xFFFFFFFFFFFFFFFFULL;
         alloc_skip.QuadPart = 0;
+
+        if (low_mem_event && KeReadStateEvent(low_mem_event))
+        {
+          KdPrint((__DRIVER_NAME "     Low memory condition exists. Waiting.\n"));
+          //KdPrint((__DRIVER_NAME "     low_mem_event = %p, state = %d\n", low_mem_event, low_mem_event?KeReadStateEvent(low_mem_event):(ULONG)-1));
+          //KdPrint((__DRIVER_NAME "     high_commit_event = %p, state = %d\n", high_commit_event, high_commit_event?KeReadStateEvent(high_commit_event):(ULONG)-1));
+          //KdPrint((__DRIVER_NAME "     max_commit_event = %p, state = %d\n", max_commit_event, max_commit_event?KeReadStateEvent(max_commit_event):(ULONG)-1));
+          break;
+        }
+
         #if (NTDDI_VERSION >= NTDDI_WS03SP1)
         /* our contract says that we must zero pages before returning to xen, so we can't use MM_DONT_ZERO_ALLOCATION */
         mdl = MmAllocatePagesForMdlEx(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS, MmCached, 0);
@@ -381,6 +408,7 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         }
       }
     }
+    KdPrint((__DRIVER_NAME "     Memory = %d, Balloon Target = %d\n", xpdd->current_memory, new_target));
   }
   //FUNCTION_EXIT();
 }
