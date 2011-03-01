@@ -421,7 +421,7 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
         sector_number, block_count, sector_number2, block_count2));
       /* put the srb back at the start of the queue */
       InsertHeadList(&xvdd->srb_list, (PLIST_ENTRY)srb->SrbExtension);
-      return; /* stall the queue */
+      break; /* stall the queue but fall through so the notify is triggered */
     }
 
     remaining = block_count * 512;
@@ -499,11 +499,11 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
           shadow->aligned_buffer_in_use = FALSE;
           xvdd->aligned_buffer_in_use = FALSE;
         }
-        /* put the srb back at the start of the queue */
+        /* put the srb back at the start of the queue, then fall through so that the notify is triggered*/
         InsertHeadList(&xvdd->srb_list, (PLIST_ENTRY)srb->SrbExtension);
         put_shadow_on_freelist(xvdd, shadow);
         KdPrint((__DRIVER_NAME "     Out of gref's. Deferring\n"));
-        return;
+        break;
       }
       offset = physical_address.LowPart & (PAGE_SIZE - 1);
       length = min(PAGE_SIZE - offset, remaining);
@@ -1504,6 +1504,7 @@ static BOOLEAN
 XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
 {
   PXENVBD_DEVICE_DATA xvdd = DeviceExtension;
+  int i;
 
   UNREFERENCED_PARAMETER(DeviceExtension);
   UNREFERENCED_PARAMETER(PathId);
@@ -1511,6 +1512,15 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
   FUNCTION_ENTER();
 
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  
+  for (i = 0; i < MAX_SHADOW_ENTRIES; i++)
+  {
+    if (xvdd->shadows[i].srb)
+    {
+      KdPrint((__DRIVER_NAME "     shadow entry %d in use with srb %p\n", i, xvdd->shadows[i].srb));
+    }
+  }
+  
   if (xvdd->ring_detect_state == RING_DETECT_STATE_COMPLETE && xvdd->device_state->suspend_resume_state_pdo == SR_STATE_RUNNING)
   {
     ScsiPortNotification(NextRequest, DeviceExtension);
