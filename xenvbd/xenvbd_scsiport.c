@@ -989,7 +989,11 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         block_count = decode_cdb_length(srb);
         block_count *= xvdd->bytes_per_sector / 512;
         /* a few errors occur in dump mode because Xen refuses to allow us to map pages we are using for other stuff. Just ignore them */
-        if (rep->status == BLKIF_RSP_OKAY || (dump_mode &&  dump_mode_errors++ < DUMP_MODE_ERROR_LIMIT))
+        if (srb->SrbStatus == SRB_STATUS_BUS_RESET)
+        {
+          KdPrint((__DRIVER_NAME "     completing SRB %p with status SRB_STATUS_BUS_RESET\n", srb));
+        }
+        else if (rep->status == BLKIF_RSP_OKAY || (dump_mode &&  dump_mode_errors++ < DUMP_MODE_ERROR_LIMIT))
           srb->SrbStatus = SRB_STATUS_SUCCESS;
         else
         {
@@ -1018,7 +1022,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
           xvdd->last_additional_sense_code = SCSI_ADSENSE_NO_SENSE;
           XenVbd_MakeAutoSense(xvdd, srb);
         }
-        if (shadow->aligned_buffer_in_use)
+        if (srb->SrbStatus == SRB_STATUS_SUCCESS && shadow->aligned_buffer_in_use)
         {
           ASSERT(xvdd->aligned_buffer_in_use);
           xvdd->aligned_buffer_in_use = FALSE;
@@ -1027,12 +1031,6 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 //KdPrint((__DRIVER_NAME "     Completed use of buffer\n"));
         }
         
-#if 0
-if (xvdd->aligned_buffer_in_use)
-{
-KdPrint((__DRIVER_NAME "     Completed request while aligned buffer in use\n"));
-}
-#endif
         for (j = 0; j < shadow->req.nr_segments; j++)
         {
           if (dump_mode)
@@ -1504,6 +1502,8 @@ static BOOLEAN
 XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
 {
   PXENVBD_DEVICE_DATA xvdd = DeviceExtension;
+  srb_list_entry_t *srb_entry;
+  PSCSI_REQUEST_BLOCK srb;
   int i;
 
   UNREFERENCED_PARAMETER(DeviceExtension);
@@ -1512,19 +1512,34 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
   FUNCTION_ENTER();
 
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+
+  while((srb_entry = (srb_list_entry_t *)RemoveHeadList(&xvdd->srb_list)) != (srb_list_entry_t *)&xvdd->srb_list)
+  {
+    srb = srb_entry->srb;
+    srb->SrbStatus = SRB_STATUS_BUS_RESET;
+    KdPrint((__DRIVER_NAME "     completing queued SRB %p with status SRB_STATUS_BUS_RESET\n", srb));
+    ScsiPortNotification(RequestComplete, xvdd, srb);
+  }
   
   for (i = 0; i < MAX_SHADOW_ENTRIES; i++)
   {
     if (xvdd->shadows[i].srb)
     {
-      KdPrint((__DRIVER_NAME "     shadow entry %d in use with srb %p\n", i, xvdd->shadows[i].srb));
+      KdPrint((__DRIVER_NAME "     setting status SRB_STATUS_BUS_RESET for in-flight srb %p\n", xvdd->shadows[i].srb));
+      xvdd->shadows[i].srb->SrbStatus = SRB_STATUS_BUS_RESET;
+      /* can't complete now. It will have to be completed when it comes off the ring */
     }
   }
+
+  /* send a notify to Dom0 just in case it was missed for some reason (which should _never_ happen) */
+  xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
   
+/*
   if (xvdd->ring_detect_state == RING_DETECT_STATE_COMPLETE && xvdd->device_state->suspend_resume_state_pdo == SR_STATE_RUNNING)
   {
     ScsiPortNotification(NextRequest, DeviceExtension);
   }
+*/
 
   FUNCTION_EXIT();
 
