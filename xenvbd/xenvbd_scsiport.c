@@ -77,6 +77,7 @@ put_shadow_on_freelist(PXENVBD_DEVICE_DATA xvdd, blkif_shadow_t *shadow)
 {
   xvdd->shadow_free_list[xvdd->shadow_free] = (USHORT)shadow->req.id;
   shadow->srb = NULL;
+  shadow->reset = FALSE;
   xvdd->shadow_free++;
 }
 
@@ -365,9 +366,16 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
   PUCHAR ptr;
   int notify;
   int i;
+  #if DBG
+  LARGE_INTEGER current_time;
+  #endif
 
   //FUNCTION_ENTER();
 
+  #if DBG
+  ScsiPortQuerySystemTime(&current_time);
+  #endif
+  
   while(!xvdd->aligned_buffer_in_use && xvdd->shadow_free && (srb_entry = (srb_list_entry_t *)RemoveHeadList(&xvdd->srb_list)) != (srb_list_entry_t *)&xvdd->srb_list)
   {
     srb = srb_entry->srb;
@@ -521,6 +529,9 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
     //KdPrint((__DRIVER_NAME "     nr_segments = %d\n", shadow->req.nr_segments));
 
     XenVbd_PutRequest(xvdd, &shadow->req);
+    #if DBG
+    shadow->ring_submit_time = current_time;
+    #endif
 
     RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xvdd->ring, notify);
     if (notify)
@@ -897,6 +908,12 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   ULONG suspend_resume_state_pdo;
   BOOLEAN last_interrupt = FALSE;
   ULONG start_ring_detect_state = xvdd->ring_detect_state;
+  #if DBG
+  srb_list_entry_t *srb_entry;
+  ULONG elapsed;
+  LARGE_INTEGER current_time;
+  
+  #endif
 
   /* in dump mode I think we get called on a timer, not by an actual IRQ */
   if (!dump_mode && !xvdd->vectors.EvtChn_AckEvent(xvdd->vectors.context, xvdd->event_channel, &last_interrupt))
@@ -937,6 +954,10 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   {
     return last_interrupt;
   }
+
+  #if DBG
+  ScsiPortQuerySystemTime(&current_time);
+  #endif
 
   while (more_to_do)
   {
@@ -988,47 +1009,55 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         ASSERT(srb != NULL);
         block_count = decode_cdb_length(srb);
         block_count *= xvdd->bytes_per_sector / 512;
-        /* a few errors occur in dump mode because Xen refuses to allow us to map pages we are using for other stuff. Just ignore them */
-        if (srb->SrbStatus == SRB_STATUS_BUS_RESET)
+        #if DBG
+        srb_entry = srb->SrbExtension;
+        elapsed = (ULONG)((current_time.QuadPart - shadow->ring_submit_time.QuadPart) / 10000L);
+        if (elapsed > 5000)
+          KdPrint((__DRIVER_NAME "     WARNING: SRB completion time %dms\n", elapsed));
+        #endif
+        if (shadow->reset)
         {
-          KdPrint((__DRIVER_NAME "     completing SRB %p with status SRB_STATUS_BUS_RESET\n", srb));
+          KdPrint((__DRIVER_NAME "     discarding reset SRB %p\n", srb));
         }
-        else if (rep->status == BLKIF_RSP_OKAY || (dump_mode &&  dump_mode_errors++ < DUMP_MODE_ERROR_LIMIT))
-          srb->SrbStatus = SRB_STATUS_SUCCESS;
         else
         {
-          KdPrint((__DRIVER_NAME "     Xen Operation returned error\n"));
-          if (decode_cdb_is_read(srb))
-            KdPrint((__DRIVER_NAME "     Operation = Read\n"));
+          if (rep->status == BLKIF_RSP_OKAY || (dump_mode &&  dump_mode_errors++ < DUMP_MODE_ERROR_LIMIT))
+            /* a few errors occur in dump mode because Xen refuses to allow us to map pages we are using for other stuff. Just ignore them */
+            srb->SrbStatus = SRB_STATUS_SUCCESS;
           else
-            KdPrint((__DRIVER_NAME "     Operation = Write\n"));
-          if (dump_mode)
           {
-            KdPrint((__DRIVER_NAME "     Sector = %08X, Count = %d\n", (ULONG)shadow->req.sector_number, block_count));
-            KdPrint((__DRIVER_NAME "     DataBuffer = %p, aligned_buffer = %p\n", srb->DataBuffer, xvdd->aligned_buffer));
-            KdPrint((__DRIVER_NAME "     Physical = %08x%08x\n", MmGetPhysicalAddress(srb->DataBuffer).HighPart, MmGetPhysicalAddress(srb->DataBuffer).LowPart));
-            KdPrint((__DRIVER_NAME "     PFN = %08x\n", (ULONG)(MmGetPhysicalAddress(srb->DataBuffer).QuadPart >> PAGE_SHIFT)));
-
-            for (j = 0; j < shadow->req.nr_segments; j++)
+            KdPrint((__DRIVER_NAME "     Xen Operation returned error\n"));
+            if (decode_cdb_is_read(srb))
+              KdPrint((__DRIVER_NAME "     Operation = Read\n"));
+            else
+              KdPrint((__DRIVER_NAME "     Operation = Write\n"));
+            if (dump_mode)
             {
-              KdPrint((__DRIVER_NAME "     gref = %d\n", shadow->req.seg[j].gref));
-              KdPrint((__DRIVER_NAME "     first_sect = %d\n", shadow->req.seg[j].first_sect));
-              KdPrint((__DRIVER_NAME "     last_sect = %d\n", shadow->req.seg[j].last_sect));
+              KdPrint((__DRIVER_NAME "     Sector = %08X, Count = %d\n", (ULONG)shadow->req.sector_number, block_count));
+              KdPrint((__DRIVER_NAME "     DataBuffer = %p, aligned_buffer = %p\n", srb->DataBuffer, xvdd->aligned_buffer));
+              KdPrint((__DRIVER_NAME "     Physical = %08x%08x\n", MmGetPhysicalAddress(srb->DataBuffer).HighPart, MmGetPhysicalAddress(srb->DataBuffer).LowPart));
+              KdPrint((__DRIVER_NAME "     PFN = %08x\n", (ULONG)(MmGetPhysicalAddress(srb->DataBuffer).QuadPart >> PAGE_SHIFT)));
+
+              for (j = 0; j < shadow->req.nr_segments; j++)
+              {
+                KdPrint((__DRIVER_NAME "     gref = %d\n", shadow->req.seg[j].gref));
+                KdPrint((__DRIVER_NAME "     first_sect = %d\n", shadow->req.seg[j].first_sect));
+                KdPrint((__DRIVER_NAME "     last_sect = %d\n", shadow->req.seg[j].last_sect));
+              }
             }
+            srb->SrbStatus = SRB_STATUS_ERROR;
+            srb->ScsiStatus = 0x02;
+            xvdd->last_sense_key = SCSI_SENSE_MEDIUM_ERROR;
+            xvdd->last_additional_sense_code = SCSI_ADSENSE_NO_SENSE;
+            XenVbd_MakeAutoSense(xvdd, srb);
           }
-          srb->SrbStatus = SRB_STATUS_ERROR;
-          srb->ScsiStatus = 0x02;
-          xvdd->last_sense_key = SCSI_SENSE_MEDIUM_ERROR;
-          xvdd->last_additional_sense_code = SCSI_ADSENSE_NO_SENSE;
-          XenVbd_MakeAutoSense(xvdd, srb);
-        }
-        if (srb->SrbStatus == SRB_STATUS_SUCCESS && shadow->aligned_buffer_in_use)
-        {
-          ASSERT(xvdd->aligned_buffer_in_use);
-          xvdd->aligned_buffer_in_use = FALSE;
-          if (decode_cdb_is_read(srb))
-            memcpy(srb->DataBuffer, xvdd->aligned_buffer, block_count * 512);
-//KdPrint((__DRIVER_NAME "     Completed use of buffer\n"));
+          if (srb->SrbStatus == SRB_STATUS_SUCCESS && shadow->aligned_buffer_in_use)
+          {
+            ASSERT(xvdd->aligned_buffer_in_use);
+            xvdd->aligned_buffer_in_use = FALSE;
+            if (decode_cdb_is_read(srb))
+              memcpy(srb->DataBuffer, xvdd->aligned_buffer, block_count * 512);
+          }
         }
         
         for (j = 0; j < shadow->req.nr_segments; j++)
@@ -1044,11 +1073,12 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
               shadow->req.seg[j].gref, FALSE, (ULONG)'SCSI');
           }
         }
+        if (!shadow->reset)
+          ScsiPortNotification(RequestComplete, xvdd, srb);
         shadow->aligned_buffer_in_use = FALSE;
+        shadow->reset = FALSE;
         shadow->srb = NULL;
         put_shadow_on_freelist(xvdd, shadow);
-        //KdPrint((__DRIVER_NAME "     B RequestComplete srb = %p\n", srb));
-        ScsiPortNotification(RequestComplete, xvdd, srb);
         break;
       }
     }
@@ -1513,33 +1543,34 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
 
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
 
-  while((srb_entry = (srb_list_entry_t *)RemoveHeadList(&xvdd->srb_list)) != (srb_list_entry_t *)&xvdd->srb_list)
-  {
-    srb = srb_entry->srb;
-    srb->SrbStatus = SRB_STATUS_BUS_RESET;
-    KdPrint((__DRIVER_NAME "     completing queued SRB %p with status SRB_STATUS_BUS_RESET\n", srb));
-    ScsiPortNotification(RequestComplete, xvdd, srb);
-  }
-  
-  for (i = 0; i < MAX_SHADOW_ENTRIES; i++)
-  {
-    if (xvdd->shadows[i].srb)
-    {
-      KdPrint((__DRIVER_NAME "     setting status SRB_STATUS_BUS_RESET for in-flight srb %p\n", xvdd->shadows[i].srb));
-      xvdd->shadows[i].srb->SrbStatus = SRB_STATUS_BUS_RESET;
-      /* can't complete now. It will have to be completed when it comes off the ring */
-    }
-  }
-
-  /* send a notify to Dom0 just in case it was missed for some reason (which should _never_ happen) */
-  xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
-  
-/*
   if (xvdd->ring_detect_state == RING_DETECT_STATE_COMPLETE && xvdd->device_state->suspend_resume_state_pdo == SR_STATE_RUNNING)
   {
+    while((srb_entry = (srb_list_entry_t *)RemoveHeadList(&xvdd->srb_list)) != (srb_list_entry_t *)&xvdd->srb_list)
+    {
+      srb = srb_entry->srb;
+      srb->SrbStatus = SRB_STATUS_BUS_RESET;
+      KdPrint((__DRIVER_NAME "     completing queued SRB %p with status SRB_STATUS_BUS_RESET\n", srb));
+      ScsiPortNotification(RequestComplete, xvdd, srb);
+    }
+    
+    for (i = 0; i < MAX_SHADOW_ENTRIES; i++)
+    {
+      if (xvdd->shadows[i].srb)
+      {
+        KdPrint((__DRIVER_NAME "     Completing in-flight srb %p with status SRB_STATUS_BUS_RESET\n", xvdd->shadows[i].srb));
+        /* set reset here so that the interrupt won't do anything with the srb but will dispose of the shadow entry correctly */
+        xvdd->shadows[i].reset = TRUE;
+        xvdd->shadows[i].srb->SrbStatus = SRB_STATUS_BUS_RESET;
+        ScsiPortNotification(RequestComplete, xvdd, xvdd->shadows[i].srb);
+        xvdd->shadows[i].srb = NULL;
+      }
+    }
+
+    /* send a notify to Dom0 just in case it was missed for some reason (which should _never_ happen) */
+    xvdd->vectors.EvtChn_Notify(xvdd->vectors.context, xvdd->event_channel);
+  
     ScsiPortNotification(NextRequest, DeviceExtension);
   }
-*/
 
   FUNCTION_EXIT();
 

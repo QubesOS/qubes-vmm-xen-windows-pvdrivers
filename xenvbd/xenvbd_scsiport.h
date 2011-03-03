@@ -88,6 +88,10 @@ typedef struct {
   blkif_request_t req;
   PSCSI_REQUEST_BLOCK srb;
   BOOLEAN aligned_buffer_in_use;
+  BOOLEAN reset;
+  #if DBG
+  LARGE_INTEGER ring_submit_time;
+  #endif
 } blkif_shadow_t;
 
 #define MAX_SHADOW_ENTRIES 64
