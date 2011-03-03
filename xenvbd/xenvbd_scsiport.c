@@ -429,8 +429,10 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
         sector_number, block_count, sector_number2, block_count2));
       /* put the srb back at the start of the queue */
       InsertHeadList(&xvdd->srb_list, (PLIST_ENTRY)srb->SrbExtension);
-      break; /* stall the queue but fall through so the notify is triggered */
+      break;
     }
+    if (i < MAX_SHADOW_ENTRIES)
+      break; /* stall the queue but fall through so the notify is triggered */    
 
     remaining = block_count * 512;
     shadow = get_shadow_from_freelist(xvdd);
