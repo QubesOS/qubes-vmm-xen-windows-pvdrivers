@@ -1005,22 +1005,22 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         break;
       case RING_DETECT_STATE_COMPLETE:
         shadow = &xvdd->shadows[rep->id];
-        srb = shadow->srb;
-        ASSERT(srb != NULL);
-        block_count = decode_cdb_length(srb);
-        block_count *= xvdd->bytes_per_sector / 512;
-        #if DBG
-        srb_entry = srb->SrbExtension;
-        elapsed = (ULONG)((current_time.QuadPart - shadow->ring_submit_time.QuadPart) / 10000L);
-        if (elapsed > 5000)
-          KdPrint((__DRIVER_NAME "     WARNING: SRB completion time %dms\n", elapsed));
-        #endif
         if (shadow->reset)
         {
-          KdPrint((__DRIVER_NAME "     discarding reset SRB %p\n", srb));
+          KdPrint((__DRIVER_NAME "     discarding reset shadow\n"));
         }
         else
         {
+          srb = shadow->srb;
+          ASSERT(srb != NULL);
+          block_count = decode_cdb_length(srb);
+          block_count *= xvdd->bytes_per_sector / 512;
+          #if DBG
+          srb_entry = srb->SrbExtension;
+          elapsed = (ULONG)((current_time.QuadPart - shadow->ring_submit_time.QuadPart) / 10000L);
+          if (elapsed > 5000)
+            KdPrint((__DRIVER_NAME "     WARNING: SRB completion time %dms\n", elapsed));
+          #endif
           if (rep->status == BLKIF_RSP_OKAY || (dump_mode &&  dump_mode_errors++ < DUMP_MODE_ERROR_LIMIT))
             /* a few errors occur in dump mode because Xen refuses to allow us to map pages we are using for other stuff. Just ignore them */
             srb->SrbStatus = SRB_STATUS_SUCCESS;
@@ -1058,6 +1058,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
             if (decode_cdb_is_read(srb))
               memcpy(srb->DataBuffer, xvdd->aligned_buffer, block_count * 512);
           }
+          ScsiPortNotification(RequestComplete, xvdd, srb);
         }
         
         for (j = 0; j < shadow->req.nr_segments; j++)
@@ -1073,8 +1074,6 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
               shadow->req.seg[j].gref, FALSE, (ULONG)'SCSI');
           }
         }
-        if (!shadow->reset)
-          ScsiPortNotification(RequestComplete, xvdd, srb);
         shadow->aligned_buffer_in_use = FALSE;
         shadow->reset = FALSE;
         shadow->srb = NULL;
