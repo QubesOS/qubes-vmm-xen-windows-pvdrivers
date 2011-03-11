@@ -278,6 +278,12 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     {
       xvdd->shadows[i].req.id = i;
       put_shadow_on_freelist(xvdd, &xvdd->shadows[i]);
+      if (dump_mode)
+      {
+        /* set reset = TRUE to pick up in-flight requests when dump mode kicked in */
+        /* do it after put_shadow_on_freelist because that resets the reset flag */
+        xvdd->shadows[i].reset = TRUE;
+      }
     }
   }
   
@@ -439,6 +445,7 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
     ASSERT(shadow);
     ASSERT(!shadow->aligned_buffer_in_use);
     ASSERT(!shadow->srb);
+    shadow->reset = FALSE;
     shadow->req.sector_number = sector_number;
     shadow->req.handle = 0;
     shadow->req.operation = decode_cdb_is_read(srb)?BLKIF_OP_READ:BLKIF_OP_WRITE;
@@ -1574,7 +1581,6 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
   }
 
   FUNCTION_EXIT();
-
 
   return TRUE;
 }
