@@ -33,6 +33,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <ndis.h>
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
+#include <liblfds.h>
 
 #define VENDOR_DRIVER_VERSION_MAJOR 0
 #define VENDOR_DRIVER_VERSION_MINOR 10
@@ -177,16 +178,21 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 
 #define LINUX_MAX_SG_ELEMENTS 19
 
-typedef struct
+struct _shared_buffer_t;
+
+typedef struct _shared_buffer_t shared_buffer_t;
+
+struct _shared_buffer_t
 {
-  PVOID next;
+  struct netif_rx_response rsp;
+  shared_buffer_t *next;
   grant_ref_t gref;
   USHORT offset;
   PVOID virtual;
   PNDIS_BUFFER buffer;
-  USHORT id;
-  USHORT ref_count;
-} shared_buffer_t;
+  //USHORT id;
+  volatile LONG ref_count;
+};
 
 typedef struct
 {
@@ -221,8 +227,6 @@ typedef struct {
   USHORT tcp_length;
   USHORT tcp_remaining;
   ULONG tcp_seq;
-  BOOLEAN extra_info;
-  BOOLEAN more_frags;
   /* anything past here doesn't get cleared automatically by the ClearPacketInfo */
   UCHAR header_data[MAX_LOOKAHEAD_LENGTH + MAX_ETH_HEADER_LENGTH];
 } packet_info_t;
@@ -284,10 +288,6 @@ struct xennet_info
   ULONG tx_outstanding;
   ULONG tx_id_free;
   USHORT tx_id_list[NET_TX_RING_SIZE];
-  //ULONG tx_cb_free;
-  //ULONG tx_cb_list[TX_COALESCE_BUFFERS];
-  //ULONG tx_cb_size;
-  //shared_buffer_t tx_cbs[TX_COALESCE_BUFFERS];
   KDPC tx_dpc;
   NPAGED_LOOKASIDE_LIST tx_lookaside_list;
 
@@ -295,9 +295,7 @@ struct xennet_info
   KSPIN_LOCK rx_lock;
   struct netif_rx_front_ring rx;
   ULONG rx_id_free;
-  packet_info_t rxpi;
-  PNDIS_PACKET rx_packet_list[NET_RX_RING_SIZE * 2];
-  ULONG rx_packet_free;
+  packet_info_t *rxpi;
   KEVENT packet_returned_event;
   //NDIS_MINIPORT_TIMER rx_timer;
   KDPC rx_dpc;
@@ -305,16 +303,17 @@ struct xennet_info
   KDPC rx_timer_dpc;
   NDIS_HANDLE rx_packet_pool;
   NDIS_HANDLE rx_buffer_pool;
-  ULONG rx_pb_free;
-#define RX_PAGE_BUFFERS (NET_RX_RING_SIZE * 2)
-  ULONG rx_pb_list[RX_PAGE_BUFFERS];
-  shared_buffer_t rx_pbs[RX_PAGE_BUFFERS];
-  USHORT rx_ring_pbs[NET_RX_RING_SIZE];
+  volatile LONG rx_pb_free;
+  struct stack_state *rx_pb_stack;
+  shared_buffer_t *rx_ring_pbs[NET_RX_RING_SIZE];
   NPAGED_LOOKASIDE_LIST rx_lookaside_list;
   /* Receive-ring batched refills. */
   ULONG rx_target;
   ULONG rx_max_target;
   ULONG rx_min_target;
+  shared_buffer_t *rx_partial_buf;
+  BOOLEAN rx_partial_extra_info_flag ;
+  BOOLEAN rx_partial_more_data_flag;
 
   /* how many packets are in the net stack atm */
   ULONG rx_outstanding;
