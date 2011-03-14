@@ -659,7 +659,7 @@ XenNet_TxInit(xennet_info_t *xi)
   KeInitializeDpc(&xi->tx_dpc, XenNet_TxBufferGC, xi);
   /* dpcs are only serialised to a single processor */
   KeSetTargetProcessorDpc(&xi->tx_dpc, 0);
-  //KeSetImportanceDpc(&xi->tx_dpc, HighImportance);
+  KeSetImportanceDpc(&xi->tx_dpc, HighImportance);
   InitializeListHead(&xi->tx_waiting_pkt_list);
 
   KeInitializeEvent(&xi->tx_idle_event, SynchronizationEvent, FALSE);

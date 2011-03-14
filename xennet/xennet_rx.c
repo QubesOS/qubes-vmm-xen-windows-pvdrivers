@@ -735,7 +735,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     if (!more_to_do)
     {
       xi->rx.sring->rsp_event = xi->rx.rsp_cons + 1;
-      mb();
+      KeMemoryBarrier();
       more_to_do = RING_HAS_UNCONSUMED_RESPONSES(&xi->rx);
     }
   } while (more_to_do);
@@ -1016,8 +1016,8 @@ XenNet_RxInit(xennet_info_t *xi)
   KeInitializeEvent(&xi->packet_returned_event, SynchronizationEvent, FALSE);
   KeInitializeTimer(&xi->rx_timer);
   KeInitializeDpc(&xi->rx_dpc, XenNet_RxBufferCheck, xi);
-  //KeSetTargetProcessorDpc(&xi->rx_dpc, 0);
-  //KeSetImportanceDpc(&xi->rx_dpc, HighImportance);
+  KeSetTargetProcessorDpc(&xi->rx_dpc, 0);
+  KeSetImportanceDpc(&xi->rx_dpc, HighImportance);
   //KeInitializeDpc(&xi->rx_timer_dpc, XenNet_RxTimerDpc, xi);
   status = NdisAllocateMemoryWithTag((PVOID)&xi->rxpi, sizeof(packet_info_t) * NdisSystemProcessorCount(), XENNET_POOL_TAG);
   if (status != NDIS_STATUS_SUCCESS)
