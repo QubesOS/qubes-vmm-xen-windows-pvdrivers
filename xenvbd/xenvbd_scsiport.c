@@ -75,7 +75,7 @@ get_shadow_from_freelist(PXENVBD_DEVICE_DATA xvdd)
 static VOID
 put_shadow_on_freelist(PXENVBD_DEVICE_DATA xvdd, blkif_shadow_t *shadow)
 {
-  xvdd->shadow_free_list[xvdd->shadow_free] = (USHORT)shadow->req.id;
+  xvdd->shadow_free_list[xvdd->shadow_free] = (USHORT)(shadow->req.id & SHADOW_ID_ID_MASK);
   shadow->srb = NULL;
   shadow->reset = FALSE;
   xvdd->shadow_free++;
@@ -277,6 +277,9 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     for (i = 0; i < SHADOW_ENTRIES; i++)
     {
       xvdd->shadows[i].req.id = i;
+      /* make sure leftover real requests's are never confused with dump mode requests */
+      if (dump_mode)
+        xvdd->shadows[i].req.id |= SHADOW_ID_DUMP_FLAG;
       put_shadow_on_freelist(xvdd, &xvdd->shadows[i]);
       if (dump_mode)
       {
@@ -1013,10 +1016,14 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         ScsiPortNotification(NextRequest, DeviceExtension);
         break;
       case RING_DETECT_STATE_COMPLETE:
-        shadow = &xvdd->shadows[rep->id];
+        shadow = &xvdd->shadows[rep->id & SHADOW_ID_ID_MASK];
         if (shadow->reset)
         {
           KdPrint((__DRIVER_NAME "     discarding reset shadow\n"));
+        }
+        else if (dump_mode && !(rep->id & SHADOW_ID_DUMP_FLAG))
+        {
+          KdPrint((__DRIVER_NAME "     discarding stale (non-dump-mode) shadow\n"));
         }
         else
         {
