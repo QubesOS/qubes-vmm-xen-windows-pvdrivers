@@ -23,10 +23,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define __attribute__(arg) /* empty */
 #define EISCONN 127
 
-#include <ntifs.h>
-//#include <ntddk.h>
+#include <ntddk.h>
 
-#define DDKAPI
+/* including ntifs.h (only needed for this function) causes PREFast to trip up on lots of bogus errors */
+PDEVICE_OBJECT IoGetLowerDeviceObject(IN PDEVICE_OBJECT DeviceObject); 
+//#include <ntifs.h>
+
 //#include <wdm.h>
 #include <wdf.h>
 #include <initguid.h>

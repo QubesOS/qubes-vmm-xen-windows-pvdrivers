@@ -530,7 +530,7 @@ XenPci_ConnectSuspendEvt(PXENPCI_DEVICE_DATA xpdd)
 }
 
 /* Called at PASSIVE_LEVEL */
-static VOID DDKAPI
+static VOID
 XenPci_SuspendResume(WDFWORKITEM workitem)
 {
   NTSTATUS status;

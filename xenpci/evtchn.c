@@ -39,7 +39,7 @@ static KDEFERRED_ROUTINE EvtChn_DpcBounce;
 #define BITS_PER_LONG (sizeof(xen_ulong_t) * 8)
 #define BITS_PER_LONG_SHIFT (5 + (sizeof(xen_ulong_t) >> 3))
 
-static DDKAPI VOID
+static VOID
 EvtChn_DpcBounce(PRKDPC Dpc, PVOID Context, PVOID SystemArgument1, PVOID SystemArgument2)
 {
   ev_action_t *action = Context;

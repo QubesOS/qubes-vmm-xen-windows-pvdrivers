@@ -43,7 +43,7 @@ struct {
   PVOID                 context;
 } typedef highsync_info_t;
 
-static DDKAPI VOID
+static VOID
 XenPci_HighSyncCallFunction0(
   PRKDPC Dpc,
   PVOID Context,

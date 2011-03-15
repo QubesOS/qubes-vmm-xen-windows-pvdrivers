@@ -1607,4 +1607,4 @@ XenPci_Pdo_Resume(WDFDEVICE device)
   FUNCTION_EXIT();
 
   return STATUS_SUCCESS;
-} 
+}

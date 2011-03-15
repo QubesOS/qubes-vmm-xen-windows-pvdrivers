@@ -82,7 +82,7 @@ static void XenDbgPrint(PCHAR string, ULONG length)
     if (current_time.QuadPart / j)
       break;
   for (; j >= 1; j /= 10)
-    WRITE_PORT_UCHAR(XEN_IOPORT_LOG, '0' + ((current_time.QuadPart / j) % 10));
+    WRITE_PORT_UCHAR(XEN_IOPORT_LOG, '0' + (UCHAR)((current_time.QuadPart / j) % 10));
   WRITE_PORT_UCHAR(XEN_IOPORT_LOG, ':');
   WRITE_PORT_UCHAR(XEN_IOPORT_LOG, ' ');
       
