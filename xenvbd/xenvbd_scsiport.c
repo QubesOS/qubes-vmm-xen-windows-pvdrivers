@@ -375,13 +375,13 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
   PUCHAR ptr;
   int notify;
   int i;
-  #if DBG
+  #if DBG && NTDDI_VERSION >= NTDDI_WINXP
   LARGE_INTEGER current_time;
   #endif
 
   //FUNCTION_ENTER();
 
-  #if DBG
+  #if DBG && NTDDI_VERSION >= NTDDI_WINXP
   ScsiPortQuerySystemTime(&current_time);
   #endif
   
@@ -541,7 +541,7 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
     //KdPrint((__DRIVER_NAME "     nr_segments = %d\n", shadow->req.nr_segments));
 
     XenVbd_PutRequest(xvdd, &shadow->req);
-    #if DBG
+    #if DBG && NTDDI_VERSION >= NTDDI_WINXP
     shadow->ring_submit_time = current_time;
     #endif
 
@@ -920,11 +920,10 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   ULONG suspend_resume_state_pdo;
   BOOLEAN last_interrupt = FALSE;
   ULONG start_ring_detect_state = xvdd->ring_detect_state;
-  #if DBG
+  #if DBG && NTDDI_VERSION >= NTDDI_WINXP
   srb_list_entry_t *srb_entry;
   ULONG elapsed;
   LARGE_INTEGER current_time;
-  
   #endif
 
   /* in dump mode I think we get called on a timer, not by an actual IRQ */
@@ -967,7 +966,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     return last_interrupt;
   }
 
-  #if DBG
+  #if DBG && NTDDI_VERSION >= NTDDI_WINXP
   ScsiPortQuerySystemTime(&current_time);
   #endif
 
@@ -1031,7 +1030,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
           ASSERT(srb != NULL);
           block_count = decode_cdb_length(srb);
           block_count *= xvdd->bytes_per_sector / 512;
-          #if DBG
+          #if DBG && NTDDI_VERSION >= NTDDI_WINXP
           srb_entry = srb->SrbExtension;
           elapsed = (ULONG)((current_time.QuadPart - shadow->ring_submit_time.QuadPart) / 10000L);
           if (elapsed > 5000)

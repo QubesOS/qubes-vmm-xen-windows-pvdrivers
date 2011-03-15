@@ -89,7 +89,7 @@ typedef struct {
   PSCSI_REQUEST_BLOCK srb;
   BOOLEAN aligned_buffer_in_use;
   BOOLEAN reset;
-  #if DBG
+  #if DBG && NTDDI_VERSION >= NTDDI_WINXP
   LARGE_INTEGER ring_submit_time;
   #endif
 } blkif_shadow_t;
