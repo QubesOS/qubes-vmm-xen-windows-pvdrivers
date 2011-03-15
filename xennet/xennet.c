@@ -782,44 +782,6 @@ XenNet_Init(
   
   NdisCloseConfiguration(config_handle);
 
-#if 0
-  ptr = xi->config_page;
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "tx-ring-ref", NULL, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "rx-ring-ref", NULL, NULL);
-  #pragma warning(suppress:4054)
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL, "event-channel", (PVOID)XenNet_HandleEvent, xi);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-sg", NULL, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-gso-tcpv4", NULL, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1", NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1", NULL);
-  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", buf, NULL);
-  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", (int)xi->config_sg);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", buf, NULL);
-  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !!xi->config_gso);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-gso-tcpv4", buf, NULL);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
-  __ADD_XEN_INIT_UCHAR(&ptr, 0); /* no pre-connect required */
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT, NULL, NULL, NULL);
-  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
-  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
-  __ADD_XEN_INIT_UCHAR(&ptr, 20);
-  __ADD_XEN_INIT_UCHAR(&ptr, 0);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_SHUTDOWN, NULL, NULL, NULL);
-  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
-  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosing);
-  __ADD_XEN_INIT_UCHAR(&ptr, 50);
-  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
-  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
-  __ADD_XEN_INIT_UCHAR(&ptr, 50);
-  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitialising);
-  __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitWait);
-  __ADD_XEN_INIT_UCHAR(&ptr, 50);
-  __ADD_XEN_INIT_UCHAR(&ptr, 0);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
-#endif
-
   status = XenNet_D0Entry(xi);
   if (!NT_SUCCESS(status))
   {
