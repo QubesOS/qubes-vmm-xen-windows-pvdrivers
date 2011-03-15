@@ -179,13 +179,15 @@ put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
 {
   LARGE_INTEGER current_time;
 
+  UNREFERENCED_PARAMETER(xi);
+  
   InterlockedDecrement(&total_allocated_packets);
   NdisFreePacket(packet);
   KeQuerySystemTime(&current_time);
   if ((int)total_allocated_packets < 0 || (current_time.QuadPart - last_print_time.QuadPart) / 10000 > 1000)
   {
     last_print_time.QuadPart = current_time.QuadPart;
-    KdPrint(("total_allocated_packets = %d, rx_pb_outstanding = %d, rx_pb_free = %d\n", total_allocated_packets, rx_pb_outstanding, xi->rx_pb_free));
+    KdPrint(("total_allocated_packets = %d, rx_outstanding = %d, rx_pb_outstanding = %d, rx_pb_free = %d\n", total_allocated_packets, xi->rx_outstanding, rx_pb_outstanding, xi->rx_pb_free));
   }
 }
 
@@ -303,7 +305,6 @@ XenNet_MakePacket(struct xennet_info *xi, packet_info_t *pi)
   NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   if (header_extra > 0)
     pi->header_length -= header_extra;
-  xi->rx_outstanding++;
   ASSERT(*(shared_buffer_t **)&packet->MiniportReservedEx[0]);
   //FUNCTION_EXIT();
   return packet;
@@ -718,8 +719,8 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
       }
       else
       {
-        more_data_flag = page_buf->rsp.flags & NETRXF_more_data;
-        extra_info_flag = page_buf->rsp.flags & NETRXF_extra_info;
+        more_data_flag = (BOOLEAN)(page_buf->rsp.flags & NETRXF_more_data);
+        extra_info_flag = (BOOLEAN)(page_buf->rsp.flags & NETRXF_extra_info);
       }
       
       if (!extra_info_flag && !more_data_flag)
@@ -829,8 +830,8 @@ do this on a timer or something during packet manufacture
         pi->curr_buffer = buffer;
       }
       pi->mdl_count++;
-      extra_info_flag = page_buf->rsp.flags & NETRXF_extra_info;
-      more_data_flag = page_buf->rsp.flags & NETRXF_more_data;
+      extra_info_flag = (BOOLEAN)(page_buf->rsp.flags & NETRXF_extra_info);
+      more_data_flag = (BOOLEAN)(page_buf->rsp.flags & NETRXF_more_data);
       pi->total_length = pi->total_length + page_buf->rsp.status;
     }
 
@@ -857,6 +858,7 @@ do this on a timer or something during packet manufacture
     ASSERT(*(shared_buffer_t **)&packet->MiniportReservedEx[0]);
 
     packets[packet_count++] = packet;
+    InterlockedIncrement(&xi->rx_outstanding);
     entry = RemoveHeadList(&rx_packet_list);
     if (packet_count == MAXIMUM_PACKETS_PER_INDICATE || entry == &rx_packet_list)
     {
@@ -911,7 +913,7 @@ XenNet_ReturnPacket(
   }
 
   put_packet_on_freelist(xi, Packet);
-  xi->rx_outstanding--;
+  InterlockedDecrement(&xi->rx_outstanding);
   
   if (!xi->rx_outstanding && xi->rx_shutting_down)
     KeSetEvent(&xi->packet_returned_event, IO_NO_INCREMENT, FALSE);

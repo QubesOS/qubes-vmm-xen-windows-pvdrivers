@@ -55,7 +55,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <stdlib.h>
 #define XENNET_POOL_TAG (ULONG) 'XenN'
 
-
 /* Xen macros use these, so they need to be redefined to Win equivs */
 #define wmb() KeMemoryBarrier()
 #define mb() KeMemoryBarrier()
@@ -316,7 +315,7 @@ struct xennet_info
   BOOLEAN rx_partial_more_data_flag;
 
   /* how many packets are in the net stack atm */
-  ULONG rx_outstanding;
+  LONG rx_outstanding;
 
   /* config vars from registry */
   ULONG config_sg;
