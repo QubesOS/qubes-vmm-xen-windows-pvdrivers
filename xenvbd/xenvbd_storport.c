@@ -1291,8 +1291,10 @@ XenVbd_HwStorResetBus(PVOID DeviceExtension, ULONG PathId)
     
     while((list_entry = RemoveHeadList(&xvdd->srb_list)) != &xvdd->srb_list)
     {
+      #if DBG
       srb_list_entry_t *srb_entry = CONTAINING_RECORD(list_entry, srb_list_entry_t, list_entry);
       KdPrint((__DRIVER_NAME "     adding queued SRB %p to reset list\n", srb_entry->srb));
+      #endif
       InsertTailList(&srb_reset_list, list_entry);
     }
     
