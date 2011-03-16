@@ -210,7 +210,7 @@ XenNet_MakePacket(struct xennet_info *xi, packet_info_t *pi)
   if (packet == NULL)
   {
     /* buffers will be freed in MakePackets */
-    KdPrint((__DRIVER_NAME "     No free packets\n"));
+    //KdPrint((__DRIVER_NAME "     No free packets\n"));
     //FUNCTION_EXIT();
     return NULL;
   }
@@ -479,7 +479,7 @@ XenNet_MakePackets(
     packet = XenNet_MakePacket(xi, pi);
     if (packet == NULL)
     {
-      KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
+      //KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
       xi->stat_rx_no_buffer++;
       packet_count = 0;
       goto done;
@@ -538,7 +538,7 @@ XenNet_MakePackets(
     packet = XenNet_MakePacket(xi, pi);
     if (packet == NULL)
     {
-      KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
+      //KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
       xi->stat_rx_no_buffer++;
       packet_count = 0;
       goto done;
@@ -562,7 +562,7 @@ XenNet_MakePackets(
     packet = XenNet_MakePacket(xi, pi);
     if (!packet)
     {
-      KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
+      //KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
       xi->stat_rx_no_buffer++;
       break; /* we are out of memory - just drop the packets */
     }
