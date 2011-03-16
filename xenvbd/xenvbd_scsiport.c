@@ -281,12 +281,6 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
       if (dump_mode)
         xvdd->shadows[i].req.id |= SHADOW_ID_DUMP_FLAG;
       put_shadow_on_freelist(xvdd, &xvdd->shadows[i]);
-      if (dump_mode)
-      {
-        /* set reset = TRUE to pick up in-flight requests when dump mode kicked in */
-        /* do it after put_shadow_on_freelist because that resets the reset flag */
-        xvdd->shadows[i].reset = TRUE;
-      }
     }
   }
   
@@ -1019,6 +1013,19 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         if (shadow->reset)
         {
           KdPrint((__DRIVER_NAME "     discarding reset shadow\n"));
+          for (j = 0; j < shadow->req.nr_segments; j++)
+          {
+            if (dump_mode)
+            {
+              xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
+                shadow->req.seg[j].gref, TRUE, (ULONG)'SCSI');
+            }
+            else
+            {
+              xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
+                shadow->req.seg[j].gref, FALSE, (ULONG)'SCSI');
+            }
+          }
         }
         else if (dump_mode && !(rep->id & SHADOW_ID_DUMP_FLAG))
         {
@@ -1027,7 +1034,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         else
         {
           srb = shadow->srb;
-          ASSERT(srb != NULL);
+          ASSERT(srb);
           block_count = decode_cdb_length(srb);
           block_count *= xvdd->bytes_per_sector / 512;
           #if DBG && NTDDI_VERSION >= NTDDI_WINXP
@@ -1066,28 +1073,27 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
             xvdd->last_additional_sense_code = SCSI_ADSENSE_NO_SENSE;
             XenVbd_MakeAutoSense(xvdd, srb);
           }
-          if (srb->SrbStatus == SRB_STATUS_SUCCESS && shadow->aligned_buffer_in_use)
+          if (shadow->aligned_buffer_in_use)
           {
             ASSERT(xvdd->aligned_buffer_in_use);
             xvdd->aligned_buffer_in_use = FALSE;
-            if (decode_cdb_is_read(srb))
+            if (srb->SrbStatus == SRB_STATUS_SUCCESS && decode_cdb_is_read(srb))
               memcpy(srb->DataBuffer, xvdd->aligned_buffer, block_count * 512);
           }
+          for (j = 0; j < shadow->req.nr_segments; j++)
+          {
+            if (dump_mode)
+            {
+              xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
+                shadow->req.seg[j].gref, TRUE, (ULONG)'SCSI');
+            }
+            else
+            {
+              xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
+                shadow->req.seg[j].gref, FALSE, (ULONG)'SCSI');
+            }
+          }
           ScsiPortNotification(RequestComplete, xvdd, srb);
-        }
-        
-        for (j = 0; j < shadow->req.nr_segments; j++)
-        {
-          if (dump_mode)
-          {
-            xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
-              shadow->req.seg[j].gref, TRUE, (ULONG)'SCSI');
-          }
-          else
-          {
-            xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
-              shadow->req.seg[j].gref, FALSE, (ULONG)'SCSI');
-          }
         }
         shadow->aligned_buffer_in_use = FALSE;
         shadow->reset = FALSE;
@@ -1556,6 +1562,7 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
   FUNCTION_ENTER();
 
   KdPrint((__DRIVER_NAME "     IRQL = %d\n", KeGetCurrentIrql()));
+  xvdd->aligned_buffer_in_use = FALSE;
 
   if (xvdd->ring_detect_state == RING_DETECT_STATE_COMPLETE && xvdd->device_state->suspend_resume_state_pdo == SR_STATE_RUNNING)
   {
@@ -1577,6 +1584,7 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
         xvdd->shadows[i].srb->SrbStatus = SRB_STATUS_BUS_RESET;
         ScsiPortNotification(RequestComplete, xvdd, xvdd->shadows[i].srb);
         xvdd->shadows[i].srb = NULL;
+        xvdd->shadows[i].aligned_buffer_in_use = FALSE;
       }
     }
 
