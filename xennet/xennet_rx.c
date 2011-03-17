@@ -43,6 +43,10 @@ get_pb_from_freelist(struct xennet_info *xi)
     return pb;
   }
 
+  /* don't allocate a new one if we are shutting down */
+  if (xi->shutting_down)
+    return NULL;
+    
   status = NdisAllocateMemoryWithTag(&pb, sizeof(shared_buffer_t), XENNET_POOL_TAG);
   if (status != STATUS_SUCCESS)
   {
@@ -959,6 +963,7 @@ XenNet_BufferFree(struct xennet_info *xi)
     xi->vectors.GntTbl_EndAccess(xi->vectors.context,
         pb->gref, FALSE, (ULONG)'XNRX');
     NdisFreeMemory(pb->virtual, PAGE_SIZE, 0);
+    NdisFreeMemory(pb, sizeof(shared_buffer_t), 0);
   }
 }
 
@@ -1088,6 +1093,7 @@ XenNet_RxShutdown(xennet_info_t *xi)
 
   NdisDeleteNPagedLookasideList(&xi->rx_lookaside_list);
 
+  stack_delete(xi->rx_pb_stack, NULL, NULL);
   //KeReleaseSpinLock(&xi->rx_lock, old_irql);
 
   FUNCTION_EXIT();
