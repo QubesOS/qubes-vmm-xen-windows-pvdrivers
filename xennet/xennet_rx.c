@@ -156,6 +156,7 @@ XenNet_FillRing(struct xennet_info *xi)
 }
 
 LONG total_allocated_packets = 0;
+LONG dpc_limit_hit = 0;
 LARGE_INTEGER last_print_time;
 
 /* lock free */
@@ -191,7 +192,7 @@ put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
   if ((int)total_allocated_packets < 0 || (current_time.QuadPart - last_print_time.QuadPart) / 10000 > 1000)
   {
     last_print_time.QuadPart = current_time.QuadPart;
-    KdPrint(("total_allocated_packets = %d, rx_outstanding = %d, rx_pb_outstanding = %d, rx_pb_free = %d\n", total_allocated_packets, xi->rx_outstanding, rx_pb_outstanding, xi->rx_pb_free));
+    KdPrint(("total_allocated_packets = %d, rx_outstanding = %d, dpc_limit_hit = %d, rx_pb_outstanding = %d, rx_pb_free = %d\n", total_allocated_packets, xi->rx_outstanding, dpc_limit_hit, rx_pb_outstanding, xi->rx_pb_free));
   }
 }
 
@@ -284,7 +285,9 @@ XenNet_MakePacket(struct xennet_info *xi, packet_info_t *pi)
     if (!pi->curr_buffer || !pi->curr_pb)
     {
       KdPrint((__DRIVER_NAME "     out of buffers for packet\n"));
+      KdPrint((__DRIVER_NAME "     out_remaining = %d, curr_buffer = %p, curr_pb = %p\n", out_remaining, pi->curr_buffer, pi->curr_pb));
       // TODO: free some stuff or we'll leak
+      /* unchain buffers then free packet */
       return NULL;
     }
     NdisQueryBufferOffset(pi->curr_buffer, &in_buffer_offset, &in_buffer_length);
@@ -620,7 +623,8 @@ XenNet_RxQueueDpcSynchronized(PVOID context)
 /* We limit the number of packets per interrupt so that acks get a chance
 under high rx load. The DPC is immediately re-scheduled */
 /* this isn't actually done right now */
-#define MAX_BUFFERS_PER_INTERRUPT 256
+#define MAXIMUM_PACKETS_PER_INTERRUPT 32
+#define MAXIMUM_DATA_PER_INTERRUPT (MAXIMUM_PACKETS_PER_INTERRUPT * 1500)
 
 // Called at DISPATCH_LEVEL
 static VOID
@@ -633,6 +637,8 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   PNDIS_PACKET packets[MAXIMUM_PACKETS_PER_INDICATE];
   ULONG packet_count = 0;
   ULONG buffer_count = 0;
+  ULONG packet_data = 0;
+  ULONG interim_packet_data = 0;
   struct netif_extra_info *ei;
   USHORT id;
   int more_to_do = FALSE;
@@ -683,7 +689,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     prod = xi->rx.sring->rsp_prod;
     KeMemoryBarrier(); /* Ensure we see responses up to 'prod'. */
 
-    for (cons = xi->rx.rsp_cons; cons != prod; cons++)
+    for (cons = xi->rx.rsp_cons; cons != prod && packet_count < MAXIMUM_PACKETS_PER_INTERRUPT && packet_data < MAXIMUM_DATA_PER_INTERRUPT; cons++)
     {
       id = (USHORT)(cons & (NET_RX_RING_SIZE - 1));
       page_buf = xi->rx_ring_pbs[id];
@@ -725,16 +731,25 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
       {
         more_data_flag = (BOOLEAN)(page_buf->rsp.flags & NETRXF_more_data);
         extra_info_flag = (BOOLEAN)(page_buf->rsp.flags & NETRXF_extra_info);
+        interim_packet_data += page_buf->rsp.status;
       }
       
       if (!extra_info_flag && !more_data_flag)
+      {
         last_buf = page_buf;
+        packet_count++;
+        packet_data += interim_packet_data;
+        interim_packet_data = 0;
+      }
       buffer_count++;
     }
     xi->rx.rsp_cons = cons;
 
     /* Give netback more buffers */
     XenNet_FillRing(xi);
+
+    if (packet_count >= MAXIMUM_PACKETS_PER_INTERRUPT || packet_data >= MAXIMUM_DATA_PER_INTERRUPT)
+      break;
 
     more_to_do = RING_HAS_UNCONSUMED_RESPONSES(&xi->rx);
     if (!more_to_do)
@@ -757,16 +772,21 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 
   KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
 
-#if 0
-do this on a timer or something during packet manufacture
-  if (buffer_count >= MAX_BUFFERS_PER_INTERRUPT)
+  if (packet_count >= MAXIMUM_PACKETS_PER_INTERRUPT || packet_data >= MAXIMUM_DATA_PER_INTERRUPT)
   {
     /* fire again immediately */
-    KdPrint((__DRIVER_NAME "     Dpc Duration Exceeded\n"));
+    //KdPrint((__DRIVER_NAME "     Dpc Duration Exceeded\n"));
+    dpc_limit_hit++;
+    /* we want the Dpc on the end of the queue. By definition we are already on the right CPU so we know the Dpc queue will be run immediately */
+    KeSetImportanceDpc(&xi->rx_dpc, MediumImportance);
     KeInsertQueueDpc(&xi->rx_dpc, NULL, NULL);
     //xi->vectors.EvtChn_Sync(xi->vectors.context, XenNet_RxQueueDpcSynchronized, xi);
   }
-#endif
+  else
+  {
+    /* make sure the Dpc queue is run immediately next interrupt */
+    KeSetImportanceDpc(&xi->rx_dpc, HighImportance);
+  }
 
   /* make packets out of the buffers */
   page_buf = head_buf;
