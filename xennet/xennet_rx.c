@@ -234,7 +234,16 @@ XenNet_MakePacket(struct xennet_info *xi, packet_info_t *pi)
   //KdPrint((__DRIVER_NAME "     ip4_header_length = %d\n", pi->ip4_header_length));
   //KdPrint((__DRIVER_NAME "     tcp_header_length = %d\n", pi->tcp_header_length));
   /* make sure we satisfy the lookahead requirement */
-  XenNet_BuildHeader(pi, header_va, max(MIN_LOOKAHEAD_LENGTH, xi->current_lookahead) + MAX_ETH_HEADER_LENGTH);
+  
+  if (pi->split_required)
+  {
+    /* for split packets we need to make sure the 'header' is no bigger than header+mss bytes */
+    XenNet_BuildHeader(pi, header_va, min((ULONG)MAX_ETH_HEADER_LENGTH + pi->ip4_header_length + pi->tcp_header_length + pi->mss, MAX_ETH_HEADER_LENGTH + max(MIN_LOOKAHEAD_LENGTH, xi->current_lookahead)));
+  }
+  else
+  {
+    XenNet_BuildHeader(pi, header_va, max(MIN_LOOKAHEAD_LENGTH, xi->current_lookahead) + MAX_ETH_HEADER_LENGTH);
+  }
   header_extra = pi->header_length - (MAX_ETH_HEADER_LENGTH + pi->ip4_header_length + pi->tcp_header_length);
   ASSERT(pi->header_length <= MAX_ETH_HEADER_LENGTH + MAX_LOOKAHEAD_LENGTH);
   NdisAllocateBuffer(&status, &out_buffer, xi->rx_buffer_pool, header_va, pi->header_length);
@@ -251,11 +260,6 @@ XenNet_MakePacket(struct xennet_info *xi, packet_info_t *pi)
 
   // TODO: if there are only a few bytes left on the first buffer then add them to the header buffer too... maybe
 
-  //KdPrint((__DRIVER_NAME "     split_required = %d\n", pi->split_required));
-  //KdPrint((__DRIVER_NAME "     tcp_length = %d, mss = %d\n", pi->tcp_length, pi->mss));
-  //KdPrint((__DRIVER_NAME "     total_length = %d\n", pi->total_length));
-  //KdPrint((__DRIVER_NAME "     header_length = %d\n", pi->header_length));
-  //KdPrint((__DRIVER_NAME "     header_extra = %d\n", header_extra));
   if (pi->split_required)
   {
     tcp_length = (USHORT)min(pi->mss, pi->tcp_remaining);
@@ -268,13 +272,15 @@ XenNet_MakePacket(struct xennet_info *xi, packet_info_t *pi)
     pi->tcp_remaining = (USHORT)(pi->tcp_remaining - tcp_length);
     /* part of the packet is already present in the header buffer for lookahead */
     out_remaining = tcp_length - header_extra;
+    ASSERT((LONG)out_remaining >= 0);
   }
   else
   {
     out_remaining = pi->total_length - pi->header_length;
+    ASSERT((LONG)out_remaining >= 0);
   }
   //KdPrint((__DRIVER_NAME "     before loop - out_remaining = %d\n", out_remaining));
-    
+
   while (out_remaining != 0)
   {
     ULONG in_buffer_offset;
@@ -622,9 +628,8 @@ XenNet_RxQueueDpcSynchronized(PVOID context)
 
 /* We limit the number of packets per interrupt so that acks get a chance
 under high rx load. The DPC is immediately re-scheduled */
-/* this isn't actually done right now */
-#define MAXIMUM_PACKETS_PER_INTERRUPT 32
-#define MAXIMUM_DATA_PER_INTERRUPT (MAXIMUM_PACKETS_PER_INTERRUPT * 1500)
+#define MAXIMUM_PACKETS_PER_INTERRUPT 32 /* this is calculated before large packet split */
+#define MAXIMUM_DATA_PER_INTERRUPT (MAXIMUM_PACKETS_PER_INTERRUPT * 1500) /* help account for large packets */
 
 // Called at DISPATCH_LEVEL
 static VOID

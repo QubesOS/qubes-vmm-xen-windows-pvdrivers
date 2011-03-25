@@ -65,7 +65,7 @@ XenNet_BuildHeader(packet_info_t *pi, PUCHAR header, ULONG new_header_size)
   }
   
   bytes_remaining = new_header_size - pi->header_length;
-  // TODO: if there are only a small number of bytes left in the current buffer then increase to consume that too...
+  // TODO: if there are only a small number of bytes left in the current buffer then increase to consume that too... it would have to be no more than the size of header+mss though
 
   //KdPrint((__DRIVER_NAME "     A bytes_remaining = %d, pi->curr_buffer = %p, pi->mdl_count = %d\n", bytes_remaining, pi->curr_buffer, pi->mdl_count));
   while (bytes_remaining && pi->curr_buffer)
