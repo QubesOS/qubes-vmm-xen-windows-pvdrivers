@@ -561,12 +561,12 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
       if ((ULONG_PTR)shadow->system_address & 511)
       {
         xvdd->aligned_buffer_in_use = TRUE;
+        /* limit to aligned_buffer_size */
+        block_count = min(block_count, xvdd->aligned_buffer_size / 512);
         ptr = (PUCHAR)xvdd->aligned_buffer;
         if (!decode_cdb_is_read(srb))
           memcpy(ptr, shadow->system_address, block_count * 512);
         shadow->aligned_buffer_in_use = TRUE;
-        /* limit to aligned_buffer_size */
-        block_count = min(block_count, xvdd->aligned_buffer_size / 512);
       }
       else
       {
