@@ -194,5 +194,12 @@ XenPci_HighSync(PXENPCI_HIGHSYNC_FUNCTION function0, PXENPCI_HIGHSYNC_FUNCTION f
 
   KdPrint((__DRIVER_NAME "     Waiting for highsync_complete_event\n"));
   KeWaitForSingleObject(&highsync_info->highsync_complete_event, Executive, KernelMode, FALSE, NULL);
+  /* wait until nr_procs_at_dispatch_level drops to 0 indicating that nothing else requires highsync_info */
+  while (highsync_info->nr_procs_at_dispatch_level)
+  {
+    KeStallExecutionProcessor(1);
+    KeMemoryBarrier();
+  }
+  ExFreePoolWithTag(highsync_info, XENPCI_POOL_TAG);
   FUNCTION_EXIT();
 }
