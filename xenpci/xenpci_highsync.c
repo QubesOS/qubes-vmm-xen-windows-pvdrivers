@@ -93,7 +93,7 @@ XenPci_HighSyncCallFunction0(
   }
   InterlockedDecrement(&highsync_info->nr_procs_at_dispatch_level);
   /* wait until nr_procs_at_dispatch_level drops to 0 indicating that nothing else requires highsync_info */
-  while (highsync_info->nr_spinning_at_dispatch_level)
+  while (highsync_info->nr_procs_at_dispatch_level)
   {
     KeStallExecutionProcessor(1);
     KeMemoryBarrier();
@@ -200,6 +200,16 @@ XenPci_HighSync(PXENPCI_HIGHSYNC_FUNCTION function0, PXENPCI_HIGHSYNC_FUNCTION f
 
   KdPrint((__DRIVER_NAME "     Waiting for highsync_complete_event\n"));
   KeWaitForSingleObject(&highsync_info->highsync_complete_event, Executive, KernelMode, FALSE, NULL);
+#if (NTDDI_VERSION >= NTDDI_WINXP)
+  KeFlushQueuedDpcs();
+#else
+  {
+    /* just wait 1 second until all DPC's finish - not ideal but it's only for W2K */
+    LARGE_INTEGER interval;
+    interval.QuadPart = -1 * 1000 * 1000 * 10; /* 1 second */
+    KeDelayExecutionThread(KernelMode, FALSE, &interval);
+  }
+#endif
   ExFreePoolWithTag(highsync_info, XENPCI_POOL_TAG);
   FUNCTION_EXIT();
 }
