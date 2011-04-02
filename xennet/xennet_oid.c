@@ -76,7 +76,7 @@ NDIS_OID supported_oids[] =
     len = 8; \
     } }
 
-NDIS_STATUS DDKAPI
+NDIS_STATUS
 XenNet_QueryInformation(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN NDIS_OID Oid,
@@ -406,7 +406,7 @@ XenNet_QueryInformation(
   return status;
 }
 
-NDIS_STATUS DDKAPI
+NDIS_STATUS
 XenNet_SetInformation(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN NDIS_OID Oid,

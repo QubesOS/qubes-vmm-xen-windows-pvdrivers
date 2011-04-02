@@ -20,11 +20,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xennet.h"
 
-/* Not really necessary but keeps PREfast happy */
-#if (NTDDI_VERSION >= NTDDI_WINXP)
-static KDEFERRED_ROUTINE XenNet_TxBufferGC;
-#endif
-
 static USHORT
 get_id_from_freelist(struct xennet_info *xi)
 {
@@ -419,18 +414,13 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
 
 //ULONG packets_outstanding = 0;
 // Called at DISPATCH_LEVEL
-static VOID
-XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
+VOID
+XenNet_TxBufferGC(struct xennet_info *xi, BOOLEAN dont_set_event)
 {
-  struct xennet_info *xi = context;
   RING_IDX cons, prod;
   PNDIS_PACKET head = NULL, tail = NULL;
   PNDIS_PACKET packet;
   ULONG tx_packets = 0;
-
-  UNREFERENCED_PARAMETER(dpc);
-  UNREFERENCED_PARAMETER(arg1);
-  UNREFERENCED_PARAMETER(arg2);
 
   //FUNCTION_ENTER();
 
@@ -496,7 +486,8 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 
     xi->tx.rsp_cons = prod;
     /* resist the temptation to set the event more than +1... it breaks things */
-    xi->tx.sring->rsp_event = prod + 1;
+    if (!dont_set_event)
+      xi->tx.sring->rsp_event = prod + 1;
     KeMemoryBarrier();
   } while (prod != xi->tx.sring->rsp_prod);
 
@@ -536,7 +527,7 @@ XenNet_TxBufferGC(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
 }
 
 // called at <= DISPATCH_LEVEL
-VOID DDKAPI
+VOID
 XenNet_SendPackets(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN PPNDIS_PACKET PacketArray,
@@ -656,10 +647,6 @@ XenNet_TxInit(xennet_info_t *xi)
   USHORT i;
 
   KeInitializeSpinLock(&xi->tx_lock);
-  KeInitializeDpc(&xi->tx_dpc, XenNet_TxBufferGC, xi);
-  /* dpcs are only serialised to a single processor */
-  KeSetTargetProcessorDpc(&xi->tx_dpc, 0);
-  KeSetImportanceDpc(&xi->tx_dpc, HighImportance);
   InitializeListHead(&xi->tx_waiting_pkt_list);
 
   KeInitializeEvent(&xi->tx_idle_event, SynchronizationEvent, FALSE);
@@ -707,7 +694,6 @@ XenNet_TxShutdown(xennet_info_t *xi)
     KeWaitForSingleObject(&xi->tx_idle_event, Executive, KernelMode, FALSE, NULL);
   }
 
-  KeRemoveQueueDpc(&xi->tx_dpc);
 #if (NTDDI_VERSION >= NTDDI_WINXP)
   KeFlushQueuedDpcs();
 #endif

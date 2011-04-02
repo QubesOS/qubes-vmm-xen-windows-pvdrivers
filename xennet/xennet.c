@@ -320,7 +320,22 @@ XenNet_SuspendResume(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   FUNCTION_EXIT();
 }
 
-static DDKAPI BOOLEAN
+static VOID
+XenNet_RxTxDpc(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
+{
+  struct xennet_info *xi = context;
+  BOOLEAN dont_set_event;
+
+  UNREFERENCED_PARAMETER(dpc);
+  UNREFERENCED_PARAMETER(arg1);
+  UNREFERENCED_PARAMETER(arg2);
+
+  /* if Rx goes over its per-dpc quota then make sure TxBufferGC doesn't set an event as we are already guaranteed to be called again */
+  dont_set_event = XenNet_RxBufferCheck(xi);
+  XenNet_TxBufferGC(xi, dont_set_event);
+} 
+
+static BOOLEAN
 XenNet_HandleEvent(PVOID context)
 {
   struct xennet_info *xi = context;
@@ -337,8 +352,7 @@ XenNet_HandleEvent(PVOID context)
   }
   if (xi->connected && !xi->inactive && suspend_resume_state_pdo != SR_STATE_RESUMING)
   {
-    KeInsertQueueDpc(&xi->tx_dpc, NULL, NULL);
-    KeInsertQueueDpc(&xi->rx_dpc, NULL, NULL);
+    KeInsertQueueDpc(&xi->rxtx_dpc, NULL, NULL);
   }
   //FUNCTION_EXIT();
   return TRUE;
@@ -617,6 +631,10 @@ XenNet_Init(
   KeInitializeDpc(&xi->suspend_dpc, XenNet_SuspendResume, xi);
   KeInitializeSpinLock(&xi->resume_lock);
 
+  KeInitializeDpc(&xi->rxtx_dpc, XenNet_RxTxDpc, xi);
+  KeSetTargetProcessorDpc(&xi->rxtx_dpc, 0);
+  KeSetImportanceDpc(&xi->rxtx_dpc, HighImportance);
+
   NdisMGetDeviceProperty(MiniportAdapterHandle, &xi->pdo, &xi->fdo,
     &xi->lower_do, NULL, NULL);
   xi->packet_filter = 0;
@@ -827,7 +845,7 @@ XenNet_PnPEventNotify(
 }
 
 /* Called when machine is shutting down, so just quiesce the HW and be done fast. */
-VOID DDKAPI
+VOID
 XenNet_Shutdown(
   IN NDIS_HANDLE MiniportAdapterContext
   )
@@ -840,7 +858,7 @@ XenNet_Shutdown(
 }
 
 /* Opposite of XenNet_Init */
-VOID DDKAPI
+VOID
 XenNet_Halt(
   IN NDIS_HANDLE MiniportAdapterContext
   )

@@ -20,12 +20,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xennet.h"
 
-/* Not really necessary but keeps PREfast happy */
-#if (NTDDI_VERSION >= NTDDI_WINXP)
-static KDEFERRED_ROUTINE XenNet_RxBufferCheck;
-#endif
-
 LONG rx_pb_outstanding = 0;
+LONG rx_pb_outstanding_refs = 0;
 
 static __inline shared_buffer_t *
 get_pb_from_freelist(struct xennet_info *xi)
@@ -40,6 +36,7 @@ get_pb_from_freelist(struct xennet_info *xi)
     pb->ref_count = 1;
     InterlockedDecrement(&xi->rx_pb_free);
     InterlockedIncrement(&rx_pb_outstanding);
+    InterlockedIncrement(&rx_pb_outstanding_refs);
     return pb;
   }
 
@@ -78,6 +75,7 @@ get_pb_from_freelist(struct xennet_info *xi)
   }
   InterlockedIncrement(&rx_pb_outstanding);
   pb->ref_count = 1;
+  InterlockedIncrement(&rx_pb_outstanding_refs);
   return pb;
 }
 
@@ -86,11 +84,13 @@ ref_pb(struct xennet_info *xi, shared_buffer_t *pb)
 {
   UNREFERENCED_PARAMETER(xi);
   InterlockedIncrement(&pb->ref_count);
+  InterlockedIncrement(&rx_pb_outstanding_refs);
 }
 
 static __inline VOID
 put_pb_on_freelist(struct xennet_info *xi, shared_buffer_t *pb)
 {
+  InterlockedDecrement(&rx_pb_outstanding_refs);
   if (InterlockedDecrement(&pb->ref_count) == 0)
   {
     NdisAdjustBufferLength(pb->buffer, PAGE_SIZE);
@@ -189,10 +189,10 @@ put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
   InterlockedDecrement(&total_allocated_packets);
   NdisFreePacket(packet);
   KeQuerySystemTime(&current_time);
-  if ((int)total_allocated_packets < 0 || (current_time.QuadPart - last_print_time.QuadPart) / 10000 > 1000)
+  if ((int)total_allocated_packets < 0 || (current_time.QuadPart - last_print_time.QuadPart) / 10000 > 5000)
   {
     last_print_time.QuadPart = current_time.QuadPart;
-    KdPrint(("total_allocated_packets = %d, rx_outstanding = %d, dpc_limit_hit = %d, rx_pb_outstanding = %d, rx_pb_free = %d\n", total_allocated_packets, xi->rx_outstanding, dpc_limit_hit, rx_pb_outstanding, xi->rx_pb_free));
+    KdPrint(("total_allocated_packets = %d, rx_outstanding = %d, dpc_limit_hit = %d, rx_pb_outstanding = %d, rx_pb_outstanding_refs = %d, rx_pb_free = %d\n", total_allocated_packets, xi->rx_outstanding, dpc_limit_hit, rx_pb_outstanding, rx_pb_outstanding_refs, xi->rx_pb_free));
   }
 }
 
@@ -614,16 +614,6 @@ done:
   return packet_count;
 }
 
-static BOOLEAN
-XenNet_RxQueueDpcSynchronized(PVOID context)
-{
-  struct xennet_info *xi = context;
-
-  KeInsertQueueDpc(&xi->rx_dpc, NULL, NULL);
-  
-  return TRUE;
-}
-
 #define MAXIMUM_PACKETS_PER_INDICATE 32
 
 /* We limit the number of packets per interrupt so that acks get a chance
@@ -632,10 +622,9 @@ under high rx load. The DPC is immediately re-scheduled */
 #define MAXIMUM_DATA_PER_INTERRUPT (MAXIMUM_PACKETS_PER_INTERRUPT * 1500) /* help account for large packets */
 
 // Called at DISPATCH_LEVEL
-static VOID
-XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
+BOOLEAN
+XenNet_RxBufferCheck(struct xennet_info *xi)
 {
-  struct xennet_info *xi = context;
   RING_IDX cons, prod;
   LIST_ENTRY rx_packet_list;
   PLIST_ENTRY entry;
@@ -656,15 +645,12 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   BOOLEAN extra_info_flag = FALSE;
   BOOLEAN more_data_flag = FALSE;
   PNDIS_BUFFER buffer;
-
-  UNREFERENCED_PARAMETER(dpc);
-  UNREFERENCED_PARAMETER(arg1);
-  UNREFERENCED_PARAMETER(arg2);
+  BOOLEAN dont_set_event;
 
   //FUNCTION_ENTER();
 
   if (!xi->connected)
-    return; /* a delayed DPC could let this come through... just do nothing */
+    return FALSE; /* a delayed DPC could let this come through... just do nothing */
 
   InitializeListHead(&rx_packet_list);
 
@@ -676,7 +662,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   {
     /* there is a chance that our Dpc had been queued just before the shutdown... */
     KeReleaseSpinLockFromDpcLevel(&xi->rx_lock);
-    return;
+    return FALSE;
   }
 
   if (xi->rx_partial_buf)
@@ -783,14 +769,17 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
     //KdPrint((__DRIVER_NAME "     Dpc Duration Exceeded\n"));
     dpc_limit_hit++;
     /* we want the Dpc on the end of the queue. By definition we are already on the right CPU so we know the Dpc queue will be run immediately */
-    KeSetImportanceDpc(&xi->rx_dpc, MediumImportance);
-    KeInsertQueueDpc(&xi->rx_dpc, NULL, NULL);
-    //xi->vectors.EvtChn_Sync(xi->vectors.context, XenNet_RxQueueDpcSynchronized, xi);
+    KeSetImportanceDpc(&xi->rxtx_dpc, MediumImportance);
+    KeInsertQueueDpc(&xi->rxtx_dpc, NULL, NULL);
+    /* dont set an event in TX path */
+    dont_set_event = TRUE;
   }
   else
   {
     /* make sure the Dpc queue is run immediately next interrupt */
-    KeSetImportanceDpc(&xi->rx_dpc, HighImportance);
+    KeSetImportanceDpc(&xi->rxtx_dpc, HighImportance);
+    /* set an event in TX path */
+    dont_set_event = FALSE;
   }
 
   /* make packets out of the buffers */
@@ -895,6 +884,7 @@ XenNet_RxBufferCheck(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
       packet_count = 0;
     }
   }
+  return dont_set_event;
   //FUNCTION_EXIT();
 }
 
@@ -1047,10 +1037,6 @@ XenNet_RxInit(xennet_info_t *xi)
   KeInitializeSpinLock(&xi->rx_lock);
   KeInitializeEvent(&xi->packet_returned_event, SynchronizationEvent, FALSE);
   KeInitializeTimer(&xi->rx_timer);
-  KeInitializeDpc(&xi->rx_dpc, XenNet_RxBufferCheck, xi);
-  KeSetTargetProcessorDpc(&xi->rx_dpc, 0);
-  KeSetImportanceDpc(&xi->rx_dpc, HighImportance);
-  //KeInitializeDpc(&xi->rx_timer_dpc, XenNet_RxTimerDpc, xi);
   status = NdisAllocateMemoryWithTag((PVOID)&xi->rxpi, sizeof(packet_info_t) * NdisSystemProcessorCount(), XENNET_POOL_TAG);
   if (status != NDIS_STATUS_SUCCESS)
   {
@@ -1097,7 +1083,6 @@ XenNet_RxShutdown(xennet_info_t *xi)
     KeCancelTimer(&xi->rx_timer);
   }
 
-  KeRemoveQueueDpc(&xi->rx_dpc);
 #if (NTDDI_VERSION >= NTDDI_WINXP)
   KeFlushQueuedDpcs();
 #endif

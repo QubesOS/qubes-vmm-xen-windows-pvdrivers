@@ -21,7 +21,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #pragma warning(disable: 4201)
 #pragma warning(disable: 4214)
 
-#define DDKAPI
 #include <ntddk.h>
 #include <wdm.h>
 #define NDIS_MINIPORT_DRIVER
@@ -272,6 +271,7 @@ struct xennet_info
   KDPC suspend_dpc;
   PIO_WORKITEM resume_work_item;
   KSPIN_LOCK resume_lock;
+  KDPC rxtx_dpc;
 
   /* tx related - protected by tx_lock */
   KSPIN_LOCK tx_lock;
@@ -287,7 +287,6 @@ struct xennet_info
   ULONG tx_outstanding;
   ULONG tx_id_free;
   USHORT tx_id_list[NET_TX_RING_SIZE];
-  KDPC tx_dpc;
   NPAGED_LOOKASIDE_LIST tx_lookaside_list;
 
   /* rx_related - protected by rx_lock */
@@ -297,7 +296,6 @@ struct xennet_info
   packet_info_t *rxpi;
   KEVENT packet_returned_event;
   //NDIS_MINIPORT_TIMER rx_timer;
-  KDPC rx_dpc;
   KTIMER rx_timer;
   KDPC rx_timer_dpc;
   NDIS_HANDLE rx_packet_pool;
@@ -340,7 +338,7 @@ struct xennet_info
   
 } typedef xennet_info_t;
 
-VOID DDKAPI
+VOID
 XenNet_ReturnPacket(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN PNDIS_PACKET Packet
@@ -358,13 +356,16 @@ XenNet_RxResumeStart(xennet_info_t *xi);
 VOID
 XenNet_RxResumeEnd(xennet_info_t *xi);
 
+BOOLEAN
+XenNet_RxBufferCheck(struct xennet_info *xi);
+
 VOID
 XenNet_TxResumeStart(xennet_info_t *xi);
 
 VOID
 XenNet_TxResumeEnd(xennet_info_t *xi);
 
-VOID DDKAPI
+VOID
 XenNet_SendPackets(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN PPNDIS_PACKET PacketArray,
@@ -382,7 +383,10 @@ XenNet_TxInit(xennet_info_t *xi);
 BOOLEAN
 XenNet_TxShutdown(xennet_info_t *xi);
 
-NDIS_STATUS DDKAPI
+VOID
+XenNet_TxBufferGC(struct xennet_info *xi, BOOLEAN dont_set_event);
+
+NDIS_STATUS
 XenNet_QueryInformation(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN NDIS_OID Oid,
@@ -391,7 +395,7 @@ XenNet_QueryInformation(
   OUT PULONG BytesWritten,
   OUT PULONG BytesNeeded);
 
-NDIS_STATUS DDKAPI
+NDIS_STATUS
 XenNet_SetInformation(
   IN NDIS_HANDLE MiniportAdapterContext,
   IN NDIS_OID Oid,
