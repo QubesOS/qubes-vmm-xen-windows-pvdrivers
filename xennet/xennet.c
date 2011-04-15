@@ -755,6 +755,21 @@ XenNet_Init(
     xi->config_csum_rx_check = !!config_param->ParameterData.IntegerData;
   }
 
+  NdisInitUnicodeString(&config_param_name, L"ChecksumOffloadDontFix");
+  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Could not read ChecksumOffloadDontFix value (%08x)\n", status));
+    xi->config_csum_rx_dont_fix = 0;
+  }
+  else
+  {
+    KdPrint(("ChecksumOffloadDontFix = %d\n", config_param->ParameterData.IntegerData));
+    xi->config_csum_rx_dont_fix = !!config_param->ParameterData.IntegerData;
+  }
+  
+  
+  
   NdisInitUnicodeString(&config_param_name, L"MTU");
   NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);  
   if (!NT_SUCCESS(status))

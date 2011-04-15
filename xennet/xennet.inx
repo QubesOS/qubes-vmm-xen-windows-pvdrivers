@@ -51,6 +51,12 @@ HKR, Ndi\Params\ChecksumOffloadRxCheck, type, , "enum"
 HKR, Ndi\Params\ChecksumOffloadRxCheck\enum, 0, , "Disabled"
 HKR, Ndi\Params\ChecksumOffloadRxCheck\enum, 1, , "Enabled"
 
+HKR, Ndi\Params\ChecksumOffloadDontFix, ParamDesc, , "Dont fix the blank checksum on offloaded RX packets"
+HKR, Ndi\Params\ChecksumOffloadDontFix, default, , "0"
+HKR, Ndi\Params\ChecksumOffloadDontFix, type, , "enum"
+HKR, Ndi\Params\ChecksumOffloadDontFix\enum, 0, , "Disabled"
+HKR, Ndi\Params\ChecksumOffloadDontFix\enum, 1, , "Enabled"
+
 HKR, Ndi\Params\LargeSendOffload, ParamDesc, , "Large Send Offload"
 HKR, Ndi\Params\LargeSendOffload, default, , "61440"
 HKR, Ndi\Params\LargeSendOffload, type, , "enum"

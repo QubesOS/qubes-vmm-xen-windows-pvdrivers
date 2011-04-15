@@ -301,6 +301,7 @@ struct xennet_info
   NDIS_HANDLE rx_packet_pool;
   NDIS_HANDLE rx_buffer_pool;
   volatile LONG rx_pb_free;
+  struct stack_state *rx_packet_stack;
   struct stack_state *rx_pb_stack;
   shared_buffer_t *rx_ring_pbs[NET_RX_RING_SIZE];
   NPAGED_LOOKASIDE_LIST rx_lookaside_list;
@@ -319,6 +320,7 @@ struct xennet_info
   ULONG config_sg;
   ULONG config_csum;
   ULONG config_csum_rx_check;
+  ULONG config_csum_rx_dont_fix;
   ULONG config_gso;
   ULONG config_mtu;
   ULONG config_rx_interrupt_moderation;
