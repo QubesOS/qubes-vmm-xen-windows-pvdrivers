@@ -762,7 +762,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   }
   WdfRegistryClose(control_key);
 
-  KdPrint((__DRIVER_NAME "     SystemStartOptions = %S\n", system_start_options));
+  KdPrint((__DRIVER_NAME "     SystemStartOptions = %wZ\n", &system_start_options));
   
   always_patch = 0;
   WdfRegistryQueryULong(param_key, &txt_always_patch_name, &always_patch);
