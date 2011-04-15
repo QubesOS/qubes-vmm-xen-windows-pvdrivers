@@ -37,6 +37,8 @@ static EVT_WDF_DRIVER_DEVICE_ADD XenPci_EvtDeviceAdd;
 static EVT_WDF_DEVICE_USAGE_NOTIFICATION XenPci_EvtDeviceUsageNotification;
 static EVT_WDF_DEVICE_PREPARE_HARDWARE XenHide_EvtDevicePrepareHardware;
 
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)
+
 /* this is supposed to be defined in wdm.h, but isn't */
 NTSTATUS 
   KeInitializeCrashDumpHeader(
@@ -46,6 +48,7 @@ NTSTATUS
     IN ULONG  BufferSize,
     OUT PULONG  BufferNeeded OPTIONAL
     );
+#endif
 
 #define DUMP_TYPE_FULL 1
 
@@ -689,8 +692,10 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   DECLARE_CONST_UNICODE_STRING(txt_always_patch_name, L"txt_patch_tpr_always");
   WDFSTRING wdf_system_start_options;
   UNICODE_STRING system_start_options;
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)  
   PVOID dump_page;
   ULONG dump_header_size;
+#endif
   
   UNREFERENCED_PARAMETER(RegistryPath);
 
@@ -704,10 +709,12 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
   ASSERT(!balloon_mdl_head);
   balloon_mdl_head = XenPci_InitialBalloonDown();
-    
+
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)  
   dump_page = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
   status = KeInitializeCrashDumpHeader(DUMP_TYPE_FULL, 0, dump_page, PAGE_SIZE, &dump_header_size);
   KdPrint((__DRIVER_NAME "     KeInitializeCrashDumpHeader status = %08x, size = %d\n", status, dump_header_size));
+#endif
 
   /* again after enabling DbgPrint hooking */
   KdPrint((__DRIVER_NAME " " VER_FILEVERSION_STR "\n"));
