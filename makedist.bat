@@ -25,7 +25,7 @@ SET CERT_NAME=GPLPV_Test_Cert
 REM IF NOT EXIST SIGN_CONFIG.BAT GOTO DONT_SIGN
 REM CALL SIGN_CONFIG.BAT
 
-IF NOT EXIST gplpv.cer "%DDK_PATH%"\bin\selfsign\makecert -r -pe -ss PrivateCertStore -n "CN=GPLPV_Test_Cert" gplpv.cer
+IF NOT EXIST gplpv.cer "%DDK_PATH%"\bin\selfsign\x86\makecert -r -pe -ss PrivateCertStore -n "CN=GPLPV_Test_Cert" gplpv.cer
 
 mkdir symbols\%GPLPV_VERSION%
 

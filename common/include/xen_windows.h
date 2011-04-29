@@ -3,6 +3,7 @@
 
 #include "gplpv_version.h"
 
+#include <ntverp.h>
 #pragma warning( disable : 4201 ) // nonstandard extension used : nameless struct/union
 #pragma warning( disable : 4214 ) // nonstandard extension used : bit field types other than int
 #pragma warning( disable : 4505 ) // 'XenDbgPrint' : unreferenced local function has been removed

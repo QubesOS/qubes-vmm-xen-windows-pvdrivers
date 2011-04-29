@@ -25,7 +25,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 /* Not really necessary but keeps PREfast happy */
 DRIVER_INITIALIZE DriverEntry;
 static IO_WORKITEM_ROUTINE XenNet_ResumeWorkItem;
-#if (NTDDI_VERSION >= NTDDI_WINXP)
+#if (VER_PRODUCTBUILD >= 7600)
 static KDEFERRED_ROUTINE XenNet_SuspendResume;
 #endif
 

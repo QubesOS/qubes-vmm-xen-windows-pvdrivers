@@ -635,6 +635,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   KdPrint((__DRIVER_NAME "     ConfigInfo->CachesData was initialised to %d\n", ConfigInfo->CachesData));
   ConfigInfo->CachesData = FALSE;
   ConfigInfo->BufferAccessScsiPortControlled = FALSE;
+#if 0
   if (ConfigInfo->Dma64BitAddresses == SCSI_DMA64_SYSTEM_SUPPORTED)
   {
     ConfigInfo->Master = TRUE;
@@ -648,7 +649,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
     ConfigInfo->Dma32BitAddresses = TRUE;
     KdPrint((__DRIVER_NAME "     Dma64BitAddresses not supported\n"));
   }
-
+#endif
   FUNCTION_EXIT();
 
   return SP_RETURN_FOUND;
