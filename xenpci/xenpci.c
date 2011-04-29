@@ -182,7 +182,7 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   power_capabilities.DeviceD1 = WdfTrue;
   power_capabilities.WakeFromD1 = WdfTrue;
   power_capabilities.DeviceWake = PowerDeviceD1;
-  power_capabilities.DeviceState[PowerSystemWorking]   = PowerDeviceD1;
+  power_capabilities.DeviceState[PowerSystemWorking]   = PowerDeviceD0;
   power_capabilities.DeviceState[PowerSystemSleeping1] = PowerDeviceD1;
   power_capabilities.DeviceState[PowerSystemSleeping2] = PowerDeviceD2;
   power_capabilities.DeviceState[PowerSystemSleeping3] = PowerDeviceD2;

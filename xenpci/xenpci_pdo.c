@@ -1429,7 +1429,7 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   child_power_capabilities.DeviceD1 = WdfTrue;
   child_power_capabilities.WakeFromD1 = WdfTrue;
   child_power_capabilities.DeviceWake = PowerDeviceD1;
-  child_power_capabilities.DeviceState[PowerSystemWorking]   = PowerDeviceD1;
+  child_power_capabilities.DeviceState[PowerSystemWorking]   = PowerDeviceD0;
   child_power_capabilities.DeviceState[PowerSystemSleeping1] = PowerDeviceD1;
   child_power_capabilities.DeviceState[PowerSystemSleeping2] = PowerDeviceD2;
   child_power_capabilities.DeviceState[PowerSystemSleeping3] = PowerDeviceD2;
