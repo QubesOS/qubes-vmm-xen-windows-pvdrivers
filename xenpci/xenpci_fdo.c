@@ -29,7 +29,7 @@ extern PMDL balloon_mdl_head;
 
 /* Not really necessary but keeps PREfast happy */
 static EVT_WDF_WORKITEM XenPci_SuspendResume;
-#if (NTDDI_VERSION >= NTDDI_WINXP)
+#if (VER_PRODUCTBUILD >= 7600)
 static KSTART_ROUTINE XenPci_BalloonThreadProc;
 #endif
 

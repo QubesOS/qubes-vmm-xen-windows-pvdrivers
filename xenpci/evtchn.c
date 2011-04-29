@@ -20,7 +20,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "xenpci.h"
 
 /* Not really necessary but keeps PREfast happy */
-#if (NTDDI_VERSION >= NTDDI_WINXP)
+#if (VER_PRODUCTBUILD >= 7600)
 static KDEFERRED_ROUTINE EvtChn_DpcBounce;
 #endif
 

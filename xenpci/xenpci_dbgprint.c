@@ -54,7 +54,7 @@ typedef struct _IDT
 #pragma pack()
 
 /* Not really necessary but keeps PREfast happy */
-#if (NTDDI_VERSION >= NTDDI_WINXP)
+#if (VER_PRODUCTBUILD >= 7600)
 static KBUGCHECK_CALLBACK_ROUTINE XenPci_BugcheckCallback;
 #endif
 KBUGCHECK_CALLBACK_RECORD callback_record;
