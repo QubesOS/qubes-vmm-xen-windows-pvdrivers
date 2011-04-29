@@ -139,6 +139,7 @@ struct
   int ring_detect_state;
   BOOLEAN use_other;
   BOOLEAN cached_use_other;
+  BOOLEAN cached_use_other_valid;
   UCHAR last_sense_key;
   UCHAR last_additional_sense_code;
   blkif_response_t tmp_rep;

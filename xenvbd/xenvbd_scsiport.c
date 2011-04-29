@@ -158,8 +158,13 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
         xvdd->event_channel = PtrToUlong(value) & 0x3FFFFFFF;
         if (PtrToUlong(value) & 0x80000000)
         {
+          xvdd->cached_use_other_valid = TRUE;
           xvdd->cached_use_other = (BOOLEAN)!!(PtrToUlong(value) & 0x40000000);
           KdPrint((__DRIVER_NAME "     cached_use_other = %d\n", xvdd->cached_use_other));
+        }
+        else
+        {
+          xvdd->cached_use_other_valid = FALSE;
         }
       }
       break;
@@ -345,9 +350,6 @@ decode_cdb_is_read(PSCSI_REQUEST_BLOCK srb)
   }
 }
 
-ULONG max_dump_mode_blocks = 0;
-ULONG max_dump_mode_length = 0;
-
 static VOID
 XenVbd_PutSrbOnList(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
 {
@@ -379,7 +381,11 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
   ScsiPortQuerySystemTime(&current_time);
   #endif
   
-  while(!xvdd->aligned_buffer_in_use && xvdd->shadow_free && (srb_entry = (srb_list_entry_t *)RemoveHeadList(&xvdd->srb_list)) != (srb_list_entry_t *)&xvdd->srb_list)
+  while ((!dump_mode || xvdd->shadow_free == SHADOW_ENTRIES)
+        && xvdd->ring_detect_state == RING_DETECT_STATE_COMPLETE
+        && !xvdd->aligned_buffer_in_use
+        && xvdd->shadow_free
+        && (srb_entry = (srb_list_entry_t *)RemoveHeadList(&xvdd->srb_list)) != (srb_list_entry_t *)&xvdd->srb_list) /* RemoveHeadList must be last in the expression */
   {
     srb = srb_entry->srb;
     block_count = decode_cdb_length(srb);;
@@ -466,17 +472,6 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
       shadow->aligned_buffer_in_use = FALSE;
     }
 
-    if (dump_mode && block_count > max_dump_mode_blocks)
-    {
-      max_dump_mode_blocks = block_count;
-      KdPrint((__DRIVER_NAME "     max_dump_mode_blocks = %d\n", max_dump_mode_blocks));
-    }
-    if (dump_mode && srb->DataTransferLength > max_dump_mode_length)
-    {
-      max_dump_mode_length = srb->DataTransferLength;
-      KdPrint((__DRIVER_NAME "     max_dump_mode_length = %d\n", max_dump_mode_length));
-    }
-
     //KdPrint((__DRIVER_NAME "     sector_number = %d, block_count = %d\n", (ULONG)shadow->req.sector_number, block_count));
     //KdPrint((__DRIVER_NAME "     SrbExtension = %p\n", srb->SrbExtension));
     //KdPrint((__DRIVER_NAME "     DataBuffer   = %p\n", srb->DataBuffer));
@@ -553,7 +548,7 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
   //FUNCTION_EXIT();
 }
 
-static ULONG DDKAPI
+static ULONG
 XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInformation, PCHAR ArgumentString, PPORT_CONFIGURATION_INFORMATION ConfigInfo, PBOOLEAN Again)
 {
 //  PACCESS_RANGE AccessRange;
@@ -686,11 +681,8 @@ XenVbd_HwScsiInitialize(PVOID DeviceExtension)
 
   if (!xvdd->inactive)
   {
-    if (!dump_mode)
-    {
-      XenVbd_StartRingDetection(xvdd);
-    }
-    else
+    xvdd->ring_detect_state = RING_DETECT_STATE_NOT_STARTED;
+    if (xvdd->cached_use_other_valid)
     {
       if (xvdd->cached_use_other)
       {
@@ -901,7 +893,7 @@ XenVbd_MakeAutoSense(PXENVBD_DEVICE_DATA xvdd, PSCSI_REQUEST_BLOCK srb)
   srb->SrbStatus |= SRB_STATUS_AUTOSENSE_VALID;
 }
 
-static BOOLEAN DDKAPI
+static BOOLEAN
 XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
 {
   PXENVBD_DEVICE_DATA xvdd = (PXENVBD_DEVICE_DATA)DeviceExtension;
@@ -1136,7 +1128,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
   return last_interrupt;
 }
 
-static BOOLEAN DDKAPI
+static BOOLEAN
 XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
 {
   PUCHAR data_buffer;
@@ -1157,10 +1149,8 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
   // If we haven't enumerated all the devices yet then just defer the request
   if (xvdd->ring_detect_state < RING_DETECT_STATE_COMPLETE)
   {
-    srb->SrbStatus = SRB_STATUS_BUSY;
-    ScsiPortNotification(RequestComplete, DeviceExtension, srb);
-    KdPrint((__DRIVER_NAME " --- HwScsiStartIo (Still figuring out ring)\n"));
-    return TRUE;
+    if (xvdd->ring_detect_state == RING_DETECT_STATE_NOT_STARTED)
+      XenVbd_StartRingDetection(xvdd);
   }
 
   if (xvdd->device_state->suspend_resume_state_pdo != SR_STATE_RUNNING)
@@ -1615,7 +1605,7 @@ XenVbd_HwScsiAdapterState(PVOID DeviceExtension, PVOID Context, BOOLEAN SaveStat
   return TRUE;
 }
 
-static SCSI_ADAPTER_CONTROL_STATUS DDKAPI
+static SCSI_ADAPTER_CONTROL_STATUS
 XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE ControlType, PVOID Parameters)
 {
   PXENVBD_DEVICE_DATA xvdd = DeviceExtension;
@@ -1646,7 +1636,7 @@ XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Con
     {
       if (XenVbd_InitFromConfig(xvdd) != SP_RETURN_FOUND)
         KeBugCheckEx(DATA_COHERENCY_EXCEPTION, 0, (ULONG_PTR) xvdd, 0, 0);
-      XenVbd_StartRingDetection(xvdd);
+      xvdd->ring_detect_state = RING_DETECT_STATE_NOT_STARTED;
     }
     break;
   case ScsiSetBootConfig:
