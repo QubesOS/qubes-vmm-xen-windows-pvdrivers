@@ -24,6 +24,10 @@ ExcludeFromSelect=*
 CopyFiles=XenNet.CopyFiles
 Characteristics = 0x1 ; NCF_VIRTUAL
 AddReg = XenNet_Reg, XenNet_Params
+BusType            = 15 ; PNPBus
+*IfType            = 6  ; Ethernet
+*MediaType         = 0	; NdisMedium802_3
+*PhysicalMediaType = 19	; NdisPhysicalMedium802_3 
 
 [XenNet_Reg]
 HKR, Ndi, Service, 0, "XenNet"
