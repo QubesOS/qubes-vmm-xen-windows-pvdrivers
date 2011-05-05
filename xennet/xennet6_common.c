@@ -26,14 +26,14 @@ XenNet_BuildHeader(packet_info_t *pi, PUCHAR header, ULONG new_header_size)
 {
   ULONG bytes_remaining;
 
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
 
   if (!header)
     header = pi->header;
 
   if (new_header_size <= pi->header_length)
   {
-    FUNCTION_EXIT();
+    //FUNCTION_EXIT();
     return TRUE; /* header is already at least the required size */
   }
 
@@ -42,11 +42,11 @@ XenNet_BuildHeader(packet_info_t *pi, PUCHAR header, ULONG new_header_size)
     /* still working in the first buffer */
     if (new_header_size <= pi->first_mdl_length)
     {
-      KdPrint((__DRIVER_NAME "     new_header_size <= pi->first_mdl_length\n"));
+      //KdPrint((__DRIVER_NAME "     new_header_size <= pi->first_mdl_length\n"));
       pi->header_length = new_header_size;
       if (pi->header_length == pi->first_mdl_length)
       {
-        NdisGetNextBuffer(pi->curr_mdl, &pi->curr_mdl);
+        NdisGetNextMdl(pi->curr_mdl, &pi->curr_mdl);
         pi->curr_mdl_offset = 0;
         if (pi->curr_pb)
           pi->curr_pb = pi->curr_pb->next;
@@ -55,12 +55,12 @@ XenNet_BuildHeader(packet_info_t *pi, PUCHAR header, ULONG new_header_size)
       {
         pi->curr_mdl_offset = (USHORT)new_header_size;
       }
-      FUNCTION_EXIT();
+      //FUNCTION_EXIT();
       return TRUE;
     }
     else
     {
-      KdPrint((__DRIVER_NAME "     Switching to header_data\n"));
+      //KdPrint((__DRIVER_NAME "     Switching to header_data\n"));
       memcpy(pi->header_data, header, pi->header_length);
       header = pi->header = pi->header_data;
     }
@@ -69,24 +69,24 @@ XenNet_BuildHeader(packet_info_t *pi, PUCHAR header, ULONG new_header_size)
   bytes_remaining = new_header_size - pi->header_length;
   // TODO: if there are only a small number of bytes left in the current buffer then increase to consume that too... it would have to be no more than the size of header+mss though
 
-  KdPrint((__DRIVER_NAME "     A bytes_remaining = %d, pi->curr_mdl = %p\n", bytes_remaining, pi->curr_mdl));
+  //KdPrint((__DRIVER_NAME "     A bytes_remaining = %d, pi->curr_mdl = %p\n", bytes_remaining, pi->curr_mdl));
   while (bytes_remaining && pi->curr_mdl)
   {
     ULONG copy_size;
     
     ASSERT(pi->curr_mdl);
-    KdPrint((__DRIVER_NAME "     B bytes_remaining = %d, pi->curr_mdl = %p\n", bytes_remaining, pi->curr_mdl));
+    //KdPrint((__DRIVER_NAME "     B bytes_remaining = %d, pi->curr_mdl = %p\n", bytes_remaining, pi->curr_mdl));
     if (MmGetMdlByteCount(pi->curr_mdl))
     {
       PUCHAR src_addr;
       src_addr = MmGetSystemAddressForMdlSafe(pi->curr_mdl, NormalPagePriority);
       if (!src_addr)
       {
-        FUNCTION_EXIT();
+        //FUNCTION_EXIT();
         return FALSE;
       }
       copy_size = min(bytes_remaining, MmGetMdlByteCount(pi->curr_mdl) - pi->curr_mdl_offset);
-      KdPrint((__DRIVER_NAME "     B copy_size = %d\n", copy_size));
+      //KdPrint((__DRIVER_NAME "     B copy_size = %d\n", copy_size));
       memcpy(header + pi->header_length,
         src_addr + pi->curr_mdl_offset, copy_size);
       pi->curr_mdl_offset = (USHORT)(pi->curr_mdl_offset + copy_size);
@@ -95,27 +95,27 @@ XenNet_BuildHeader(packet_info_t *pi, PUCHAR header, ULONG new_header_size)
     }
     if (pi->curr_mdl_offset == MmGetMdlByteCount(pi->curr_mdl))
     {
-      NdisGetNextBuffer(pi->curr_mdl, &pi->curr_mdl);
+      NdisGetNextMdl(pi->curr_mdl, &pi->curr_mdl);
       if (pi->curr_pb)
         pi->curr_pb = pi->curr_pb->next;
       pi->curr_mdl_offset = 0;
     }
   }
-  KdPrint((__DRIVER_NAME "     C bytes_remaining = %d, pi->curr_mdl = %p\n", bytes_remaining, pi->curr_mdl));
+  //KdPrint((__DRIVER_NAME "     C bytes_remaining = %d, pi->curr_mdl = %p\n", bytes_remaining, pi->curr_mdl));
   if (bytes_remaining)
   {
-    KdPrint((__DRIVER_NAME "     bytes_remaining\n"));
-    FUNCTION_EXIT();
+    //KdPrint((__DRIVER_NAME "     bytes_remaining\n"));
+    //FUNCTION_EXIT();
     return FALSE;
   }
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
   return TRUE;
 }
 
 ULONG
 XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_size)
 {
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
 
   ASSERT(pi->first_mdl);
   
@@ -133,14 +133,14 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
   
   if (!XenNet_BuildHeader(pi, NULL, (ULONG)XN_HDR_SIZE))
   {
-    KdPrint((__DRIVER_NAME "     packet too small (Ethernet Header)\n"));
+    //KdPrint((__DRIVER_NAME "     packet too small (Ethernet Header)\n"));
     return PARSE_TOO_SMALL;
   }
 
   switch (GET_NET_PUSHORT(&pi->header[12])) // L2 protocol field
   {
   case 0x0800: /* IPv4 */
-    KdPrint((__DRIVER_NAME "     IP\n"));
+    //KdPrint((__DRIVER_NAME "     IP\n"));
     if (pi->header_length < (ULONG)(XN_HDR_SIZE + 20))
     {
       if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + 20)))
@@ -152,7 +152,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
     pi->ip_version = (pi->header[XN_HDR_SIZE + 0] & 0xF0) >> 4;
     if (pi->ip_version != 4)
     {
-      KdPrint((__DRIVER_NAME "     ip_version = %d\n", pi->ip_version));
+      //KdPrint((__DRIVER_NAME "     ip_version = %d\n", pi->ip_version));
       return PARSE_UNKNOWN_TYPE;
     }
     pi->ip4_header_length = (pi->header[XN_HDR_SIZE + 0] & 0x0F) << 2;
@@ -160,17 +160,17 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
     {
       if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)))
       {
-        KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header)\n"));
+        //KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header)\n"));
         return PARSE_TOO_SMALL;
       }
     }
     break;
   case 0x86DD:  /* IPv6 */
-    KdPrint((__DRIVER_NAME "     IPv6\n"));
-    KdPrint((__DRIVER_NAME "     (not currently used)\n"));
+    //KdPrint((__DRIVER_NAME "     IPv6\n"));
+    //KdPrint((__DRIVER_NAME "     (not currently used)\n"));
     return PARSE_UNKNOWN_TYPE;
   default:
-    KdPrint((__DRIVER_NAME "     Not IP (%04x)\n", GET_NET_PUSHORT(&pi->header[12])));
+    //KdPrint((__DRIVER_NAME "     Not IP (%04x)\n", GET_NET_PUSHORT(&pi->header[12])));
     return PARSE_UNKNOWN_TYPE;
   }
   pi->ip_proto = pi->header[XN_HDR_SIZE + 9];
@@ -180,7 +180,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
   case 17: // UDP
     break;
   default:
-    KdPrint((__DRIVER_NAME "     Not TCP/UDP (%d)\n", pi->ip_proto));
+    //KdPrint((__DRIVER_NAME "     Not TCP/UDP (%d)\n", pi->ip_proto));
     return PARSE_UNKNOWN_TYPE;
   }
   pi->ip4_length = GET_NET_PUSHORT(&pi->header[XN_HDR_SIZE + 2]);
@@ -190,14 +190,14 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
   {
     if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)))
     {
-      KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header + TCP Options)\n"));
+      //KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header + TCP Options)\n"));
       return PARSE_TOO_SMALL;
     }
   }
-  
+
   if ((ULONG)XN_HDR_SIZE + pi->ip4_length > pi->total_length)
   {
-    KdPrint((__DRIVER_NAME "     XN_HDR_SIZE + ip4_length (%d) > total_length (%d)\n", XN_HDR_SIZE + pi->ip4_length, pi->total_length));
+    //KdPrint((__DRIVER_NAME "     XN_HDR_SIZE + ip4_length (%d) > total_length (%d)\n", XN_HDR_SIZE + pi->ip4_length, pi->total_length));
     return PARSE_UNKNOWN_TYPE;
   }
 
@@ -208,9 +208,9 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
   if (pi->mss > 0 && pi->tcp_length > pi->mss)
     pi->split_required = TRUE;
 
-  KdPrint((__DRIVER_NAME "     ip4_length = %d\n", pi->ip4_length));
-  KdPrint((__DRIVER_NAME "     tcp_length = %d\n", pi->tcp_length));
-  FUNCTION_EXIT();
+  //KdPrint((__DRIVER_NAME "     ip4_length = %d\n", pi->ip4_length));
+  //KdPrint((__DRIVER_NAME "     tcp_length = %d\n", pi->tcp_length));
+  //FUNCTION_EXIT();
   
   return PARSE_OK;
 }

@@ -107,9 +107,6 @@ XenNet_QueryInformation(
     case OID_GEN_RECEIVE_BLOCK_SIZE:
       temp_data = PAGE_SIZE; //XN_MAX_PKT_SIZE;
       break;
-    case OID_GEN_VENDOR_ID:
-      temp_data = 0xFFFFFF; // Not guaranteed to be XENSOURCE_MAC_HDR;
-      break;
     case OID_GEN_VENDOR_DESCRIPTION:
       data = vendor_desc;
       len = sizeof(vendor_desc);
@@ -136,10 +133,6 @@ XenNet_QueryInformation(
     case OID_GEN_MAXIMUM_SEND_PACKETS:
       /* this is actually ignored for deserialised drivers like us */
       temp_data = 0; //XN_MAX_SEND_PKTS;
-      break;
-    case OID_GEN_RCV_OK:
-      temp_data = xi->stat_rx_ok;
-      HANDLE_STAT_RETURN;
       break;
     case OID_GEN_XMIT_ERROR:
       temp_data = xi->stat_tx_error;
@@ -290,12 +283,6 @@ XenNet_QueryInformation(
 
       used_temp_buffer = FALSE;
       break;
-    case OID_IP4_OFFLOAD_STATS:
-    case OID_IP6_OFFLOAD_STATS:
-      /* these are called often so just ignore then quietly */
-      status = NDIS_STATUS_NOT_SUPPORTED;
-      break;
-
     case OID_PNP_CAPABILITIES:
       KdPrint(("Get OID_PNP_CAPABILITIES\n"));
       len = sizeof(NDIS_PNP_CAPABILITIES);
@@ -344,17 +331,26 @@ XenNet_QueryInformation(
       data = xi->multicast_list;
       len = xi->multicast_list_size * 6;
       break;
-    case OID_GEN_XMIT_OK:
-      temp_data = xi->stat_tx_ok;
-      HANDLE_STAT_RETURN;
+    case OID_GEN_VENDOR_ID:
+      temp_data = 0xFFFFFF; // Not guaranteed to be XENSOURCE_MAC_HDR;
+      break;
+    case OID_TCP_CONNECTION_OFFLOAD_HARDWARE_CAPABILITIES:
+      FUNCTION_MSG("Unhandled OID_TCP_CONNECTION_OFFLOAD_HARDWARE_CAPABILITIES\n");
+      break;
+    case OID_TCP_CONNECTION_OFFLOAD_CURRENT_CONFIG:
+      FUNCTION_MSG("Unhandled OID_TCP_CONNECTION_OFFLOAD_HARDWARE_CAPABILITIES\n");
+      break;
+    case OID_TCP_OFFLOAD_CURRENT_CONFIG:
+      FUNCTION_MSG("Unhandled OID_TCP_OFFLOAD_CURRENT_CONFIG\n");
       break;
     default:
-      KdPrint(("Get Unknown OID 0x%x\n", Oid));
+      FUNCTION_MSG("Unhandled get OID_%08x\n", Oid);
     /* silently fail these */
-    case OID_GEN_MACHINE_NAME:
     case OID_GEN_SUPPORTED_GUIDS:
+    case OID_IP4_OFFLOAD_STATS:
+    case OID_IP6_OFFLOAD_STATS:
       status = NDIS_STATUS_NOT_SUPPORTED;
-    break;
+      break;
   }
 
   if (!NT_SUCCESS(status))
@@ -382,7 +378,156 @@ XenNet_QueryInformation(
   return status;
 }
 
-NDIS_STATUS
+static NDIS_STATUS
+XenNet_QueryStatistics(
+  IN NDIS_HANDLE MiniportAdapterContext,
+  IN NDIS_OID Oid,
+  IN PVOID InformationBuffer,
+  IN ULONG InformationBufferLength,
+  OUT PUINT BytesWritten,
+  OUT PUINT BytesNeeded)
+{
+  NDIS_STATUS status = NDIS_STATUS_SUCCESS;
+  struct xennet_info *xi = MiniportAdapterContext;
+  BOOLEAN used_temp_buffer = TRUE;
+  UINT len = 4;
+  ULONG64 temp_data;
+  PVOID data = &temp_data;
+  PNDIS_STATISTICS_INFO nsi;
+  //PIP_OFFLOAD_STATS ios;
+#if 0
+  UCHAR vendor_desc[] = XN_VENDOR_DESC;
+  PNDIS_TASK_OFFLOAD_HEADER ntoh;
+  PNDIS_TASK_OFFLOAD nto;
+  PNDIS_TASK_TCP_IP_CHECKSUM nttic;
+  PNDIS_TASK_TCP_LARGE_SEND nttls;
+  PNDIS_PNP_CAPABILITIES npc;
+#endif
+
+  *BytesNeeded = 0;
+  *BytesWritten = 0;
+
+// FUNCTION_ENTER()
+
+  switch(Oid)
+  {
+#if 0
+    case OID_GEN_XMIT_ERROR:
+      temp_data = xi->stat_tx_error;
+      HANDLE_STAT_RETURN;
+      break;
+    case OID_GEN_RCV_ERROR:
+      temp_data = xi->stat_rx_error;
+      HANDLE_STAT_RETURN;
+      break;
+    case OID_GEN_RCV_NO_BUFFER:
+      temp_data = xi->stat_rx_no_buffer;
+      HANDLE_STAT_RETURN;
+      break;
+    case OID_802_3_PERMANENT_ADDRESS:
+      data = xi->perm_mac_addr;
+      len = ETH_ALEN;
+      break;
+    case OID_802_3_RCV_ERROR_ALIGNMENT:
+    case OID_802_3_XMIT_ONE_COLLISION:
+    case OID_802_3_XMIT_MORE_COLLISIONS:
+      temp_data = 0;
+      HANDLE_STAT_RETURN;
+      break;
+#endif
+    case OID_GEN_STATISTICS:
+      SET_LEN_AND_BREAK_IF_SHORT(sizeof(NDIS_STATISTICS_INFO));
+      nsi = (PNDIS_STATISTICS_INFO)InformationBuffer;
+      nsi->Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
+      nsi->Header.Revision = NDIS_STATISTICS_INFO_REVISION_1;
+      nsi->Header.Size = NDIS_SIZEOF_STATISTICS_INFO_REVISION_1;
+      nsi->SupportedStatistics = 0;
+      break;    
+    case OID_GEN_XMIT_OK:
+      temp_data = xi->stat_tx_ok;
+      HANDLE_STAT_RETURN;
+      break;
+    case OID_GEN_RCV_OK:
+      temp_data = xi->stat_rx_ok;
+      HANDLE_STAT_RETURN;
+      break;
+#if 0
+    case OID_IP4_OFFLOAD_STATS:
+#if 0
+      SET_LEN_AND_BREAK_IF_SHORT(sizeof(IP_OFFLOAD_STATS));
+      ios = (PIP_OFFLOAD_STATS)InformationBuffer;
+      ios->InReceives = 0;
+      ios->InOctets = 0;
+      ios->InDelivers = 0;
+      ios->OutRequests = 0;
+      ios->OutOctets = 0;
+      ios->InHeaderErrors = 0;
+      ios->InTruncatedPackets = 0;
+      ios->InDiscards = 0;
+      ios->OutDiscards= 0;
+      ios->OutNoRoutes = 0;
+#endif
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      break;
+    case OID_IP6_OFFLOAD_STATS:
+#if 0
+      SET_LEN_AND_BREAK_IF_SHORT(sizeof(IP_OFFLOAD_STATS));
+      ios = (PIP_OFFLOAD_STATS)InformationBuffer;
+      ios->InReceives = 0;
+      ios->InOctets = 0;
+      ios->InDelivers = 0;
+      ios->OutRequests = 0;
+      ios->OutOctets = 0;
+      ios->InHeaderErrors = 0;
+      ios->InTruncatedPackets = 0;
+      ios->InDiscards = 0;
+      ios->OutDiscards= 0;
+      ios->OutNoRoutes = 0;
+#endif
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      break;
+#endif
+    case OID_TCP_CONNECTION_OFFLOAD_HARDWARE_CAPABILITIES:
+      FUNCTION_MSG("Unhandled statistic OID_TCP_CONNECTION_OFFLOAD_HARDWARE_CAPABILITIES\n");
+      break;
+    case OID_TCP_CONNECTION_OFFLOAD_CURRENT_CONFIG:
+      FUNCTION_MSG("Unhandled statistic OID_TCP_CONNECTION_OFFLOAD_HARDWARE_CAPABILITIES\n");
+      break;
+    case OID_TCP_OFFLOAD_CURRENT_CONFIG:
+      FUNCTION_MSG("Unhandled statistic OID_TCP_OFFLOAD_CURRENT_CONFIG\n");
+      break;
+    default:
+      KdPrint(("Unhandled statistics OID_%08x\n", Oid));
+      status = NDIS_STATUS_NOT_SUPPORTED;
+      break;
+  }
+
+  if (!NT_SUCCESS(status))
+  {
+    //FUNCTION_EXIT_STATUS(status);
+    return status;
+  }
+
+  if (len > InformationBufferLength)
+  {
+    *BytesNeeded = len;
+    FUNCTION_MSG("(BUFFER_TOO_SHORT %d > %d)\n", len, InformationBufferLength);
+    return NDIS_STATUS_BUFFER_TOO_SHORT;
+  }
+
+  *BytesWritten = len;
+  if (len && used_temp_buffer)
+  {
+    NdisMoveMemory((PUCHAR)InformationBuffer, data, len);
+  }
+
+  //KdPrint(("Got OID 0x%x\n", Oid));
+//  KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
+
+  return status;
+}
+
+static NDIS_STATUS
 XenNet_SetInformation(
   IN NDIS_HANDLE adapter_context,
   IN NDIS_OID Oid,
@@ -397,6 +542,7 @@ XenNet_SetInformation(
   PULONG64 data = InformationBuffer;
   ULONG i;
   UCHAR *multicast_list;
+  PNDIS_OFFLOAD_ENCAPSULATION noe;
 #if 0
   PNDIS_TASK_OFFLOAD_HEADER ntoh;
   PNDIS_TASK_OFFLOAD nto;
@@ -762,12 +908,57 @@ XenNet_SetInformation(
       break;
     case OID_GEN_CURRENT_LOOKAHEAD:
       xi->current_lookahead = *(ULONG *)data;
-      KdPrint(("Set OID_GEN_CURRENT_LOOKAHEAD %d (%p)\n", xi->current_lookahead, xi));
+      FUNCTION_MSG("Set OID_GEN_CURRENT_LOOKAHEAD %d (%p)\n", xi->current_lookahead, xi);
+      status = NDIS_STATUS_SUCCESS;
+      break;
+    case OID_OFFLOAD_ENCAPSULATION:
+      /* mostly assume that NDIS vets the settings for us */
+      noe = (PNDIS_OFFLOAD_ENCAPSULATION)InformationBuffer;
+      FUNCTION_MSG("Set OID_OFFLOAD_ENCAPSULATION\n");
+      if (noe->IPv4.EncapsulationType != NDIS_ENCAPSULATION_IEEE_802_3)
+      {
+        status = NDIS_STATUS_NOT_SUPPORTED;
+        FUNCTION_MSG("Unknown Encapsulation Type %d\n", noe->IPv4.EncapsulationType);
+        break;
+      }
+        
+      switch(noe->IPv4.Enabled)
+      {
+      case NDIS_OFFLOAD_SET_ON:
+        FUNCTION_MSG(" IPv4.Enabled = NDIS_OFFLOAD_SET_ON\n");
+        xi->current_csum_ipv4 = TRUE;
+        xi->current_lso_ipv4 = TRUE;
+        break;
+      case NDIS_OFFLOAD_SET_OFF:
+        FUNCTION_MSG(" IPv4.Enabled = NDIS_OFFLOAD_SET_OFF\n");
+        xi->current_csum_ipv4 = FALSE;
+        xi->current_lso_ipv4 = FALSE;
+        break;
+      case NDIS_OFFLOAD_SET_NO_CHANGE:
+        FUNCTION_MSG(" IPv4.Enabled = NDIS_OFFLOAD_NO_CHANGE\n");
+        break;
+      }
+      FUNCTION_MSG(" IPv4.HeaderSize = %d\n", noe->IPv4.HeaderSize);
+      FUNCTION_MSG(" IPv6.EncapsulationType = %d\n", noe->IPv6.EncapsulationType);
+      switch(noe->IPv6.Enabled)
+      {
+      case NDIS_OFFLOAD_SET_ON:
+        FUNCTION_MSG(" IPv6.Enabled = NDIS_OFFLOAD_SET_ON (this is an error)\n");
+        break;
+      case NDIS_OFFLOAD_SET_OFF:
+        FUNCTION_MSG(" IPv6.Enabled = NDIS_OFFLOAD_SET_OFF\n");
+        break;
+      case NDIS_OFFLOAD_SET_NO_CHANGE:
+        FUNCTION_MSG(" IPv6.Enabled = NDIS_OFFLOAD_NO_CHANGE\n");
+        break;
+      }
+      FUNCTION_MSG(" IPv6.HeaderSize = %d\n", noe->IPv6.HeaderSize);
       status = NDIS_STATUS_SUCCESS;
       break;
     default:
-      KdPrint(("Set Unknown OID 0x%x\n", Oid));
+      FUNCTION_MSG("Unhandled set OID_%08x\n", Oid);
     case OID_GEN_NETWORK_LAYER_ADDRESSES: /* this could tell us what IP addresses there are for us to send arps after a suspend/resume */
+    case OID_GEN_MACHINE_NAME:
       status = NDIS_STATUS_NOT_SUPPORTED;
       break;
   }
@@ -791,11 +982,11 @@ XenNet_OidRequest(NDIS_HANDLE adapter_context, PNDIS_OID_REQUEST oid_request)
 {
   NTSTATUS status;
   
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
   switch(oid_request->RequestType)
   {
   case NdisRequestQueryInformation:
-    FUNCTION_MSG("RequestType = NdisRequestQueryInformation\n");
+    //FUNCTION_MSG("RequestType = NdisRequestQueryInformation\n");
     //FUNCTION_MSG("Oid = %08x\n", oid_request->DATA.QUERY_INFORMATION.Oid);
     status = XenNet_QueryInformation(adapter_context,
       oid_request->DATA.QUERY_INFORMATION.Oid,
@@ -805,7 +996,7 @@ XenNet_OidRequest(NDIS_HANDLE adapter_context, PNDIS_OID_REQUEST oid_request)
       &oid_request->DATA.QUERY_INFORMATION.BytesNeeded);
     break;
   case NdisRequestSetInformation:
-    FUNCTION_MSG("RequestType = NdisRequestSetInformation\n");
+    //FUNCTION_MSG("RequestType = NdisRequestSetInformation\n");
     //FUNCTION_MSG("Oid = %08x\n", oid_request->DATA.SET_INFORMATION.Oid);
     status = XenNet_SetInformation(adapter_context,
       oid_request->DATA.SET_INFORMATION.Oid,
@@ -815,9 +1006,9 @@ XenNet_OidRequest(NDIS_HANDLE adapter_context, PNDIS_OID_REQUEST oid_request)
       &oid_request->DATA.SET_INFORMATION.BytesNeeded);
     break;
   case NdisRequestQueryStatistics:
-    FUNCTION_MSG("RequestType = NdisRequestQueryStatistics\n");
+    //FUNCTION_MSG("RequestType = NdisRequestQueryStatistics\n");
     //FUNCTION_MSG("Oid = %08x\n", oid_request->DATA.METHOD_INFORMATION.Oid);
-    status = XenNet_QueryInformation(adapter_context,
+    status = XenNet_QueryStatistics(adapter_context,
       oid_request->DATA.QUERY_INFORMATION.Oid,
       oid_request->DATA.QUERY_INFORMATION.InformationBuffer,
       oid_request->DATA.QUERY_INFORMATION.InformationBufferLength,
@@ -829,7 +1020,7 @@ XenNet_OidRequest(NDIS_HANDLE adapter_context, PNDIS_OID_REQUEST oid_request)
     status = NDIS_STATUS_NOT_SUPPORTED;
     break;
   }
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
   return status;
 }
 

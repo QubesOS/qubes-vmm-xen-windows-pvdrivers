@@ -332,11 +332,11 @@ XenNet_RxTxDpc(PKDPC dpc, PVOID context, PVOID arg1, PVOID arg2)
   UNREFERENCED_PARAMETER(arg1);
   UNREFERENCED_PARAMETER(arg2);
 
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
   /* if Rx goes over its per-dpc quota then make sure TxBufferGC doesn't set an event as we are already guaranteed to be called again */
   dont_set_event = XenNet_RxBufferCheck(xi);
   XenNet_TxBufferGC(xi, dont_set_event);
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
 } 
 
 static BOOLEAN
@@ -487,39 +487,45 @@ XenNet_D0Entry(struct xennet_info *xi)
 
   return status;
 }
-
-NDIS_OID supported_oids[] =
+static NDIS_OID supported_oids[] =
 {
-  /* general OIDs */
-  OID_GEN_SUPPORTED_LIST,        // Q
+  /* mandatory */
   OID_GEN_HARDWARE_STATUS,       // Q
-  OID_GEN_MEDIA_SUPPORTED,       // Q
-  OID_GEN_MEDIA_IN_USE,          // Q
-  OID_GEN_MAXIMUM_LOOKAHEAD,     // Q
-  OID_GEN_MAXIMUM_FRAME_SIZE,    // Q
-  //OID_GEN_LINK_SPEED,            // Q
+
   OID_GEN_TRANSMIT_BUFFER_SPACE, // Q
   OID_GEN_RECEIVE_BUFFER_SPACE,  // Q
   OID_GEN_TRANSMIT_BLOCK_SIZE,   // Q
   OID_GEN_RECEIVE_BLOCK_SIZE,    // Q
+
   OID_GEN_VENDOR_ID,             // Q
   OID_GEN_VENDOR_DESCRIPTION,    // Q
+  OID_GEN_VENDOR_DRIVER_VERSION, // Q
+
   OID_GEN_CURRENT_PACKET_FILTER, // QS
   OID_GEN_CURRENT_LOOKAHEAD,     // QS
   OID_GEN_DRIVER_VERSION,        // Q
-  OID_GEN_VENDOR_DRIVER_VERSION, // Q
   OID_GEN_MAXIMUM_TOTAL_SIZE,    // Q
-  OID_GEN_PROTOCOL_OPTIONS,      // S
-  OID_GEN_MAC_OPTIONS,           // Q
-  OID_GEN_MEDIA_CONNECT_STATUS,  // Q
-  OID_GEN_MAXIMUM_SEND_PACKETS,  // Q
+  OID_GEN_LINK_PARAMETERS,       // S
+  OID_GEN_INTERRUPT_MODERATION,  // QS
+  
+  /* general optional */
+  OID_GEN_NETWORK_LAYER_ADDRESSES,       
+  OID_GEN_TRANSPORT_HEADER_OFFSET,
+
+  /* power */
+  OID_PNP_CAPABILITIES,
+  OID_PNP_SET_POWER,
+  OID_PNP_QUERY_POWER,
+  
   /* stats */
-  OID_GEN_XMIT_OK,               // Q
-  OID_GEN_RCV_OK,                // Q
-  OID_GEN_XMIT_ERROR,            // Q
-  OID_GEN_RCV_ERROR,             // Q
-  OID_GEN_RCV_NO_BUFFER,         // Q
-  /* media-specific OIDs */
+  OID_GEN_XMIT_OK,
+  OID_GEN_RCV_OK,
+  OID_GEN_XMIT_ERROR,
+  OID_GEN_RCV_ERROR,
+  OID_GEN_RCV_NO_BUFFER,
+  OID_GEN_STATISTICS,
+  
+  /* media-specific */
   OID_802_3_PERMANENT_ADDRESS,
   OID_802_3_CURRENT_ADDRESS,
   OID_802_3_MULTICAST_LIST,
@@ -527,12 +533,11 @@ NDIS_OID supported_oids[] =
   OID_802_3_RCV_ERROR_ALIGNMENT,
   OID_802_3_XMIT_ONE_COLLISION,
   OID_802_3_XMIT_MORE_COLLISIONS,
+  
   /* tcp offload */
   OID_TCP_TASK_OFFLOAD,
-  /* power */
-  OID_PNP_CAPABILITIES,
-  OID_PNP_SET_POWER,
-  OID_PNP_QUERY_POWER,
+  OID_TCP_OFFLOAD_PARAMETERS,
+  OID_OFFLOAD_ENCAPSULATION,
 };
 
 // Called at <= DISPATCH_LEVEL
@@ -560,7 +565,10 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   ULONG qemu_hide_flags_value = 0;
   NDIS_MINIPORT_ADAPTER_REGISTRATION_ATTRIBUTES registration_attributes;
   NDIS_MINIPORT_ADAPTER_GENERAL_ATTRIBUTES general_attributes;
-  
+  NDIS_MINIPORT_ADAPTER_OFFLOAD_ATTRIBUTES offload_attributes;
+  NDIS_OFFLOAD df_offload, hw_offload;
+  NDIS_TCP_CONNECTION_OFFLOAD df_conn_offload, hw_conn_offload;
+
   UNREFERENCED_PARAMETER(driver_context);
 
   FUNCTION_ENTER();
@@ -820,6 +828,9 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
     KdPrint(("Failed to go to D0 (%08x)\n", status));
     goto err;
   }
+  
+  xi->current_csum_ipv4 = xi->config_csum;
+  xi->current_lso_ipv4 = xi->config_gso;
 
   registration_attributes.Header.Type = NDIS_OBJECT_TYPE_MINIPORT_ADAPTER_REGISTRATION_ATTRIBUTES;
   registration_attributes.Header.Revision = NDIS_MINIPORT_ADAPTER_REGISTRATION_ATTRIBUTES_REVISION_1;
@@ -903,6 +914,94 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   if (!NT_SUCCESS(status))
   {
     KdPrint(("NdisMSetMiniportAttributes(general) failed (%08x)\n", status));
+    goto err;
+  }
+  
+  /* this is the initial offload state */
+  RtlZeroMemory(&df_offload, sizeof(df_offload));
+  df_offload.Header.Type = NDIS_OBJECT_TYPE_OFFLOAD;
+  df_offload.Header.Revision = NDIS_OFFLOAD_REVISION_1; // revision 2 does exist
+  df_offload.Header.Size = NDIS_SIZEOF_NDIS_OFFLOAD_REVISION_1;
+  df_offload.Checksum.IPv4Transmit.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+  df_offload.Checksum.IPv4Transmit.IpOptionsSupported = NDIS_OFFLOAD_SET_ON;
+  df_offload.Checksum.IPv4Transmit.TcpOptionsSupported = NDIS_OFFLOAD_SET_ON;
+  df_offload.Checksum.IPv4Transmit.TcpChecksum = NDIS_OFFLOAD_SET_ON;
+  df_offload.Checksum.IPv4Transmit.UdpChecksum = NDIS_OFFLOAD_SET_ON;
+  df_offload.Checksum.IPv4Transmit.IpChecksum = NDIS_OFFLOAD_SET_ON;
+  df_offload.Checksum.IPv4Receive.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+  df_offload.Checksum.IPv4Receive.IpOptionsSupported = NDIS_OFFLOAD_SET_ON;
+  df_offload.Checksum.IPv4Receive.TcpOptionsSupported = NDIS_OFFLOAD_SET_ON;
+  df_offload.Checksum.IPv4Receive.TcpChecksum = NDIS_OFFLOAD_SET_ON;
+  df_offload.Checksum.IPv4Receive.UdpChecksum = NDIS_OFFLOAD_SET_ON;
+  df_offload.Checksum.IPv4Receive.IpChecksum = NDIS_OFFLOAD_SET_ON;
+  /* offload.Checksum.IPv6Transmit is not supported */
+  /* offload.Checksum.IPv6Receive is not supported */
+  df_offload.LsoV1.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+  df_offload.LsoV1.IPv4.MaxOffLoadSize = xi->config_gso;
+  df_offload.LsoV1.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
+  df_offload.LsoV1.IPv4.TcpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
+  df_offload.LsoV1.IPv4.IpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
+  df_offload.LsoV2.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+  df_offload.LsoV2.IPv4.MaxOffLoadSize = xi->config_gso;
+  df_offload.LsoV2.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
+  /* df_offload.LsoV2.IPv6 is not supported */
+  /* df_offload.IPsecV1 is not supported */
+  df_offload.Flags = 0;
+  /* df_offload.IPsecV2 is not supported */
+
+  /* this is the supported offload state */
+  RtlZeroMemory(&hw_offload, sizeof(hw_offload));
+  hw_offload.Header.Type = NDIS_OBJECT_TYPE_OFFLOAD;
+  hw_offload.Header.Revision = NDIS_OFFLOAD_REVISION_1; // revision 2 does exist
+  hw_offload.Header.Size = NDIS_SIZEOF_NDIS_OFFLOAD_REVISION_1;
+  hw_offload.Checksum.IPv4Transmit.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+  hw_offload.Checksum.IPv4Transmit.IpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
+  hw_offload.Checksum.IPv4Transmit.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
+  hw_offload.Checksum.IPv4Transmit.TcpChecksum = NDIS_OFFLOAD_SUPPORTED;
+  hw_offload.Checksum.IPv4Transmit.UdpChecksum = NDIS_OFFLOAD_SUPPORTED;
+  hw_offload.Checksum.IPv4Transmit.IpChecksum = NDIS_OFFLOAD_SUPPORTED;
+  hw_offload.Checksum.IPv4Receive.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+  hw_offload.Checksum.IPv4Receive.IpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
+  hw_offload.Checksum.IPv4Receive.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
+  hw_offload.Checksum.IPv4Receive.TcpChecksum = NDIS_OFFLOAD_SUPPORTED;
+  hw_offload.Checksum.IPv4Receive.UdpChecksum = NDIS_OFFLOAD_SUPPORTED;
+  hw_offload.Checksum.IPv4Receive.IpChecksum = NDIS_OFFLOAD_SUPPORTED;
+  /* hw_offload.Checksum.IPv6Transmit is not supported */
+  /* hw_offload.Checksum.IPv6Receive is not supported */
+  hw_offload.LsoV1.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+  hw_offload.LsoV1.IPv4.MaxOffLoadSize = xi->config_gso;
+  hw_offload.LsoV1.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
+  hw_offload.LsoV1.IPv4.TcpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
+  hw_offload.LsoV1.IPv4.IpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
+  hw_offload.LsoV2.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+  hw_offload.LsoV2.IPv4.MaxOffLoadSize = xi->config_gso;
+  hw_offload.LsoV2.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
+  /* hw_offload.LsoV2.IPv6 is not supported */
+  /* hw_offload.IPsecV1 is not supported */
+  hw_offload.Flags = 0;
+  /* hw_offload.IPsecV2 is not supported */
+  
+  RtlZeroMemory(&df_conn_offload, sizeof(df_conn_offload));
+  df_conn_offload.Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
+  df_conn_offload.Header.Revision = NDIS_TCP_CONNECTION_OFFLOAD_REVISION_1;
+  df_conn_offload.Header.Size = NDIS_SIZEOF_TCP_CONNECTION_OFFLOAD_REVISION_1;
+
+  RtlZeroMemory(&hw_conn_offload, sizeof(hw_conn_offload));
+  hw_conn_offload.Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
+  hw_conn_offload.Header.Revision = NDIS_TCP_CONNECTION_OFFLOAD_REVISION_1;
+  hw_conn_offload.Header.Size = NDIS_SIZEOF_TCP_CONNECTION_OFFLOAD_REVISION_1;
+  
+  offload_attributes.Header.Type = NDIS_OBJECT_TYPE_MINIPORT_ADAPTER_OFFLOAD_ATTRIBUTES;
+  offload_attributes.Header.Revision = NDIS_MINIPORT_ADAPTER_OFFLOAD_ATTRIBUTES_REVISION_1;
+  offload_attributes.Header.Size = NDIS_SIZEOF_MINIPORT_ADAPTER_OFFLOAD_ATTRIBUTES_REVISION_1;
+  offload_attributes.DefaultOffloadConfiguration = &df_offload;
+  offload_attributes.HardwareOffloadCapabilities = &hw_offload;
+  offload_attributes.DefaultTcpConnectionOffloadConfiguration = &df_conn_offload;
+  offload_attributes.TcpConnectionOffloadHardwareCapabilities  = &hw_conn_offload;
+  status = NdisMSetMiniportAttributes(xi->adapter_handle, (PNDIS_MINIPORT_ADAPTER_ATTRIBUTES)&offload_attributes);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("NdisMSetMiniportAttributes(offload) failed (%08x)\n", status));
     goto err;
   }
 

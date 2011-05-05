@@ -214,21 +214,23 @@ typedef struct
 
 typedef struct {
   PMDL first_mdl;
+  MDL first_mdl_storage;
+  PPFN_NUMBER first_mdl_pfns[17]; /* maximum possible packet size */
   PMDL curr_mdl;
   shared_buffer_t *first_pb;
   shared_buffer_t *curr_pb;
   PUCHAR first_mdl_virtual;
   //ULONG mdl_count;
   ULONG first_mdl_offset;
+  ULONG first_mdl_length;
   ULONG curr_mdl_offset;
   USHORT mss;
   //NDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
-  //BOOLEAN csum_blank;
-  //BOOLEAN data_validated;
+  BOOLEAN csum_blank;
+  BOOLEAN data_validated;
   BOOLEAN split_required;
   UCHAR ip_version;
   PUCHAR header;
-  ULONG first_mdl_length;
   ULONG header_length;
   UCHAR ip_proto;
   ULONG total_length;
@@ -314,8 +316,9 @@ struct xennet_info
   NDIS_HANDLE rx_nbl_pool;
   NDIS_HANDLE rx_nb_pool;
   volatile LONG rx_pb_free;
-  //struct stack_state *rx_packet_stack;
   struct stack_state *rx_pb_stack;
+  volatile LONG rx_hb_free;
+  struct stack_state *rx_hb_stack;
   shared_buffer_t *rx_ring_pbs[NET_RX_RING_SIZE];
   NPAGED_LOOKASIDE_LIST rx_lookaside_list;
   /* Receive-ring batched refills. */
@@ -338,8 +341,8 @@ struct xennet_info
   ULONG config_mtu;
   ULONG config_rx_interrupt_moderation;
 
-  //NDIS_TASK_TCP_IP_CHECKSUM setting_csum;
-  ULONG setting_max_offload;
+  BOOLEAN current_csum_ipv4;
+  ULONG current_lso_ipv4;
 
   /* config stuff calculated from the above */
   ULONG config_max_pkt_size;
