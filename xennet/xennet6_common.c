@@ -275,7 +275,7 @@ XenNet_FilterAcceptPacket(struct xennet_info *xi,packet_info_t *pi)
   if (is_directed && (xi->packet_filter & NDIS_PACKET_TYPE_DIRECTED))
   {
     return TRUE;
-  }  
+  }
   if (is_my_multicast && (xi->packet_filter & NDIS_PACKET_TYPE_MULTICAST))
   {
     return TRUE;
@@ -292,5 +292,6 @@ XenNet_FilterAcceptPacket(struct xennet_info *xi,packet_info_t *pi)
   {
     return TRUE;
   }
-  return FALSE;
+  return TRUE;
+  //return FALSE;
 }

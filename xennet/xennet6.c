@@ -344,6 +344,7 @@ XenNet_HandleEvent(PVOID context)
 {
   struct xennet_info *xi = context;
   ULONG suspend_resume_state_pdo;
+  LARGE_INTEGER dpc_requeued;
   
   //FUNCTION_ENTER();
   suspend_resume_state_pdo = xi->device_state->suspend_resume_state_pdo;

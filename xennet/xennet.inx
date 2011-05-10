@@ -61,6 +61,12 @@ HKR, Ndi\Params\ChecksumOffloadDontFix, type, , "enum"
 HKR, Ndi\Params\ChecksumOffloadDontFix\enum, 0, , "Disabled"
 HKR, Ndi\Params\ChecksumOffloadDontFix\enum, 1, , "Enabled"
 
+HKR, Ndi\Params\LargeSendOffloadRxSplitMTU, ParamDesc, , "Allow received packets larger than MTU"
+HKR, Ndi\Params\LargeSendOffloadRxSplitMTU, default, , "0"
+HKR, Ndi\Params\LargeSendOffloadRxSplitMTU, type, , "enum"
+HKR, Ndi\Params\LargeSendOffloadRxSplitMTU\enum, 0, , "Disabled"
+HKR, Ndi\Params\LargeSendOffloadRxSplitMTU\enum, 1, , "Enabled"
+
 HKR, Ndi\Params\LargeSendOffload, ParamDesc, , "Large Send Offload"
 HKR, Ndi\Params\LargeSendOffload, default, , "61440"
 HKR, Ndi\Params\LargeSendOffload, type, , "enum"

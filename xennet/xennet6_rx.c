@@ -184,72 +184,18 @@ XenNet_FillRing(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
-#if 0
-/* lock free */
-static PNDIS_PACKET
-get_packet_from_freelist(struct xennet_info *xi)
-{
-  NDIS_STATUS status;
-  PNDIS_PACKET packet;
-  PVOID ptr_ref;
-
-  if (stack_pop(xi->rx_packet_stack, &ptr_ref))
-  {
-    packet = ptr_ref;
-    InterlockedIncrement(&total_allocated_packets);
-    return packet;
-  }
-  
-  if (xi->rx_shutting_down) /* don't keep allocating new packets on shutdown */
-    return NULL;
-
-  NdisAllocatePacket(&status, &packet, xi->rx_packet_pool);
-  if (status != NDIS_STATUS_SUCCESS)
-  {
-    KdPrint((__DRIVER_NAME "     cannot allocate packet\n"));
-    return NULL;
-  }
-  NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
-  NdisZeroMemory(packet->MiniportReservedEx, sizeof(packet->MiniportReservedEx));
-  InterlockedIncrement(&total_allocated_packets);
-  return packet;
-}
-
-/* lock free */
-static VOID
-put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
-{
-  PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
-
-  UNREFERENCED_PARAMETER(xi);
-  
-  InterlockedDecrement(&total_allocated_packets);
-
-  NdisReinitializePacket(packet);
-  RtlZeroMemory(NDIS_PACKET_EXTENSION_FROM_PACKET(packet), sizeof(NDIS_PACKET_EXTENSION));
-  csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
-    packet, TcpIpChecksumPacketInfo);
-  csum_info->Value = 0;
-
-  stack_push(xi->rx_packet_stack, packet);
-}
-#endif
-
 static BOOLEAN
 XenNet_MakePacket(struct xennet_info *xi, PNET_BUFFER_LIST nbl, packet_info_t *pi)
 {
   PNET_BUFFER nb;
   PMDL mdl_head, mdl_tail, curr_mdl;
-  USHORT new_ip4_length;
   PUCHAR header_va;
   ULONG out_remaining;
-  ULONG tcp_length;
   ULONG header_extra;
   shared_buffer_t *header_buf;
 
   //FUNCTION_ENTER();
   
-  ASSERT(!pi->split_required);
   nb = NdisAllocateNetBuffer(xi->rx_nb_pool, NULL, 0, 0);
   if (!nb)
   {
@@ -275,10 +221,8 @@ XenNet_MakePacket(struct xennet_info *xi, PNET_BUFFER_LIST nbl, packet_info_t *p
   /* make sure we satisfy the lookahead requirement */
   if (pi->split_required)
   {
-#if 0  
     /* for split packets we need to make sure the 'header' is no bigger than header+mss bytes */
     XenNet_BuildHeader(pi, header_va, min((ULONG)MAX_ETH_HEADER_LENGTH + pi->ip4_header_length + pi->tcp_header_length + pi->mss, MAX_ETH_HEADER_LENGTH + max(MIN_LOOKAHEAD_LENGTH, xi->current_lookahead)));
-#endif
   }
   else
   {
@@ -300,6 +244,8 @@ XenNet_MakePacket(struct xennet_info *xi, PNET_BUFFER_LIST nbl, packet_info_t *p
 
   if (pi->split_required)
   {
+    ULONG tcp_length;
+    USHORT new_ip4_length;
     tcp_length = (USHORT)min(pi->mss, pi->tcp_remaining);
     new_ip4_length = (USHORT)(pi->ip4_header_length + pi->tcp_header_length + tcp_length);
     //KdPrint((__DRIVER_NAME "     new_ip4_length = %d\n", new_ip4_length));
@@ -328,7 +274,7 @@ XenNet_MakePacket(struct xennet_info *xi, PNET_BUFFER_LIST nbl, packet_info_t *p
     //KdPrint((__DRIVER_NAME "     in loop - out_remaining = %d, curr_buffer = %p, curr_pb = %p\n", out_remaining, pi->curr_mdl, pi->curr_pb));
     if (!pi->curr_mdl || !pi->curr_pb)
     {
-      //KdPrint((__DRIVER_NAME "     out of buffers for packet\n"));
+      KdPrint((__DRIVER_NAME "     out of buffers for packet\n"));
       //KdPrint((__DRIVER_NAME "     out_remaining = %d, curr_buffer = %p, curr_pb = %p\n", out_remaining, pi->curr_mdl, pi->curr_pb));
       // TODO: free some stuff or we'll leak
       /* unchain buffers then free packet */
@@ -336,10 +282,8 @@ XenNet_MakePacket(struct xennet_info *xi, PNET_BUFFER_LIST nbl, packet_info_t *p
       return FALSE;
     }
 
-    //NdisQueryBufferOffset(pi->curr_buffer, &in_buffer_offset, &in_buffer_length);
     in_buffer_length = MmGetMdlByteCount(pi->curr_mdl);
     out_length = min(out_remaining, in_buffer_length - pi->curr_mdl_offset);
-    //NdisCopyBuffer(&status, &out_buffer, xi->rx_buffer_pool, pi->curr_buffer, pi->curr_mdl_offset, out_length);
     curr_mdl = IoAllocateMdl((PUCHAR)MmGetMdlVirtualAddress(pi->curr_mdl) + pi->curr_mdl_offset, out_length, FALSE, FALSE, NULL);
     ASSERT(curr_mdl);
     IoBuildPartialMdl(pi->curr_mdl, curr_mdl, (PUCHAR)MmGetMdlVirtualAddress(pi->curr_mdl) + pi->curr_mdl_offset, out_length);
@@ -359,6 +303,7 @@ XenNet_MakePacket(struct xennet_info *xi, PNET_BUFFER_LIST nbl, packet_info_t *p
   }
   if (pi->split_required)
   {
+    // TODO: only if Ip checksum is disabled...
     //XenNet_SumIpHeader(header_va, pi->ip4_header_length);
   }
   if (header_extra > 0)
@@ -520,7 +465,7 @@ static PNET_BUFFER_LIST
 XenNet_MakePackets(struct xennet_info *xi, packet_info_t *pi)
 {
   PNET_BUFFER_LIST nbl = NULL;
-  //UCHAR psh;
+  UCHAR psh;
   NDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO csum_info;
   ULONG parse_result;  
   //PNDIS_BUFFER buffer;
@@ -529,6 +474,7 @@ XenNet_MakePackets(struct xennet_info *xi, packet_info_t *pi)
   //FUNCTION_ENTER();
 
   parse_result = XenNet_ParsePacketHeader(pi, NULL, 0);
+  pi->split_required = FALSE;
 
   if (!XenNet_FilterAcceptPacket(xi, pi))
   {
@@ -617,46 +563,41 @@ XenNet_MakePackets(struct xennet_info *xi, packet_info_t *pi)
     }
     goto done;
   }
-  KdPrint((__DRIVER_NAME "     What are we doing here???\n"));
-#if 0  
+
+  /* this is the split_required code */
+  csum_info.Value = 0;
+  csum_info.Receive.IpChecksumSucceeded = TRUE;
+  csum_info.Receive.TcpChecksumSucceeded = TRUE;
+  //checksum_offload = TRUE;
   pi->tcp_remaining = pi->tcp_length;
 
   /* we can make certain assumptions here as the following code is only for tcp4 */
   psh = pi->header[XN_HDR_SIZE + pi->ip4_header_length + 13] & 8;
   while (pi->tcp_remaining)
   {
-    PUCHAR header_va;
-    PMDL mdl;
-    UINT total_length;
-    UINT buffer_length;
-    packet = XenNet_MakePacket(xi, nbl, pi);
-    if (!packet)
+    if (!XenNet_MakePacket(xi, nbl, pi))
     {
-      //KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
+      KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
       xi->stat_rx_no_buffer++;
       break; /* we are out of memory - just drop the packets */
     }
-    if (xi->setting_csum.V4Receive.TcpChecksum)
-    {
-      csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
-        packet, TcpIpChecksumPacketInfo);
-      csum_info->Receive.NdisPacketIpChecksumSucceeded = TRUE;
-      csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
-    }
     if (psh)
     {
-      NdisGetFirstBufferFromPacketSafe(packet, &mdl, &header_va, &buffer_length, &total_length, NormalPagePriority);
+      //NdisGetFirstBufferFromPacketSafe(packet, &mdl, &header_va, &buffer_length, &total_length, NormalPagePriority);
       if (pi->tcp_remaining)
-        header_va[XN_HDR_SIZE + pi->ip4_header_length + 13] &= ~8;
+        pi->header[XN_HDR_SIZE + pi->ip4_header_length + 13] &= ~8;
       else
-        header_va[XN_HDR_SIZE + pi->ip4_header_length + 13] |= 8;
+        pi->header[XN_HDR_SIZE + pi->ip4_header_length + 13] |= 8;
     }
-    XenNet_SumPacketData(pi, packet, TRUE);
-    entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
-    InsertTailList(rx_packet_list, entry);
-    packet_count++;
+    //XenNet_SumPacketData(pi, packet, TRUE);
+    //entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
+    //InsertTailList(rx_packet_list, entry);
   }
-#endif
+  /* we want to be a bit flexible here if some form of offload has been disabled */
+  csum_info.Value = 0;
+  csum_info.Receive.IpChecksumSucceeded = TRUE;
+  csum_info.Receive.TcpChecksumSucceeded = TRUE;
+  NET_BUFFER_LIST_INFO(nbl, TcpIpChecksumNetBufferListInfo) = csum_info.Value;
 done:
   if (nbl && !NBL_PACKET_COUNT(nbl))
   {
@@ -745,11 +686,12 @@ XenNet_ReturnNetBufferLists(NDIS_HANDLE adapter_context, PNET_BUFFER_LIST curr_n
   //FUNCTION_EXIT();
 }
 
-#define MAXIMUM_PACKETS_PER_INDICATE 32
-
 /* We limit the number of packets per interrupt so that acks get a chance
 under high rx load. The DPC is immediately re-scheduled */
-#define MAXIMUM_PACKETS_PER_INTERRUPT 32 /* this is calculated before large packet split */
+//#define MAXIMUM_PACKETS_PER_INTERRUPT 32 /* this is calculated before large packet split */
+//#define MAXIMUM_DATA_PER_INTERRUPT (MAXIMUM_PACKETS_PER_INTERRUPT * 1500) /* help account for large packets */
+
+#define MAXIMUM_PACKETS_PER_INTERRUPT 2560 /* this is calculated before large packet split */
 #define MAXIMUM_DATA_PER_INTERRUPT (MAXIMUM_PACKETS_PER_INTERRUPT * 1500) /* help account for large packets */
 
 // Called at DISPATCH_LEVEL
@@ -778,7 +720,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   BOOLEAN extra_info_flag = FALSE;
   BOOLEAN more_data_flag = FALSE;
   BOOLEAN dont_set_event;
-
+  int ring_packets1 = 0;
+  int ring_packets2 = 0;
+  int indicate_packets = 0;
   //FUNCTION_ENTER();
 
   if (!xi->connected)
@@ -863,6 +807,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         packet_count++;
         packet_data += interim_packet_data;
         interim_packet_data = 0;
+ring_packets1++;
       }
       buffer_count++;
     }
@@ -898,9 +843,9 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   if (packet_count >= MAXIMUM_PACKETS_PER_INTERRUPT || packet_data >= MAXIMUM_DATA_PER_INTERRUPT)
   {
     /* fire again immediately */
-    //KdPrint((__DRIVER_NAME "     Dpc Duration Exceeded\n"));
+    KdPrint((__DRIVER_NAME "     Dpc Duration Exceeded\n"));
     /* we want the Dpc on the end of the queue. By definition we are already on the right CPU so we know the Dpc queue will be run immediately */
-    KeSetImportanceDpc(&xi->rxtx_dpc, MediumImportance);
+//    KeSetImportanceDpc(&xi->rxtx_dpc, MediumImportance);
     KeInsertQueueDpc(&xi->rxtx_dpc, NULL, NULL);
     /* dont set an event in TX path */
     dont_set_event = TRUE;
@@ -908,7 +853,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   else
   {
     /* make sure the Dpc queue is run immediately next interrupt */
-    KeSetImportanceDpc(&xi->rxtx_dpc, HighImportance);
+//    KeSetImportanceDpc(&xi->rxtx_dpc, HighImportance);
     /* set an event in TX path */
     dont_set_event = FALSE;
   }
@@ -1000,14 +945,15 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         if (!nbl_head)
         {
           nbl_head = nbl;
-          nbl_tail = nbl;
         }
         else
         {
           NET_BUFFER_LIST_NEXT_NBL(nbl_tail) = nbl;
         }
         NET_BUFFER_LIST_NEXT_NBL(nbl) = NULL;
+        nbl_tail = nbl;
       }
+ring_packets2++;
     }
 
     page_buf = next_buf;
@@ -1018,60 +964,17 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   if (nbl_head)
   {
-#if 0
-KdPrint((__DRIVER_NAME "     I %d %p\n", nbl_count, nbl_head));
-KdPrint((__DRIVER_NAME "     nbl_head->Context = %p\n", nbl_head->Context));
-KdPrint((__DRIVER_NAME "     nbl_head->ParentNetBufferList = %p\n", nbl_head->ParentNetBufferList));
-KdPrint((__DRIVER_NAME "     nbl_head->NdisPoolHandle = %p\n", nbl_head->NdisPoolHandle));
-KdPrint((__DRIVER_NAME "     nbl_head->NblFlags = %p\n", nbl_head->NblFlags));
-KdPrint((__DRIVER_NAME "     nbl_head->ChildRefCount = %p\n", nbl_head->ChildRefCount));
-KdPrint((__DRIVER_NAME "     nbl_head->Flags = %p\n", nbl_head->Flags));
-KdPrint((__DRIVER_NAME "     nbl_head->Status = %p\n", nbl_head->Status));
-KdPrint((__DRIVER_NAME "     nbl_head->Context = %p\n", nbl_head->Context));
-KdPrint((__DRIVER_NAME "     NET_BUFFER_LIST_FIRST_NB(nbl_head) = %p\n", NET_BUFFER_LIST_FIRST_NB(nbl_head)));
-KdPrint((__DRIVER_NAME "     NET_BUFFER_FIRST_MDL(nb) = %p\n", NET_BUFFER_FIRST_MDL(NET_BUFFER_LIST_FIRST_NB((nbl_head)))));
-KdPrint((__DRIVER_NAME "     NET_BUFFER_FIRST_MDL(nb)->Next = %p\n", NET_BUFFER_FIRST_MDL(NET_BUFFER_LIST_FIRST_NB((nbl_head)))->Next));
-#endif
+    PNET_BUFFER_LIST nbl;
+    for (nbl = nbl_head; nbl; nbl = NET_BUFFER_LIST_NEXT_NBL(nbl))
+      indicate_packets++;
+    if (indicate_packets != ring_packets1 || indicate_packets != ring_packets2)
+      KdPrint((__DRIVER_NAME "     ring_packets1 = %d, ring_packets2 = %d, indicate_packets = %d\n", ring_packets1, ring_packets2, indicate_packets));
 
     NdisMIndicateReceiveNetBufferLists(xi->adapter_handle, nbl_head, NDIS_DEFAULT_PORT_NUMBER, nbl_count,
       NDIS_RECEIVE_FLAGS_DISPATCH_LEVEL
-      | NDIS_RECEIVE_FLAGS_SINGLE_ETHER_TYPE 
+      //| NDIS_RECEIVE_FLAGS_SINGLE_ETHER_TYPE 
       | NDIS_RECEIVE_FLAGS_PERFECT_FILTERED);
   };
-#if 0
-  /* indicate packets to NDIS */
-  entry = RemoveHeadList(&rx_packet_list);
-  InitializeListHead(&rx_header_only_packet_list);
-  packet_count = 0;
-
-  while (entry != &rx_packet_list) {
-    PNDIS_PACKET packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
-    NDIS_STATUS status;
-    ASSERT(*(shared_buffer_t **)&packet->MiniportReservedEx[0]);
-    status = NDIS_GET_PACKET_STATUS(packet);
-    if (status == NDIS_STATUS_RESOURCES)
-      InsertTailList(&rx_header_only_packet_list, entry);
-    packets[packet_count++] = packet;
-    InterlockedIncrement(&xi->rx_outstanding);
-    entry = RemoveHeadList(&rx_packet_list);
-    /* if we indicate a packet with NDIS_STATUS_RESOURCES  then any following packet can't be NDIS_STATUS_SUCCESS */
-    if (packet_count == MAXIMUM_PACKETS_PER_INDICATE || entry == &rx_packet_list
-        || (NDIS_GET_PACKET_STATUS(CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)])) == NDIS_STATUS_SUCCESS
-            && status == NDIS_STATUS_RESOURCES))
-    {
-      NdisMIndicateReceivePacket(xi->adapter_handle, packets, packet_count);
-      packet_count = 0;
-    }
-  }
-  /* now return the packets for which we indicated NDIS_STATUS_RESOURCES */
-  entry = RemoveHeadList(&rx_header_only_packet_list);
-  while (entry != &rx_header_only_packet_list) {
-    PNDIS_PACKET packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
-    entry = RemoveHeadList(&rx_header_only_packet_list);
-    InterlockedIncrement(&resource_packets);
-    XenNet_ReturnPacket(xi, packet);
-  }
-#endif
   //FUNCTION_EXIT();
   return dont_set_event;
 }

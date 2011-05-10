@@ -89,14 +89,14 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
   gref = xi->vectors.GntTbl_GetRef(xi->vectors.context, (ULONG)'XNTX');
   if (gref == INVALID_GRANT_REF)
   {
-    KdPrint((__DRIVER_NAME "     out of grefs\n"));
+    FUNCTION_MSG("out of grefs\n");
     return FALSE;
   }
   coalesce_buf = NdisAllocateFromNPagedLookasideList(&xi->tx_lookaside_list);
   if (!coalesce_buf)
   {
     xi->vectors.GntTbl_PutRef(xi->vectors.context, gref, (ULONG)'XNTX');
-    KdPrint((__DRIVER_NAME "     out of memory\n"));
+    FUNCTION_MSG("out of memory\n");
     return FALSE;
   }
   XenNet_ClearPacketInfo(&pi);
@@ -145,7 +145,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
   {
     xi->vectors.GntTbl_PutRef(xi->vectors.context, gref, (ULONG)'XNTX');
     NdisFreeToNPagedLookasideList(&xi->tx_lookaside_list, coalesce_buf);
-    KdPrint((__DRIVER_NAME "     Full on send - ring full\n"));
+    //KdPrint((__DRIVER_NAME "     Full on send - ring full\n"));
     return FALSE;
   }
   parse_result = XenNet_ParsePacketHeader(&pi, coalesce_buf, PAGE_SIZE);
@@ -157,11 +157,11 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
     PUCHAR my_va;
     FUNCTION_MSG("total_length == 0, CurrentMdlOffset == %d\n", nb->CurrentMdlOffset);
     my_va = MmGetMdlVirtualAddress(pi.first_mdl);
-    FUNCTION_MSG("  first mdl va = %p, offset = %d, length = %d\n", MmGetMdlVirtualAddress(pi.first_mdl), MmGetMdlByteOffset(pi.first_mdl), MmGetMdlByteCount(pi.first_mdl));      
+    FUNCTION_MSG("  first mdl va = %p, offset = %d, length = %d\n", MmGetMdlVirtualAddress(pi.first_mdl), MmGetMdlByteOffset(pi.first_mdl), MmGetMdlByteCount(pi.first_mdl));
     FUNCTION_MSG("    0010: %02x%02x\n", my_va[0x10], my_va[0x11]);
     for (tmp_mdl = nb->CurrentMdl; tmp_mdl; tmp_mdl = tmp_mdl->Next)
     {
-      FUNCTION_MSG("  mdl = %p, va = %p, offset = %d, length = %d\n", tmp_mdl, MmGetMdlVirtualAddress(tmp_mdl), MmGetMdlByteOffset(tmp_mdl), MmGetMdlByteCount(tmp_mdl));      
+      FUNCTION_MSG("  mdl = %p, va = %p, offset = %d, length = %d\n", tmp_mdl, MmGetMdlVirtualAddress(tmp_mdl), MmGetMdlByteOffset(tmp_mdl), MmGetMdlByteCount(tmp_mdl));
       if (tmp_mdl == nb->CurrentMdl)
       {
         my_va = MmGetSystemAddressForMdlSafe(tmp_mdl, HighPagePriority);
@@ -401,10 +401,13 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
   ASSERT(!xi->tx_shadows[txN->id].nb);
   xi->tx_shadows[txN->id].nb = nb;
 
-  if (ndis_lso)
+  switch (lso_info.Transmit.Type)
   {
-    //KdPrint((__DRIVER_NAME "     TcpLargeSendPacketInfo = %d\n", pi.tcp_length));
-    NET_BUFFER_LIST_INFO(NB_NBL(nb), TcpOffloadBytesTransferred) = UlongToPtr(tx_length - MAX_ETH_HEADER_LENGTH - pi.ip4_header_length - pi.tcp_header_length);
+  case NDIS_TCP_LARGE_SEND_OFFLOAD_V1_TYPE:
+    lso_info.LsoV1TransmitComplete.TcpPayload = UlongToPtr(tx_length - MAX_ETH_HEADER_LENGTH - pi.ip4_header_length - pi.tcp_header_length);
+    break;
+  case NDIS_TCP_LARGE_SEND_OFFLOAD_V2_TYPE:
+    break;
   }
 
   xi->stat_tx_ok++;
@@ -412,6 +415,8 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
   //NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   //FUNCTION_EXIT();
   xi->tx_outstanding++;
+//total_sent++;
+//FUNCTION_MSG("sent packet\n");
   return TRUE;
 }
 
@@ -436,7 +441,7 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
     
     if (!XenNet_HWSendPacket(xi, nb))
     {
-      KdPrint((__DRIVER_NAME "     No room for packet\n"));
+      //KdPrint((__DRIVER_NAME "     No room for packet\n"));
       InsertHeadList(&xi->tx_waiting_pkt_list, nb_entry);
       break;
     }
