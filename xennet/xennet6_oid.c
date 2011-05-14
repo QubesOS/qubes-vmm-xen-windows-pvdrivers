@@ -86,10 +86,10 @@ XenNet_QueryInformation(
       temp_data = NdisMedium802_3;
       break;
     case OID_GEN_MAXIMUM_LOOKAHEAD:
-      temp_data = MAX_LOOKAHEAD_LENGTH; //xi->config_mtu;
+      temp_data = MAX_LOOKAHEAD_LENGTH; //xi->config_mtu_value;
       break;
     case OID_GEN_MAXIMUM_FRAME_SIZE:
-      temp_data = xi->config_mtu;
+      temp_data = xi->config_mtu_value;
       break;
     case OID_GEN_LINK_SPEED:
       temp_data = 10000000; /* 1Gb */
@@ -302,7 +302,7 @@ XenNet_QueryInformation(
 
 #endif
     case OID_GEN_MAXIMUM_TOTAL_SIZE:
-      temp_data = xi->config_mtu + XN_HDR_SIZE;
+      temp_data = xi->current_mtu_value + XN_HDR_SIZE;
       break;
     case OID_GEN_INTERRUPT_MODERATION:
       SET_LEN_AND_BREAK_IF_SHORT(sizeof(NDIS_INTERRUPT_MODERATION_PARAMETERS));
@@ -926,13 +926,13 @@ XenNet_SetInformation(
       {
       case NDIS_OFFLOAD_SET_ON:
         FUNCTION_MSG(" IPv4.Enabled = NDIS_OFFLOAD_SET_ON\n");
-        xi->current_csum_ipv4 = TRUE;
-        xi->current_lso_ipv4 = TRUE;
+        xi->current_csum_supported = xi->backend_csum_supported && xi->frontend_csum_supported;
+        xi->current_gso_value = min(xi->backend_csum_supported, xi->frontend_csum_supported);
         break;
       case NDIS_OFFLOAD_SET_OFF:
         FUNCTION_MSG(" IPv4.Enabled = NDIS_OFFLOAD_SET_OFF\n");
-        xi->current_csum_ipv4 = FALSE;
-        xi->current_lso_ipv4 = FALSE;
+        xi->current_csum_supported = FALSE;
+        xi->current_gso_value = 0;
         break;
       case NDIS_OFFLOAD_SET_NO_CHANGE:
         FUNCTION_MSG(" IPv4.Enabled = NDIS_OFFLOAD_NO_CHANGE\n");

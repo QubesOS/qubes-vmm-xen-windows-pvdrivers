@@ -135,13 +135,15 @@ XenNet_ConnectBackend(struct xennet_info *xi)
   UCHAR type;
   PCHAR setting, value, value2;
   UINT i;
-  ULONG backend_sg = 0;
-  ULONG backend_gso = 0;
 
   FUNCTION_ENTER();
   
   ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
+  xi->backend_csum_supported = TRUE; /* just assume this */
+  xi->backend_gso_value = 0;
+  xi->backend_sg_supported = FALSE;
+  
   ptr = xi->config_page;
   while((type = GET_XEN_INIT_RSP(&ptr, (PVOID)&setting, (PVOID)&value, (PVOID)&value2)) != XEN_INIT_TYPE_END)
   {
@@ -189,14 +191,14 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       {
         if (atoi(value))
         {
-          backend_sg = 1;
+          xi->backend_sg_supported = TRUE;
         }
       }
       else if (strcmp(setting, "feature-gso-tcpv4") == 0)
       {
         if (atoi(value))
         {
-          backend_gso = 1;
+          xi->backend_gso_value = xi->frontend_gso_value;
         }
       }
       break;
@@ -222,20 +224,19 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       break;
     }
   }
-  if (xi->config_sg && !backend_sg)
-  {
-    KdPrint((__DRIVER_NAME "     SG not supported by backend - disabling\n"));
-    xi->config_sg = 0;
-  }
-  if (xi->config_gso && !backend_gso)
-  {
-    KdPrint((__DRIVER_NAME "     GSO not supported by backend - disabling\n"));
-    xi->config_gso = 0;
-  }
+  if (!xi->backend_sg_supported)
+    xi->backend_gso_value = min(xi->backend_gso_value, PAGE_SIZE - MAX_PKT_HEADER_LENGTH);
+
+  xi->current_sg_supported = xi->frontend_sg_supported && xi->backend_sg_supported;
+  xi->current_csum_supported = xi->frontend_csum_supported && xi->backend_csum_supported;
+  xi->current_gso_value = min(xi->backend_gso_value, xi->backend_gso_value);
+  xi->current_mtu_value = xi->frontend_mtu_value;
+  xi->current_gso_rx_split_type = xi->frontend_gso_rx_split_type;
+    
   FUNCTION_EXIT();
   
   return NDIS_STATUS_SUCCESS;
-}
+} /* XenNet_ConnectBackend */
 
 static VOID
 XenNet_ResumeWorkItem(PDEVICE_OBJECT device_object, PVOID context)
@@ -344,7 +345,6 @@ XenNet_HandleEvent(PVOID context)
 {
   struct xennet_info *xi = context;
   ULONG suspend_resume_state_pdo;
-  LARGE_INTEGER dpc_requeued;
   
   //FUNCTION_ENTER();
   suspend_resume_state_pdo = xi->device_state->suspend_resume_state_pdo;
@@ -430,11 +430,11 @@ XenNet_D0Entry(struct xennet_info *xi)
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-gso-tcpv4", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1", NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1", NULL);
-  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->frontend_csum_supported);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-no-csum-offload", buf, NULL);
-  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", (int)xi->config_sg);
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", (int)xi->frontend_sg_supported);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-sg", buf, NULL);
-  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !!xi->config_gso);
+  RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !!xi->frontend_gso_value);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-gso-tcpv4", buf, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
   __ADD_XEN_INIT_UCHAR(&ptr, 0); /* no pre-connect required */
@@ -469,12 +469,6 @@ XenNet_D0Entry(struct xennet_info *xi)
   {
     KdPrint(("Failed to complete device configuration (%08x)\n", status));
     return status;
-  }
-
-  if (!xi->config_sg)
-  {
-    /* without SG, GSO can be a maximum of PAGE_SIZE */
-    xi->config_gso = min(xi->config_gso, PAGE_SIZE);
   }
 
   XenNet_TxInit(xi);
@@ -593,12 +587,14 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   xi->current_lookahead = MIN_LOOKAHEAD_LENGTH;
 
   xi->event_channel = 0;
+#if 0
   xi->config_csum = 1;
   xi->config_csum_rx_check = 1;
   xi->config_sg = 1;
   xi->config_gso = 61440;
   xi->config_page = NULL;
   xi->config_rx_interrupt_moderation = 0;
+#endif
   
   nrl = init_parameters->AllocatedResources;
   for (i = 0; i < nrl->Count; i++)
@@ -714,12 +710,12 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   if (!NT_SUCCESS(status))
   {
     KdPrint(("Could not read ScatterGather value (%08x)\n", status));
-    xi->config_sg = 1;
+    xi->frontend_sg_supported = TRUE;
   }
   else
   {
     KdPrint(("ScatterGather = %d\n", config_param->ParameterData.IntegerData));
-    xi->config_sg = config_param->ParameterData.IntegerData;
+    xi->frontend_sg_supported = !!config_param->ParameterData.IntegerData;
   }
   
   NdisInitUnicodeString(&config_param_name, L"LargeSendOffload");
@@ -727,16 +723,45 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   if (!NT_SUCCESS(status))
   {
     KdPrint(("Could not read LargeSendOffload value (%08x)\n", status));
-    xi->config_gso = 0;
+    xi->frontend_gso_value = 0;
   }
   else
   {
     KdPrint(("LargeSendOffload = %d\n", config_param->ParameterData.IntegerData));
-    xi->config_gso = config_param->ParameterData.IntegerData;
-    if (xi->config_gso > 61440)
+    xi->frontend_gso_value = config_param->ParameterData.IntegerData;
+    if (xi->frontend_gso_value > 61440)
     {
-      xi->config_gso = 61440;
-      KdPrint(("(clipped to %d)\n", xi->config_gso));
+      xi->frontend_gso_value = 61440;
+      KdPrint(("(clipped to %d)\n", xi->frontend_gso_value));
+    }
+    if (!xi->frontend_sg_supported && xi->frontend_gso_value > PAGE_SIZE - MAX_PKT_HEADER_LENGTH)
+    {
+      /* without SG, GSO can be a maximum of PAGE_SIZE - MAX_PKT_HEADER_LENGTH */
+      xi->frontend_gso_value = min(xi->frontend_gso_value, PAGE_SIZE - MAX_PKT_HEADER_LENGTH);
+      KdPrint(("(clipped to %d with sg disabled)\n", xi->frontend_gso_value));
+    }
+  }
+
+  NdisInitUnicodeString(&config_param_name, L"LargeSendOffloadRxSplitMTU");
+  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("Could not read LargeSendOffload value (%08x)\n", status));
+    xi->frontend_gso_rx_split_type = RX_LSO_SPLIT_HALF;
+  }
+  else
+  {
+    KdPrint(("LargeSendOffloadRxSplitMTU = %d\n", config_param->ParameterData.IntegerData));
+    switch (config_param->ParameterData.IntegerData)
+    {
+    case RX_LSO_SPLIT_MSS:
+    case RX_LSO_SPLIT_HALF:
+    case RX_LSO_SPLIT_NONE:
+      xi->frontend_gso_rx_split_type = config_param->ParameterData.IntegerData;
+      break;
+    default:
+      xi->frontend_gso_rx_split_type = RX_LSO_SPLIT_HALF;
+      break;
     }
   }
 
@@ -745,64 +770,25 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   if (!NT_SUCCESS(status))
   {
     KdPrint(("Could not read ChecksumOffload value (%08x)\n", status));
-    xi->config_csum = 1;
+    xi->backend_csum_supported = TRUE;
   }
   else
   {
     KdPrint(("ChecksumOffload = %d\n", config_param->ParameterData.IntegerData));
-    xi->config_csum = !!config_param->ParameterData.IntegerData;
+    xi->backend_csum_supported = !!config_param->ParameterData.IntegerData;
   }
 
-  NdisInitUnicodeString(&config_param_name, L"ChecksumOffloadRxCheck");
-  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint(("Could not read ChecksumOffloadRxCheck value (%08x)\n", status));
-    xi->config_csum_rx_check = 1;
-  }
-  else
-  {
-    KdPrint(("ChecksumOffloadRxCheck = %d\n", config_param->ParameterData.IntegerData));
-    xi->config_csum_rx_check = !!config_param->ParameterData.IntegerData;
-  }
-
-  NdisInitUnicodeString(&config_param_name, L"ChecksumOffloadDontFix");
-  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint(("Could not read ChecksumOffloadDontFix value (%08x)\n", status));
-    xi->config_csum_rx_dont_fix = 0;
-  }
-  else
-  {
-    KdPrint(("ChecksumOffloadDontFix = %d\n", config_param->ParameterData.IntegerData));
-    xi->config_csum_rx_dont_fix = !!config_param->ParameterData.IntegerData;
-  }
-  
   NdisInitUnicodeString(&config_param_name, L"MTU");
   NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);  
   if (!NT_SUCCESS(status))
   {
     KdPrint(("Could not read MTU value (%08x)\n", status));
-    xi->config_mtu = 1500;
+    xi->frontend_mtu_value = 1500;
   }
   else
   {
     KdPrint(("MTU = %d\n", config_param->ParameterData.IntegerData));
-    xi->config_mtu = config_param->ParameterData.IntegerData;
-  }
-
-  NdisInitUnicodeString(&config_param_name, L"RxInterruptModeration");
-  NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);  
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint(("Could not read RxInterruptModeration value (%08x)\n", status));
-    xi->config_rx_interrupt_moderation = 1500;
-  }
-  else
-  {
-    KdPrint(("RxInterruptModeration = %d\n", config_param->ParameterData.IntegerData));
-    xi->config_rx_interrupt_moderation = config_param->ParameterData.IntegerData;
+    xi->frontend_mtu_value = config_param->ParameterData.IntegerData;
   }
   
   NdisReadNetworkAddress(&status, &network_address, &network_address_length, config_handle);
@@ -819,8 +805,6 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
       xi->curr_mac_addr[3], xi->curr_mac_addr[4], xi->curr_mac_addr[5]));
   }
 
-  xi->config_max_pkt_size = max(xi->config_mtu + XN_HDR_SIZE, xi->config_gso + XN_HDR_SIZE);
-  
   NdisCloseConfiguration(config_handle);
 
   status = XenNet_D0Entry(xi);
@@ -829,10 +813,9 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
     KdPrint(("Failed to go to D0 (%08x)\n", status));
     goto err;
   }
-  
-  xi->current_csum_ipv4 = xi->config_csum;
-  xi->current_lso_ipv4 = xi->config_gso;
 
+  xi->config_max_pkt_size = max(xi->current_mtu_value + XN_HDR_SIZE, xi->current_gso_value + XN_HDR_SIZE);
+    
   registration_attributes.Header.Type = NDIS_OBJECT_TYPE_MINIPORT_ADAPTER_REGISTRATION_ATTRIBUTES;
   registration_attributes.Header.Revision = NDIS_MINIPORT_ADAPTER_REGISTRATION_ATTRIBUTES_REVISION_1;
   registration_attributes.Header.Size = NDIS_SIZEOF_MINIPORT_ADAPTER_REGISTRATION_ATTRIBUTES_REVISION_1;
@@ -841,7 +824,7 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   registration_attributes.AttributeFlags |= NDIS_MINIPORT_ATTRIBUTES_HARDWARE_DEVICE;
   registration_attributes.AttributeFlags |= NDIS_MINIPORT_ATTRIBUTES_SURPRISE_REMOVE_OK;
   registration_attributes.CheckForHangTimeInSeconds = 0; /* use default */
-  registration_attributes.InterfaceType = NdisInterfacePNPBus; /* or PnP??? */
+  registration_attributes.InterfaceType = NdisInterfacePNPBus;
   status = NdisMSetMiniportAttributes(xi->adapter_handle, (PNDIS_MINIPORT_ADAPTER_ATTRIBUTES)&registration_attributes);
   if (!NT_SUCCESS(status))
   {
@@ -855,7 +838,7 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   general_attributes.Flags = 0;
   general_attributes.MediaType = NdisMedium802_3;
   general_attributes.PhysicalMediumType = NdisPhysicalMediumOther;
-  general_attributes.MtuSize = xi->config_mtu;
+  general_attributes.MtuSize = xi->current_mtu_value;
   general_attributes.MaxXmitLinkSpeed = MAX_LINK_SPEED;
   general_attributes.XmitLinkSpeed = MAX_LINK_SPEED;
   general_attributes.MaxRcvLinkSpeed = MAX_LINK_SPEED;
@@ -923,64 +906,69 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   df_offload.Header.Type = NDIS_OBJECT_TYPE_OFFLOAD;
   df_offload.Header.Revision = NDIS_OFFLOAD_REVISION_1; // revision 2 does exist
   df_offload.Header.Size = NDIS_SIZEOF_NDIS_OFFLOAD_REVISION_1;
-  df_offload.Checksum.IPv4Transmit.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-  df_offload.Checksum.IPv4Transmit.IpOptionsSupported = NDIS_OFFLOAD_SET_ON;
-  df_offload.Checksum.IPv4Transmit.TcpOptionsSupported = NDIS_OFFLOAD_SET_ON;
-  df_offload.Checksum.IPv4Transmit.TcpChecksum = NDIS_OFFLOAD_SET_ON;
-  df_offload.Checksum.IPv4Transmit.UdpChecksum = NDIS_OFFLOAD_SET_ON;
-  df_offload.Checksum.IPv4Transmit.IpChecksum = NDIS_OFFLOAD_SET_ON;
-  df_offload.Checksum.IPv4Receive.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-  df_offload.Checksum.IPv4Receive.IpOptionsSupported = NDIS_OFFLOAD_SET_ON;
-  df_offload.Checksum.IPv4Receive.TcpOptionsSupported = NDIS_OFFLOAD_SET_ON;
-  df_offload.Checksum.IPv4Receive.TcpChecksum = NDIS_OFFLOAD_SET_ON;
-  df_offload.Checksum.IPv4Receive.UdpChecksum = NDIS_OFFLOAD_SET_ON;
-  df_offload.Checksum.IPv4Receive.IpChecksum = NDIS_OFFLOAD_SET_ON;
-  /* offload.Checksum.IPv6Transmit is not supported */
-  /* offload.Checksum.IPv6Receive is not supported */
-  df_offload.LsoV1.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-  df_offload.LsoV1.IPv4.MaxOffLoadSize = xi->config_gso;
-  df_offload.LsoV1.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
-  df_offload.LsoV1.IPv4.TcpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
-  df_offload.LsoV1.IPv4.IpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
-  df_offload.LsoV2.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-  df_offload.LsoV2.IPv4.MaxOffLoadSize = xi->config_gso;
-  df_offload.LsoV2.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
-  /* df_offload.LsoV2.IPv6 is not supported */
-  /* df_offload.IPsecV1 is not supported */
-  df_offload.Flags = 0;
-  /* df_offload.IPsecV2 is not supported */
-
   /* this is the supported offload state */
   RtlZeroMemory(&hw_offload, sizeof(hw_offload));
   hw_offload.Header.Type = NDIS_OBJECT_TYPE_OFFLOAD;
   hw_offload.Header.Revision = NDIS_OFFLOAD_REVISION_1; // revision 2 does exist
   hw_offload.Header.Size = NDIS_SIZEOF_NDIS_OFFLOAD_REVISION_1;
-  hw_offload.Checksum.IPv4Transmit.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-  hw_offload.Checksum.IPv4Transmit.IpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
-  hw_offload.Checksum.IPv4Transmit.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
-  hw_offload.Checksum.IPv4Transmit.TcpChecksum = NDIS_OFFLOAD_SUPPORTED;
-  hw_offload.Checksum.IPv4Transmit.UdpChecksum = NDIS_OFFLOAD_SUPPORTED;
-  hw_offload.Checksum.IPv4Transmit.IpChecksum = NDIS_OFFLOAD_SUPPORTED;
-  hw_offload.Checksum.IPv4Receive.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-  hw_offload.Checksum.IPv4Receive.IpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
-  hw_offload.Checksum.IPv4Receive.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
-  hw_offload.Checksum.IPv4Receive.TcpChecksum = NDIS_OFFLOAD_SUPPORTED;
-  hw_offload.Checksum.IPv4Receive.UdpChecksum = NDIS_OFFLOAD_SUPPORTED;
-  hw_offload.Checksum.IPv4Receive.IpChecksum = NDIS_OFFLOAD_SUPPORTED;
-  /* hw_offload.Checksum.IPv6Transmit is not supported */
-  /* hw_offload.Checksum.IPv6Receive is not supported */
-  hw_offload.LsoV1.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-  hw_offload.LsoV1.IPv4.MaxOffLoadSize = xi->config_gso;
-  hw_offload.LsoV1.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
-  hw_offload.LsoV1.IPv4.TcpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
-  hw_offload.LsoV1.IPv4.IpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
-  hw_offload.LsoV2.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-  hw_offload.LsoV2.IPv4.MaxOffLoadSize = xi->config_gso;
-  hw_offload.LsoV2.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
-  /* hw_offload.LsoV2.IPv6 is not supported */
+  if (xi->current_csum_supported)
+  {
+    df_offload.Checksum.IPv4Transmit.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+    df_offload.Checksum.IPv4Transmit.IpOptionsSupported = NDIS_OFFLOAD_SET_ON;
+    df_offload.Checksum.IPv4Transmit.TcpOptionsSupported = NDIS_OFFLOAD_SET_ON;
+    df_offload.Checksum.IPv4Transmit.TcpChecksum = NDIS_OFFLOAD_SET_ON;
+    df_offload.Checksum.IPv4Transmit.UdpChecksum = NDIS_OFFLOAD_SET_ON;
+    df_offload.Checksum.IPv4Transmit.IpChecksum = NDIS_OFFLOAD_SET_ON;
+    df_offload.Checksum.IPv4Receive.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+    df_offload.Checksum.IPv4Receive.IpOptionsSupported = NDIS_OFFLOAD_SET_ON;
+    df_offload.Checksum.IPv4Receive.TcpOptionsSupported = NDIS_OFFLOAD_SET_ON;
+    df_offload.Checksum.IPv4Receive.TcpChecksum = NDIS_OFFLOAD_SET_ON;
+    df_offload.Checksum.IPv4Receive.UdpChecksum = NDIS_OFFLOAD_SET_ON;
+    df_offload.Checksum.IPv4Receive.IpChecksum = NDIS_OFFLOAD_SET_ON;
+    /* offload.Checksum.IPv6Transmit is not supported */
+    /* offload.Checksum.IPv6Receive is not supported */
+    hw_offload.Checksum.IPv4Transmit.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+    hw_offload.Checksum.IPv4Transmit.IpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
+    hw_offload.Checksum.IPv4Transmit.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
+    hw_offload.Checksum.IPv4Transmit.TcpChecksum = NDIS_OFFLOAD_SUPPORTED;
+    hw_offload.Checksum.IPv4Transmit.UdpChecksum = NDIS_OFFLOAD_SUPPORTED;
+    hw_offload.Checksum.IPv4Transmit.IpChecksum = NDIS_OFFLOAD_SUPPORTED;
+    hw_offload.Checksum.IPv4Receive.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+    hw_offload.Checksum.IPv4Receive.IpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
+    hw_offload.Checksum.IPv4Receive.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
+    hw_offload.Checksum.IPv4Receive.TcpChecksum = NDIS_OFFLOAD_SUPPORTED;
+    hw_offload.Checksum.IPv4Receive.UdpChecksum = NDIS_OFFLOAD_SUPPORTED;
+    hw_offload.Checksum.IPv4Receive.IpChecksum = NDIS_OFFLOAD_SUPPORTED;
+    /* hw_offload.Checksum.IPv6Transmit is not supported */
+    /* hw_offload.Checksum.IPv6Receive is not supported */
+  }
+  if (xi->current_gso_value)
+  {
+    hw_offload.LsoV1.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+    hw_offload.LsoV1.IPv4.MaxOffLoadSize = xi->current_gso_value;
+    hw_offload.LsoV1.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
+    hw_offload.LsoV1.IPv4.TcpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
+    hw_offload.LsoV1.IPv4.IpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
+    hw_offload.LsoV2.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+    hw_offload.LsoV2.IPv4.MaxOffLoadSize = xi->current_gso_value;
+    hw_offload.LsoV2.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
+    /* hw_offload.LsoV2.IPv6 is not supported */
+    df_offload.LsoV1.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+    df_offload.LsoV1.IPv4.MaxOffLoadSize = xi->current_gso_value;
+    df_offload.LsoV1.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
+    df_offload.LsoV1.IPv4.TcpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
+    df_offload.LsoV1.IPv4.IpOptions = NDIS_OFFLOAD_NOT_SUPPORTED; /* linux can't handle this */
+    df_offload.LsoV2.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
+    df_offload.LsoV2.IPv4.MaxOffLoadSize = xi->current_gso_value;
+    df_offload.LsoV2.IPv4.MinSegmentCount = MIN_LARGE_SEND_SEGMENTS;
+    /* df_offload.LsoV2.IPv6 is not supported */
+  }
   /* hw_offload.IPsecV1 is not supported */
-  hw_offload.Flags = 0;
   /* hw_offload.IPsecV2 is not supported */
+  /* df_offload.IPsecV1 is not supported */
+  /* df_offload.IPsecV2 is not supported */
+  hw_offload.Flags = 0;
+  df_offload.Flags = 0;
   
   RtlZeroMemory(&df_conn_offload, sizeof(df_conn_offload));
   df_conn_offload.Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
@@ -1015,7 +1003,6 @@ err:
   return status;
 }
 
-#if 0
 NDIS_STATUS
 XenNet_D0Exit(struct xennet_info *xi)
 {
@@ -1037,7 +1024,6 @@ XenNet_D0Exit(struct xennet_info *xi)
   
   return STATUS_SUCCESS;
 }
-#endif
 
 static VOID
 XenNet_DevicePnPEventNotify(NDIS_HANDLE adapter_context, PNET_DEVICE_PNP_EVENT pnp_event)
@@ -1090,7 +1076,7 @@ XenNet_Halt(NDIS_HANDLE adapter_context, NDIS_HALT_ACTION halt_action)
 
   FUNCTION_ENTER();
   
-  //XenNet_D0Exit(xi);
+  XenNet_D0Exit(xi);
 
   NdisFreeMemory(xi, 0, 0);
 

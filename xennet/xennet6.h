@@ -48,11 +48,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NB_HEADER_BUF(_nb) (*(shared_buffer_t **)&(_nb)->NB_HEADER_BUF_FIELD)
 
 #define NBL_REF_FIELD MiniportReserved[0] // TX
-#define NBL_PACKET_COUNT_FIELD MiniportReserved[0] // RX
-#define NBL_LAST_NB_FIELD MiniportReserved[1] // RX
+//#define NBL_PACKET_COUNT_FIELD MiniportReserved[0] // RX
+//#define NBL_LAST_NB_FIELD MiniportReserved[1] // RX
 #define NBL_REF(_nbl) (*(ULONG_PTR *)&(_nbl)->NBL_REF_FIELD)
-#define NBL_PACKET_COUNT(_nbl) (*(ULONG_PTR *)&(_nbl)->NBL_PACKET_COUNT_FIELD)
-#define NBL_LAST_NB(_nbl) (*(PNET_BUFFER *)&(_nbl)->NBL_LAST_NB_FIELD)
+//#define NBL_PACKET_COUNT(_nbl) (*(ULONG_PTR *)&(_nbl)->NBL_PACKET_COUNT_FIELD)
+//#define NBL_LAST_NB(_nbl) (*(PNET_BUFFER *)&(_nbl)->NBL_LAST_NB_FIELD)
 
 #include <xen_windows.h>
 #include <memory.h>
@@ -213,6 +213,7 @@ typedef struct
 } tx_shadow_t;
 
 typedef struct {
+  ULONG parse_result;
   PMDL first_mdl;
   MDL first_mdl_storage;
   PPFN_NUMBER first_mdl_pfns[17]; /* maximum possible packet size */
@@ -247,6 +248,13 @@ typedef struct {
 
 #define PAGE_LIST_SIZE (max(NET_RX_RING_SIZE, NET_TX_RING_SIZE) * 4)
 #define MULTICAST_LIST_MAX_SIZE 32
+
+/* split incoming large packets into MSS sized chunks */
+#define RX_LSO_SPLIT_MSS 0
+/* split incoming large packets in half, to not invoke the delayed ack timer */
+#define RX_LSO_SPLIT_HALF 1
+/* don't split incoming large packets. not really useful */
+#define RX_LSO_SPLIT_NONE 2
 
 struct xennet_info
 {
@@ -310,9 +318,6 @@ struct xennet_info
   ULONG rx_id_free;
   packet_info_t *rxpi;
   KEVENT packet_returned_event;
-  //NDIS_MINIPORT_TIMER rx_timer;
-  KTIMER rx_timer;
-  KDPC rx_timer_dpc;
   NDIS_HANDLE rx_nbl_pool;
   NDIS_HANDLE rx_nb_pool;
   volatile LONG rx_pb_free;
@@ -333,16 +338,22 @@ struct xennet_info
   LONG rx_outstanding;
 
   /* config vars from registry */
-  ULONG config_sg;
-  ULONG config_csum;
-  ULONG config_csum_rx_check;
-  ULONG config_csum_rx_dont_fix;
-  ULONG config_gso;
-  ULONG config_mtu;
-  ULONG config_rx_interrupt_moderation;
+  /* the frontend_* indicate our willingness to support */
+  BOOLEAN frontend_sg_supported;
+  BOOLEAN frontend_csum_supported;
+  ULONG frontend_gso_value;
+  ULONG frontend_mtu_value;
+  ULONG frontend_gso_rx_split_type; /* RX_LSO_SPLIT_* */
 
-  BOOLEAN current_csum_ipv4;
-  ULONG current_lso_ipv4;
+  BOOLEAN backend_sg_supported;
+  BOOLEAN backend_csum_supported;
+  ULONG backend_gso_value;
+  
+  BOOLEAN current_sg_supported;
+  BOOLEAN current_csum_supported;
+  ULONG current_gso_value;
+  ULONG current_mtu_value;
+  ULONG current_gso_rx_split_type;
 
   /* config stuff calculated from the above */
   ULONG config_max_pkt_size;
@@ -410,7 +421,7 @@ XenNet_SetPower;
 
 BOOLEAN
 XenNet_BuildHeader(packet_info_t *pi, PVOID header, ULONG new_header_size);
-ULONG
+VOID
 XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR buffer, ULONG min_header_size);
 BOOLEAN
 XenNet_FilterAcceptPacket(struct xennet_info *xi,packet_info_t *pi);

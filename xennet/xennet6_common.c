@@ -112,7 +112,7 @@ XenNet_BuildHeader(packet_info_t *pi, PUCHAR header, ULONG new_header_size)
   return TRUE;
 }
 
-ULONG
+VOID
 XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_size)
 {
   //FUNCTION_ENTER();
@@ -134,7 +134,8 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
   if (!XenNet_BuildHeader(pi, NULL, (ULONG)XN_HDR_SIZE))
   {
     //KdPrint((__DRIVER_NAME "     packet too small (Ethernet Header)\n"));
-    return PARSE_TOO_SMALL;
+    pi->parse_result = PARSE_TOO_SMALL;
+    return;
   }
 
   switch (GET_NET_PUSHORT(&pi->header[12])) // L2 protocol field
@@ -146,14 +147,16 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
       if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + 20)))
       {
         KdPrint((__DRIVER_NAME "     packet too small (IP Header)\n"));
-        return PARSE_TOO_SMALL;
+        pi->parse_result = PARSE_TOO_SMALL;
+        return;
       }
     }
     pi->ip_version = (pi->header[XN_HDR_SIZE + 0] & 0xF0) >> 4;
     if (pi->ip_version != 4)
     {
       //KdPrint((__DRIVER_NAME "     ip_version = %d\n", pi->ip_version));
-      return PARSE_UNKNOWN_TYPE;
+      pi->parse_result = PARSE_UNKNOWN_TYPE;
+      return;
     }
     pi->ip4_header_length = (pi->header[XN_HDR_SIZE + 0] & 0x0F) << 2;
     if (pi->header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20))
@@ -161,17 +164,20 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
       if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)))
       {
         //KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header)\n"));
-        return PARSE_TOO_SMALL;
+        pi->parse_result = PARSE_TOO_SMALL;
+        return;
       }
     }
     break;
   case 0x86DD:  /* IPv6 */
     //KdPrint((__DRIVER_NAME "     IPv6\n"));
     //KdPrint((__DRIVER_NAME "     (not currently used)\n"));
-    return PARSE_UNKNOWN_TYPE;
+    pi->parse_result = PARSE_UNKNOWN_TYPE;
+    return;
   default:
     //KdPrint((__DRIVER_NAME "     Not IP (%04x)\n", GET_NET_PUSHORT(&pi->header[12])));
-    return PARSE_UNKNOWN_TYPE;
+    pi->parse_result = PARSE_UNKNOWN_TYPE;
+    return;
   }
   pi->ip_proto = pi->header[XN_HDR_SIZE + 9];
   switch (pi->ip_proto)
@@ -181,7 +187,8 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
     break;
   default:
     //KdPrint((__DRIVER_NAME "     Not TCP/UDP (%d)\n", pi->ip_proto));
-    return PARSE_UNKNOWN_TYPE;
+    pi->parse_result = PARSE_UNKNOWN_TYPE;
+    return;
   }
   pi->ip4_length = GET_NET_PUSHORT(&pi->header[XN_HDR_SIZE + 2]);
   pi->tcp_header_length = (pi->header[XN_HDR_SIZE + pi->ip4_header_length + 12] & 0xf0) >> 2;
@@ -191,14 +198,16 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
     if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)))
     {
       //KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header + TCP Options)\n"));
-      return PARSE_TOO_SMALL;
+      pi->parse_result = PARSE_TOO_SMALL;
+      return;
     }
   }
 
   if ((ULONG)XN_HDR_SIZE + pi->ip4_length > pi->total_length)
   {
     //KdPrint((__DRIVER_NAME "     XN_HDR_SIZE + ip4_length (%d) > total_length (%d)\n", XN_HDR_SIZE + pi->ip4_length, pi->total_length));
-    return PARSE_UNKNOWN_TYPE;
+    pi->parse_result = PARSE_UNKNOWN_TYPE;
+    return;
   }
 
   pi->tcp_length = pi->ip4_length - pi->ip4_header_length - pi->tcp_header_length;
@@ -212,7 +221,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
   //KdPrint((__DRIVER_NAME "     tcp_length = %d\n", pi->tcp_length));
   //FUNCTION_EXIT();
   
-  return PARSE_OK;
+  pi->parse_result = PARSE_OK;
 }
 
 VOID

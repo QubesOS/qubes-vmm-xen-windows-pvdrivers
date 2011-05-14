@@ -184,23 +184,40 @@ XenNet_FillRing(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
+typedef struct {
+  PNET_BUFFER_LIST first_nbl;
+  PNET_BUFFER_LIST last_nbl;
+  ULONG packet_count;
+} rx_context_t;
+
 static BOOLEAN
-XenNet_MakePacket(struct xennet_info *xi, PNET_BUFFER_LIST nbl, packet_info_t *pi)
+XenNet_MakePacket(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
 {
+  PNET_BUFFER_LIST nbl;
   PNET_BUFFER nb;
   PMDL mdl_head, mdl_tail, curr_mdl;
   PUCHAR header_va;
   ULONG out_remaining;
   ULONG header_extra;
   shared_buffer_t *header_buf;
+  NDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO csum_info;
 
   //FUNCTION_ENTER();
   
+  nbl = NdisAllocateNetBufferList(xi->rx_nbl_pool, 0, 0);
+  if (!nbl)
+  {
+    /* buffers will be freed in MakePackets */
+    KdPrint((__DRIVER_NAME "     No free nbl's\n"));
+    //FUNCTION_EXIT();
+    return FALSE;
+  }
+
   nb = NdisAllocateNetBuffer(xi->rx_nb_pool, NULL, 0, 0);
   if (!nb)
   {
-    /* buffers will be freed in MakePackets */
-    KdPrint((__DRIVER_NAME "     No free packets\n"));
+    KdPrint((__DRIVER_NAME "     No free nb's\n"));
+    NdisFreeNetBufferList(nbl);
     //FUNCTION_EXIT();
     return FALSE;
   }
@@ -209,6 +226,7 @@ XenNet_MakePacket(struct xennet_info *xi, PNET_BUFFER_LIST nbl, packet_info_t *p
   if (!header_buf)
   {
     KdPrint((__DRIVER_NAME "     No free header buffers\n"));
+    NdisFreeNetBufferList(nbl);
     NdisFreeNetBuffer(nb);
     //FUNCTION_EXIT();
     return FALSE;
@@ -310,17 +328,48 @@ XenNet_MakePacket(struct xennet_info *xi, PNET_BUFFER_LIST nbl, packet_info_t *p
     pi->header_length -= header_extra;
   //ASSERT(*(shared_buffer_t **)&packet->MiniportReservedEx[0]);
   
-  NBL_PACKET_COUNT(nbl)++;
-  if (!NET_BUFFER_LIST_FIRST_NB(nbl))
+  rc->packet_count++;
+  NET_BUFFER_LIST_FIRST_NB(nbl) = nb;
+  //NET_BUFFER_NEXT_NB(nb) = NULL; /*is this already done for me? */
+
+  if (pi->parse_result == PARSE_OK)
   {
-    NET_BUFFER_LIST_FIRST_NB(nbl) = nb;
+    BOOLEAN checksum_offload = FALSE;
+    csum_info.Value = 0;
+    if (pi->csum_blank || pi->data_validated || pi->mss)
+    {
+      if (pi->ip_proto == 6) // && xi->setting_csum.V4Receive.TcpChecksum)
+      {
+//          if (!pi->tcp_has_options || xi->setting_csum.V4Receive.TcpOptionsSupported)
+//          {
+          csum_info.Receive.IpChecksumSucceeded = TRUE;
+          csum_info.Receive.TcpChecksumSucceeded = TRUE;
+          checksum_offload = TRUE;
+//          }
+      }
+      else if (pi->ip_proto == 17) // &&xi->setting_csum.V4Receive.UdpChecksum)
+      {
+        csum_info.Receive.IpChecksumSucceeded = TRUE;
+        csum_info.Receive.UdpChecksumSucceeded = TRUE;
+        checksum_offload = TRUE;
+      }
+    }
+    NET_BUFFER_LIST_INFO(nbl, TcpIpChecksumNetBufferListInfo) = csum_info.Value;
+  }
+  
+  //packet_count += NBL_PACKET_COUNT(nbl);
+  if (!rc->first_nbl)
+  {
+    rc->first_nbl = nbl;
   }
   else
   {
-    NET_BUFFER_NEXT_NB(NBL_LAST_NB(nbl)) = nb;
+    NET_BUFFER_LIST_NEXT_NBL(rc->last_nbl) = nbl;
   }
-  NBL_LAST_NB(nbl) = nb;
-  NET_BUFFER_NEXT_NB(nb) = NULL; /*is this already done for me? */
+  rc->last_nbl = nbl;
+  NET_BUFFER_LIST_NEXT_NBL(nbl) = NULL;
+  InterlockedIncrement(&xi->rx_outstanding);
+
   //FUNCTION_EXIT();
   return TRUE;
 }
@@ -461,101 +510,52 @@ XenNet_SumPacketData(
 }
 #endif
 
-static PNET_BUFFER_LIST
-XenNet_MakePackets(struct xennet_info *xi, packet_info_t *pi)
+static VOID
+XenNet_MakePackets(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
 {
-  PNET_BUFFER_LIST nbl = NULL;
   UCHAR psh;
-  NDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO csum_info;
-  ULONG parse_result;  
   //PNDIS_BUFFER buffer;
   shared_buffer_t *page_buf;
 
   //FUNCTION_ENTER();
 
-  parse_result = XenNet_ParsePacketHeader(pi, NULL, 0);
-  pi->split_required = FALSE;
+  XenNet_ParsePacketHeader(pi, NULL, 0);
+  //pi->split_required = FALSE;
 
   if (!XenNet_FilterAcceptPacket(xi, pi))
   {
     goto done;
   }
 
-  nbl = NdisAllocateNetBufferList(xi->rx_nbl_pool, 0, 0);
-  NBL_PACKET_COUNT(nbl) = 0;
+  if (pi->split_required)
+  {
+    switch (xi->current_gso_rx_split_type)
+    {
+    case RX_LSO_SPLIT_HALF:
+      pi->mss = (pi->tcp_length + 1) / 2;
+      break;
+    case RX_LSO_SPLIT_NONE:
+      pi->mss = 65535;
+      break;
+    }
+  }
 
   switch (pi->ip_proto)
   {
   case 6:  // TCP
     if (pi->split_required)
       break;
-    // fallthrough
+    /* fall through */
   case 17:  // UDP
-    if (!XenNet_MakePacket(xi, nbl, pi))
+    if (!XenNet_MakePacket(xi, rc, pi))
     {
       KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
       xi->stat_rx_no_buffer++;
       goto done;
     }
-    if (parse_result == PARSE_OK)
-    {
-      BOOLEAN checksum_offload = FALSE;
-      csum_info.Value = 0;
-      if (pi->csum_blank || pi->data_validated)
-      {
-        if (pi->ip_proto == 6) // && xi->setting_csum.V4Receive.TcpChecksum)
-        {
-//          if (!pi->tcp_has_options || xi->setting_csum.V4Receive.TcpOptionsSupported)
-//          {
-            csum_info.Receive.IpChecksumSucceeded = TRUE;
-            csum_info.Receive.TcpChecksumSucceeded = TRUE;
-            checksum_offload = TRUE;
-//          }
-        }
-        else if (pi->ip_proto == 17) // &&xi->setting_csum.V4Receive.UdpChecksum)
-        {
-          csum_info.Receive.IpChecksumSucceeded = TRUE;
-          csum_info.Receive.UdpChecksumSucceeded = TRUE;
-          checksum_offload = TRUE;
-        }
-#if 0
-        if (pi->csum_blank && (!xi->config_csum_rx_dont_fix || !checksum_offload))
-        {
-          XenNet_SumPacketData(pi, packet, TRUE);
-        }
-#endif
-      }
-#if 0
-      else if (xi->config_csum_rx_check)
-      {
-        if (xi->setting_csum.V4Receive.TcpChecksum && pi->ip_proto == 6)
-        {
-          if (XenNet_SumPacketData(pi, packet, FALSE))
-          {
-            csum_info.Receive.NdisPacketTcpChecksumSucceeded = TRUE;
-          }
-          else
-          {
-            csum_info.Receive.NdisPacketTcpChecksumFailed = TRUE;
-          }
-        } else if (xi->setting_csum.V4Receive.UdpChecksum && pi->ip_proto == 17)
-        {
-          if (XenNet_SumPacketData(pi, packet, FALSE))
-          {
-            csum_info.Receive.NdisPacketUdpChecksumSucceeded = TRUE;
-          }
-          else
-          {
-            csum_info.Receive.NdisPacketUdpChecksumFailed = TRUE;
-          }
-        }
-      }
-#endif
-      NET_BUFFER_LIST_INFO(nbl, TcpIpChecksumNetBufferListInfo) = csum_info.Value;
-    }
     goto done;
   default:
-    if (!XenNet_MakePacket(xi, nbl, pi))
+    if (!XenNet_MakePacket(xi, rc, pi))
     {
       KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
       xi->stat_rx_no_buffer++;
@@ -565,17 +565,13 @@ XenNet_MakePackets(struct xennet_info *xi, packet_info_t *pi)
   }
 
   /* this is the split_required code */
-  csum_info.Value = 0;
-  csum_info.Receive.IpChecksumSucceeded = TRUE;
-  csum_info.Receive.TcpChecksumSucceeded = TRUE;
-  //checksum_offload = TRUE;
   pi->tcp_remaining = pi->tcp_length;
 
   /* we can make certain assumptions here as the following code is only for tcp4 */
   psh = pi->header[XN_HDR_SIZE + pi->ip4_header_length + 13] & 8;
   while (pi->tcp_remaining)
   {
-    if (!XenNet_MakePacket(xi, nbl, pi))
+    if (!XenNet_MakePacket(xi, rc, pi))
     {
       KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
       xi->stat_rx_no_buffer++;
@@ -593,17 +589,7 @@ XenNet_MakePackets(struct xennet_info *xi, packet_info_t *pi)
     //entry = (PLIST_ENTRY)&packet->MiniportReservedEx[sizeof(PVOID)];
     //InsertTailList(rx_packet_list, entry);
   }
-  /* we want to be a bit flexible here if some form of offload has been disabled */
-  csum_info.Value = 0;
-  csum_info.Receive.IpChecksumSucceeded = TRUE;
-  csum_info.Receive.TcpChecksumSucceeded = TRUE;
-  NET_BUFFER_LIST_INFO(nbl, TcpIpChecksumNetBufferListInfo) = csum_info.Value;
 done:
-  if (nbl && !NBL_PACKET_COUNT(nbl))
-  {
-    NdisFreeNetBufferList(nbl);
-    nbl = NULL;
-  }
   page_buf = pi->first_pb;
   while (page_buf)
   {
@@ -613,7 +599,7 @@ done:
   }
   XenNet_ClearPacketInfo(pi);
   //FUNCTION_EXIT();
-  return nbl;
+  return;
 }
 
 /* called at <= DISPATCH_LEVEL */
@@ -699,7 +685,6 @@ BOOLEAN
 XenNet_RxBufferCheck(struct xennet_info *xi)
 {
   RING_IDX cons, prod;
-  LIST_ENTRY rx_packet_list;
   ULONG packet_count = 0;
   ULONG packet_data = 0;
   ULONG buffer_count = 0;
@@ -708,11 +693,10 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   shared_buffer_t *page_buf;
   //LIST_ENTRY rx_header_only_packet_list;
   //PLIST_ENTRY entry;
-  PNET_BUFFER_LIST nbl_head = NULL;
-  PNET_BUFFER_LIST nbl_tail = NULL;
   ULONG nbl_count = 0;
   ULONG interim_packet_data = 0;
   struct netif_extra_info *ei;
+  rx_context_t rc;
   packet_info_t *pi = &xi->rxpi[KeGetCurrentProcessorNumber() & 0xff];
   shared_buffer_t *head_buf = NULL;
   shared_buffer_t *tail_buf = NULL;
@@ -720,18 +704,16 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   BOOLEAN extra_info_flag = FALSE;
   BOOLEAN more_data_flag = FALSE;
   BOOLEAN dont_set_event;
-  int ring_packets1 = 0;
-  int ring_packets2 = 0;
-  int indicate_packets = 0;
   //FUNCTION_ENTER();
 
   if (!xi->connected)
     return FALSE; /* a delayed DPC could let this come through... just do nothing */
 
-  InitializeListHead(&rx_packet_list);
-
+  rc.first_nbl = NULL;
+  rc.last_nbl = NULL;
+  rc.packet_count = 0;
+  
   /* get all the buffers off the ring as quickly as possible so the lock is held for a minimum amount of time */
-
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
   
   if (xi->rx_shutting_down)
@@ -807,8 +789,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
         packet_count++;
         packet_data += interim_packet_data;
         interim_packet_data = 0;
-ring_packets1++;
-      }
+        }
       buffer_count++;
     }
     xi->rx.rsp_cons = cons;
@@ -934,26 +915,9 @@ ring_packets1++;
     /* Packet done, add it to the list */
     if (!more_data_flag && !extra_info_flag)
     {
-      PNET_BUFFER_LIST nbl;
       pi->curr_pb = pi->first_pb;
       pi->curr_mdl = pi->first_mdl;
-      nbl = XenNet_MakePackets(xi, pi);
-      if (nbl)
-      {
-        packet_count += NBL_PACKET_COUNT(nbl);
-        nbl_count++;
-        if (!nbl_head)
-        {
-          nbl_head = nbl;
-        }
-        else
-        {
-          NET_BUFFER_LIST_NEXT_NBL(nbl_tail) = nbl;
-        }
-        NET_BUFFER_LIST_NEXT_NBL(nbl) = NULL;
-        nbl_tail = nbl;
-      }
-ring_packets2++;
+      XenNet_MakePackets(xi, &rc, pi);
     }
 
     page_buf = next_buf;
@@ -962,19 +926,13 @@ ring_packets2++;
 
   xi->stat_rx_ok += packet_count;
 
-  if (nbl_head)
+  if (rc.first_nbl)
   {
-    PNET_BUFFER_LIST nbl;
-    for (nbl = nbl_head; nbl; nbl = NET_BUFFER_LIST_NEXT_NBL(nbl))
-      indicate_packets++;
-    if (indicate_packets != ring_packets1 || indicate_packets != ring_packets2)
-      KdPrint((__DRIVER_NAME "     ring_packets1 = %d, ring_packets2 = %d, indicate_packets = %d\n", ring_packets1, ring_packets2, indicate_packets));
-
-    NdisMIndicateReceiveNetBufferLists(xi->adapter_handle, nbl_head, NDIS_DEFAULT_PORT_NUMBER, nbl_count,
+    NdisMIndicateReceiveNetBufferLists(xi->adapter_handle, rc.first_nbl, NDIS_DEFAULT_PORT_NUMBER, nbl_count,
       NDIS_RECEIVE_FLAGS_DISPATCH_LEVEL
       //| NDIS_RECEIVE_FLAGS_SINGLE_ETHER_TYPE 
       | NDIS_RECEIVE_FLAGS_PERFECT_FILTERED);
-  };
+  }
   //FUNCTION_EXIT();
   return dont_set_event;
 }
@@ -985,7 +943,7 @@ ring_packets2++;
 */
 
 static VOID
-XenNet_PurgeRing(struct xennet_info *xi)
+XenNet_PurgeRing(xennet_info_t *xi)
 {
   int i;
   for (i = 0; i < NET_RX_RING_SIZE; i++)
@@ -999,7 +957,7 @@ XenNet_PurgeRing(struct xennet_info *xi)
 }
 
 static VOID
-XenNet_BufferFree(struct xennet_info *xi)
+XenNet_BufferFree(xennet_info_t *xi)
 {
   shared_buffer_t *sb;
 
@@ -1011,13 +969,13 @@ XenNet_BufferFree(struct xennet_info *xi)
     xi->vectors.GntTbl_EndAccess(xi->vectors.context,
         sb->gref, FALSE, (ULONG)'XNRX');
     IoFreeMdl(sb->mdl);
-    NdisFreeMemory(sb, PAGE_SIZE, 0);
     NdisFreeMemory(sb->virtual, sizeof(shared_buffer_t), 0);
+    NdisFreeMemory(sb, PAGE_SIZE, 0);
   }
   while ((sb = get_hb_from_freelist(xi)) != NULL)
   {
     IoFreeMdl(sb->mdl);
-    NdisFreeMemory(sb->virtual, sizeof(shared_buffer_t) + MAX_ETH_HEADER_LENGTH + MAX_LOOKAHEAD_LENGTH, 0);
+    NdisFreeMemory(sb, sizeof(shared_buffer_t) + MAX_ETH_HEADER_LENGTH + MAX_LOOKAHEAD_LENGTH, 0);
   }
 }
 
@@ -1077,7 +1035,6 @@ XenNet_RxInit(xennet_info_t *xi)
   xi->rx_shutting_down = FALSE;
   KeInitializeSpinLock(&xi->rx_lock);
   KeInitializeEvent(&xi->packet_returned_event, SynchronizationEvent, FALSE);
-  KeInitializeTimer(&xi->rx_timer);
   xi->rxpi = NdisAllocateMemoryWithTagPriority(xi->adapter_handle, sizeof(packet_info_t) * NdisSystemProcessorCount(), XENNET_POOL_TAG, NormalPoolPriority);
   if (!xi->rxpi)
   {
@@ -1130,21 +1087,15 @@ XenNet_RxInit(xennet_info_t *xi)
 BOOLEAN
 XenNet_RxShutdown(xennet_info_t *xi)
 {
-  //KIRQL old_irql;
+  KIRQL old_irql;
   //PNDIS_PACKET packet;
   UNREFERENCED_PARAMETER(xi);
 
   FUNCTION_ENTER();
 
-#if 0
   KeAcquireSpinLock(&xi->rx_lock, &old_irql);
   xi->rx_shutting_down = TRUE;
   KeReleaseSpinLock(&xi->rx_lock, old_irql);
-
-  if (xi->config_rx_interrupt_moderation)
-  {
-    KeCancelTimer(&xi->rx_timer);
-  }
 
   KeFlushQueuedDpcs();
 
@@ -1154,23 +1105,17 @@ XenNet_RxShutdown(xennet_info_t *xi)
     KeWaitForSingleObject(&xi->packet_returned_event, Executive, KernelMode, FALSE, NULL);
   }
 
-  //KeAcquireSpinLock(&xi->rx_lock, &old_irql);
-
   NdisFreeMemory(xi->rxpi, sizeof(packet_info_t) * NdisSystemProcessorCount(), 0);
 
   XenNet_BufferFree(xi);
 
-  /* this works because get_packet_from_freelist won't allocate new packets when rx_shutting_down */
-  while ((packet = get_packet_from_freelist(xi)) != NULL)
-    NdisFreePacket(packet);
-  //stack_delete(xi->rx_packet_stack, NULL, NULL);
-  NdisFreePacketPool(xi->rx_packet_pool);
 
   stack_delete(xi->rx_pb_stack, NULL, NULL);
   stack_delete(xi->rx_hb_stack, NULL, NULL);
-  //KeReleaseSpinLock(&xi->rx_lock, old_irql);
+  
+  NdisFreeNetBufferPool(xi->rx_nb_pool);
+  NdisFreeNetBufferListPool(xi->rx_nbl_pool);
 
-#endif
   FUNCTION_EXIT();
 
   return TRUE;

@@ -76,7 +76,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
   BOOLEAN ndis_lso = FALSE;
   BOOLEAN xen_gso = FALSE;
   ULONG remaining;
-  ULONG parse_result;
   ULONG frags = 0;
   BOOLEAN coalesce_required = FALSE;
   PVOID coalesce_buf;
@@ -148,7 +147,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
     //KdPrint((__DRIVER_NAME "     Full on send - ring full\n"));
     return FALSE;
   }
-  parse_result = XenNet_ParsePacketHeader(&pi, coalesce_buf, PAGE_SIZE);
+  XenNet_ParsePacketHeader(&pi, coalesce_buf, PAGE_SIZE);
   remaining = pi.total_length - pi.header_length;
   if (pi.ip_version == 4 && pi.ip_proto == 6 && pi.ip4_length == 0)
   {
@@ -231,7 +230,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
     /* should make use of TcpHeaderOffset too... maybe just assert if it's not what we expect */
     break;
   }
-  if (mss && parse_result == PARSE_OK)
+  if (mss && pi.parse_result == PARSE_OK)
   {
     //FUNCTION_MSG("lso mss = %d\n", mss);
     //if (NDIS_GET_PACKET_PROTOCOL_TYPE(packet) != NDIS_PROTOCOL_ID_TCP_IP)
@@ -297,7 +296,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
     ei->u.gso.features = 0;
   }
 
-  ASSERT(xi->config_sg || !remaining);
+  ASSERT(xi->current_sg_supported || !remaining);
   
   /* (C) - only if data is remaining */
   coalesce_buf = NULL;
@@ -404,7 +403,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
   switch (lso_info.Transmit.Type)
   {
   case NDIS_TCP_LARGE_SEND_OFFLOAD_V1_TYPE:
-    lso_info.LsoV1TransmitComplete.TcpPayload = UlongToPtr(tx_length - MAX_ETH_HEADER_LENGTH - pi.ip4_header_length - pi.tcp_header_length);
+    lso_info.LsoV1TransmitComplete.TcpPayload = tx_length - MAX_ETH_HEADER_LENGTH - pi.ip4_header_length - pi.tcp_header_length;
     break;
   case NDIS_TCP_LARGE_SEND_OFFLOAD_V2_TYPE:
     break;
@@ -749,15 +748,16 @@ XenNet_TxShutdown(xennet_info_t *xi)
   //PNDIS_PACKET packet;
   ////PMDL mdl;
   ////ULONG i;
-  //KIRQL OldIrql;
-  UNREFERENCED_PARAMETER(xi);
+  KIRQL old_irql;
+  PNET_BUFFER nb;
+  PNET_BUFFER_LIST nbl;
+  PLIST_ENTRY nb_entry;
 
   FUNCTION_ENTER();
 
-#if 0
-  KeAcquireSpinLock(&xi->tx_lock, &OldIrql);
+  KeAcquireSpinLock(&xi->tx_lock, &old_irql);
   xi->tx_shutting_down = TRUE;
-  KeReleaseSpinLock(&xi->tx_lock, OldIrql);
+  KeReleaseSpinLock(&xi->tx_lock, old_irql);
 
   while (xi->tx_outstanding)
   {
@@ -765,21 +765,24 @@ XenNet_TxShutdown(xennet_info_t *xi)
     KeWaitForSingleObject(&xi->tx_idle_event, Executive, KernelMode, FALSE, NULL);
   }
 
-#if (NTDDI_VERSION >= NTDDI_WINXP)
   KeFlushQueuedDpcs();
-#endif
 
   /* Free packets in tx queue */
   nb_entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
+  /* if empty, the above returns head*, not NULL */
   while (nb_entry != &xi->tx_waiting_pkt_list)
   {
-    packet = CONTAINING_RECORD(nb_entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
-    NdisMSendComplete(xi->adapter_handle, packet, NDIS_STATUS_FAILURE);
+    nb = CONTAINING_RECORD(nb_entry, NET_BUFFER, NB_LIST_ENTRY_FIELD);
+    nbl = NB_NBL(nb);
+    NBL_REF(nbl)--;
+    if (!NBL_REF(nbl))
+    {
+      nbl->Status = NDIS_STATUS_FAILURE;
+      NdisMSendNetBufferListsComplete(xi->adapter_handle, nbl, NDIS_SEND_COMPLETE_FLAGS_DISPATCH_LEVEL);
+    }
     nb_entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   }
-
   NdisDeleteNPagedLookasideList(&xi->tx_lookaside_list);
-#endif
 
   FUNCTION_EXIT();
 
