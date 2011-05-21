@@ -630,7 +630,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   KdPrint((__DRIVER_NAME "     ConfigInfo->CachesData was initialised to %d\n", ConfigInfo->CachesData));
   ConfigInfo->CachesData = FALSE;
   ConfigInfo->BufferAccessScsiPortControlled = FALSE;
-#if 0
+
   if (ConfigInfo->Dma64BitAddresses == SCSI_DMA64_SYSTEM_SUPPORTED)
   {
     ConfigInfo->Master = TRUE;
@@ -640,11 +640,11 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
   }
   else
   {
-    ConfigInfo->Master = TRUE;
+    ConfigInfo->Master = FALSE;
     ConfigInfo->Dma32BitAddresses = TRUE;
     KdPrint((__DRIVER_NAME "     Dma64BitAddresses not supported\n"));
   }
-#endif
+
   FUNCTION_EXIT();
 
   return SP_RETURN_FOUND;
@@ -1108,7 +1108,7 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
     }
   }
 
-  if (start_ring_detect_state == RING_DETECT_STATE_COMPLETE)
+  if (start_ring_detect_state > RING_DETECT_STATE_NOT_STARTED)
     XenVbd_PutQueuedSrbsOnRing(xvdd);
 
   if (suspend_resume_state_pdo == SR_STATE_SUSPENDING)
