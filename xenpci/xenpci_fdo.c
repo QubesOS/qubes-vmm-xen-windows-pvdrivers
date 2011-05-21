@@ -230,7 +230,7 @@ static VOID
 XenPci_BalloonThreadProc(PVOID StartContext)
 {
   PXENPCI_DEVICE_DATA xpdd = StartContext;
-  ULONG new_target = xpdd->current_memory;
+  ULONG new_target_kb = xpdd->current_memory_kb;
   LARGE_INTEGER timeout;
   PLARGE_INTEGER ptimeout;
   PMDL head;
@@ -267,7 +267,7 @@ XenPci_BalloonThreadProc(PVOID StartContext)
   for(;;)
   {
     /* back off exponentially if we have adjustments to make, or wait for event if we don't */
-    if (xpdd->current_memory != new_target)
+    if (xpdd->current_memory_kb != new_target_kb)
     {
       timeout.QuadPart = WDF_REL_TIMEOUT_IN_MS(timeout_ms);
       ptimeout = &timeout;
@@ -283,22 +283,22 @@ XenPci_BalloonThreadProc(PVOID StartContext)
     KeWaitForSingleObject(&xpdd->balloon_event, Executive, KernelMode, FALSE, ptimeout);
     if (xpdd->balloon_shutdown)
       PsTerminateSystemThread(0);
-    KdPrint((__DRIVER_NAME "     Got balloon event, current = %d, target = %d\n", xpdd->current_memory, xpdd->target_memory));
+    KdPrint((__DRIVER_NAME "     Got balloon event, current = %d, target = %d\n", xpdd->current_memory_kb, xpdd->target_memory_kb));
     /* not really worried about races here, but cache target so we only read it once */
-    new_target = xpdd->target_memory;
+    new_target_kb = xpdd->target_memory_kb;
     // perform some sanity checks on target_memory
     // make sure target <= initial
     // make sure target > some % of initial
     
-    if (xpdd->current_memory == new_target)
+    if (xpdd->current_memory_kb == new_target_kb)
     {
       KdPrint((__DRIVER_NAME "     No change to memory\n"));
       continue;
     }
-    else if (xpdd->current_memory < new_target)
+    else if (xpdd->current_memory_kb < new_target_kb)
     {
-      KdPrint((__DRIVER_NAME "     Trying to take %d MB from Xen\n", new_target - xpdd->current_memory));
-      while ((mdl = head) != NULL && xpdd->current_memory < new_target)
+      KdPrint((__DRIVER_NAME "     Trying to take %d MB from Xen\n", new_target_kb - xpdd->current_memory_kb));
+      while ((mdl = head) != NULL && xpdd->current_memory_kb < new_target_kb)
       {
         pfn_count = ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(mdl), MmGetMdlByteCount(mdl));
         pfns = ExAllocatePoolWithTag(NonPagedPool, pfn_count * sizeof(xen_pfn_t), XENPCI_POOL_TAG);
@@ -332,13 +332,13 @@ XenPci_BalloonThreadProc(PVOID StartContext)
         mdl->Next = NULL;        
         MmFreePagesFromMdl(mdl);
         ExFreePool(mdl);
-        xpdd->current_memory++;
+        xpdd->current_memory_kb += BALLOON_UNITS_KB;
       }
     }
     else
     {
-      KdPrint((__DRIVER_NAME "     Trying to give %d MB to Xen\n", xpdd->current_memory - new_target));
-      while (xpdd->current_memory > new_target)
+      KdPrint((__DRIVER_NAME "     Trying to give %d MB to Xen\n", xpdd->current_memory_kb - new_target_kb));
+      while (xpdd->current_memory_kb > new_target_kb)
       {
         PHYSICAL_ADDRESS alloc_low;
         PHYSICAL_ADDRESS alloc_high;
@@ -358,9 +358,9 @@ XenPci_BalloonThreadProc(PVOID StartContext)
 
         #if (NTDDI_VERSION >= NTDDI_WS03SP1)
         /* our contract says that we must zero pages before returning to xen, so we can't use MM_DONT_ZERO_ALLOCATION */
-        mdl = MmAllocatePagesForMdlEx(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS, MmCached, 0);
+        mdl = MmAllocatePagesForMdlEx(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS_KB * 1024, MmCached, 0);
         #else
-        mdl = MmAllocatePagesForMdl(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS);
+        mdl = MmAllocatePagesForMdl(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS_KB * 1024);
         #endif
         if (!mdl)
         {
@@ -404,11 +404,11 @@ XenPci_BalloonThreadProc(PVOID StartContext)
           {
             head = mdl;
           }
-          xpdd->current_memory--;
+          xpdd->current_memory_kb -= BALLOON_UNITS_KB;
         }
       }
     }
-    KdPrint((__DRIVER_NAME "     Memory = %d, Balloon Target = %d\n", xpdd->current_memory, new_target));
+    KdPrint((__DRIVER_NAME "     Memory = %d, Balloon Target = %d\n", xpdd->current_memory_kb, new_target_kb));
   }
   //FUNCTION_EXIT();
 }
@@ -439,9 +439,9 @@ XenPci_BalloonHandler(char *Path, PVOID Data)
   }
 
   if (atoi(value) > 0)
-    xpdd->target_memory = atoi(value) >> 10; /* convert to MB */
+    xpdd->target_memory_kb = atoi(value);
 
-  KdPrint((__DRIVER_NAME "     target memory value = %d (%s)\n", xpdd->target_memory, value));
+  KdPrint((__DRIVER_NAME "     target memory value = %d (%s)\n", xpdd->target_memory_kb, value));
 
   XenBus_EndTransaction(xpdd, xbt, 0, &retry);
 
@@ -844,16 +844,16 @@ XenPci_EvtDeviceD0EntryPostInterruptsEnabled(WDFDEVICE device, WDF_POWER_DEVICE_
 
     response = XenBus_AddWatch(xpdd, XBT_NIL, "device", XenPci_DeviceWatchHandler, xpdd);
 
-    if (!xpdd->initial_memory)
+    if (!xpdd->initial_memory_kb)
     {
       XenBus_Read(xpdd, XBT_NIL, BALLOON_PATH, &value);
       if (atoi(value) > 0)
       {
-        xpdd->initial_memory = atoi(value) >> 10; /* convert to MB */
-        xpdd->current_memory = xpdd->initial_memory;
-        xpdd->target_memory = xpdd->initial_memory;
+        xpdd->initial_memory_kb = atoi(value);
+        xpdd->current_memory_kb = xpdd->initial_memory_kb;
+        xpdd->target_memory_kb = xpdd->initial_memory_kb;
       }
-      KdPrint((__DRIVER_NAME "     Initial Memory Value = %d (%s)\n", xpdd->initial_memory, value));
+      KdPrint((__DRIVER_NAME "     Initial Memory Value = %d (%s)\n", xpdd->initial_memory_kb, value));
       KeInitializeEvent(&xpdd->balloon_event, SynchronizationEvent, FALSE);
       xpdd->balloon_shutdown = FALSE;
       status = PsCreateSystemThread(&thread_handle, THREAD_ALL_ACCESS, NULL, NULL, NULL, XenPci_BalloonThreadProc, xpdd);

@@ -578,13 +578,16 @@ XenPci_InitialBalloonDown()
   ULONG maximum_reservation;
   ULONG current_reservation;
   ULONG extra_kb;
-  ULONG extra_mb;
   ULONG ret;
   struct xen_memory_reservation reservation;
   xen_pfn_t *pfns;
   PMDL head = NULL;
   PMDL mdl;
   int i, j;
+  ULONG curr_pfns_offset;
+  PHYSICAL_ADDRESS alloc_low;
+  PHYSICAL_ADDRESS alloc_high;
+  PHYSICAL_ADDRESS alloc_skip;
 
   FUNCTION_ENTER();
   
@@ -602,58 +605,53 @@ XenPci_InitialBalloonDown()
   current_reservation = ret;
 
   extra_kb = (maximum_reservation - current_reservation) << 2;
-  extra_mb = ((extra_kb + 1023) >> 10);
 
-  KdPrint((__DRIVER_NAME "     Trying to give %d MB to Xen\n", extra_mb));
+  alloc_low.QuadPart = 0;
+  alloc_high.QuadPart = 0xFFFFFFFFFFFFFFFFULL;
+  alloc_skip.QuadPart = PAGE_SIZE;
+
+  KdPrint((__DRIVER_NAME "     Trying to give %d KB (%d MB) to Xen\n", extra_kb, extra_kb >> 10));
 
   /* this code is mostly duplicated from the actual balloon thread... too hard to reuse */
-  for (j = 0; j < (int)extra_mb; j++)
-  {  
-    PHYSICAL_ADDRESS alloc_low;
-    PHYSICAL_ADDRESS alloc_high;
-    PHYSICAL_ADDRESS alloc_skip;
-    alloc_low.QuadPart = 0;
-    alloc_high.QuadPart = 0xFFFFFFFFFFFFFFFFULL;
-    alloc_skip.QuadPart = 0;
+  pfns = ExAllocatePoolWithTag(NonPagedPool, max(BALLOON_UNIT_PAGES, (64 << 8)) * sizeof(xen_pfn_t), XENPCI_POOL_TAG);
+  curr_pfns_offset = 0;
+  /* this makes sure we balloon up to the next multiple of BALLOON_UNITS_KB */
+  for (j = 0; j < (int)extra_kb; j += BALLOON_UNITS_KB)
+  {
     #if (NTDDI_VERSION >= NTDDI_WS03SP1)
     /* our contract says that we must zero pages before returning to xen, so we can't use MM_DONT_ZERO_ALLOCATION */
-    mdl = MmAllocatePagesForMdlEx(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS, MmCached, 0);
+    mdl = MmAllocatePagesForMdlEx(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS_KB * 1024, MmCached, 0);
     #else
-    mdl = MmAllocatePagesForMdl(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS);
+    mdl = MmAllocatePagesForMdl(alloc_low, alloc_high, alloc_skip, BALLOON_UNITS_KB * 1024);
     #endif
-    if (!mdl)
+    if (!mdl || MmGetMdlByteCount(mdl) != BALLOON_UNITS_KB * 1024)
     {
       /* this should actually never happen. If we can't allocate the memory it means windows is using it, and if it was using it we would have crashed already... */
       KdPrint((__DRIVER_NAME "     Initial Balloon Down failed\n"));
-      KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000002, extra_mb, j, 0x00000000);
+      KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000002, extra_kb, j, 0x00000000);
       break;
     }
     else
     {
-      int pfn_count = ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(mdl), MmGetMdlByteCount(mdl));
-      if (pfn_count != BALLOON_UNIT_PAGES)
-      {
-        /* we could probably do this better but it will only happen in low memory conditions... */
-        KdPrint((__DRIVER_NAME "     wanted %d pages got %d pages\n", BALLOON_UNIT_PAGES, pfn_count));
-        MmFreePagesFromMdl(mdl);
-        ExFreePool(mdl);
-        break;
-      }
-      pfns = ExAllocatePoolWithTag(NonPagedPool, pfn_count * sizeof(xen_pfn_t), XENPCI_POOL_TAG);
       /* sizeof(xen_pfn_t) may not be the same as PPFN_NUMBER */
-      for (i = 0; i < pfn_count; i++)
-        pfns[i] = (xen_pfn_t)(MmGetMdlPfnArray(mdl)[i]);
-      reservation.address_bits = 0;
-      reservation.extent_order = 0;
-      reservation.domid = DOMID_SELF;
-      reservation.nr_extents = pfn_count;
-      #pragma warning(disable: 4127) /* conditional expression is constant */
-      set_xen_guest_handle(reservation.extent_start, pfns);
-      
-      //KdPrint((__DRIVER_NAME "     Calling HYPERVISOR_memory_op(XENMEM_decrease_reservation) - pfn_count = %d\n", pfn_count));
-      ret = _HYPERVISOR_memory_op(hypercall_stubs, XENMEM_decrease_reservation, &reservation);
-      ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
-      //KdPrint((__DRIVER_NAME "     decreased %d pages\n", ret));
+      for (i = 0; i < BALLOON_UNIT_PAGES; i++)
+      {
+        pfns[curr_pfns_offset] = (xen_pfn_t)(MmGetMdlPfnArray(mdl)[i]);
+        curr_pfns_offset++;
+      }
+      if (curr_pfns_offset == (ULONG)max(BALLOON_UNIT_PAGES, (64 << 8)) || j + BALLOON_UNITS_KB > (int)extra_kb)
+      {
+        reservation.address_bits = 0;
+        reservation.extent_order = 0;
+        reservation.domid = DOMID_SELF;
+        reservation.nr_extents = curr_pfns_offset;
+        #pragma warning(disable: 4127) /* conditional expression is constant */
+        set_xen_guest_handle(reservation.extent_start, pfns);
+        ret = _HYPERVISOR_memory_op(hypercall_stubs, XENMEM_decrease_reservation, &reservation);
+        if (ret != curr_pfns_offset)
+          FUNCTION_MSG("only decreased %d of %d pages\n", ret, curr_pfns_offset);
+        curr_pfns_offset = 0;
+      }
       if (head)
       {
         mdl->Next = head;
@@ -664,8 +662,9 @@ XenPci_InitialBalloonDown()
         head = mdl;
       }
     }
+//KdPrint((__DRIVER_NAME "     C\n"));
   }
-  
+  ExFreePoolWithTag(pfns, XENPCI_POOL_TAG);
   hvm_free_hypercall_stubs(hypercall_stubs);
   
   FUNCTION_EXIT();

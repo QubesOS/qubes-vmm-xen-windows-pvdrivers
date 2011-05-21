@@ -77,7 +77,8 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define XEN_PV_PRODUCT_NUMBER   0x0002
 #define XEN_PV_PRODUCT_BUILD    0x00000001
 
-#define BALLOON_UNIT_PAGES (BALLOON_UNITS >> PAGE_SHIFT)
+#define BALLOON_UNITS_KB (1 * 1024) /* 1MB */
+#define BALLOON_UNIT_PAGES ((BALLOON_UNITS_KB << 10) >> PAGE_SHIFT)
 
 extern ULONG qemu_protocol_version;
 
@@ -187,13 +188,12 @@ typedef struct {
   
   struct xenstore_domain_interface *xen_store_interface;
 
-#define BALLOON_UNITS (1024 * 1024) /* 1MB */
   PKTHREAD balloon_thread;
   KEVENT balloon_event;
   BOOLEAN balloon_shutdown;
-  ULONG initial_memory;
-  ULONG current_memory;
-  ULONG target_memory;
+  ULONG initial_memory_kb;
+  ULONG current_memory_kb;
+  ULONG target_memory_kb;
   
   /* xenbus related */
   XENBUS_WATCH_ENTRY XenBus_WatchEntries[MAX_WATCH_ENTRIES];
