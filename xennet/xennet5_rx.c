@@ -20,8 +20,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xennet5.h"
 
-static LONG rx_pb_outstanding = 0;
-
 static __inline shared_buffer_t *
 get_pb_from_freelist(struct xennet_info *xi)
 {
@@ -34,7 +32,6 @@ get_pb_from_freelist(struct xennet_info *xi)
     pb = ptr_ref;
     pb->ref_count = 1;
     InterlockedDecrement(&xi->rx_pb_free);
-    InterlockedIncrement(&rx_pb_outstanding);
     return pb;
   }
 
@@ -71,7 +68,6 @@ get_pb_from_freelist(struct xennet_info *xi)
     NdisFreeMemory(pb->virtual, PAGE_SIZE, 0);
     return NULL;
   }
-  InterlockedIncrement(&rx_pb_outstanding);
   pb->ref_count = 1;
   return pb;
 }
@@ -93,7 +89,6 @@ put_pb_on_freelist(struct xennet_info *xi, shared_buffer_t *pb)
     pb->next = NULL;
     stack_push(xi->rx_pb_stack, pb);
     InterlockedIncrement(&xi->rx_pb_free);
-    InterlockedDecrement(&rx_pb_outstanding);
   }
 }
 
@@ -150,11 +145,6 @@ XenNet_FillRing(struct xennet_info *xi)
   return NDIS_STATUS_SUCCESS;
 }
 
-LONG total_allocated_packets = 0;
-LONG dpc_limit_hit = 0;
-LONG resource_packets = 0;
-LARGE_INTEGER last_print_time;
-
 /* lock free */
 static PNDIS_PACKET
 get_packet_from_freelist(struct xennet_info *xi)
@@ -166,7 +156,6 @@ get_packet_from_freelist(struct xennet_info *xi)
   if (stack_pop(xi->rx_packet_stack, &ptr_ref))
   {
     packet = ptr_ref;
-    InterlockedIncrement(&total_allocated_packets);
     return packet;
   }
   
@@ -181,7 +170,6 @@ get_packet_from_freelist(struct xennet_info *xi)
   }
   NDIS_SET_PACKET_HEADER_SIZE(packet, XN_HDR_SIZE);
   NdisZeroMemory(packet->MiniportReservedEx, sizeof(packet->MiniportReservedEx));
-  InterlockedIncrement(&total_allocated_packets);
   return packet;
 }
 
@@ -189,13 +177,9 @@ get_packet_from_freelist(struct xennet_info *xi)
 static VOID
 put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
 {
-  LARGE_INTEGER current_time;
   PNDIS_TCP_IP_CHECKSUM_PACKET_INFO csum_info;
 
   UNREFERENCED_PARAMETER(xi);
-  
-  InterlockedDecrement(&total_allocated_packets);
-
   NdisReinitializePacket(packet);
   RtlZeroMemory(NDIS_PACKET_EXTENSION_FROM_PACKET(packet), sizeof(NDIS_PACKET_EXTENSION));
   csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
@@ -203,13 +187,6 @@ put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
   csum_info->Value = 0;
 
   stack_push(xi->rx_packet_stack, packet);
-
-  KeQuerySystemTime(&current_time);
-  if ((current_time.QuadPart - last_print_time.QuadPart) / 10000 > 5000)
-  {
-    last_print_time.QuadPart = current_time.QuadPart;
-    KdPrint(("total_allocated_packets = %d, rx_outstanding = %d, resource_packets = %d, dpc_limit_hit = %d, rx_pb_outstanding = %d, rx_pb_free = %d\n", total_allocated_packets, xi->rx_outstanding, resource_packets, dpc_limit_hit, rx_pb_outstanding, xi->rx_pb_free));
-  }
 }
 
 static PNDIS_PACKET
@@ -851,8 +828,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   if (packet_count >= MAXIMUM_PACKETS_PER_INTERRUPT || packet_data >= MAXIMUM_DATA_PER_INTERRUPT)
   {
     /* fire again immediately */
-    //KdPrint((__DRIVER_NAME "     Dpc Duration Exceeded\n"));
-    dpc_limit_hit++;
     /* we want the Dpc on the end of the queue. By definition we are already on the right CPU so we know the Dpc queue will be run immediately */
     KeSetImportanceDpc(&xi->rxtx_dpc, MediumImportance);
     KeInsertQueueDpc(&xi->rxtx_dpc, NULL, NULL);
@@ -981,7 +956,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   while (entry != &rx_header_only_packet_list) {
     PNDIS_PACKET packet = CONTAINING_RECORD(entry, NDIS_PACKET, MiniportReservedEx[sizeof(PVOID)]);
     entry = RemoveHeadList(&rx_header_only_packet_list);
-    InterlockedIncrement(&resource_packets);
     XenNet_ReturnPacket(xi, packet);
   }
   return dont_set_event;
