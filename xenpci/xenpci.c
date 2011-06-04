@@ -709,7 +709,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   ASSERT(!balloon_mdl_head);
   balloon_mdl_head = XenPci_InitialBalloonDown();
 
-#if (NTDDI_VERSION >= NTDDI_WS03SP1)  
+#if (NTDDI_VERSION >= NTDDI_WS03SP1)
   dump_page = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
   status = KeInitializeCrashDumpHeader(DUMP_TYPE_FULL, 0, dump_page, PAGE_SIZE, &dump_header_size);
   KdPrint((__DRIVER_NAME "     KeInitializeCrashDumpHeader status = %08x, size = %d\n", status, dump_header_size));

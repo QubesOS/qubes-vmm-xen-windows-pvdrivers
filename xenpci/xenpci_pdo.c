@@ -557,9 +557,8 @@ XenPci_XenShutdownDevice(PVOID context)
   {
     XenPci_ChangeFrontendStateMap(device, xppdd->xb_shutdown_map);
   }
-  else
+  else if (xppdd->backend_state == XenbusStateClosing)
   {
-    if (xppdd->backend_state == XenbusStateClosing)
       XenPci_ChangeFrontendState(device, XenbusStateClosed, XenbusStateClosed, 30000);
   }
 
@@ -903,7 +902,7 @@ XenPci_XenConfigDevice(WDFDEVICE device)
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
 
   src = ExAllocatePoolWithTag(NonPagedPool, xppdd->config_page_length, XENPCI_POOL_TAG);
-  dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
+  dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmCached);
   memcpy(src, dst, xppdd->config_page_length);
   
   status = XenPci_XenConfigDeviceSpecifyBuffers(device, src, dst);
@@ -1088,6 +1087,11 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
     break;
   case WdfPowerDeviceD3:
     KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3\n"));
+    if (xppdd->hiber_usage_kludge)
+    {
+      KdPrint((__DRIVER_NAME "     (but really WdfPowerDevicePrepareForHibernation)\n"));
+      previous_state = WdfPowerDevicePrepareForHibernation;
+    }
     break;
   case WdfPowerDeviceD3Final:
     KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3Final\n"));
@@ -1099,24 +1103,6 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
     KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", previous_state));
     break;  
   }
-
-  if (previous_state == WdfPowerDevicePrepareForHibernation
-      || (previous_state == WdfPowerDeviceD3 && xppdd->hiber_usage_kludge))
-  {
-    KdPrint((__DRIVER_NAME "     starting up from hibernation\n"));
-  }
-  else
-  {
-  }
-
-#if 0
-  if (previous_state == WdfPowerDevicePrepareForHibernation || previous_state == WdfPowerDeviceD3 || previous_state == WdfPowerDeviceD3Final)
-  {
-    xppdd->requested_resources_ptr = xppdd->requested_resources_start;
-    xppdd->assigned_resources_start = xppdd->assigned_resources_ptr = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
-  }
-  XenConfig_InitConfigPage(device);
-#endif
 
   status = XenPci_GetBackendAndAddWatch(device);
   if (!NT_SUCCESS(status))
@@ -1139,10 +1125,10 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
     
     ADD_XEN_INIT_REQ(&xppdd->requested_resources_ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
     src = xppdd->requested_resources_start;
-    xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
+    xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
     xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;
 
-    dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
+    dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmCached);
 
     status = XenPci_XenConfigDeviceSpecifyBuffers(device, src, dst);
 
@@ -1191,6 +1177,11 @@ XenPciPdo_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
     break;
   case WdfPowerDeviceD3:
     KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3\n"));
+    if (xppdd->hiber_usage_kludge)
+    {
+      KdPrint((__DRIVER_NAME "     (but really WdfPowerDevicePrepareForHibernation)\n"));
+      target_state = WdfPowerDevicePrepareForHibernation;
+    }
     break;
   case WdfPowerDeviceD3Final:
     KdPrint((__DRIVER_NAME "     WdfPowerDeviceD3Final\n"));
@@ -1203,10 +1194,10 @@ XenPciPdo_EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target_state)
     break;  
   }
   
-  if (target_state == WdfPowerDevicePrepareForHibernation
-      || (target_state == WdfPowerDeviceD3 && xppdd->hiber_usage_kludge))
+  if (target_state == WdfPowerDevicePrepareForHibernation)
   {
     KdPrint((__DRIVER_NAME "     not powering down as we are hibernating\n"));
+    // should we set the backend state here so it's correct on resume???
   }
   else
   {
@@ -1317,8 +1308,6 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   DECLARE_CONST_UNICODE_STRING(location, L"Xen Bus");
   PXENPCI_PDO_DEVICE_DATA xppdd;
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(WdfChildListGetDevice(child_list));
-  WDF_QUERY_INTERFACE_CONFIG interface_config;
-  BUS_INTERFACE_STANDARD bus_interface;
   WDF_PDO_EVENT_CALLBACKS pdo_callbacks;
   WDF_PNPPOWER_EVENT_CALLBACKS child_pnp_power_callbacks;
   UCHAR pnp_minor_functions[] = { IRP_MN_START_DEVICE };
@@ -1403,7 +1392,7 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   xppdd->wdf_device = child_device;
   xppdd->wdf_device_bus_fdo = WdfChildListGetDevice(child_list);
 
-  xppdd->config_page_mdl = AllocateUncachedPage();
+  xppdd->config_page_mdl = AllocatePage();
 
   xppdd->device_state.magic = XEN_DEVICE_STATE_MAGIC;
   xppdd->device_state.length = sizeof(XENPCI_DEVICE_STATE);
@@ -1436,21 +1425,6 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   child_power_capabilities.DeviceState[PowerSystemHibernate] = PowerDeviceD3;
   child_power_capabilities.DeviceState[PowerSystemShutdown]  = PowerDeviceD3;
   WdfDeviceSetPowerCapabilities(child_device, &child_power_capabilities);  
-
-  status = WdfFdoQueryForInterface(xpdd->wdf_device, &GUID_BUS_INTERFACE_STANDARD, (PINTERFACE)&bus_interface,
-            sizeof(BUS_INTERFACE_STANDARD), 1, NULL);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     WdfFdoQueryForInterface failed - %08x\n", status));
-    return status;
-  }
-  WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&bus_interface, &GUID_BUS_INTERFACE_STANDARD, NULL);
-  status = WdfDeviceAddQueryInterface(child_device, &interface_config);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     WdfDeviceAddQueryInterface failed - %08x\n", status));
-    return status;
-  }
 
   RtlStringCbCopyA(xppdd->path, ARRAY_SIZE(xppdd->path), identification->path);
   RtlStringCbCopyA(xppdd->device, ARRAY_SIZE(xppdd->device), identification->device);
@@ -1586,7 +1560,7 @@ XenPci_Pdo_Resume(WDFDEVICE device)
       xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
       xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;
 
-      dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
+      dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmCached);
 
       status = XenPci_XenConfigDeviceSpecifyBuffers(device, src, dst);
 
