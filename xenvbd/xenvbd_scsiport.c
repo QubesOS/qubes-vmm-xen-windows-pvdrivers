@@ -232,10 +232,6 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
     case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
       qemu_protocol_version = PtrToUlong(value);
       break;
-    case XEN_INIT_TYPE_GRANT_ENTRIES:
-      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_GRANT_ENTRIES - entries = %d\n", PtrToUlong(value)));
-      memcpy(xvdd->dump_grant_refs, value2, PtrToUlong(value) * sizeof(grant_ref_t));
-      break;
     case XEN_INIT_TYPE_QEMU_HIDE_FLAGS:
       qemu_hide_flags_value = PtrToUlong(value);
       KdPrint((__DRIVER_NAME "     qemu_hide_flags_value = %d\n", qemu_hide_flags_value));
@@ -484,17 +480,8 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
     {
       PHYSICAL_ADDRESS physical_address = MmGetPhysicalAddress(ptr);
       
-      if (dump_mode)
-      {
-        gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0,
-                 (ULONG)(physical_address.QuadPart >> PAGE_SHIFT), FALSE,
-                 xvdd->dump_grant_refs[shadow->req.nr_segments], (ULONG)'SCSI');
-      }
-      else
-      {
-        gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0,
-                 (ULONG)(physical_address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF, (ULONG)'SCSI');
-      }
+      gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0,
+               (ULONG)(physical_address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF, (ULONG)'SCSI');
       if (gref == INVALID_GRANT_REF)
       {
         ULONG i;
@@ -1008,16 +995,8 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
           KdPrint((__DRIVER_NAME "     discarding reset shadow\n"));
           for (j = 0; j < shadow->req.nr_segments; j++)
           {
-            if (dump_mode)
-            {
-              xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
-                shadow->req.seg[j].gref, TRUE, (ULONG)'SCSI');
-            }
-            else
-            {
-              xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
-                shadow->req.seg[j].gref, FALSE, (ULONG)'SCSI');
-            }
+            xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
+              shadow->req.seg[j].gref, FALSE, (ULONG)'SCSI');
           }
         }
         else if (dump_mode && !(rep->id & SHADOW_ID_DUMP_FLAG))
@@ -1075,16 +1054,8 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
           }
           for (j = 0; j < shadow->req.nr_segments; j++)
           {
-            if (dump_mode)
-            {
-              xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
-                shadow->req.seg[j].gref, TRUE, (ULONG)'SCSI');
-            }
-            else
-            {
-              xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
-                shadow->req.seg[j].gref, FALSE, (ULONG)'SCSI');
-            }
+            xvdd->vectors.GntTbl_EndAccess(xvdd->vectors.context,
+              shadow->req.seg[j].gref, FALSE, (ULONG)'SCSI');
           }
           ScsiPortNotification(RequestComplete, xvdd, srb);
         }
@@ -1692,7 +1663,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mode", NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sectors", NULL, NULL);
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sector-size", NULL, NULL);
-    ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_GRANT_ENTRIES, ULongToPtr((ULONG)'SCSI'), ULongToPtr(BLKIF_MAX_SEGMENTS_PER_REQUEST), NULL); /* for use in crash dump */
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
     __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
     __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
