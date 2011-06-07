@@ -17,6 +17,8 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
+// STATUS_UNSUCCESSFUL -> STATUS_BAD_INITIAL_PC 
+
 #include "xenusb.h"
 
 /* Not really necessary but keeps PREfast happy */
@@ -31,54 +33,7 @@ static EVT_WDFDEVICE_WDM_IRP_PREPROCESS XenUsb_EvtDeviceWdmIrpPreprocessQUERY_IN
 static EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL XenUsb_EvtIoDeviceControl;
 static EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL XenUsb_EvtIoInternalDeviceControl;
 static EVT_WDF_IO_QUEUE_IO_DEFAULT XenUsb_EvtIoDefault;
-static EVT_WDF_PROGRAM_DMA XenUsb_ExecuteRequestCallback;
-
-static BOOLEAN
-XenUsb_ExecuteRequestCallback(
-  WDFDMATRANSACTION dma_transaction,
-  WDFDEVICE device,
-  PVOID context,
-  WDF_DMA_DIRECTION direction,
-  PSCATTER_GATHER_LIST sg_list)
-{
-  usbif_shadow_t *shadow = context;
-  PXENUSB_DEVICE_DATA xudd = GetXudd(device);
-  ULONG i;
-  int notify;
-  KIRQL old_irql;
-
-  UNREFERENCED_PARAMETER(direction);
-  UNREFERENCED_PARAMETER(dma_transaction);
-
-  //FUNCTION_ENTER();
-
-  shadow->req.buffer_length = 0;
-  for (i = 0; i < sg_list->NumberOfElements; i++)
-  {
-    shadow->req.seg[i].gref = (grant_ref_t)(sg_list->Elements->Address.QuadPart >> PAGE_SHIFT);
-    shadow->req.seg[i].offset = (USHORT)sg_list->Elements->Address.LowPart & (PAGE_SIZE - 1);
-    shadow->req.seg[i].length = (USHORT)sg_list->Elements->Length;
-    shadow->req.buffer_length = shadow->req.buffer_length + (USHORT)sg_list->Elements->Length;
-  }
-  shadow->req.nr_buffer_segs = (USHORT)sg_list->NumberOfElements;
-  //KdPrint((__DRIVER_NAME "     buffer_length = %d\n", shadow->req.buffer_length));
-  //KdPrint((__DRIVER_NAME "     nr_buffer_segs = %d\n", shadow->req.nr_buffer_segs));
-
-  KeAcquireSpinLock(&xudd->urb_ring_lock, &old_irql);
-  *RING_GET_REQUEST(&xudd->urb_ring, xudd->urb_ring.req_prod_pvt) = shadow->req;
-  xudd->urb_ring.req_prod_pvt++;
-  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xudd->urb_ring, notify);
-  if (notify)
-  {
-    //KdPrint((__DRIVER_NAME "     Notifying\n"));
-    xudd->vectors.EvtChn_Notify(xudd->vectors.context, xudd->event_channel);
-  }
-  KeReleaseSpinLock(&xudd->urb_ring_lock, old_irql);
-
-  //FUNCTION_EXIT();
-  
-  return TRUE;
-}
+//static EVT_WDF_PROGRAM_DMA XenUsb_ExecuteRequestCallback;
 
 NTSTATUS
 XenUsb_ExecuteRequest(
@@ -88,10 +43,13 @@ XenUsb_ExecuteRequest(
  PMDL transfer_buffer_mdl,
  ULONG transfer_buffer_length)
 {
-  NTSTATUS status;
+  NTSTATUS status = STATUS_SUCCESS;
   KIRQL old_irql;
   PMDL mdl;
+  int i;
   int notify;
+  ULONG remaining;
+  USHORT offset;
   
   //FUNCTION_ENTER();
   
@@ -100,7 +58,6 @@ XenUsb_ExecuteRequest(
   if (!transfer_buffer_length)
   {
     shadow->mdl = NULL;
-    shadow->dma_transaction = NULL;
     shadow->req.nr_buffer_segs = 0;
     shadow->req.buffer_length = 0;
 
@@ -127,74 +84,40 @@ XenUsb_ExecuteRequest(
   }
   else
   {
-    if (!MmGetMdlVirtualAddress(transfer_buffer_mdl))
-    {
-      /* WdfDmaTransactionInitialize has a bug where it crashes on VirtualAddress == 0 */
-      PVOID addr = MmGetSystemAddressForMdlSafe(transfer_buffer_mdl, LowPagePriority);
-      //KdPrint((__DRIVER_NAME "     Mapping MDL with NULL VA to work around bug in WdfDmaTransactionInitialize\n"));
-      if (!addr)
-      {
-        KdPrint((__DRIVER_NAME "     Could not map MDL\n"));
-        return STATUS_INSUFFICIENT_RESOURCES;
-      }
-      mdl = IoAllocateMdl(addr, transfer_buffer_length, FALSE, FALSE, NULL);
-      ASSERT(mdl);
-      MmBuildMdlForNonPagedPool(mdl);
-      shadow->mdl = mdl;
-    }
-    else
-    {
-      mdl = transfer_buffer_mdl;
-      shadow->mdl = NULL;
-    }
-  }
-  status = WdfDmaTransactionCreate(xudd->dma_enabler, WDF_NO_OBJECT_ATTRIBUTES, &shadow->dma_transaction);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint((__DRIVER_NAME "     WdfDmaTransactionCreate status = %08x\n", status));
-    if (shadow->mdl)
-    {
-      IoFreeMdl(shadow->mdl);
-    }
-    FUNCTION_EXIT();
-    return status;
+    mdl = transfer_buffer_mdl;
+    shadow->mdl = NULL;
   }
 
-  ASSERT(shadow->dma_transaction);  
   ASSERT(mdl);
   ASSERT(transfer_buffer_length);
 
-  status = WdfDmaTransactionInitialize(
-    shadow->dma_transaction,
-    XenUsb_ExecuteRequestCallback,
-    (shadow->req.pipe & LINUX_PIPE_DIRECTION_IN)?WdfDmaDirectionReadFromDevice:WdfDmaDirectionWriteToDevice,
-    mdl,
-    MmGetMdlVirtualAddress(mdl),
-    transfer_buffer_length);
-  if (!NT_SUCCESS(status))
+  remaining = MmGetMdlByteCount(mdl);
+  offset = (USHORT)MmGetMdlByteOffset(mdl);
+  shadow->req.buffer_length = (USHORT)MmGetMdlByteCount(mdl);
+  shadow->req.nr_buffer_segs = (USHORT)ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(mdl), MmGetMdlByteCount(mdl));
+  for (i = 0; i < shadow->req.nr_buffer_segs; i++)
   {
-    KdPrint((__DRIVER_NAME "     WdfDmaTransactionInitialize status = %08x\n", status));
-    WdfObjectDelete(shadow->dma_transaction);
-    if (shadow->mdl)
-    {
-      IoFreeMdl(shadow->mdl);
-    }
-    //FUNCTION_EXIT();
-    return status;
+    shadow->req.seg[i].gref = xudd->vectors.GntTbl_GrantAccess(xudd->vectors.context, 0,
+         (ULONG)MmGetMdlPfnArray(mdl)[i], FALSE, INVALID_GRANT_REF, (ULONG)'XUSB');
+    shadow->req.seg[i].offset = (USHORT)offset;
+    shadow->req.seg[i].length = (USHORT)min(remaining, PAGE_SIZE);
+    offset = 0;
+    remaining -= shadow->req.seg[i].length;
   }
-  WdfDmaTransactionSetMaximumLength(shadow->dma_transaction, (USBIF_MAX_SEGMENTS_PER_REQUEST - 1) * PAGE_SIZE);
-  status = WdfDmaTransactionExecute(shadow->dma_transaction, shadow);
-  if (!NT_SUCCESS(status))
+  //KdPrint((__DRIVER_NAME "     buffer_length = %d\n", shadow->req.buffer_length));
+  //KdPrint((__DRIVER_NAME "     nr_buffer_segs = %d\n", shadow->req.nr_buffer_segs));
+
+  KeAcquireSpinLock(&xudd->urb_ring_lock, &old_irql);
+  *RING_GET_REQUEST(&xudd->urb_ring, xudd->urb_ring.req_prod_pvt) = shadow->req;
+  xudd->urb_ring.req_prod_pvt++;
+  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xudd->urb_ring, notify);
+  if (notify)
   {
-    KdPrint((__DRIVER_NAME "     WdfDmaTransactionExecute status = %08x\n", status));
-    WdfObjectDelete(shadow->dma_transaction);
-    if (shadow->mdl)
-    {
-      IoFreeMdl(shadow->mdl);
-    }
-    //FUNCTION_EXIT();
-    return status;
+    //KdPrint((__DRIVER_NAME "     Notifying\n"));
+    xudd->vectors.EvtChn_Notify(xudd->vectors.context, xudd->event_channel);
   }
+  KeReleaseSpinLock(&xudd->urb_ring_lock, old_irql);
+  
   //FUNCTION_EXIT();
   return status;
 }
@@ -225,6 +148,8 @@ XenUsb_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE(WDFDEVICE device, PIRP irp)
     KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_HUB_GUID\n"));
   else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_USBDI_GUID, sizeof(GUID)) == 0)
     KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_USBDI_GUID\n"));
+  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &GUID_TRANSLATOR_INTERFACE_STANDARD, sizeof(GUID)) == 0)
+    KdPrint((__DRIVER_NAME "     GUID_TRANSLATOR_INTERFACE_STANDARD\n"));
   else
     KdPrint((__DRIVER_NAME "     GUID = %08X-%04X-%04X-%04X-%02X%02X%02X%02X%02X%02X\n",
       stack->Parameters.QueryInterface.InterfaceType->Data1,
@@ -365,33 +290,20 @@ XenUsb_HandleEvent(PVOID context)
   shadow = complete_head;
   while (shadow != NULL)
   {
-    if (shadow->dma_transaction)
+    if (shadow->req.buffer_length)
     {
-      NTSTATUS status;
-      BOOLEAN dma_complete;
-      if (shadow->rsp.status != 0 || shadow->rsp.actual_length != shadow->req.buffer_length)
+      int i;
+      for (i = 0; i < shadow->req.nr_buffer_segs; i++)
       {
-        WdfDmaTransactionDmaCompletedFinal(shadow->dma_transaction, shadow->total_length, &status);
-        WdfObjectDelete(shadow->dma_transaction);
-        if (shadow->mdl)
-        {
-          IoFreeMdl(shadow->mdl);
-        }
-        shadow->callback(shadow);
+        xudd->vectors.GntTbl_EndAccess(xudd->vectors.context,
+          shadow->req.seg[i].gref, FALSE, (ULONG)'XUSB');        
       }
-      else
+      // free grant refs
+      if (shadow->mdl)
       {
-        dma_complete = WdfDmaTransactionDmaCompleted(shadow->dma_transaction, &status);
-        if (dma_complete)
-        {
-          WdfObjectDelete(shadow->dma_transaction);
-          if (shadow->mdl)
-          {
-            IoFreeMdl(shadow->mdl);
-          }
-          shadow->callback(shadow);
-        }
+        IoFreeMdl(shadow->mdl);
       }
+      shadow->callback(shadow);
     }
     else
     {
@@ -431,7 +343,7 @@ XenUsb_StartXenbusInit(PXENUSB_DEVICE_DATA xudd)
         KdPrint((__DRIVER_NAME "     vectors mismatch (magic = %08x, length = %d)\n",
           ((PXENPCI_VECTORS)value)->magic, ((PXENPCI_VECTORS)value)->length));
         KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-        return STATUS_UNSUCCESSFUL;
+        return STATUS_BAD_INITIAL_PC;
       }
       else
         memcpy(&xudd->vectors, value, sizeof(XENPCI_VECTORS));
@@ -501,7 +413,7 @@ XenUsb_CompleteXenbusInit(PXENUSB_DEVICE_DATA xudd)
   {
     KdPrint((__DRIVER_NAME "     Missing settings\n"));
     KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
-    return STATUS_UNSUCCESSFUL;
+    return STATUS_BAD_INITIAL_PC;
   }
   
   xudd->shadow_free = 0;
@@ -875,7 +787,7 @@ XenUsb_EvtIoDeviceControl(
 
   FUNCTION_ENTER();
 
-  status = STATUS_UNSUCCESSFUL;
+  status = STATUS_BAD_INITIAL_PC;
 
   //WDF_REQUEST_PARAMETERS_INIT(&wrp);
   //WdfRequestGetParameters(request, &wrp);
@@ -918,7 +830,7 @@ XenUsb_EvtIoDeviceControl(
         break;
       case UsbMIParent:
         KdPrint((__DRIVER_NAME "      NodeType = UsbMIParent\n"));
-        status = STATUS_UNSUCCESSFUL;
+        status = STATUS_BAD_INITIAL_PC;
         break;
       }
     }
@@ -1087,7 +999,7 @@ XenUsb_EvtIoInternalDeviceControl(
   UNREFERENCED_PARAMETER(input_buffer_length);
   UNREFERENCED_PARAMETER(output_buffer_length);
 
-  //FUNCTION_ENTER();
+  FUNCTION_ENTER();
 
   WDF_REQUEST_PARAMETERS_INIT(&wrp);
   WdfRequestGetParameters(request, &wrp);
@@ -1106,7 +1018,7 @@ XenUsb_EvtIoInternalDeviceControl(
     WdfRequestComplete(request, WdfRequestGetStatus(request));
     break;
   }
-  //FUNCTION_EXIT();
+  FUNCTION_EXIT();
 }
 
 static VOID
@@ -1121,7 +1033,7 @@ XenUsb_EvtIoDefault(
 
   UNREFERENCED_PARAMETER(queue);
 
-  status = STATUS_UNSUCCESSFUL;
+  status = STATUS_BAD_INITIAL_PC;
 
   WDF_REQUEST_PARAMETERS_INIT(&parameters);
   WdfRequestGetParameters(request, &parameters);
@@ -1168,7 +1080,6 @@ XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   WDF_PNPPOWER_EVENT_CALLBACKS pnp_power_callbacks;
   WDF_DEVICE_POWER_CAPABILITIES power_capabilities;
   WDF_IO_QUEUE_CONFIG queue_config;
-  WDF_DMA_ENABLER_CONFIG dma_config;
   UCHAR pnp_minor_functions[] = { IRP_MN_QUERY_INTERFACE };
   
   UNREFERENCED_PARAMETER(driver);
@@ -1218,16 +1129,8 @@ XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
 
   KeInitializeSpinLock(&xudd->urb_ring_lock);
   
-  WdfDeviceSetAlignmentRequirement(device, 0);
-  WDF_DMA_ENABLER_CONFIG_INIT(&dma_config, WdfDmaProfileScatterGather64Duplex, PAGE_SIZE);
-  status = WdfDmaEnablerCreate(device, &dma_config, WDF_NO_OBJECT_ATTRIBUTES, &xudd->dma_enabler);
-  if (!NT_SUCCESS(status))
-  {
-    KdPrint(("Error creating DMA enabler %08x\n", status));
-    return status;
-  }
-
   WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queue_config, WdfIoQueueDispatchParallel);
+  queue_config.PowerManaged = FALSE; /* ? */
   queue_config.EvtIoDeviceControl = XenUsb_EvtIoDeviceControl;
   queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl;
   queue_config.EvtIoDefault = XenUsb_EvtIoDefault;
@@ -1241,7 +1144,7 @@ XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   power_capabilities.DeviceD1 = WdfTrue;
   power_capabilities.WakeFromD1 = WdfTrue;
   power_capabilities.DeviceWake = PowerDeviceD1;
-  power_capabilities.DeviceState[PowerSystemWorking]   = PowerDeviceD1;
+  power_capabilities.DeviceState[PowerSystemWorking]   = PowerDeviceD0;
   power_capabilities.DeviceState[PowerSystemSleeping1] = PowerDeviceD1;
   power_capabilities.DeviceState[PowerSystemSleeping2] = PowerDeviceD2;
   power_capabilities.DeviceState[PowerSystemSleeping3] = PowerDeviceD2;
@@ -1262,8 +1165,6 @@ XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   if (!NT_SUCCESS(status))
     return status;
 
-  //status = WdfDeviceOpenRegistryKey(device, 
-  
   FUNCTION_EXIT();
   return status;
 }

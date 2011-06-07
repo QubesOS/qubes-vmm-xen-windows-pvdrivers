@@ -169,11 +169,11 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
   UNREFERENCED_PARAMETER(output_buffer_length);
   UNREFERENCED_PARAMETER(io_control_code);
 
-  //FUNCTION_ENTER();
+  FUNCTION_ENTER();
 
   ASSERT(io_control_code == IOCTL_INTERNAL_USB_SUBMIT_URB);
 
-  status = STATUS_UNSUCCESSFUL;
+  status = STATUS_ACCESS_VIOLATION; //STATUS_UNSUCCESSFUL;
 
   WDF_REQUEST_PARAMETERS_INIT(&wrp);
   WdfRequestGetParameters(request, &wrp);
@@ -288,7 +288,7 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     shadow->request = request;
     shadow->urb = urb;
     shadow->mdl = NULL;
-    shadow->dma_transaction = NULL;
+    //shadow->dma_transaction = NULL;
     shadow->callback = XenUsb_UrbCallback;
     shadow->req.id = shadow->id;
     shadow->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
@@ -336,7 +336,7 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     shadow->request = request;
     shadow->urb = urb;
     shadow->mdl = NULL;
-    shadow->dma_transaction = NULL;
+    //shadow->dma_transaction = NULL;
     shadow->callback = XenUsb_UrbCallback;
     shadow->req.id = shadow->id;
     shadow->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
@@ -492,7 +492,7 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     {
       KdPrint((__DRIVER_NAME "     Unknown Index\n"));
       urb->UrbHeader.Status = USBD_STATUS_INVALID_URB_FUNCTION;
-      WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
+      WdfRequestComplete(request, STATUS_ACCESS_VIOLATION); //STATUS_UNSUCCESSFUL);
     }    
     break;
   case URB_FUNCTION_CLASS_DEVICE:
@@ -549,7 +549,7 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
       default:
         KdPrint((__DRIVER_NAME "       Unknown Value %02x\n", urb->UrbControlVendorClassRequest.Value >> 8));
         urb->UrbHeader.Status = USBD_STATUS_INVALID_URB_FUNCTION;
-        WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
+        WdfRequestComplete(request, STATUS_ACCESS_VIOLATION); //STATUS_UNSUCCESSFUL);
         break;
       }
       break;
@@ -596,7 +596,7 @@ URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE      KdPrint((__DRIVER_NAME "      Trans
       KdPrint((__DRIVER_NAME "      Index = %04x\n", urb->UrbControlVendorClassRequest.Index));
       KdPrint((__DRIVER_NAME "      USB_REQUEST_%02x\n", urb->UrbControlVendorClassRequest.Request));
       urb->UrbHeader.Status = USBD_STATUS_INVALID_URB_FUNCTION;
-      WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
+      WdfRequestComplete(request, STATUS_ACCESS_VIOLATION); //STATUS_UNSUCCESSFUL);
       break;
     }
 #if 0
@@ -781,9 +781,9 @@ URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE      KdPrint((__DRIVER_NAME "      Trans
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_%04x\n", urb->UrbHeader.Function));
     KdPrint((__DRIVER_NAME "     Calling WdfRequestCompletestatus with status = %08x\n", status));
     urb->UrbHeader.Status = USBD_STATUS_INVALID_URB_FUNCTION;
-    WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
+    WdfRequestComplete(request, STATUS_ACCESS_VIOLATION); //STATUS_UNSUCCESSFUL);
     break;
   }
-  //FUNCTION_EXIT();
+  FUNCTION_EXIT();
 }
 

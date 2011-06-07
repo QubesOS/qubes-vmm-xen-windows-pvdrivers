@@ -97,10 +97,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define LINUX_URB_ZERO_PACKET         0x0040  /* Finish bulk OUT with short packet */
 #define LINUX_URB_NO_INTERRUPT        0x0080  /* HINT: no non-error interrupt needed */
 
+#define PRE_DECLARE_TYPE_TYPEDEF(x) struct _##x; typedef struct _##x x##_t
 
-
+#if 0
 struct _usbif_shadow;
 typedef struct _usbif_shadow usbif_shadow_t;
+#endif
+
+PRE_DECLARE_TYPE_TYPEDEF(usbif_shadow);
 
 struct _usbif_shadow {
   uint16_t id;
@@ -112,7 +116,7 @@ struct _usbif_shadow {
     };
     KEVENT event;
   };
-  WDFDMATRANSACTION dma_transaction;
+  //WDFDMATRANSACTION dma_transaction;
   PMDL mdl;
   ULONG total_length;
   /* called at DISPATCH_LEVEL */
@@ -186,7 +190,7 @@ typedef struct
 typedef struct {  
   BOOLEAN XenBus_ShuttingDown;
   WDFQUEUE io_queue;
-  WDFDMAENABLER dma_enabler;
+  //WDFDMAENABLER dma_enabler;
   
   WDFCHILDLIST child_list;
   
@@ -329,5 +333,22 @@ XenUsb_ExecuteRequest(
   PVOID transfer_buffer,
   PMDL transfer_buffer_mdl,
   ULONG transfer_buffer_length);
- 
+
+#define URB_DECODE_UNKNOWN     0 /* URB is unknown */
+#define URB_DECODE_COMPLETE    1 /* URB is decoded and no further work should be required */
+#define URB_DECODE_INCOMPLETE  2 /* URB is decoded but further work is required */
+#define URB_DECODE_NOT_CONTROL 3 /* URB is known but not a control packet */
+
+typedef struct {
+  PULONG length;
+  PVOID buffer;
+  union {
+    USB_DEFAULT_PIPE_SETUP_PACKET default_pipe_setup_packet;
+    UCHAR raw[8];
+  } setup_packet;
+} urb_decode_t;
+
+ULONG
+XenUsb_DecodeControlUrb(PURB urb, urb_decode_t *decode_data);
+  
 #endif
