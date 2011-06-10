@@ -51,9 +51,10 @@ XenUsb_ExecuteRequest(
   ULONG remaining;
   USHORT offset;
   
-  //FUNCTION_ENTER();
+  FUNCTION_ENTER();
+  FUNCTION_MSG("IRQL = %d\n", KeGetCurrentIrql());
   
-  //KdPrint((__DRIVER_NAME "     transfer_buffer_length = %d\n", transfer_buffer_length));
+  KdPrint((__DRIVER_NAME "     transfer_buffer_length = %d\n", transfer_buffer_length));
   shadow->total_length = 0;
   if (!transfer_buffer_length)
   {
@@ -71,7 +72,7 @@ XenUsb_ExecuteRequest(
       xudd->vectors.EvtChn_Notify(xudd->vectors.context, xudd->event_channel);
     }
     KeReleaseSpinLock(&xudd->urb_ring_lock, old_irql);
-    //FUNCTION_EXIT();
+    FUNCTION_EXIT();
     return STATUS_SUCCESS;
   }
   ASSERT(transfer_buffer || transfer_buffer_mdl);
@@ -104,8 +105,8 @@ XenUsb_ExecuteRequest(
     offset = 0;
     remaining -= shadow->req.seg[i].length;
   }
-  //KdPrint((__DRIVER_NAME "     buffer_length = %d\n", shadow->req.buffer_length));
-  //KdPrint((__DRIVER_NAME "     nr_buffer_segs = %d\n", shadow->req.nr_buffer_segs));
+  KdPrint((__DRIVER_NAME "     buffer_length = %d\n", shadow->req.buffer_length));
+  KdPrint((__DRIVER_NAME "     nr_buffer_segs = %d\n", shadow->req.nr_buffer_segs));
 
   KeAcquireSpinLock(&xudd->urb_ring_lock, &old_irql);
   *RING_GET_REQUEST(&xudd->urb_ring, xudd->urb_ring.req_prod_pvt) = shadow->req;
@@ -118,7 +119,7 @@ XenUsb_ExecuteRequest(
   }
   KeReleaseSpinLock(&xudd->urb_ring_lock, old_irql);
   
-  //FUNCTION_EXIT();
+  FUNCTION_EXIT();
   return status;
 }
 
@@ -249,23 +250,23 @@ XenUsb_HandleEvent(PVOID context)
       KdPrint((__DRIVER_NAME "     conn_rsp->portnum = %d\n", conn_rsp->portnum));
       KdPrint((__DRIVER_NAME "     conn_rsp->speed = %d\n", conn_rsp->speed));
       
-      xudd->ports[conn_rsp->portnum].port_type = conn_rsp->speed;
+      xudd->ports[conn_rsp->portnum - 1].port_type = conn_rsp->speed;
       switch (conn_rsp->speed)
       {
       case USB_PORT_TYPE_NOT_CONNECTED:
-        xudd->ports[conn_rsp->portnum].port_status = (1 << PORT_ENABLE);
+        xudd->ports[conn_rsp->portnum - 1].port_status = 0; //(1 << PORT_ENABLE);
         break;
       case USB_PORT_TYPE_LOW_SPEED:
-        xudd->ports[conn_rsp->portnum].port_status = (1 << PORT_LOW_SPEED) | (1 << PORT_CONNECTION) | (1 << PORT_ENABLE);
+        xudd->ports[conn_rsp->portnum - 1].port_status = (1 << PORT_LOW_SPEED) | (1 << PORT_CONNECTION); // | (1 << PORT_ENABLE);
         break;
       case USB_PORT_TYPE_FULL_SPEED:
-        xudd->ports[conn_rsp->portnum].port_status = (1 << PORT_CONNECTION) | (1 << PORT_ENABLE);
+        xudd->ports[conn_rsp->portnum - 1].port_status = (1 << PORT_CONNECTION); // | (1 << PORT_ENABLE);
         break;
       case USB_PORT_TYPE_HIGH_SPEED:
-        xudd->ports[conn_rsp->portnum].port_status = (1 << PORT_HIGH_SPEED) | (1 << PORT_CONNECTION) | (1 << PORT_ENABLE);
+        xudd->ports[conn_rsp->portnum - 1].port_status = (1 << PORT_HIGH_SPEED) | (1 << PORT_CONNECTION); // | (1 << PORT_ENABLE);
         break;
       }      
-      xudd->ports[conn_rsp->portnum].port_change |= (1 << PORT_CONNECTION);
+      xudd->ports[conn_rsp->portnum - 1].port_change |= (1 << PORT_CONNECTION);
       
       // notify pending interrupt urb?
       
@@ -746,7 +747,7 @@ XenUsb_EvtChildListScanForChildren(WDFCHILDLIST child_list)
   {
     xudd->ports[i].port_number = i + 1;
     xudd->ports[i].port_type = USB_PORT_TYPE_NOT_CONNECTED;
-    xudd->ports[i].port_status = 1 << PORT_ENABLE;
+    xudd->ports[i].port_status = 0; //1 << PORT_ENABLE;
     xudd->ports[i].port_change = 0x0000;
   }  
 
@@ -875,13 +876,15 @@ XenUsb_EvtIoDeviceControl(
   {
     PUSB_HCD_DRIVERKEY_NAME uhdn;
     size_t length;
-    ULONG required_length = 0;
+    ULONG required_length = sizeof(USB_HCD_DRIVERKEY_NAME);
     
     KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_ROOT_HUB_NAME\n"));
     KdPrint((__DRIVER_NAME "      output_buffer_length = %d\n", output_buffer_length));
       
     if (output_buffer_length < sizeof(USB_HCD_DRIVERKEY_NAME))
+    {
       status = STATUS_BUFFER_TOO_SMALL;
+    }
     else
     {
       status = WdfRequestRetrieveOutputBuffer(request, output_buffer_length, (PVOID *)&uhdn, &length);
@@ -900,11 +903,21 @@ XenUsb_EvtIoDeviceControl(
           symbolic_link.Buffer += 4;
           symbolic_link.Length -= 4 * sizeof(WCHAR);
           required_length = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + symbolic_link.Length + sizeof(WCHAR);
-          uhdn->ActualLength = required_length;
+          FUNCTION_MSG("output_buffer_length = %d\n", output_buffer_length);
+          FUNCTION_MSG("required_length = %d\n", required_length);
           if (output_buffer_length >= required_length)
           {
+            uhdn->ActualLength = required_length;
             memcpy(uhdn->DriverKeyName, symbolic_link.Buffer, symbolic_link.Length);
             uhdn->DriverKeyName[symbolic_link.Length / 2] = 0;
+            WdfRequestSetInformation(request, required_length);
+          }
+          else
+          {
+            uhdn->ActualLength = required_length;
+            uhdn->DriverKeyName[0] = 0;
+            status = STATUS_SUCCESS;
+            WdfRequestSetInformation(request, output_buffer_length);
           }
         }
         else
@@ -919,7 +932,6 @@ XenUsb_EvtIoDeviceControl(
       }
       KdPrint((__DRIVER_NAME "      uhdn->ActualLength = %d\n", uhdn->ActualLength));
       KdPrint((__DRIVER_NAME "      uhdn->DriverKeyName = %S\n", uhdn->DriverKeyName));
-      WdfRequestSetInformation(request, required_length);
     }
     break;
   }
@@ -927,7 +939,7 @@ XenUsb_EvtIoDeviceControl(
   {
     PUSB_HCD_DRIVERKEY_NAME uhdn;
     size_t length;
-    ULONG required_length = 0;
+    ULONG required_length = sizeof(USB_HCD_DRIVERKEY_NAME);
     
     KdPrint((__DRIVER_NAME "     IOCTL_GET_HCD_DRIVERKEY_NAME\n"));
     KdPrint((__DRIVER_NAME "      output_buffer_length = %d\n", output_buffer_length));
@@ -943,26 +955,30 @@ XenUsb_EvtIoDeviceControl(
         status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 0, NULL, &key_length);
         KdPrint((__DRIVER_NAME "      key_length = %d\n", key_length));
         status = STATUS_SUCCESS;
-        required_length = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + key_length;
+        required_length = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + key_length + 2;
         uhdn->ActualLength = required_length;
+        FUNCTION_MSG("output_buffer_length = %d\n", output_buffer_length);
+        FUNCTION_MSG("required_length = %d\n", required_length);
         if (output_buffer_length >= required_length)
         {
           status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 
             required_length - FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName), uhdn->DriverKeyName,
             &key_length);
+          WdfRequestSetInformation(request, required_length);
         }
         else
         {
           uhdn->DriverKeyName[0] = 0;
+          status = STATUS_SUCCESS;
+          WdfRequestSetInformation(request, output_buffer_length);
         }
+        FUNCTION_MSG(" uhdn->ActualLength = %d\n", uhdn->ActualLength);
+        FUNCTION_MSG(" uhdn->DriverKeyName = %S\n", uhdn->DriverKeyName);
       }
       else
       {
         KdPrint((__DRIVER_NAME "     WdfRequestRetrieveOutputBuffer = %08x\n", status));
       }
-      KdPrint((__DRIVER_NAME "      uhdn->ActualLength = %d\n", uhdn->ActualLength));
-      KdPrint((__DRIVER_NAME "      uhdn->DriverKeyName = %S\n", uhdn->DriverKeyName));
-      WdfRequestSetInformation(request, required_length);
     }
     break;
   }
@@ -1007,11 +1023,17 @@ XenUsb_EvtIoInternalDeviceControl(
   switch(io_control_code)
   {
   case IOCTL_INTERNAL_USB_SUBMIT_URB:
+    FUNCTION_MSG("IOCTL_INTERNAL_USB_SUBMIT_URB\n");
     urb = (PURB)wrp.Parameters.Others.Arg1;
+    FUNCTION_MSG("urb = %p\n", urb);
     ASSERT(urb);
     usb_device = urb->UrbHeader.UsbdDeviceHandle;
+    FUNCTION_MSG("usb_device = %p\n", usb_device);
     ASSERT(usb_device);
-    WdfRequestForwardToIoQueue(request, usb_device->urb_queue);
+    if (usb_device == (ULONG_PTR)0 - 1)
+      WdfRequestComplete(request, STATUS_INVALID_PARAMETER);
+    else
+      WdfRequestForwardToIoQueue(request, usb_device->urb_queue);
     break;
   default:
     KdPrint((__DRIVER_NAME "     Unknown IOCTL %08x\n", io_control_code));

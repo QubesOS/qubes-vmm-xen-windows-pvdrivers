@@ -27,7 +27,7 @@ XenUsb_DecodeControlUrb(PURB urb, urb_decode_t *decode_data)
 {
   ULONG retval;
   
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
   switch(urb->UrbHeader.Function)
   {
   case URB_FUNCTION_SELECT_CONFIGURATION:
@@ -76,12 +76,32 @@ XenUsb_DecodeControlUrb(PURB urb, urb_decode_t *decode_data)
     decode_data->length = &urb->UrbControlTransfer.TransferBufferLength;
     retval = URB_DECODE_COMPLETE;
     break;
+  case URB_FUNCTION_CLASS_DEVICE: /* CONTROL_TRANSFER has same underlying format as FUNCTION_CLASS_XXX */
+FUNCTION_MSG("Function = %04x, RequestTypeReservedBits = %02x\n", urb->UrbHeader.Function, urb->UrbControlVendorClassRequest.RequestTypeReservedBits);
+  case URB_FUNCTION_CLASS_OTHER:
+  //case URB_FUNCTION_GET_STATUS_FROM_DEVICE: // seems to be missing fields...
   case URB_FUNCTION_CONTROL_TRANSFER:
+#if (NTDDI_VERSION >= NTDDI_VISTA)  
   case URB_FUNCTION_CONTROL_TRANSFER_EX:
-    KdPrint((__DRIVER_NAME "     URB_FUNCTION_CONTROL_TRANSFER\n"));
+#endif
+
+    //KdPrint((__DRIVER_NAME "     URB_FUNCTION_CONTROL_TRANSFER\n"));
     decode_data->buffer = urb->UrbControlTransfer.TransferBuffer;
     decode_data->length = &urb->UrbControlTransfer.TransferBufferLength;
     memcpy(decode_data->setup_packet.raw, urb->UrbControlTransfer.SetupPacket, sizeof(decode_data->setup_packet.raw));
+    retval = URB_DECODE_COMPLETE;
+    break;
+  case URB_FUNCTION_GET_STATUS_FROM_DEVICE:
+    KdPrint((__DRIVER_NAME "     URB_FUNCTION_GET_STATUS_FROM_DEVICE\n"));
+    decode_data->setup_packet.default_pipe_setup_packet.bmRequestType.Recipient = BMREQUEST_TO_DEVICE;
+    decode_data->setup_packet.default_pipe_setup_packet.bmRequestType.Type = BMREQUEST_STANDARD;
+    decode_data->setup_packet.default_pipe_setup_packet.bmRequestType.Dir = BMREQUEST_DEVICE_TO_HOST;
+    decode_data->setup_packet.default_pipe_setup_packet.bRequest = USB_REQUEST_GET_STATUS;
+    decode_data->setup_packet.default_pipe_setup_packet.wLength = 0;
+    decode_data->setup_packet.default_pipe_setup_packet.wValue.W = 0;
+    decode_data->setup_packet.default_pipe_setup_packet.wIndex.W = urb->UrbControlGetStatusRequest.Index;
+    decode_data->buffer = urb->UrbControlTransfer.TransferBuffer;
+    decode_data->length = &urb->UrbControlTransfer.TransferBufferLength;
     retval = URB_DECODE_COMPLETE;
     break;
 #if 0
@@ -241,7 +261,7 @@ XenUsb_DecodeControlUrb(PURB urb, urb_decode_t *decode_data)
       case PORT_RESET:
         KdPrint((__DRIVER_NAME "        PORT_RESET\n"));
         /* just fake the reset */
-        xudd->ports[urb->UrbControlVendorClassRequest.Index - 1].port_change |= (1 << PORT_RESET);
+        xudd->ports[urb->UrbControlVendorClassRequest.Index - 1].port_change |= (1 << C_PORT_RESET);
         break;
       default:
         KdPrint((__DRIVER_NAME "        Unknown Value %04X\n", urb->UrbControlVendorClassRequest.Value));
@@ -258,11 +278,11 @@ XenUsb_DecodeControlUrb(PURB urb, urb_decode_t *decode_data)
       {
       case C_PORT_CONNECTION:
         KdPrint((__DRIVER_NAME "        C_PORT_CONNECTION\n"));
-        xudd->ports[urb->UrbControlVendorClassRequest.Index - 1].port_change &= ~(1 << PORT_CONNECTION);
+        xudd->ports[urb->UrbControlVendorClassRequest.Index - 1].port_change &= ~(1 << C_PORT_CONNECTION);
         break;
       case C_PORT_RESET:
         KdPrint((__DRIVER_NAME "        C_PORT_RESET\n"));
-        xudd->ports[urb->UrbControlVendorClassRequest.Index - 1].port_change &= ~(1 << PORT_RESET);
+        xudd->ports[urb->UrbControlVendorClassRequest.Index - 1].port_change &= ~(1 << C_PORT_RESET);
         break;
       default:
         KdPrint((__DRIVER_NAME "        Unknown Value %04X\n", urb->UrbControlVendorClassRequest.Value));
@@ -384,15 +404,15 @@ XenUsb_DecodeControlUrb(PURB urb, urb_decode_t *decode_data)
 #endif
   case URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL:
   case URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER:
-    FUNCTION_MSG("NOT_CONTROL URB_FUNCTION_%04x\n", urb->UrbHeader.Function);
+    //FUNCTION_MSG("NOT_CONTROL URB_FUNCTION_%04x\n", urb->UrbHeader.Function);
     retval = URB_DECODE_NOT_CONTROL;
     break;
   default:
-    FUNCTION_MSG("URB_FUNCTION_%04x\n", urb->UrbHeader.Function);
+    FUNCTION_MSG("Unknown URB_FUNCTION_%04x\n", urb->UrbHeader.Function);
     retval = URB_DECODE_UNKNOWN;
     break;
   }
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
   return retval;
 }
 

@@ -17,8 +17,6 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
-// STATUS_UNSUCCESSUFL -> STATUS_BAD_INITIAL_STACK 
-
 #include "xenusb.h"
 #include <stdlib.h>
 #include <usbioctl.h>
@@ -74,6 +72,10 @@ XenUsbHub_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE(WDFDEVICE device, PIRP irp)
     KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_USBDI_GUID\n"));
   else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &GUID_TRANSLATOR_INTERFACE_STANDARD, sizeof(GUID)) == 0)
     KdPrint((__DRIVER_NAME "     GUID_TRANSLATOR_INTERFACE_STANDARD\n"));
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &GUID_PNP_LOCATION_INTERFACE, sizeof(GUID)) == 0)
+    KdPrint((__DRIVER_NAME "     GUID_PNP_LOCATION_INTERFACE\n"));
+#endif
   else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_HUB_MINIDUMP_GUID, sizeof(GUID)) == 0)
     KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_HUB_MINIDUMP_GUID\n"));
   else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_HUB_SS_GUID, sizeof(GUID)) == 0)
@@ -115,7 +117,7 @@ XenUsbHub_EvtIoDefault(
 
   UNREFERENCED_PARAMETER(queue);
 
-  status = STATUS_BAD_INITIAL_STACK;
+  status = STATUS_UNSUCCESSFUL;
 
   WDF_REQUEST_PARAMETERS_INIT(&parameters);
   WdfRequestGetParameters(request, &parameters);
@@ -235,7 +237,7 @@ XenUsbHub_EvtIoDeviceControl(
     KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX\n"));
     break;
   case IOCTL_GET_HCD_DRIVERKEY_NAME:
-    KdPrint((__DRIVER_NAME "     IOCTL_GET_HCD_DRIVERKEY_NAME\n"));
+    KdPrint((__DRIVER_NAME "     IOCTL_GET_HCD_DRIVERKEY_NAME (***)\n"));
     break;
   default:
     KdPrint((__DRIVER_NAME "     Unknown IOCTL %08x\n", io_control_code));
@@ -261,14 +263,18 @@ XenUsbHub_EvtIoInternalDeviceControl(
   WDF_REQUEST_PARAMETERS wrp;
   PURB urb;
   PUSB_START_FAILDATA usfd;
+#if (NTDDI_VERSION >= NTDDI_VISTA)
   PHUB_DEVICE_CONFIG_INFO hdci;
   PUSB_TOPOLOGY_ADDRESS uta;
+  PUSB_HUB_NAME uhn;
+#endif
   xenusb_device_t *usb_device;
+  ULONG length;
 
   UNREFERENCED_PARAMETER(input_buffer_length);
   UNREFERENCED_PARAMETER(output_buffer_length);
 
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
 
   status = STATUS_UNSUCCESSFUL;
 
@@ -296,11 +302,17 @@ XenUsbHub_EvtIoInternalDeviceControl(
     (*(PULONG)wrp.Parameters.Others.Arg1)++;
     status = STATUS_SUCCESS;
     break;
+#if (NTDDI_VERSION >= NTDDI_VISTA)
   case IOCTL_INTERNAL_USB_GET_HUB_NAME:
     KdPrint((__DRIVER_NAME "     IOCTL_INTERNAL_USB_GET_HUB_NAME\n"));
+    status = WdfRequestRetrieveOutputBuffer(request, output_buffer_length, (PVOID *)&uhn, &length);
+    uhn->ActualLength = sizeof(USB_HUB_NAME);
+    uhn->HubName[0] = 0;
+    status = STATUS_SUCCESS;
     break;
+#endif
   case IOCTL_INTERNAL_USB_GET_PORT_STATUS:
-    KdPrint((__DRIVER_NAME "     IOCTL_INTERNAL_USB_GET_PORT_STATUS\n"));
+    //FUNCTION_MSG("IOCTL_INTERNAL_USB_GET_PORT_STATUS\n");
     *(PULONG)wrp.Parameters.Others.Arg1 = USBD_PORT_ENABLED | USBD_PORT_CONNECTED; /* enabled and connected */
     status = STATUS_SUCCESS;
     break;
@@ -320,7 +332,7 @@ XenUsbHub_EvtIoInternalDeviceControl(
     KdPrint((__DRIVER_NAME "     IOCTL_INTERNAL_USB_SUBMIT_IDLE_NOTIFICATION\n"));
     break;
   case IOCTL_INTERNAL_USB_SUBMIT_URB:
-    KdPrint((__DRIVER_NAME "     IOCTL_INTERNAL_USB_SUBMIT_URB\n"));
+    //KdPrint((__DRIVER_NAME "     IOCTL_INTERNAL_USB_SUBMIT_URB\n"));
     urb = (PURB)wrp.Parameters.Others.Arg1;
     ASSERT(urb);
     usb_device = urb->UrbHeader.UsbdDeviceHandle;
@@ -333,6 +345,7 @@ XenUsbHub_EvtIoInternalDeviceControl(
     *(PVOID *)wrp.Parameters.Others.Arg1 = xupdd->usb_device;
     status = STATUS_SUCCESS;
     break;
+#if (NTDDI_VERSION >= NTDDI_VISTA)
   case IOCTL_INTERNAL_USB_GET_DEVICE_HANDLE_EX: /* incomplete probably */
     FUNCTION_MSG("IOCTL_INTERNAL_USB_GET_DEVICE_HANDLE_EX (returning %p)\n", xupdd->usb_device);
     *(PVOID *)wrp.Parameters.Others.Arg1 = xupdd->usb_device;
@@ -383,15 +396,17 @@ XenUsbHub_EvtIoInternalDeviceControl(
     FUNCTION_MSG(" DriverData[5] = %S\n", &usfd->DriverData[5]);
     status = STATUS_SUCCESS;
     break;  
+#endif
   default:
     FUNCTION_MSG("Unknown IOCTL %08x\n", io_control_code);
     break;
   }  
 
-  FUNCTION_MSG("Calling WdfRequestComplete with status = %08x\n", status);
+  if (status != STATUS_SUCCESS)
+    FUNCTION_MSG("Calling WdfRequestComplete with status = %08x\n", status);
   WdfRequestComplete(request, status);
 
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
 }
 
 static NTSTATUS
@@ -561,11 +576,11 @@ XenUsbHub_UBIH_CreateUsbDevice(
   USHORT PortNumber)
 {
   NTSTATUS status = STATUS_SUCCESS;
+  xenusb_device_t *usb_device;
   
   UNREFERENCED_PARAMETER(BusContext);  
   UNREFERENCED_PARAMETER(HubDeviceHandle);
   UNREFERENCED_PARAMETER(PortStatus);
-  UNREFERENCED_PARAMETER(PortNumber);
   
   FUNCTION_ENTER();
 
@@ -576,8 +591,10 @@ XenUsbHub_UBIH_CreateUsbDevice(
   KdPrint((__DRIVER_NAME "     *HubDeviceHandle = %p\n", *HubDeviceHandle));
   KdPrint((__DRIVER_NAME "     PortStatus = %04X\n", PortStatus));
   KdPrint((__DRIVER_NAME "     PortNumber = %d\n", PortNumber));
-  *DeviceHandle = ExAllocatePoolWithTag(NonPagedPool, sizeof(xenusb_device_t), XENUSB_POOL_TAG);
-  
+  usb_device = ExAllocatePoolWithTag(NonPagedPool, sizeof(xenusb_device_t), XENUSB_POOL_TAG);
+  usb_device->port_number = PortNumber;
+  *DeviceHandle = usb_device;  
+
   FUNCTION_EXIT();
   return status;
 }
@@ -618,10 +635,9 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   KdPrint((__DRIVER_NAME "     usb_device = %p\n", usb_device));
   usb_device->pdo_device = BusContext;
   
-  // get address from freelist and assign it to the device...
+  // TODO: get address from freelist and assign it to the device...
   usb_device->address = 2;
-  // and get this stuff properly...
-  usb_device->port_number = 1;
+  // TODO: get this stuff properly ...
   xupdd->usb_device->device_speed = UsbHighSpeed;
   xupdd->usb_device->device_type = Usb20Device;
 
@@ -792,7 +808,7 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   usb_device->active_config = usb_device->configs[0];
   usb_device->active_interface = usb_device->configs[0]->interfaces[0];
 
-  WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchParallel);
+  WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchParallel); // should this be serial?
   queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB;
   queue_config.PowerManaged = TRUE; /* power managed queue for SUBMIT_URB */
   status = WdfIoQueueCreate(xupdd->wdf_device_bus_fdo, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &usb_device->urb_queue);
@@ -841,6 +857,7 @@ XenUsbHub_UBIH_GetUsbDescriptors(
   KdPrint((__DRIVER_NAME "     memcpy(%p, %p, %d)\n", ptr, &usb_config->config_descriptor, sizeof(USB_CONFIGURATION_DESCRIPTOR)));
   memcpy(ptr, &usb_config->config_descriptor, sizeof(USB_CONFIGURATION_DESCRIPTOR));
   ptr += sizeof(USB_CONFIGURATION_DESCRIPTOR);
+  ((PUSB_CONFIGURATION_DESCRIPTOR)ConfigDescriptorBuffer)->wTotalLength += 1;
 #if 0
   for (i = 0; i < usb_config->config_descriptor.bNumInterfaces; i++)
   {
@@ -890,7 +907,7 @@ XenUsbHub_UBIH_RestoreUsbDevice(
   PUSB_DEVICE_HANDLE OldDeviceHandle,
   PUSB_DEVICE_HANDLE NewDeviceHandle)
 {
-  NTSTATUS status = STATUS_BAD_INITIAL_STACK;
+  NTSTATUS status = STATUS_UNSUCCESSFUL;
 
   UNREFERENCED_PARAMETER(BusContext);
   UNREFERENCED_PARAMETER(OldDeviceHandle);
@@ -907,7 +924,7 @@ XenUsbHub_UBIH_GetPortHackFlags(
  PVOID BusContext,
  PULONG HackFlags)
 {
-  NTSTATUS status = STATUS_BAD_INITIAL_STACK;
+  NTSTATUS status = STATUS_UNSUCCESSFUL;
 
   UNREFERENCED_PARAMETER(BusContext);
   UNREFERENCED_PARAMETER(HackFlags);
@@ -980,7 +997,7 @@ XenUsbHub_UBIH_GetControllerInformation (
   ULONG ControllerInformationBufferLength,
   PULONG LengthOfDataReturned)
 {
-  NTSTATUS status = STATUS_BAD_INITIAL_STACK;
+  NTSTATUS status = STATUS_UNSUCCESSFUL;
   PUSB_CONTROLLER_INFORMATION_0 uci = ControllerInformationBuffer;
   //WDFDEVICE device = BusContext;
   //xenusb_device_t *usb_device = DeviceHandle;
@@ -1020,7 +1037,7 @@ XenUsbHub_UBIH_ControllerSelectiveSuspend (
   PVOID BusContext,
   BOOLEAN Enable)
 {
-  NTSTATUS status = STATUS_BAD_INITIAL_STACK;
+  NTSTATUS status = STATUS_UNSUCCESSFUL;
 
   UNREFERENCED_PARAMETER(BusContext);
   UNREFERENCED_PARAMETER(Enable);
@@ -1058,13 +1075,15 @@ XenUsbHub_UBIH_GetExtendedHubInformation (
     FUNCTION_EXIT();
     return STATUS_BUFFER_TOO_SMALL;
   }
+#if 0
   if (hib->InformationLevel != 0)
   {
     KdPrint((__DRIVER_NAME "     STATUS_NOT_SUPPORTED\n"));
     FUNCTION_EXIT();
     return STATUS_NOT_SUPPORTED;
   }
-  //hib->InformationLevel = 0;
+#endif
+  hib->InformationLevel = 0;
   hib->NumberOfPorts = 8;
   for (i = 0; i < hib->NumberOfPorts; i++)
   {
@@ -1326,7 +1345,7 @@ XenUsbHub_UBIH_GetDevicePerformanceInfo(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1336,7 +1355,7 @@ XenUsbHub_UBIH_WaitAsyncPowerUp(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1348,7 +1367,7 @@ XenUsbHub_UBIH_GetDeviceAddress(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1361,7 +1380,7 @@ XenUsbHub_UBIH_RefDeviceHandle(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1405,7 +1424,7 @@ XenUsbHub_UBIH_CreateUsbDeviceV7(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1417,7 +1436,7 @@ XenUsbHub_UBIH_GetContainerIdForPort(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1429,7 +1448,7 @@ XenUsbHub_UBIH_SetContainerIdForPort(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1440,7 +1459,7 @@ XenUsbHub_UBIH_AbortAllDevicePipes(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static VOID
@@ -1462,7 +1481,7 @@ XenUsbHub_UBIU_GetUSBDIVersion(
   PULONG HcdCapabilities
   )
 {
-  NTSTATUS status = STATUS_BAD_INITIAL_STACK;
+  NTSTATUS status = STATUS_UNSUCCESSFUL;
 
   UNREFERENCED_PARAMETER(BusContext);
   UNREFERENCED_PARAMETER(VersionInformation);
@@ -1480,13 +1499,14 @@ XenUsbHub_UBIU_QueryBusTime(
   PULONG CurrentFrame
   )
 {
-  NTSTATUS status = STATUS_BAD_INITIAL_STACK;
-
+  NTSTATUS status = STATUS_SUCCESS;
+  static ULONG frame_no = 0;
+  
   UNREFERENCED_PARAMETER(BusContext);
   UNREFERENCED_PARAMETER(CurrentFrame);
   
   FUNCTION_ENTER();
-
+  *CurrentFrame = frame_no++;
   FUNCTION_EXIT();
   return status;
 }
@@ -1497,7 +1517,7 @@ XenUsbHub_UBIU_SubmitIsoOutUrb(
   PURB Urb
   )
 {
-  NTSTATUS status = STATUS_BAD_INITIAL_STACK;
+  NTSTATUS status = STATUS_UNSUCCESSFUL;
 
   UNREFERENCED_PARAMETER(BusContext);
   UNREFERENCED_PARAMETER(Urb);
@@ -1516,7 +1536,7 @@ XenUsbHub_UBIU_QueryBusInformation(
   PULONG BusInformationBufferLength,
   PULONG BusInformationActualLength)
 {
-  NTSTATUS status = STATUS_BAD_INITIAL_STACK;
+  NTSTATUS status = STATUS_UNSUCCESSFUL;
 
   UNREFERENCED_PARAMETER(BusContext);
   UNREFERENCED_PARAMETER(Level);
@@ -1577,7 +1597,7 @@ XenUsbHub_UBIU_QueryBusTimeEx(
   UNREFERENCED_PARAMETER(HighSpeedFrameCounter);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1594,7 +1614,7 @@ XenUsbHub_UBIU_QueryControllerType(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1604,7 +1624,7 @@ XenUsbHub_UBIHSS_SuspendHub(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1614,59 +1634,8 @@ XenUsbHub_UBIHSS_ResumeHub(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_BAD_INITIAL_STACK;
+  return STATUS_UNSUCCESSFUL;
 }
-
-#if 0
-VOID
-XenUsb_EnumeratePorts(WDFDEVICE device)
-{
-  PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(device);
-  PXENUSB_DEVICE_DATA xudd = GetXudd(xupdd->wdf_device_bus_fdo);
-  CHAR path[128];
-  PCHAR err;
-  PCHAR value;
-  ULONG i;
-  
-  for (i = 0; i < xudd->num_ports; i++)
-  {
-    ULONG port_value;
-    RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/port-%d", xudd->vectors.backend_path, i + 1);
-    err = xudd->vectors.XenBus_Read(xudd->vectors.context, XBT_NIL, path, &value);
-    if (err)
-    {
-      XenPci_FreeMem(err);
-      KdPrint((__DRIVER_NAME "     Failed to read port-%d\n", i + 1));
-      continue;
-    }
-    // 0=disconnected, 1=low_speed, 2=full_speed, 3= high_speed
-    port_value = (ULONG)parse_numeric_string(value);
-    XenPci_FreeMem(value);
-    KdPrint((__DRIVER_NAME "     port-%d : %d -> %d\n", i, xudd->ports[i].port_type, port_value));
-    if (port_value != xudd->ports[i].port_type)
-    {
-      xudd->ports[i].port_type = port_value;
-      // need to do more than this - probably flush everything and ensure no more activity to the new port until it is set up...
-      switch (port_value)
-      {
-      case USB_PORT_TYPE_NOT_CONNECTED:
-        xudd->ports[i].port_status = (1 << PORT_ENABLE);
-        break;
-      case USB_PORT_TYPE_LOW_SPEED:
-        xudd->ports[i].port_status = (1 << PORT_LOW_SPEED) | (1 << PORT_CONNECTION) | (1 << PORT_ENABLE);
-        break;
-      case USB_PORT_TYPE_FULL_SPEED:
-        xudd->ports[i].port_status = (1 << PORT_CONNECTION) | (1 << PORT_ENABLE);
-        break;
-      case USB_PORT_TYPE_HIGH_SPEED:
-        xudd->ports[i].port_status = (1 << PORT_HIGH_SPEED) | (1 << PORT_CONNECTION) | (1 << PORT_ENABLE);
-        break;
-      }      
-      xudd->ports[i].port_change |= (1 << PORT_CONNECTION);
-    }
-  }  
-}
-#endif
 
 static VOID
 XenUsbHub_HubInterruptTimer(WDFTIMER timer)
@@ -1681,14 +1650,14 @@ XenUsbHub_HubInterruptTimer(WDFTIMER timer)
   PURB urb;
   ULONG i;
   
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
   WdfSpinLockAcquire(endpoint->interrupt_lock);
   status = WdfIoQueueRetrieveNextRequest(endpoint->interrupt_queue, &request);
   if (status == STATUS_NO_MORE_ENTRIES)
   {
     WdfTimerStop(timer, FALSE);
     WdfSpinLockRelease(endpoint->interrupt_lock);
-    KdPrint((__DRIVER_NAME "      No More Entries\n", status));
+    //KdPrint((__DRIVER_NAME "      No More Entries\n", status));
     //FUNCTION_EXIT();
     return;
   }
@@ -1710,18 +1679,34 @@ XenUsbHub_HubInterruptTimer(WDFTIMER timer)
   RtlZeroMemory(urb->UrbBulkOrInterruptTransfer.TransferBuffer, urb->UrbBulkOrInterruptTransfer.TransferBufferLength);
   if (urb->UrbBulkOrInterruptTransfer.TransferFlags & (USBD_TRANSFER_DIRECTION_IN | USBD_SHORT_TRANSFER_OK))
   {
-    //urb->UrbBulkOrInterruptTransfer.TransferBufferLength = 0;
+    BOOLEAN port_change_flag = FALSE;
     // check for hub change too
     //((PUCHAR)urb->UrbBulkOrInterruptTransfer.TransferBuffer)[0] |= 1;
+    urb->UrbBulkOrInterruptTransfer.TransferBufferLength = 0;
     for (i = 0; i < xudd->num_ports; i++)
     {
+#if 0
+      if (xudd->ports[i].port_status & (1 << PORT_RESET))
+      {
+        if (xudd->ports[i].reset_counter-- == 0)
+        {
+          xudd->ports[i].port_status &= ~(1 << PORT_RESET);
+          xudd->ports[i].port_status |= (1 << PORT_ENABLE);
+          xudd->ports[i].port_change |= (1 << PORT_RESET);
+        }
+        FUNCTION_MSG("reset counter = %d\n", xudd->ports[i].reset_counter);
+      }
+#endif
       if (xudd->ports[i].port_change)
       {
-        KdPrint((__DRIVER_NAME "      Port change on port %d - status = %04x, change = %04x\n",
-          xudd->ports[i].port_number, xudd->ports[i].port_status, xudd->ports[i].port_change));
+        FUNCTION_MSG("Port change on port %d - status = %04x, change = %04x\n",
+          xudd->ports[i].port_number, xudd->ports[i].port_status, xudd->ports[i].port_change);
         ((PUCHAR)urb->UrbBulkOrInterruptTransfer.TransferBuffer)[xudd->ports[i].port_number >> 3] |= 1 << (xudd->ports[i].port_number & 7);
+        port_change_flag = TRUE;
       }
     }
+    if (port_change_flag)
+      urb->UrbBulkOrInterruptTransfer.TransferBufferLength = 2;
     urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
     WdfSpinLockRelease(endpoint->interrupt_lock);
     WdfRequestComplete(request, STATUS_SUCCESS);
@@ -1731,9 +1716,9 @@ XenUsbHub_HubInterruptTimer(WDFTIMER timer)
     KdPrint((__DRIVER_NAME "      Direction mismatch\n"));
     urb->UrbHeader.Status = USBD_STATUS_INVALID_PARAMETER;
     WdfSpinLockRelease(endpoint->interrupt_lock);
-    WdfRequestComplete(request, STATUS_BAD_INITIAL_STACK);
+    WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
   }
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
   return;
 }
 
@@ -1758,11 +1743,16 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   WDF_QUERY_INTERFACE_CONFIG interface_config;
   union {
     USB_BUS_INTERFACE_HUB_V5 ubih5; /* support version 5 */
+#if (NTDDI_VERSION >= NTDDI_VISTA)
     USB_BUS_INTERFACE_HUB_V7 ubih7; /* support versions 6,  and 7 - base definition changed */
+#endif
   } ubih;
   union {
+    USB_BUS_INTERFACE_USBDI_V1 ubiu1;
     USB_BUS_INTERFACE_USBDI_V2 ubiu2;
+#if (NTDDI_VERSION >= NTDDI_VISTA)
     USB_BUS_INTERFACE_USBDI_V3 ubiu3;
+#endif
   } ubiu;
   USB_BUS_INTERFACE_HUB_SELECTIVE_SUSPEND ubihss;
   WDF_TIMER_CONFIG timer_config;
@@ -1949,35 +1939,32 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   child_power_capabilities.DeviceState[PowerSystemShutdown]  = PowerDeviceD3;
   WdfDeviceSetPowerCapabilities(child_device, &child_power_capabilities);  
 
-  ubih.ubih7.Size = sizeof(USB_BUS_INTERFACE_HUB_V7);
-  ubih.ubih7.Version = USB_BUSIF_HUB_VERSION_7;
-  ubih.ubih7.BusContext = child_device;
-  ubih.ubih7.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
-  ubih.ubih7.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
-  ubih.ubih7.CreateUsbDevice = XenUsbHub_UBIH_CreateUsbDeviceEx;
-  ubih.ubih7.InitializeUsbDevice = XenUsbHub_UBIH_InitializeUsbDeviceEx;
-  ubih.ubih7.GetUsbDescriptors = XenUsbHub_UBIH_GetUsbDescriptors;
-  ubih.ubih7.RemoveUsbDevice = XenUsbHub_UBIH_RemoveUsbDevice;
-  ubih.ubih7.RestoreUsbDevice = XenUsbHub_UBIH_RestoreUsbDevice;
-  ubih.ubih7.GetPortHackFlags = XenUsbHub_UBIH_GetPortHackFlags;
-  ubih.ubih7.QueryDeviceInformation = XenUsbHub_UBIH_QueryDeviceInformation;
-  ubih.ubih7.GetControllerInformation = XenUsbHub_UBIH_GetControllerInformation;
-  ubih.ubih7.ControllerSelectiveSuspend = XenUsbHub_UBIH_ControllerSelectiveSuspend;
-  ubih.ubih7.GetExtendedHubInformation = XenUsbHub_UBIH_GetExtendedHubInformation;
-  ubih.ubih7.GetRootHubSymbolicName = XenUsbHub_UBIH_GetRootHubSymbolicName;
-  ubih.ubih7.GetDeviceBusContext = XenUsbHub_UBIH_GetDeviceBusContext;
-  ubih.ubih7.Initialize20Hub = XenUsbHub_UBIH_Initialize20Hub;
-  ubih.ubih7.RootHubInitNotification = XenUsbHub_UBIH_RootHubInitNotification;
-  ubih.ubih7.FlushTransfers = XenUsbHub_UBIH_FlushTransfers;
-  ubih.ubih7.SetDeviceHandleData = XenUsbHub_UBIH_SetDeviceHandleData;
-  ubih.ubih7.CreateUsbDevice = XenUsbHub_UBIH_CreateUsbDeviceEx;
-  ubih.ubih7.InitializeUsbDevice = XenUsbHub_UBIH_InitializeUsbDeviceEx;
-  ubih.ubih7.HubIsRoot = XenUsbHub_UBIH_HubIsRoot;
-  ubih.ubih7.AcquireBusSemaphore = XenUsbHub_UBIH_AcquireBusSemaphore;
-  ubih.ubih7.ReleaseBusSemaphore = XenUsbHub_UBIH_ReleaseBusSemaphore;
-  ubih.ubih7.CaculatePipeBandwidth = XenUsbHub_UBIH_CaculatePipeBandwidth;
-  ubih.ubih7.SetBusSystemWakeMode = XenUsbHub_UBIH_SetBusSystemWakeMode;
-  ubih.ubih7.SetDeviceFlag = XenUsbHub_UBIH_SetDeviceFlag;
+  ubih.ubih5.BusContext = child_device;
+  ubih.ubih5.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
+  ubih.ubih5.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
+  ubih.ubih5.GetUsbDescriptors = XenUsbHub_UBIH_GetUsbDescriptors;
+  ubih.ubih5.RemoveUsbDevice = XenUsbHub_UBIH_RemoveUsbDevice;
+  ubih.ubih5.RestoreUsbDevice = XenUsbHub_UBIH_RestoreUsbDevice;
+  ubih.ubih5.GetPortHackFlags = XenUsbHub_UBIH_GetPortHackFlags;
+  ubih.ubih5.QueryDeviceInformation = XenUsbHub_UBIH_QueryDeviceInformation;
+  ubih.ubih5.GetControllerInformation = XenUsbHub_UBIH_GetControllerInformation;
+  ubih.ubih5.ControllerSelectiveSuspend = XenUsbHub_UBIH_ControllerSelectiveSuspend;
+  ubih.ubih5.GetExtendedHubInformation = XenUsbHub_UBIH_GetExtendedHubInformation;
+  ubih.ubih5.GetRootHubSymbolicName = XenUsbHub_UBIH_GetRootHubSymbolicName;
+  ubih.ubih5.GetDeviceBusContext = XenUsbHub_UBIH_GetDeviceBusContext;
+  ubih.ubih5.Initialize20Hub = XenUsbHub_UBIH_Initialize20Hub;
+  ubih.ubih5.RootHubInitNotification = XenUsbHub_UBIH_RootHubInitNotification;
+  ubih.ubih5.FlushTransfers = XenUsbHub_UBIH_FlushTransfers;
+  ubih.ubih5.SetDeviceHandleData = XenUsbHub_UBIH_SetDeviceHandleData;
+#if (NTDDI_VERSION >= NTDDI_VISTA)  
+  ubih.ubih6.CreateUsbDevice = XenUsbHub_UBIH_CreateUsbDeviceEx;
+  ubih.ubih6.InitializeUsbDevice = XenUsbHub_UBIH_InitializeUsbDeviceEx;
+  ubih.ubih6.HubIsRoot = XenUsbHub_UBIH_HubIsRoot;
+  ubih.ubih6.AcquireBusSemaphore = XenUsbHub_UBIH_AcquireBusSemaphore;
+  ubih.ubih6.ReleaseBusSemaphore = XenUsbHub_UBIH_ReleaseBusSemaphore;
+  ubih.ubih6.CaculatePipeBandwidth = XenUsbHub_UBIH_CaculatePipeBandwidth;
+  ubih.ubih6.SetBusSystemWakeMode = XenUsbHub_UBIH_SetBusSystemWakeMode;
+  ubih.ubih6.SetDeviceFlag = XenUsbHub_UBIH_SetDeviceFlag;
   ubih.ubih7.HubTestPoint = XenUsbHub_UBIH_HubTestPoint;
   ubih.ubih7.GetDevicePerformanceInfo = XenUsbHub_UBIH_GetDevicePerformanceInfo;
   ubih.ubih7.WaitAsyncPowerUp = XenUsbHub_UBIH_WaitAsyncPowerUp;
@@ -2003,44 +1990,49 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   ubih.ubih7.SetContainerIdForPort = XenUsbHub_UBIH_SetContainerIdForPort;
   ubih.ubih7.AbortAllDevicePipes = XenUsbHub_UBIH_AbortAllDevicePipes;
   ubih.ubih7.SetDeviceErrataFlag = XenUsbHub_UBIH_SetDeviceErrataFlag;  
+  ubih.ubih7.Size = sizeof(USB_BUS_INTERFACE_HUB_V7);
+  ubih.ubih7.Version = USB_BUSIF_HUB_VERSION_7;
   WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&ubih, &USB_BUS_INTERFACE_HUB_GUID, NULL);
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
     return status;
 
-  ubih.ubih7.Size = sizeof(USB_BUS_INTERFACE_HUB_V6);
-  ubih.ubih7.Version = USB_BUSIF_HUB_VERSION_6;
+  ubih.ubih6.Size = sizeof(USB_BUS_INTERFACE_HUB_V6);
+  ubih.ubih6.Version = USB_BUSIF_HUB_VERSION_6;
   WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&ubih, &USB_BUS_INTERFACE_HUB_GUID, NULL);
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
     return status;
+#endif
 
-  ubih.ubih5.Size = sizeof(USB_BUS_INTERFACE_HUB_V5);
-  ubih.ubih5.Version = USB_BUSIF_HUB_VERSION_5;
   ubih.ubih5.CreateUsbDevice = XenUsbHub_UBIH_CreateUsbDevice;
   ubih.ubih5.InitializeUsbDevice = XenUsbHub_UBIH_InitializeUsbDevice;
+  ubih.ubih5.Size = sizeof(USB_BUS_INTERFACE_HUB_V5);
+  ubih.ubih5.Version = USB_BUSIF_HUB_VERSION_5;
   WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&ubih, &USB_BUS_INTERFACE_HUB_GUID, NULL);
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
     return status;
 
-  ubiu.ubiu3.Size = sizeof(USB_BUS_INTERFACE_USBDI_V3);
-  ubiu.ubiu3.Version = USB_BUSIF_HUB_VERSION_3;
-  ubiu.ubiu2.BusContext = child_device;
-  ubiu.ubiu2.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
-  ubiu.ubiu2.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
-  ubiu.ubiu2.GetUSBDIVersion = XenUsbHub_UBIU_GetUSBDIVersion;
-  ubiu.ubiu2.QueryBusTime = XenUsbHub_UBIU_QueryBusTime;
-  ubiu.ubiu2.SubmitIsoOutUrb = XenUsbHub_UBIU_SubmitIsoOutUrb;
-  ubiu.ubiu2.QueryBusInformation = XenUsbHub_UBIU_QueryBusInformation;
-  ubiu.ubiu2.IsDeviceHighSpeed = XenUsbHub_UBIU_IsDeviceHighSpeed;
+  ubiu.ubiu1.BusContext = child_device;
+  ubiu.ubiu1.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
+  ubiu.ubiu1.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
+  ubiu.ubiu1.GetUSBDIVersion = XenUsbHub_UBIU_GetUSBDIVersion;
+  ubiu.ubiu1.QueryBusTime = XenUsbHub_UBIU_QueryBusTime;
+  ubiu.ubiu1.SubmitIsoOutUrb = XenUsbHub_UBIU_SubmitIsoOutUrb;
+  ubiu.ubiu1.QueryBusInformation = XenUsbHub_UBIU_QueryBusInformation;
+  ubiu.ubiu1.IsDeviceHighSpeed = XenUsbHub_UBIU_IsDeviceHighSpeed;
   ubiu.ubiu2.EnumLogEntry  = XenUsbHub_UBIU_EnumLogEntry;
+#if (NTDDI_VERSION >= NTDDI_VISTA)  
   ubiu.ubiu3.QueryBusTimeEx = XenUsbHub_UBIU_QueryBusTimeEx;
   ubiu.ubiu3.QueryControllerType = XenUsbHub_UBIU_QueryControllerType;
+  ubiu.ubiu3.Size = sizeof(USB_BUS_INTERFACE_USBDI_V3);
+  ubiu.ubiu3.Version = USB_BUSIF_HUB_VERSION_3;
   WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&ubiu, &USB_BUS_INTERFACE_USBDI_GUID, NULL);
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
     return status;
+#endif
 
   ubiu.ubiu2.Size = sizeof(USB_BUS_INTERFACE_USBDI_V2);
   ubiu.ubiu2.Version = USB_BUSIF_HUB_VERSION_2;
@@ -2048,6 +2040,13 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
   return status;
+
+  ubiu.ubiu1.Size = sizeof(USB_BUS_INTERFACE_USBDI_V1);
+  ubiu.ubiu1.Version = USB_BUSIF_HUB_VERSION_1;
+  WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&ubiu, &USB_BUS_INTERFACE_USBDI_GUID, NULL);
+  status = WdfDeviceAddQueryInterface(child_device, &interface_config);
+  if (!NT_SUCCESS(status))
+    return status;
 
   ubihss.BusContext = child_device;
   ubihss.Size = sizeof(USB_BUS_INTERFACE_HUB_SELECTIVE_SUSPEND);

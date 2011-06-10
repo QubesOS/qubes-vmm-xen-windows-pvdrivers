@@ -29,7 +29,7 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
   PXENUSB_DEVICE_DATA xudd;
   //ULONG i;
 
-  //FUNCTION_ENTER();
+  FUNCTION_ENTER();
 
   ASSERT(shadow->request);
   queue = WdfRequestGetIoQueue(shadow->request);
@@ -89,7 +89,7 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
     shadow->urb->UrbControlVendorClassRequest.TransferBufferLength = shadow->total_length;
     break;
   case URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER:
-    if (shadow->rsp.status)
+//    if (shadow->rsp.status)
     {
       KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
       KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
@@ -120,10 +120,11 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
     shadow->urb->UrbHeader.Status = USBD_STATUS_CRC;
     KdPrint((__DRIVER_NAME "     rsp status = -EPROTO\n"));
     break;
-#if 0
-  case -EPIPE:
-    shadow->urb->UrbHeader.Status USBD_STATUS_ENDPOINT_HALTED;
+  case -EPIPE: /* see linux code - EPIPE is when the HCD returned a stall */
+    shadow->urb->UrbHeader.Status = USBD_STATUS_STALL_PID;
+    KdPrint((__DRIVER_NAME "     rsp status = -EPIPE (USBD_STATUS_STALL_PID)\n"));
     break;
+#if 0
   case -EOVERFLOW:
     shadow->urb->UrbHeader.Status USBD_STATUS_DATA_OVERRUN;
     break;
@@ -140,7 +141,7 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
   WdfRequestComplete(shadow->request, STATUS_SUCCESS);
   put_shadow_on_freelist(xudd, shadow);
 
-  //FUNCTION_EXIT();
+  FUNCTION_EXIT();
 }
 
 VOID
@@ -496,7 +497,7 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     }    
     break;
   case URB_FUNCTION_CLASS_DEVICE:
-#if 0
+#if 1
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_CLASS_DEVICE\n"));
     KdPrint((__DRIVER_NAME "      TransferBufferLength = %d\n", urb->UrbControlVendorClassRequest.TransferBufferLength));
     KdPrint((__DRIVER_NAME "      TransferBuffer = %p\n", urb->UrbControlVendorClassRequest.TransferBuffer));
@@ -736,9 +737,9 @@ URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE      KdPrint((__DRIVER_NAME "      Trans
 #endif
   case URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER: /* 11.12.4 */
     endpoint = urb->UrbBulkOrInterruptTransfer.PipeHandle;    
-//    KdPrint((__DRIVER_NAME "      pipe_value = %08x\n", endpoint->pipe_value));
+    KdPrint((__DRIVER_NAME "      pipe_value = %08x\n", endpoint->pipe_value));
     shadow = get_shadow_from_freelist(xudd);
-    //KdPrint((__DRIVER_NAME "      id = %d\n", shadow->id));
+    KdPrint((__DRIVER_NAME "      id = %d\n", shadow->id));
     shadow->request = request;
     shadow->urb = urb;
     shadow->callback = XenUsb_UrbCallback;
@@ -750,7 +751,7 @@ URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE      KdPrint((__DRIVER_NAME "      Trans
     switch(endpoint->endpoint_descriptor.bmAttributes & USB_ENDPOINT_TYPE_MASK)
     {
     case USB_ENDPOINT_TYPE_BULK:
-      //KdPrint((__DRIVER_NAME "      USB_ENDPOINT_TYPE_BULK\n"));
+      KdPrint((__DRIVER_NAME "      USB_ENDPOINT_TYPE_BULK\n"));
       break;
     case USB_ENDPOINT_TYPE_INTERRUPT:
       KdPrint((__DRIVER_NAME "      USB_ENDPOINT_TYPE_INTERRUPT\n"));

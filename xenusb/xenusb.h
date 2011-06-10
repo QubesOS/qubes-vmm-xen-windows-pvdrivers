@@ -60,7 +60,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define PORT_RESET          4
 #define PORT_POWER          8
 #define PORT_LOW_SPEED      9
-#define PORT_HIGH_SPEED     9
+#define PORT_HIGH_SPEED     10
 #define C_PORT_CONNECTION   16
 #define C_PORT_ENABLE       17
 #define C_PORT_SUSPEND      18
@@ -185,6 +185,7 @@ typedef struct
   ULONG port_type;
   USHORT port_status;
   USHORT port_change;
+  ULONG reset_counter;
 } xenusb_port_t;
 
 typedef struct {  
