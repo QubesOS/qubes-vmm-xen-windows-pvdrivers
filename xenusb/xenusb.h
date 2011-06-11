@@ -141,12 +141,12 @@ typedef struct _xenusb_device_t xenusb_device_t;
 typedef struct _xenusb_endpoint_t {
   xenusb_interface_t *interface;
   ULONG pipe_value;
-  WDFTIMER interrupt_timer;
-  WDFQUEUE interrupt_queue;
-  WDFSPINLOCK interrupt_lock;
+  //WDFTIMER interrupt_timer;
+  WDFQUEUE queue;
+  WDFSPINLOCK lock;
   USB_ENDPOINT_DESCRIPTOR endpoint_descriptor;
 };
-WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(pxenusb_endpoint_t, GetEndpoint)
+//WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(pxenusb_endpoint_t, GetEndpoint)
 
 typedef struct _xenusb_interface_t {
   //ULONG pipe_value;
@@ -351,5 +351,8 @@ typedef struct {
 
 ULONG
 XenUsb_DecodeControlUrb(PURB urb, urb_decode_t *decode_data);
+
+VOID
+XenUsbHub_ProcessHubInterruptEvent(xenusb_endpoint_t *endpoint);
   
 #endif

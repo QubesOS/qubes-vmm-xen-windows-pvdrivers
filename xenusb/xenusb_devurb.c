@@ -100,6 +100,17 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
       KdPrint((__DRIVER_NAME "     URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER\n"));
     }
     shadow->urb->UrbBulkOrInterruptTransfer.TransferBufferLength = shadow->total_length;
+{
+  PUCHAR grr;
+  if (shadow->urb->UrbBulkOrInterruptTransfer.TransferBufferMDL)
+    grr = MmGetSystemAddressForMdl(shadow->urb->UrbBulkOrInterruptTransfer.TransferBufferMDL);
+  else
+    grr = shadow->urb->UrbBulkOrInterruptTransfer.TransferBuffer;
+  FUNCTION_MSG("data = %02x %02x %02x %02x\n", (ULONG)grr[0], (ULONG)grr[1], (ULONG)grr[2], (ULONG)grr[3]);
+}
+    break;
+  case URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL:
+    KdPrint((__DRIVER_NAME "     URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL\n"));
     break;
   default:
     KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
@@ -138,7 +149,10 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
     KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
     break;
   }
-  WdfRequestComplete(shadow->request, STATUS_SUCCESS);
+  if (shadow->urb->UrbHeader.Status == USBD_STATUS_SUCCESS)
+    WdfRequestComplete(shadow->request, STATUS_SUCCESS);
+  else
+    WdfRequestComplete(shadow->request, STATUS_UNSUCCESSFUL);
   put_shadow_on_freelist(xudd, shadow);
 
   FUNCTION_EXIT();
@@ -737,6 +751,7 @@ URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE      KdPrint((__DRIVER_NAME "      Trans
 #endif
   case URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER: /* 11.12.4 */
     endpoint = urb->UrbBulkOrInterruptTransfer.PipeHandle;    
+    KdPrint((__DRIVER_NAME "      pipe_handle = %p\n", endpoint));
     KdPrint((__DRIVER_NAME "      pipe_value = %08x\n", endpoint->pipe_value));
     shadow = get_shadow_from_freelist(xudd);
     KdPrint((__DRIVER_NAME "      id = %d\n", shadow->id));
@@ -760,20 +775,44 @@ URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE      KdPrint((__DRIVER_NAME "      Trans
       KdPrint((__DRIVER_NAME "      USB_ENDPOINT_TYPE_%d\n", endpoint->endpoint_descriptor.bmAttributes));
       break;
     }
+    FUNCTION_MSG("endpoint address = %02x\n", endpoint->endpoint_descriptor.bEndpointAddress);
+    FUNCTION_MSG("pipe_direction_bit = %08x\n", endpoint->pipe_value & LINUX_PIPE_DIRECTION_IN);
+    FUNCTION_MSG("short_ok_bit = %08x\n", urb->UrbBulkOrInterruptTransfer.TransferFlags & USBD_SHORT_TRANSFER_OK);
+    FUNCTION_MSG("flags_direction_bit = %08x\n", urb->UrbBulkOrInterruptTransfer.TransferFlags & USBD_TRANSFER_DIRECTION_IN);
     status = XenUsb_ExecuteRequest(xudd, shadow, urb->UrbBulkOrInterruptTransfer.TransferBuffer, urb->UrbBulkOrInterruptTransfer.TransferBufferMDL, urb->UrbBulkOrInterruptTransfer.TransferBufferLength);
     if (!NT_SUCCESS(status))
     {
       KdPrint((__DRIVER_NAME "     XenUsb_ExecuteRequest status = %08x\n", status));
     }
     break;
-#if 0
   case URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL:
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL\n"));
     KdPrint((__DRIVER_NAME "      PipeHandle = %p\n", urb->UrbPipeRequest.PipeHandle));
-    urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
-    WdfRequestComplete(request, STATUS_SUCCESS);
+    /* we only clear the stall here */
+    endpoint = urb->UrbBulkOrInterruptTransfer.PipeHandle;    
+    shadow = get_shadow_from_freelist(xudd);
+    shadow->request = request;
+    shadow->urb = urb;
+    shadow->mdl = NULL;
+    //shadow->dma_transaction = NULL;
+    shadow->callback = XenUsb_UrbCallback;
+    shadow->req.id = shadow->id;
+    shadow->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
+    shadow->req.transfer_flags = 0;
+    setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)shadow->req.u.ctrl;
+    setup_packet->bmRequestType.Recipient = BMREQUEST_TO_ENDPOINT;
+    setup_packet->bmRequestType.Type = BMREQUEST_STANDARD;
+    setup_packet->bmRequestType.Dir = BMREQUEST_HOST_TO_DEVICE;
+    setup_packet->bRequest = USB_REQUEST_CLEAR_FEATURE;
+    setup_packet->wLength = 0;
+    setup_packet->wValue.W = 0; /* 0 == ENDPOINT_HALT */
+    setup_packet->wIndex.W = endpoint->endpoint_descriptor.bEndpointAddress;
+    status = XenUsb_ExecuteRequest(xudd, shadow, NULL, NULL, 0);
+    if (!NT_SUCCESS(status))
+    {
+      KdPrint((__DRIVER_NAME "     XenUsb_ExecuteRequest status = %08x\n", status));
+    }
     break;
-#endif
   case URB_FUNCTION_ABORT_PIPE:
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_ABORT_PIPE\n"));
     KdPrint((__DRIVER_NAME "      PipeHandle = %p\n", urb->UrbPipeRequest.PipeHandle));

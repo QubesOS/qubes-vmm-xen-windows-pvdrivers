@@ -54,6 +54,8 @@ XenUsb_ExecuteRequest(
   FUNCTION_ENTER();
   FUNCTION_MSG("IRQL = %d\n", KeGetCurrentIrql());
   
+  KdPrint((__DRIVER_NAME "     transfer_buffer = %p\n", transfer_buffer));
+  KdPrint((__DRIVER_NAME "     transfer_buffer_mdl = %p\n", transfer_buffer_mdl));
   KdPrint((__DRIVER_NAME "     transfer_buffer_length = %d\n", transfer_buffer_length));
   shadow->total_length = 0;
   if (!transfer_buffer_length)
@@ -92,6 +94,15 @@ XenUsb_ExecuteRequest(
   ASSERT(mdl);
   ASSERT(transfer_buffer_length);
 
+  FUNCTION_MSG("MmGetMdlVirtualAddress = %d\n", MmGetMdlVirtualAddress(mdl));
+  FUNCTION_MSG("MmGetMdlByteCount = %d\n", MmGetMdlByteCount(mdl));
+  FUNCTION_MSG("MmGetMdlByteOffset = %d\n", MmGetMdlByteOffset(mdl));
+  
+{
+  PUCHAR grr = MmGetSystemAddressForMdl(mdl);
+  FUNCTION_MSG("data = %02x %02x %02x %02x\n", (ULONG)grr[0], (ULONG)grr[1], (ULONG)grr[2], (ULONG)grr[3]);
+}
+  
   remaining = MmGetMdlByteCount(mdl);
   offset = (USHORT)MmGetMdlByteOffset(mdl);
   shadow->req.buffer_length = (USHORT)MmGetMdlByteCount(mdl);
@@ -104,6 +115,10 @@ XenUsb_ExecuteRequest(
     shadow->req.seg[i].length = (USHORT)min(remaining, PAGE_SIZE);
     offset = 0;
     remaining -= shadow->req.seg[i].length;
+    KdPrint((__DRIVER_NAME "     seg = %d\n", i));
+    KdPrint((__DRIVER_NAME "      gref = %d\n", shadow->req.seg[i].gref));
+    KdPrint((__DRIVER_NAME "      offset = %d\n", shadow->req.seg[i].offset));
+    KdPrint((__DRIVER_NAME "      length = %d\n", shadow->req.seg[i].length));
   }
   KdPrint((__DRIVER_NAME "     buffer_length = %d\n", shadow->req.buffer_length));
   KdPrint((__DRIVER_NAME "     nr_buffer_segs = %d\n", shadow->req.nr_buffer_segs));
@@ -189,8 +204,9 @@ XenUsb_HandleEvent(PVOID context)
   int more_to_do;
   usbif_shadow_t *complete_head = NULL, *complete_tail = NULL;
   usbif_shadow_t *shadow;
+  BOOLEAN port_changed = FALSE;
 
-  //FUNCTION_ENTER();
+  FUNCTION_ENTER();
 
   more_to_do = TRUE;
   KeAcquireSpinLockAtDpcLevel(&xudd->urb_ring_lock);
@@ -206,14 +222,14 @@ XenUsb_HandleEvent(PVOID context)
       shadow->rsp = *urb_rsp;
       shadow->next = NULL;
       shadow->total_length += urb_rsp->actual_length;
-#if 0
-      KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-      KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-      KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-      KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-      KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
-      KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-#endif
+
+      KdPrint((__DRIVER_NAME "     urb_ring rsp id = %d\n", shadow->rsp.id));
+      KdPrint((__DRIVER_NAME "     urb_ring rsp start_frame = %d\n", shadow->rsp.start_frame));
+      KdPrint((__DRIVER_NAME "     urb_ring rsp status = %d\n", shadow->rsp.status));
+      KdPrint((__DRIVER_NAME "     urb_ring rsp actual_length = %d\n", shadow->rsp.actual_length));
+      KdPrint((__DRIVER_NAME "     urb_ring rsp error_count = %d\n", shadow->rsp.error_count));
+      KdPrint((__DRIVER_NAME "     urb_ring total_length = %d\n", shadow->total_length));
+
       if (complete_tail)
       {
         complete_tail->next = shadow;
@@ -267,9 +283,7 @@ XenUsb_HandleEvent(PVOID context)
         break;
       }      
       xudd->ports[conn_rsp->portnum - 1].port_change |= (1 << PORT_CONNECTION);
-      
-      // notify pending interrupt urb?
-      
+      port_changed = TRUE;    
       conn_req = RING_GET_REQUEST(&xudd->conn_ring, xudd->conn_ring.req_prod_pvt);
       conn_req->id = conn_rsp->id;
       xudd->conn_ring.req_prod_pvt++;
@@ -312,7 +326,14 @@ XenUsb_HandleEvent(PVOID context)
     }
     shadow = shadow->next;
   }
-  //FUNCTION_EXIT();
+
+  if (port_changed)
+  {
+    PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(xudd->root_hub_device);
+    XenUsbHub_ProcessHubInterruptEvent(xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]);
+  }
+      
+  FUNCTION_EXIT();
 
   return TRUE;
 }
@@ -468,47 +489,6 @@ XenUsb_EvtDevicePrepareHardware(WDFDEVICE device, WDFCMRESLIST resources_raw, WD
       break;
     }
   }
-
-#if 0
-*** No owner thread found for resource 808a5920
-*** No owner thread found for resource 808a5920
-*** No owner thread found for resource 808a5920
-*** No owner thread found for resource 808a5920
-Probably caused by : USBSTOR.SYS ( USBSTOR!USBSTOR_SyncSendUsbRequest+77 )
-
-f78e27a4 8081df53 809c560e f78e27c4 809c560e nt!IovCallDriver+0x82
-f78e27b0 809c560e 80a5ff00 82b431a8 00000000 nt!IofCallDriver+0x13
-f78e27c4 809b550c 82b431a8 8454ef00 8454ef00 nt!ViFilterDispatchGeneric+0x2a
-f78e27f4 8081df53 bac7818a f78e2808 bac7818a nt!IovCallDriver+0x112
-f78e2800 bac7818a f78e282c bac79d3c 8454ef00 nt!IofCallDriver+0x13
-f78e2808 bac79d3c 8454ef00 82b431a8 80a5ff00 usbhub!USBH_PassIrp+0x18
-f78e282c bac79f08 822ea7c0 8454ef00 f78e286c usbhub!USBH_FdoDispatch+0x4c
-f78e283c 809b550c 822ea708 8454ef00 8454efb0 usbhub!USBH_HubDispatch+0x5e
-f78e286c 8081df53 809c560e f78e288c 809c560e nt!IovCallDriver+0x112
-f78e2878 809c560e 80a5ff00 8233dad0 00000000 nt!IofCallDriver+0x13
-f78e288c 809b550c 8233dad0 8454ef00 8454efd4 nt!ViFilterDispatchGeneric+0x2a
-f78e28bc 8081df53 bac7c15e f78e28e0 bac7c15e nt!IovCallDriver+0x112
-f78e28c8 bac7c15e 822ea7c0 81f98df8 8454ef00 nt!IofCallDriver+0x13
-f78e28e0 bac7ca33 822ea7c0 8454ef00 80a5ff00 usbhub!USBH_PdoUrbFilter+0x14c
-f78e2900 bac79ef2 8380cfb0 8454ef00 f78e2940 usbhub!USBH_PdoDispatch+0x211
-f78e2910 809b550c 81f98d40 8454ef00 82334c80 usbhub!USBH_HubDispatch+0x48
-f78e2940 8081df53 ba2ed27d f78e2978 ba2ed27d nt!IovCallDriver+0x112
-f78e294c ba2ed27d 82334bc8 8380cfb0 82334c80 nt!IofCallDriver+0x13
-f78e2978 ba2ed570 82334bc8 8380cfb0 00000000 USBSTOR!USBSTOR_SyncSendUsbRequest+0x77
-f78e29ac ba2ee0a4 82334bc8 82334bc8 82334c80 USBSTOR!USBSTOR_SelectConfiguration+0x7e
-f78e29ec ba2ee1e8 82334bc8 83caced8 80a5ff00 USBSTOR!USBSTOR_FdoStartDevice+0x68
-f78e2a04 809b550c 82334bc8 83caced8 83cacffc USBSTOR!USBSTOR_Pnp+0x5a
-f78e2a34 8081df53 8090d728 f78e2a6c 8090d728 nt!IovCallDriver+0x112
-f78e2a40 8090d728 f78e2aac 81f98d40 00000000 nt!IofCallDriver+0x13
-f78e2a6c 8090d7bb 82334bc8 f78e2a88 00000000 nt!IopSynchronousCall+0xb8
-f78e2ab0 8090a684 81f98d40 823c71a8 00000001 nt!IopStartDevice+0x4d
-f78e2acc 8090cd9d 81f98d40 00000001 823c71a8 nt!PipProcessStartPhase1+0x4e
-f78e2d24 8090d21c 82403628 00000001 00000000 nt!PipProcessDevNodeTree+0x1db
-f78e2d58 80823345 00000003 82d06020 808ae5fc nt!PiProcessReenumeration+0x60
-f78e2d80 80880469 00000000 00000000 82d06020 nt!PipDeviceActionWorker+0x16b
-f78e2dac 80949b7c 00000000 00000000 00000000 nt!ExpWorkerThread+0xeb
-f78e2ddc 8088e092 8088037e 00000001 00000000 nt!PspSystemThreadStartup+0x2e
-#endif
 
   status = XenUsb_StartXenbusInit(xudd);
 
@@ -1030,7 +1010,7 @@ XenUsb_EvtIoInternalDeviceControl(
     usb_device = urb->UrbHeader.UsbdDeviceHandle;
     FUNCTION_MSG("usb_device = %p\n", usb_device);
     ASSERT(usb_device);
-    if (usb_device == (ULONG_PTR)0 - 1)
+    if (usb_device == (xenusb_device_t *)((ULONG_PTR)0 - 1))
       WdfRequestComplete(request, STATUS_INVALID_PARAMETER);
     else
       WdfRequestForwardToIoQueue(request, usb_device->urb_queue);
@@ -1103,7 +1083,11 @@ XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   WDF_DEVICE_POWER_CAPABILITIES power_capabilities;
   WDF_IO_QUEUE_CONFIG queue_config;
   UCHAR pnp_minor_functions[] = { IRP_MN_QUERY_INTERFACE };
-  
+  DECLARE_CONST_UNICODE_STRING(symbolicname_name, L"SymbolicName");
+  WDFSTRING symbolicname_value_wdfstring;
+  WDFKEY device_key;
+  UNICODE_STRING symbolicname_value;
+
   UNREFERENCED_PARAMETER(driver);
 
   FUNCTION_ENTER();
@@ -1186,6 +1170,15 @@ XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_USB_HOST_CONTROLLER, NULL);
   if (!NT_SUCCESS(status))
     return status;
+
+  /* USB likes to have a registry key with the symbolic link name in it */
+  status = WdfStringCreate(NULL, WDF_NO_OBJECT_ATTRIBUTES, &symbolicname_value_wdfstring);
+  status = WdfDeviceRetrieveDeviceInterfaceString(device, &GUID_DEVINTERFACE_USB_HOST_CONTROLLER, NULL, symbolicname_value_wdfstring);
+  if (!NT_SUCCESS(status))
+    return status;
+  WdfStringGetUnicodeString(symbolicname_value_wdfstring, &symbolicname_value);
+  status = WdfDeviceOpenRegistryKey(device, PLUGPLAY_REGKEY_DEVICE, KEY_SET_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &device_key);
+  WdfRegistryAssignUnicodeString(device_key, &symbolicname_name, &symbolicname_value);
 
   FUNCTION_EXIT();
   return status;

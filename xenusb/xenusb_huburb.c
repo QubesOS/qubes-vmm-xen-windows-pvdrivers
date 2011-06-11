@@ -409,6 +409,8 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
             xudd->ports[decode_data.setup_packet.default_pipe_setup_packet.wIndex.LowByte - 1].port_status |= (1 << PORT_ENABLE);
             xudd->ports[decode_data.setup_packet.default_pipe_setup_packet.wIndex.LowByte - 1].port_change |= (1 << PORT_RESET);
             urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
+            endpoint = xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0];
+            XenUsbHub_ProcessHubInterruptEvent(endpoint);
             break;
           case PORT_POWER:
             KdPrint((__DRIVER_NAME "        PORT_POWER\n"));
@@ -448,13 +450,10 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
     KdPrint((__DRIVER_NAME "      TransferBufferMdl = %p\n", urb->UrbBulkOrInterruptTransfer.TransferBufferMDL));
 #endif
     endpoint = urb->UrbBulkOrInterruptTransfer.PipeHandle;
-    WdfSpinLockAcquire(endpoint->interrupt_lock);
-    if (WdfIoQueueGetState(endpoint->interrupt_queue, NULL, NULL) & WdfIoQueueNoRequests)
-    {
-      WdfTimerStart(endpoint->interrupt_timer, WDF_REL_TIMEOUT_IN_MS(100));
-    }
-    WdfRequestForwardToIoQueue(request, endpoint->interrupt_queue);
-    WdfSpinLockRelease(endpoint->interrupt_lock);
+    //WdfSpinLockAcquire(endpoint->lock);
+    WdfRequestForwardToIoQueue(request, endpoint->queue);
+    XenUsbHub_ProcessHubInterruptEvent(endpoint);
+    //WdfSpinLockRelease(endpoint->lock);
     //FUNCTION_EXIT();
     return;
     
@@ -737,6 +736,7 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
     FUNCTION_MSG("Calling WdfRequestCompletestatus with status = %08x\n", STATUS_UNSUCCESSFUL);
     WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
   }
+
   //FUNCTION_EXIT();
   return;
 }

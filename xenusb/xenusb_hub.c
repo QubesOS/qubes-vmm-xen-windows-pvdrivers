@@ -57,54 +57,6 @@ static USB_BUSIFFN_ROOTHUB_INIT_NOTIFY XenUsbHub_UBIH_RootHubInitNotification;
 static USB_BUSIFFN_FLUSH_TRANSFERS XenUsbHub_UBIH_FlushTransfers;
 static USB_BUSIFFN_SET_DEVHANDLE_DATA XenUsbHub_UBIH_SetDeviceHandleData;
 
-static NTSTATUS
-XenUsbHub_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE(WDFDEVICE device, PIRP irp)
-{
-  PIO_STACK_LOCATION stack;
- 
-  FUNCTION_ENTER();
- 
-  stack = IoGetCurrentIrpStackLocation(irp);
-
-  if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_HUB_GUID, sizeof(GUID)) == 0)
-    KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_HUB_GUID\n"));
-  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_USBDI_GUID, sizeof(GUID)) == 0)
-    KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_USBDI_GUID\n"));
-  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &GUID_TRANSLATOR_INTERFACE_STANDARD, sizeof(GUID)) == 0)
-    KdPrint((__DRIVER_NAME "     GUID_TRANSLATOR_INTERFACE_STANDARD\n"));
-#if (NTDDI_VERSION >= NTDDI_VISTA)
-  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &GUID_PNP_LOCATION_INTERFACE, sizeof(GUID)) == 0)
-    KdPrint((__DRIVER_NAME "     GUID_PNP_LOCATION_INTERFACE\n"));
-#endif
-  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_HUB_MINIDUMP_GUID, sizeof(GUID)) == 0)
-    KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_HUB_MINIDUMP_GUID\n"));
-  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_HUB_SS_GUID, sizeof(GUID)) == 0)
-    KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_HUB_SS_GUID\n"));
-  else
-    KdPrint((__DRIVER_NAME "     GUID = %08X-%04X-%04X-%04X-%02X%02X%02X%02X%02X%02X\n",
-      stack->Parameters.QueryInterface.InterfaceType->Data1,
-      stack->Parameters.QueryInterface.InterfaceType->Data2,
-      stack->Parameters.QueryInterface.InterfaceType->Data3,
-      (stack->Parameters.QueryInterface.InterfaceType->Data4[0] << 8) |
-       stack->Parameters.QueryInterface.InterfaceType->Data4[1],
-      stack->Parameters.QueryInterface.InterfaceType->Data4[2],
-      stack->Parameters.QueryInterface.InterfaceType->Data4[3],
-      stack->Parameters.QueryInterface.InterfaceType->Data4[4],
-      stack->Parameters.QueryInterface.InterfaceType->Data4[5],
-      stack->Parameters.QueryInterface.InterfaceType->Data4[6],
-      stack->Parameters.QueryInterface.InterfaceType->Data4[7]));
-
-  KdPrint((__DRIVER_NAME "     Size = %d\n", stack->Parameters.QueryInterface.Size));
-  KdPrint((__DRIVER_NAME "     Version = %d\n", stack->Parameters.QueryInterface.Version));
-  KdPrint((__DRIVER_NAME "     Interface = %p\n", stack->Parameters.QueryInterface.Interface));
-
-  IoSkipCurrentIrpStackLocation(irp);
-  
-  FUNCTION_EXIT();
-
-  return WdfDeviceWdmDispatchPreprocessedIrp(device, irp);
-}
-
 static VOID
 XenUsbHub_EvtIoDefault(
   WDFQUEUE queue,
@@ -413,6 +365,10 @@ static NTSTATUS
 XenUsbHub_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_state)
 {
   NTSTATUS status = STATUS_SUCCESS;
+  DECLARE_CONST_UNICODE_STRING(symbolicname_name, L"SymbolicName");
+  WDFSTRING symbolicname_value_wdfstring;
+  WDFKEY device_key;
+  UNICODE_STRING symbolicname_value;
   
   UNREFERENCED_PARAMETER(device);
 
@@ -442,7 +398,18 @@ XenUsbHub_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
     KdPrint((__DRIVER_NAME "     Unknown WdfPowerDevice state %d\n", previous_state));
     break;  
   }
-  
+
+  /* USB likes to have a registry key with the symbolic link name in it. Have to wait until D0Entry as this is the PDO */
+  status = WdfStringCreate(NULL, WDF_NO_OBJECT_ATTRIBUTES, &symbolicname_value_wdfstring);
+  status = WdfDeviceRetrieveDeviceInterfaceString(device, &GUID_DEVINTERFACE_USB_HUB, NULL, symbolicname_value_wdfstring);
+  FUNCTION_MSG("WdfDeviceREtrieveDeviceInterfaceString = %08x\n", status);
+  if (!NT_SUCCESS(status))
+    return status;
+  WdfStringGetUnicodeString(symbolicname_value_wdfstring, &symbolicname_value);
+  FUNCTION_MSG("ROOT_HUB SymbolicName = %S\n", symbolicname_value.Buffer);
+  status = WdfDeviceOpenRegistryKey(device, PLUGPLAY_REGKEY_DEVICE, KEY_SET_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &device_key);
+  WdfRegistryAssignUnicodeString(device_key, &symbolicname_name, &symbolicname_value);
+
   FUNCTION_EXIT();
   
   return status;
@@ -1637,6 +1604,72 @@ XenUsbHub_UBIHSS_ResumeHub(
   return STATUS_UNSUCCESSFUL;
 }
 
+VOID
+XenUsbHub_ProcessHubInterruptEvent(xenusb_endpoint_t *endpoint)
+{
+  NTSTATUS status;
+  WDFDEVICE pdo_device = endpoint->interface->config->device->pdo_device;
+  PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(pdo_device);
+  PXENUSB_DEVICE_DATA xudd = GetXudd(xupdd->wdf_device_bus_fdo);
+  WDF_REQUEST_PARAMETERS wrp;
+  WDFREQUEST request;
+  PURB urb;
+  ULONG i;
+  BOOLEAN port_change_flag = FALSE;
+  
+  FUNCTION_ENTER();
+  WdfSpinLockAcquire(endpoint->lock);
+  status = WdfIoQueueRetrieveNextRequest(endpoint->queue, &request);
+  if (status == STATUS_NO_MORE_ENTRIES)
+  {
+    WdfSpinLockRelease(endpoint->lock);
+    KdPrint((__DRIVER_NAME "      No More Entries\n", status));
+    FUNCTION_EXIT();
+    return;
+  }
+  if (!NT_SUCCESS(status))
+  {
+    WdfSpinLockRelease(endpoint->lock);
+    KdPrint((__DRIVER_NAME "      Failed to get request from queue %08x\n", status));
+    FUNCTION_EXIT();
+    return;
+  }
+  
+  WDF_REQUEST_PARAMETERS_INIT(&wrp);
+  WdfRequestGetParameters(request, &wrp);
+
+  urb = (PURB)wrp.Parameters.Others.Arg1;
+  ASSERT(urb);
+  ASSERT(urb->UrbHeader.Function == URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER);
+  RtlZeroMemory(urb->UrbBulkOrInterruptTransfer.TransferBuffer, urb->UrbBulkOrInterruptTransfer.TransferBufferLength);
+
+  for (i = 0; i < xudd->num_ports; i++)
+  {
+    if (xudd->ports[i].port_change)
+    {
+      FUNCTION_MSG("Port change on port %d - status = %04x, change = %04x\n",
+        xudd->ports[i].port_number, xudd->ports[i].port_status, xudd->ports[i].port_change);
+      ((PUCHAR)urb->UrbBulkOrInterruptTransfer.TransferBuffer)[xudd->ports[i].port_number >> 3] |= 1 << (xudd->ports[i].port_number & 7);
+      port_change_flag = TRUE;
+    }
+  }
+  WdfSpinLockRelease(endpoint->lock);
+  if (port_change_flag)
+  {
+    FUNCTION_MSG("Completing request %p\n", request);
+    urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
+    WdfRequestComplete(request, STATUS_SUCCESS);
+  }
+  else
+  {
+    FUNCTION_MSG("Requeuing request %p\n", request);
+    WdfRequestRequeue(request);
+  }
+  FUNCTION_EXIT();
+  return;
+}
+
+#if 0
 static VOID
 XenUsbHub_HubInterruptTimer(WDFTIMER timer)
 {
@@ -1651,12 +1684,12 @@ XenUsbHub_HubInterruptTimer(WDFTIMER timer)
   ULONG i;
   
   //FUNCTION_ENTER();
-  WdfSpinLockAcquire(endpoint->interrupt_lock);
-  status = WdfIoQueueRetrieveNextRequest(endpoint->interrupt_queue, &request);
+  WdfSpinLockAcquire(endpoint->lock);
+  status = WdfIoQueueRetrieveNextRequest(endpoint->queue, &request);
   if (status == STATUS_NO_MORE_ENTRIES)
   {
     WdfTimerStop(timer, FALSE);
-    WdfSpinLockRelease(endpoint->interrupt_lock);
+    WdfSpinLockRelease(endpoint->lock);
     //KdPrint((__DRIVER_NAME "      No More Entries\n", status));
     //FUNCTION_EXIT();
     return;
@@ -1664,7 +1697,7 @@ XenUsbHub_HubInterruptTimer(WDFTIMER timer)
   if (!NT_SUCCESS(status))
   {
     WdfTimerStop(timer, FALSE);
-    WdfSpinLockRelease(endpoint->interrupt_lock);
+    WdfSpinLockRelease(endpoint->lock);
     KdPrint((__DRIVER_NAME "      Failed to get request from queue %08x\n", status));
     //FUNCTION_EXIT();
     return;
@@ -1708,18 +1741,114 @@ XenUsbHub_HubInterruptTimer(WDFTIMER timer)
     if (port_change_flag)
       urb->UrbBulkOrInterruptTransfer.TransferBufferLength = 2;
     urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
-    WdfSpinLockRelease(endpoint->interrupt_lock);
+    WdfSpinLockRelease(endpoint->lock);
     WdfRequestComplete(request, STATUS_SUCCESS);
   }
   else
   {
     KdPrint((__DRIVER_NAME "      Direction mismatch\n"));
     urb->UrbHeader.Status = USBD_STATUS_INVALID_PARAMETER;
-    WdfSpinLockRelease(endpoint->interrupt_lock);
+    WdfSpinLockRelease(endpoint->lock);
     WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
   }
   //FUNCTION_EXIT();
   return;
+}
+#endif
+
+static NTSTATUS
+XenUsbHub_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE(WDFDEVICE device, PIRP irp)
+{
+  PIO_STACK_LOCATION stack;
+  union {
+    USB_BUS_INTERFACE_USBDI_V1 ubiu0;
+    USB_BUS_INTERFACE_USBDI_V1 ubiu1;
+    USB_BUS_INTERFACE_USBDI_V2 ubiu2;
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+    USB_BUS_INTERFACE_USBDI_V3 ubiu3;
+#endif
+  } *ubiu;
+
+  FUNCTION_ENTER();
+ 
+  stack = IoGetCurrentIrpStackLocation(irp);
+
+  if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_HUB_GUID, sizeof(GUID)) == 0)
+    KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_HUB_GUID\n"));
+  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_USBDI_GUID, sizeof(GUID)) == 0)
+  {
+    KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_USBDI_GUID\n"));
+    if ((stack->Parameters.QueryInterface.Version == USB_BUSIF_USBDI_VERSION_0 && stack->Parameters.QueryInterface.Size == sizeof(USB_BUS_INTERFACE_USBDI_V0))
+      || (stack->Parameters.QueryInterface.Version == USB_BUSIF_USBDI_VERSION_1 && stack->Parameters.QueryInterface.Size == sizeof(USB_BUS_INTERFACE_USBDI_V1))
+      || (stack->Parameters.QueryInterface.Version == USB_BUSIF_USBDI_VERSION_2 && stack->Parameters.QueryInterface.Size == sizeof(USB_BUS_INTERFACE_USBDI_V2))
+#if (NTDDI_VERSION >= NTDDI_VISTA)  
+      || (stack->Parameters.QueryInterface.Version == USB_BUSIF_USBDI_VERSION_3 && stack->Parameters.QueryInterface.Size == sizeof(USB_BUS_INTERFACE_USBDI_V3))
+#endif
+    )
+    {
+      ubiu = (PVOID)stack->Parameters.QueryInterface.Interface;
+      ubiu->ubiu0.Size = stack->Parameters.QueryInterface.Size;
+      ubiu->ubiu0.Version = stack->Parameters.QueryInterface.Version;
+      ubiu->ubiu0.BusContext = device;
+      ubiu->ubiu0.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
+      ubiu->ubiu0.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
+      switch (stack->Parameters.QueryInterface.Version)
+      {
+      case USB_BUSIF_USBDI_VERSION_0:          
+        ubiu->ubiu0.GetUSBDIVersion = XenUsbHub_UBIU_GetUSBDIVersion;
+        ubiu->ubiu0.QueryBusTime = XenUsbHub_UBIU_QueryBusTime;
+        ubiu->ubiu0.SubmitIsoOutUrb = XenUsbHub_UBIU_SubmitIsoOutUrb;
+        ubiu->ubiu0.QueryBusInformation = XenUsbHub_UBIU_QueryBusInformation;
+        /* fall through */
+      case USB_BUSIF_USBDI_VERSION_1:
+        ubiu->ubiu1.IsDeviceHighSpeed = XenUsbHub_UBIU_IsDeviceHighSpeed;
+        /* fall through */
+      case USB_BUSIF_USBDI_VERSION_2:
+        ubiu->ubiu2.EnumLogEntry  = XenUsbHub_UBIU_EnumLogEntry;
+        /* fall through */
+#if (NTDDI_VERSION >= NTDDI_VISTA)  
+      case USB_BUSIF_USBDI_VERSION_3:
+        ubiu->ubiu3.QueryBusTimeEx = XenUsbHub_UBIU_QueryBusTimeEx;
+        ubiu->ubiu3.QueryControllerType = XenUsbHub_UBIU_QueryControllerType;
+#endif
+      }
+      irp->IoStatus.Information = 0;
+      irp->IoStatus.Status = STATUS_SUCCESS;
+    }
+  }
+  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &GUID_TRANSLATOR_INTERFACE_STANDARD, sizeof(GUID)) == 0)
+    KdPrint((__DRIVER_NAME "     GUID_TRANSLATOR_INTERFACE_STANDARD\n"));
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &GUID_PNP_LOCATION_INTERFACE, sizeof(GUID)) == 0)
+    KdPrint((__DRIVER_NAME "     GUID_PNP_LOCATION_INTERFACE\n"));
+#endif
+  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_HUB_MINIDUMP_GUID, sizeof(GUID)) == 0)
+    KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_HUB_MINIDUMP_GUID\n"));
+  else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_HUB_SS_GUID, sizeof(GUID)) == 0)
+    KdPrint((__DRIVER_NAME "     USB_BUS_INTERFACE_HUB_SS_GUID\n"));
+  else
+    KdPrint((__DRIVER_NAME "     GUID = %08X-%04X-%04X-%04X-%02X%02X%02X%02X%02X%02X\n",
+      stack->Parameters.QueryInterface.InterfaceType->Data1,
+      stack->Parameters.QueryInterface.InterfaceType->Data2,
+      stack->Parameters.QueryInterface.InterfaceType->Data3,
+      (stack->Parameters.QueryInterface.InterfaceType->Data4[0] << 8) |
+       stack->Parameters.QueryInterface.InterfaceType->Data4[1],
+      stack->Parameters.QueryInterface.InterfaceType->Data4[2],
+      stack->Parameters.QueryInterface.InterfaceType->Data4[3],
+      stack->Parameters.QueryInterface.InterfaceType->Data4[4],
+      stack->Parameters.QueryInterface.InterfaceType->Data4[5],
+      stack->Parameters.QueryInterface.InterfaceType->Data4[6],
+      stack->Parameters.QueryInterface.InterfaceType->Data4[7]));
+
+  KdPrint((__DRIVER_NAME "     Size = %d\n", stack->Parameters.QueryInterface.Size));
+  KdPrint((__DRIVER_NAME "     Version = %d\n", stack->Parameters.QueryInterface.Version));
+  KdPrint((__DRIVER_NAME "     Interface = %p\n", stack->Parameters.QueryInterface.Interface));
+
+  IoSkipCurrentIrpStackLocation(irp);
+  
+  FUNCTION_EXIT();
+
+  return WdfDeviceWdmDispatchPreprocessedIrp(device, irp);
 }
 
 NTSTATUS
@@ -1747,6 +1876,7 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
     USB_BUS_INTERFACE_HUB_V7 ubih7; /* support versions 6,  and 7 - base definition changed */
 #endif
   } ubih;
+#if 0
   union {
     USB_BUS_INTERFACE_USBDI_V1 ubiu1;
     USB_BUS_INTERFACE_USBDI_V2 ubiu2;
@@ -1754,13 +1884,14 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
     USB_BUS_INTERFACE_USBDI_V3 ubiu3;
 #endif
   } ubiu;
+#endif
+#if (NTDDI_VERSION >= NTDDI_VISTA)
   USB_BUS_INTERFACE_HUB_SELECTIVE_SUSPEND ubihss;
+#endif
   WDF_TIMER_CONFIG timer_config;
-  WDF_OBJECT_ATTRIBUTES timer_attributes;
+  //WDF_OBJECT_ATTRIBUTES timer_attributes;
   UCHAR pnp_minor_functions[] = { IRP_MN_QUERY_INTERFACE };
 
-  UNREFERENCED_PARAMETER(xudd);
-  
   FUNCTION_ENTER();
 
   //KdPrint((__DRIVER_NAME "     device = %d, port = %d, vendor_id = %04x, product_id = %04x\n",
@@ -1872,7 +2003,8 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->endpoint_descriptor.bmAttributes = USB_ENDPOINT_TYPE_INTERRUPT;
   xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->endpoint_descriptor.wMaxPacketSize = 2;
   xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->endpoint_descriptor.bInterval = 12;
-  WdfSpinLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->interrupt_lock);
+  WdfSpinLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->lock);
+#if 0
   WDF_TIMER_CONFIG_INIT(&timer_config, XenUsbHub_HubInterruptTimer);  
   WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&timer_attributes, pxenusb_endpoint_t);
   timer_attributes.ParentObject = child_device;
@@ -1882,6 +2014,7 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
       return status;
   }
   *GetEndpoint(xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->interrupt_timer) = xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0];
+#endif
 
   WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchParallel);
   queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB;
@@ -1891,14 +2024,18 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
       KdPrint((__DRIVER_NAME "     Error creating urb_queue 0x%x\n", status));
       return status;
   }
+  
   WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchManual);
+  //WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&queue_attributes, pxenusb_endpoint_t);
   queue_config.PowerManaged = TRUE;
+  //queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl_Interrupt_SUBMIT_URB;
   status = WdfIoQueueCreate(child_device, &queue_config, WDF_NO_OBJECT_ATTRIBUTES,
-    &xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->interrupt_queue);
+    &xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->queue);
   if (!NT_SUCCESS(status)) {
       KdPrint((__DRIVER_NAME "     Error creating timer io_queue 0x%x\n", status));
       return status;
   }
+  //*GetEndpoint(xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->queue) = xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0];
 
   WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queue_config, WdfIoQueueDispatchParallel);
   queue_config.EvtIoInternalDeviceControl = XenUsbHub_EvtIoInternalDeviceControl;
@@ -2013,7 +2150,7 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
     return status;
-
+#if 0
   ubiu.ubiu1.BusContext = child_device;
   ubiu.ubiu1.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
   ubiu.ubiu1.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
@@ -2058,7 +2195,8 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&ubiu, &USB_BUS_INTERFACE_HUB_SS_GUID, NULL);
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
-  return status;
+    return status;
+#endif
 
   status = WdfDeviceCreateDeviceInterface(child_device, &GUID_DEVINTERFACE_USB_HUB, NULL);
   if (!NT_SUCCESS(status))
