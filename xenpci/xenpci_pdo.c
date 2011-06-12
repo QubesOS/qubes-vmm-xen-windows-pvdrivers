@@ -902,7 +902,7 @@ XenPci_XenConfigDevice(WDFDEVICE device)
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
 
   src = ExAllocatePoolWithTag(NonPagedPool, xppdd->config_page_length, XENPCI_POOL_TAG);
-  dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmCached);
+  dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
   memcpy(src, dst, xppdd->config_page_length);
   
   status = XenPci_XenConfigDeviceSpecifyBuffers(device, src, dst);
@@ -1128,7 +1128,7 @@ XenPciPdo_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
     xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
     xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;
 
-    dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmCached);
+    dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
 
     status = XenPci_XenConfigDeviceSpecifyBuffers(device, src, dst);
 
@@ -1392,7 +1392,7 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   xppdd->wdf_device = child_device;
   xppdd->wdf_device_bus_fdo = WdfChildListGetDevice(child_list);
 
-  xppdd->config_page_mdl = AllocatePage();
+  xppdd->config_page_mdl = AllocateUncachedPage();
 
   xppdd->device_state.magic = XEN_DEVICE_STATE_MAGIC;
   xppdd->device_state.length = sizeof(XENPCI_DEVICE_STATE);
@@ -1560,7 +1560,7 @@ XenPci_Pdo_Resume(WDFDEVICE device)
       xppdd->requested_resources_ptr = xppdd->requested_resources_start = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);;
       xppdd->assigned_resources_ptr = xppdd->assigned_resources_start;
 
-      dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmCached);
+      dst = MmMapIoSpace(xppdd->config_page_phys, xppdd->config_page_length, MmNonCached);
 
       status = XenPci_XenConfigDeviceSpecifyBuffers(device, src, dst);
 
