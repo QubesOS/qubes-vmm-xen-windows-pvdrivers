@@ -576,7 +576,7 @@ XenVbd_HwScsiFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID BusInform
     !access_range->RangeInMemory);
   if (!xvdd->device_base)
   {
-    FUNCTION_MSG("ScsiPortGetDeviceBase failed\n"));
+    FUNCTION_MSG("ScsiPortGetDeviceBase failed\n");
     FUNCTION_EXIT(); 
     return SP_RETURN_BAD_CONFIG;
   }
