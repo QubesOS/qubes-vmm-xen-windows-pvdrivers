@@ -98,11 +98,6 @@ XenUsb_ExecuteRequest(
   FUNCTION_MSG("MmGetMdlByteCount = %d\n", MmGetMdlByteCount(mdl));
   FUNCTION_MSG("MmGetMdlByteOffset = %d\n", MmGetMdlByteOffset(mdl));
   
-{
-  PUCHAR grr = MmGetSystemAddressForMdl(mdl);
-  FUNCTION_MSG("data = %02x %02x %02x %02x\n", (ULONG)grr[0], (ULONG)grr[1], (ULONG)grr[2], (ULONG)grr[3]);
-}
-  
   remaining = MmGetMdlByteCount(mdl);
   offset = (USHORT)MmGetMdlByteOffset(mdl);
   shadow->req.buffer_length = (USHORT)MmGetMdlByteCount(mdl);

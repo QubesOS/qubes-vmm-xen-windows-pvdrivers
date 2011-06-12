@@ -100,14 +100,6 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
       KdPrint((__DRIVER_NAME "     URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER\n"));
     }
     shadow->urb->UrbBulkOrInterruptTransfer.TransferBufferLength = shadow->total_length;
-{
-  PUCHAR grr;
-  if (shadow->urb->UrbBulkOrInterruptTransfer.TransferBufferMDL)
-    grr = MmGetSystemAddressForMdl(shadow->urb->UrbBulkOrInterruptTransfer.TransferBufferMDL);
-  else
-    grr = shadow->urb->UrbBulkOrInterruptTransfer.TransferBuffer;
-  FUNCTION_MSG("data = %02x %02x %02x %02x\n", (ULONG)grr[0], (ULONG)grr[1], (ULONG)grr[2], (ULONG)grr[3]);
-}
     break;
   case URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL:
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL\n"));
