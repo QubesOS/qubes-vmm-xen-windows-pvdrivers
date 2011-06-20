@@ -558,8 +558,7 @@ XenNet_Init(
     |NDIS_ATTRIBUTE_USES_SAFE_BUFFER_APIS
 #endif
     |NDIS_ATTRIBUTE_DESERIALIZE
-    |NDIS_ATTRIBUTE_SURPRISE_REMOVE_OK
-    |NDIS_ATTRIBUTE_BUS_MASTER,
+    |NDIS_ATTRIBUTE_SURPRISE_REMOVE_OK,
     NdisInterfaceInternal); /* PnpBus option doesn't exist... */
   xi->multicast_list_size = 0;
   xi->current_lookahead = MIN_LOOKAHEAD_LENGTH;

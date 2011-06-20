@@ -181,7 +181,6 @@ put_packet_on_freelist(struct xennet_info *xi, PNDIS_PACKET packet)
 
   UNREFERENCED_PARAMETER(xi);
   NdisReinitializePacket(packet);
-  RtlZeroMemory(NDIS_PACKET_EXTENSION_FROM_PACKET(packet), sizeof(NDIS_PACKET_EXTENSION));
   csum_info = (PNDIS_TCP_IP_CHECKSUM_PACKET_INFO)&NDIS_PER_PACKET_INFO_FROM_PACKET(
     packet, TcpIpChecksumPacketInfo);
   csum_info->Value = 0;
@@ -212,6 +211,30 @@ XenNet_MakePacket(struct xennet_info *xi, packet_info_t *pi)
     //FUNCTION_EXIT();
     return NULL;
   }
+
+  if (!pi->split_required && pi->mdl_count == 1)
+  {
+    /* shortcut for the single packet single mdl case */
+    
+    NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
+    NdisCopyBuffer(&status, &out_buffer, xi->rx_buffer_pool, pi->first_buffer, 0, pi->total_length);
+    if (status != STATUS_SUCCESS)
+    {
+      KdPrint((__DRIVER_NAME "     No free rx buffers\n"));
+      put_packet_on_freelist(xi, packet);
+      return NULL;
+    } 
+    NdisChainBufferAtBack(packet, out_buffer);
+    *(shared_buffer_t **)&packet->MiniportReservedEx[0] = pi->first_pb;
+    ref_pb(xi, pi->first_pb); /* so that the buffer doesn't get freed at the end of MakePackets*/
+    //FUNCTION_EXIT();
+    /* windows gets lazy about ack packets and holds on to them forever under high load situations. we don't like this */
+    if (pi->ip_proto == 6 && pi->tcp_length == 0)
+      NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_RESOURCES);
+    else
+      NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
+    return packet;
+  }
   
   header_buf = NdisAllocateFromNPagedLookasideList(&xi->rx_lookaside_list);
   if (!header_buf)
@@ -223,9 +246,7 @@ XenNet_MakePacket(struct xennet_info *xi, packet_info_t *pi)
   header_va = (PUCHAR)(header_buf + 1);
   NdisZeroMemory(header_buf, sizeof(shared_buffer_t));
   NdisMoveMemory(header_va, pi->header, pi->header_length);
-  //KdPrint((__DRIVER_NAME "     header_length = %d, current_lookahead = %d\n", pi->header_length, xi->current_lookahead));
-  //KdPrint((__DRIVER_NAME "     ip4_header_length = %d\n", pi->ip4_header_length));
-  //KdPrint((__DRIVER_NAME "     tcp_header_length = %d\n", pi->tcp_header_length));
+
   /* make sure we satisfy the lookahead requirement */
   
   if (pi->split_required)
@@ -274,14 +295,12 @@ XenNet_MakePacket(struct xennet_info *xi, packet_info_t *pi)
   }
   //KdPrint((__DRIVER_NAME "     before loop - out_remaining = %d\n", out_remaining));
 
-  NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_RESOURCES); /* for packets only containing a header buffer - see Indicate*/
   while (out_remaining != 0)
   {
     ULONG in_buffer_offset;
     ULONG in_buffer_length;
     ULONG out_length;
     
-    NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS); /* packet contains additional buffers */
     //KdPrint((__DRIVER_NAME "     in loop - out_remaining = %d, curr_buffer = %p, curr_pb = %p\n", out_remaining, pi->curr_buffer, pi->curr_pb));
     if (!pi->curr_buffer || !pi->curr_pb)
     {
@@ -313,6 +332,11 @@ XenNet_MakePacket(struct xennet_info *xi, packet_info_t *pi)
   if (header_extra > 0)
     pi->header_length -= header_extra;
   ASSERT(*(shared_buffer_t **)&packet->MiniportReservedEx[0]);
+  /* windows gets lazy about ack packets and holds on to them forever under high load situations. we don't like this */
+  if (pi->ip_proto == 6 && pi->tcp_length == 0)
+    NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_RESOURCES);
+  else
+    NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   //FUNCTION_EXIT();
   return packet;
 }
@@ -499,18 +523,27 @@ XenNet_MakePackets(
       ASSERT(csum_info->Value == 0);
       if (pi->csum_blank || pi->data_validated)
       {
+        /* we know this is IPv4, and we know Linux always validates the IPv4 checksum for us */
+        if (xi->setting_csum.V4Receive.IpChecksum)
+        {
+          if (!pi->ip_has_options || xi->setting_csum.V4Receive.IpOptionsSupported)
+          {
+            if (XenNet_CheckIpHeader(pi->header, pi->ip4_header_length))
+              csum_info->Receive.NdisPacketIpChecksumSucceeded = TRUE;
+            else
+              csum_info->Receive.NdisPacketIpChecksumFailed = TRUE;
+          }
+        }
         if (xi->setting_csum.V4Receive.TcpChecksum && pi->ip_proto == 6)
         {
           if (!pi->tcp_has_options || xi->setting_csum.V4Receive.TcpOptionsSupported)
           {
-            csum_info->Receive.NdisPacketIpChecksumSucceeded = TRUE;
             csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
             checksum_offload = TRUE;
           }
         }
         else if (xi->setting_csum.V4Receive.UdpChecksum && pi->ip_proto == 17)
         {
-          csum_info->Receive.NdisPacketIpChecksumSucceeded = TRUE;
           csum_info->Receive.NdisPacketUdpChecksumSucceeded = TRUE;
           checksum_offload = TRUE;
         }
@@ -519,19 +552,33 @@ XenNet_MakePackets(
           XenNet_SumPacketData(pi, packet, TRUE);
         }
       }
-      else if (xi->config_csum_rx_check)
+      else if (xi->config_csum_rx_check && pi->ip_version == 4)
       {
+        if (xi->setting_csum.V4Receive.IpChecksum)
+        {
+          if (!pi->ip_has_options || xi->setting_csum.V4Receive.IpOptionsSupported)
+          {
+            if (XenNet_CheckIpHeader(pi->header, pi->ip4_header_length))
+              csum_info->Receive.NdisPacketIpChecksumSucceeded = TRUE;
+            else
+              csum_info->Receive.NdisPacketIpChecksumFailed = TRUE;
+          }
+        }
         if (xi->setting_csum.V4Receive.TcpChecksum && pi->ip_proto == 6)
         {
-          if (XenNet_SumPacketData(pi, packet, FALSE))
+          if (!pi->tcp_has_options || xi->setting_csum.V4Receive.TcpOptionsSupported)
           {
-            csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+            if (XenNet_SumPacketData(pi, packet, FALSE))
+            {
+              csum_info->Receive.NdisPacketTcpChecksumSucceeded = TRUE;
+            }
+            else
+            {
+              csum_info->Receive.NdisPacketTcpChecksumFailed = TRUE;
+            }
           }
-          else
-          {
-            csum_info->Receive.NdisPacketTcpChecksumFailed = TRUE;
-          }
-        } else if (xi->setting_csum.V4Receive.UdpChecksum && pi->ip_proto == 17)
+        }
+        else if (xi->setting_csum.V4Receive.UdpChecksum && pi->ip_proto == 17)
         {
           if (XenNet_SumPacketData(pi, packet, FALSE))
           {
@@ -675,7 +722,7 @@ XenNet_ReturnPacket(
 #endif
   //FUNCTION_EXIT();
 }
-
+  
 #define MAXIMUM_PACKETS_PER_INDICATE 32
 
 /* We limit the number of packets per interrupt so that acks get a chance
@@ -958,6 +1005,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
     entry = RemoveHeadList(&rx_header_only_packet_list);
     XenNet_ReturnPacket(xi, packet);
   }
+
   return dont_set_event;
   //FUNCTION_EXIT();
 }

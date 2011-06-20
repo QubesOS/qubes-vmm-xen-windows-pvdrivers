@@ -454,7 +454,7 @@ XenNet_SetInformation(
       break;
     case OID_GEN_MAXIMUM_LOOKAHEAD:
       status = NDIS_STATUS_NOT_SUPPORTED;
-      KdPrint(("Unsupported set OID_GEN_MAXIMUM_LOOKAHEAD\n"));
+      KdPrint(("Unsupported set OID_GEN_MAXIMUM_LOOKAHEAD %d\n", *(ULONG *)data));
       break;
     case OID_GEN_MAXIMUM_FRAME_SIZE:
       status = NDIS_STATUS_NOT_SUPPORTED;

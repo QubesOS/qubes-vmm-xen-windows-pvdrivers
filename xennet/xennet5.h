@@ -188,7 +188,6 @@ struct _shared_buffer_t
   USHORT offset;
   PVOID virtual;
   PNDIS_BUFFER buffer;
-  //USHORT id;
   volatile LONG ref_count;
 };
 
@@ -220,6 +219,7 @@ typedef struct {
   ULONG total_length;
   USHORT ip4_header_length;
   USHORT ip4_length;
+  BOOLEAN ip_has_options;
   USHORT tcp_header_length;
   BOOLEAN tcp_has_options;
   USHORT tcp_length;
@@ -428,6 +428,12 @@ XenNet_FilterAcceptPacket(struct xennet_info *xi,packet_info_t *pi);
 
 VOID
 XenNet_SumIpHeader(
+  PUCHAR header,
+  USHORT ip4_header_length
+);
+
+BOOLEAN
+XenNet_CheckIpHeader(
   PUCHAR header,
   USHORT ip4_header_length
 );

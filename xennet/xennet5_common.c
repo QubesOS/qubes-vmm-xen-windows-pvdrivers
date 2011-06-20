@@ -150,6 +150,7 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
       return PARSE_UNKNOWN_TYPE;
     }
     pi->ip4_header_length = (pi->header[XN_HDR_SIZE + 0] & 0x0F) << 2;
+    pi->ip_has_options = (BOOLEAN)(pi->ip4_header_length > 20);
     if (pi->header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20))
     {
       if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + 20)))
@@ -227,6 +228,27 @@ XenNet_SumIpHeader(
     csum = (csum & 0xFFFF) + (csum >> 16);
   csum = ~csum;
   SET_NET_USHORT(&header[XN_HDR_SIZE + 10], (USHORT)csum);
+}
+
+BOOLEAN
+XenNet_CheckIpHeader(
+  PUCHAR header,
+  USHORT ip4_header_length
+)
+{
+  ULONG csum = 0;
+  USHORT i;
+
+  ASSERT(ip4_header_length > 12);
+  ASSERT(!(ip4_header_length & 1));
+
+  for (i = 0; i < ip4_header_length; i += 2)
+  {
+    csum += GET_NET_PUSHORT(&header[XN_HDR_SIZE + i]);
+  }
+  while (csum & 0xFFFF0000)
+    csum = (csum & 0xFFFF) + (csum >> 16);
+  return csum == 0xFFFF;
 }
 
 BOOLEAN
