@@ -65,6 +65,8 @@ extern PVOID Int2dHandlerOld;
 static BOOLEAN debug_port_enabled = FALSE;
 static volatile LONG debug_print_lock = 0;
 
+static BOOLEAN last_newline = TRUE;
+
 /* This appears to be called with interrupts disabled already, so no need to go to HIGH_LEVEL or anything like that */
 static void XenDbgPrint(PCHAR string, ULONG length)
 {
@@ -75,19 +77,25 @@ static void XenDbgPrint(PCHAR string, ULONG length)
 
   while(InterlockedCompareExchange(&debug_print_lock, 1, 0) == 1)
     KeStallExecutionProcessor(1);
-  
-  KeQuerySystemTime(&current_time);
-  current_time.QuadPart /= 10000; /* convert to ms */
-  for (j = 1000000000000000000L; j >= 1; j /= 10)
-    if (current_time.QuadPart / j)
-      break;
-  for (; j >= 1; j /= 10)
-    WRITE_PORT_UCHAR(XEN_IOPORT_LOG, '0' + (UCHAR)((current_time.QuadPart / j) % 10));
-  WRITE_PORT_UCHAR(XEN_IOPORT_LOG, ':');
-  WRITE_PORT_UCHAR(XEN_IOPORT_LOG, ' ');
-      
+
   for (i = 0; i < length; i++)
+  {
+    /* only write a timestamp if the last character was a newline */
+    if (last_newline)
+    {
+      KeQuerySystemTime(&current_time);
+      current_time.QuadPart /= 10000; /* convert to ms */
+      for (j = 1000000000000000000L; j >= 1; j /= 10)
+        if (current_time.QuadPart / j)
+          break;
+      for (; j >= 1; j /= 10)
+        WRITE_PORT_UCHAR(XEN_IOPORT_LOG, '0' + (UCHAR)((current_time.QuadPart / j) % 10));
+      WRITE_PORT_UCHAR(XEN_IOPORT_LOG, ':');
+      WRITE_PORT_UCHAR(XEN_IOPORT_LOG, ' ');
+    }
     WRITE_PORT_UCHAR(XEN_IOPORT_LOG, string[i]);
+    last_newline = (string[i] == '\n');
+  }
   /* release the lock */
   InterlockedExchange(&debug_print_lock, 0);
 }
