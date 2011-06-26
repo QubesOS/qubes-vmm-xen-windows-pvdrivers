@@ -606,6 +606,7 @@ XenNet_SendNetBufferLists(
       NdisMSendNetBufferListsComplete(xi->adapter_handle, curr_nbl, (send_flags & NDIS_SEND_FLAGS_DISPATCH_LEVEL)?NDIS_SEND_COMPLETE_FLAGS_DISPATCH_LEVEL:0);
       curr_nbl = next_nbl;
     }
+    return;
   }
 
   KeAcquireSpinLock(&xi->tx_lock, &old_irql);
