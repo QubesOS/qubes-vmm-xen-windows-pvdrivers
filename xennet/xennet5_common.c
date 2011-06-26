@@ -248,7 +248,7 @@ XenNet_CheckIpHeader(
   }
   while (csum & 0xFFFF0000)
     csum = (csum & 0xFFFF) + (csum >> 16);
-  return csum == 0xFFFF;
+  return (BOOLEAN)(csum == 0xFFFF);
 }
 
 BOOLEAN
