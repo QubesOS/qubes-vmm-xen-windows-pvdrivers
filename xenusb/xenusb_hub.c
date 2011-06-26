@@ -301,7 +301,7 @@ XenUsbHub_EvtIoInternalDeviceControl(
   case IOCTL_INTERNAL_USB_GET_DEVICE_HANDLE_EX: /* incomplete probably */
     FUNCTION_MSG("IOCTL_INTERNAL_USB_GET_DEVICE_HANDLE_EX (returning %p)\n", xupdd->usb_device);
     *(PVOID *)wrp.Parameters.Others.Arg1 = xupdd->usb_device;
-    *(ULONG_PTR *)wrp.Parameters.Others.Arg2 = (ULONG_PTR)0x123456789ABCDEFL;
+    *(ULONG_PTR *)wrp.Parameters.Others.Arg2 = (ULONG_PTR)0x12345678;
     status = STATUS_SUCCESS;
     break;
   case IOCTL_INTERNAL_USB_GET_TOPOLOGY_ADDRESS:
