@@ -124,6 +124,7 @@ get_hb_from_freelist(struct xennet_info *xi)
 static __inline VOID
 put_hb_on_freelist(struct xennet_info *xi, shared_buffer_t *hb)
 {
+  ASSERT(xi);
   hb->mdl->ByteCount = sizeof(shared_buffer_t) + MAX_ETH_HEADER_LENGTH + MAX_LOOKAHEAD_LENGTH;
   hb->mdl->Next = NULL;
   hb->next = NULL;
@@ -369,7 +370,24 @@ XenNet_MakePacket(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
   rc->last_nbl = nbl;
   NET_BUFFER_LIST_NEXT_NBL(nbl) = NULL;
   InterlockedIncrement(&xi->rx_outstanding);
-
+  if (pi->is_multicast)
+  {
+    /* multicast */
+    xi->stats.ifHCInMulticastPkts++;
+    xi->stats.ifHCInMulticastOctets += NET_BUFFER_DATA_LENGTH(nb);
+  }
+  else if (pi->is_broadcast)
+  {
+    /* broadcast */
+    xi->stats.ifHCInBroadcastPkts++;
+    xi->stats.ifHCInBroadcastOctets += NET_BUFFER_DATA_LENGTH(nb);
+  }
+  else
+  {
+    /* unicast */
+    xi->stats.ifHCInUcastPkts++;
+    xi->stats.ifHCInUcastOctets += NET_BUFFER_DATA_LENGTH(nb);
+  }
   //FUNCTION_EXIT();
   return TRUE;
 }
@@ -550,7 +568,7 @@ XenNet_MakePackets(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
     if (!XenNet_MakePacket(xi, rc, pi))
     {
       KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
-      xi->stat_rx_no_buffer++;
+      xi->stats.ifInDiscards++;
       goto done;
     }
     goto done;
@@ -558,7 +576,7 @@ XenNet_MakePackets(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
     if (!XenNet_MakePacket(xi, rc, pi))
     {
       KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
-      xi->stat_rx_no_buffer++;
+      xi->stats.ifInDiscards++;
       goto done;
     }
     goto done;
@@ -574,7 +592,7 @@ XenNet_MakePackets(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
     if (!XenNet_MakePacket(xi, rc, pi))
     {
       KdPrint((__DRIVER_NAME "     Ran out of packets\n"));
-      xi->stat_rx_no_buffer++;
+      xi->stats.ifInDiscards++;
       break; /* we are out of memory - just drop the packets */
     }
     if (psh)
@@ -614,6 +632,7 @@ XenNet_ReturnNetBufferLists(NDIS_HANDLE adapter_context, PNET_BUFFER_LIST curr_n
 
   //KdPrint((__DRIVER_NAME "     page_buf = %p\n", page_buf));
 
+  ASSERT(xi);
   while (curr_nbl)
   {
     PNET_BUFFER_LIST next_nbl;
@@ -924,8 +943,6 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   }
   ASSERT(!more_data_flag && !extra_info_flag);
 
-  xi->stat_rx_ok += packet_count;
-
   if (rc.first_nbl)
   {
     NdisMIndicateReceiveNetBufferLists(xi->adapter_handle, rc.first_nbl, NDIS_DEFAULT_PORT_NUMBER, nbl_count,
@@ -1028,7 +1045,7 @@ XenNet_RxInit(xennet_info_t *xi)
 {
   NET_BUFFER_LIST_POOL_PARAMETERS nbl_pool_parameters;
   NET_BUFFER_POOL_PARAMETERS nb_pool_parameters;
-  UNREFERENCED_PARAMETER(xi);
+  int ret;
 
   FUNCTION_ENTER();
 
@@ -1043,8 +1060,21 @@ XenNet_RxInit(xennet_info_t *xi)
   }
   NdisZeroMemory(xi->rxpi, sizeof(packet_info_t) * NdisSystemProcessorCount());
 
-  stack_new(&xi->rx_pb_stack, NET_RX_RING_SIZE * 4);
+  ret = stack_new(&xi->rx_pb_stack, NET_RX_RING_SIZE * 4);
+  if (!ret)
+  {
+    FUNCTION_MSG("Failed to allocate rx_pb_stack\n");
+    NdisFreeMemory(xi->rxpi, sizeof(packet_info_t) * NdisSystemProcessorCount(), 0);
+    return FALSE;
+  }
   stack_new(&xi->rx_hb_stack, NET_RX_RING_SIZE * 4);
+  if (!ret)
+  {
+    FUNCTION_MSG("Failed to allocate rx_hb_stack\n");
+    stack_delete(xi->rx_pb_stack, NULL, NULL);
+    NdisFreeMemory(xi->rxpi, sizeof(packet_info_t) * NdisSystemProcessorCount(), 0);
+    return FALSE;
+  }
 
   XenNet_BufferAlloc(xi);
   
@@ -1063,7 +1093,6 @@ XenNet_RxInit(xennet_info_t *xi)
     KdPrint(("NdisAllocateNetBufferListPool failed\n"));
     return FALSE;
   }
-  //stack_new(&xi->rx_packet_stack, NET_RX_RING_SIZE * 4);
 
   nb_pool_parameters.Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
   nb_pool_parameters.Header.Revision = NET_BUFFER_POOL_PARAMETERS_REVISION_1;

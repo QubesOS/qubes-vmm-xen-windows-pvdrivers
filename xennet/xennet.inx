@@ -29,7 +29,7 @@ Characteristics = 0x81 ; NCF_VIRTUAL | NCF_HAS_UI
 AddReg = XenNet_Reg, XenNet_Params_Common, XenNet_Params_NDIS5
 *IfType            = 6  ; Ethernet
 *MediaType         = 0	; NdisMedium802_3
-*PhysicalMediaType = 19	; NdisPhysicalMedium802_3 
+*PhysicalMediaType = 19	; NdisPhysicalMediumOther
 
 [XenNet_Inst_NDIS6]
 CopyFiles=XenNet.CopyFiles
@@ -37,7 +37,7 @@ Characteristics = 0x81 ; NCF_VIRTUAL | NCF_HAS_UI
 AddReg = XenNet_Reg, XenNet_Params_Common, XenNet_Params_NDIS6
 *IfType            = 6  ; Ethernet
 *MediaType         = 0	; NdisMedium802_3
-*PhysicalMediaType = 19	; NdisPhysicalMedium802_3 
+*PhysicalMediaType = 19	; NdisPhysicalMediumOther
 
 [XenNet_Reg]
 HKR, Ndi, Service, 0, "XenNet"

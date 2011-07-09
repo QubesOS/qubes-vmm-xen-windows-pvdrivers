@@ -409,8 +409,6 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
     break;
   }
 
-  xi->stat_tx_ok++;
-
   //NDIS_SET_PACKET_STATUS(packet, NDIS_STATUS_SUCCESS);
   //FUNCTION_EXIT();
   xi->tx_outstanding++;
@@ -429,13 +427,13 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
 
   //FUNCTION_ENTER();
 
+  ASSERT(!KeTestSpinLock(&xi->tx_lock));
   if (xi->device_state->suspend_resume_state_pdo != SR_STATE_RUNNING)
     return;
 
-  nb_entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
-  /* if empty, the above returns head*, not NULL */
-  while (nb_entry != &xi->tx_waiting_pkt_list)
+  while (!IsListEmpty(&xi->tx_waiting_pkt_list))
   {
+    nb_entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
     nb = CONTAINING_RECORD(nb_entry, NET_BUFFER, NB_LIST_ENTRY_FIELD);
     
     if (!XenNet_HWSendPacket(xi, nb))
@@ -444,7 +442,6 @@ XenNet_SendQueuedPackets(struct xennet_info *xi)
       InsertHeadList(&xi->tx_waiting_pkt_list, nb_entry);
       break;
     }
-    nb_entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   }
 
   RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xi->tx, notify);
@@ -460,8 +457,9 @@ VOID
 XenNet_TxBufferGC(struct xennet_info *xi, BOOLEAN dont_set_event)
 {
   RING_IDX cons, prod;
-  LIST_ENTRY nb_head;
-  PLIST_ENTRY nb_entry;
+  PNET_BUFFER_LIST nbl_head = NULL;
+  PNET_BUFFER_LIST nbl_tail = NULL;  
+  PNET_BUFFER_LIST nbl;
   PNET_BUFFER nb;
   ULONG tx_packets = 0;
 
@@ -473,7 +471,7 @@ XenNet_TxBufferGC(struct xennet_info *xi, BOOLEAN dont_set_event)
 
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
 
-  InitializeListHead(&nb_head);
+//  InitializeListHead(&nbl_head);
   if (xi->tx_shutting_down && !xi->tx_outstanding)
   {
     /* there is a chance that our Dpc had been queued just before the shutdown... */
@@ -516,19 +514,58 @@ XenNet_TxBufferGC(struct xennet_info *xi, BOOLEAN dont_set_event)
       
       if (shadow->nb)
       {
-        PLIST_ENTRY nb_entry;
-        //KdPrint((__DRIVER_NAME "     nb %p complete\n"));
+        PMDL mdl;
+        PUCHAR header;
         nb = shadow->nb;
-        nb_entry = &NB_LIST_ENTRY(nb);
-        InsertTailList(&nb_head, nb_entry);
+        mdl = NET_BUFFER_CURRENT_MDL(nb);
+        header = MmGetSystemAddressForMdlSafe(mdl, LowPagePriority); /* already mapped so guaranteed to work */
+        header += NET_BUFFER_CURRENT_MDL_OFFSET(nb);
+
+        xi->stats.ifHCOutOctets += nb->DataLength;
+        if (nb->DataLength < XN_HDR_SIZE || !(header[0] & 0x01))
+        {
+          /* unicast or tiny packet */
+          xi->stats.ifHCOutUcastPkts++;
+          xi->stats.ifHCOutUcastOctets += nb->DataLength;
+        }
+        else if (header[0] == 0xFF && header[1] == 0xFF && header[2] == 0xFF
+          && header[3] == 0xFF && header[4] == 0xFF && header[5] == 0xFF)
+        {
+          /* broadcast */
+          xi->stats.ifHCOutBroadcastPkts++;
+          xi->stats.ifHCOutBroadcastOctets += nb->DataLength;
+        }
+        else
+        {
+          /* multicast */
+          xi->stats.ifHCOutMulticastPkts++;
+          xi->stats.ifHCOutMulticastOctets += nb->DataLength;
+        }
+        
+        nbl = NB_NBL(nb);
+        NBL_REF(nbl)--;
+        if (!NBL_REF(nbl))
+        {
+          NET_BUFFER_LIST_NEXT_NBL(nbl) = NULL;
+          if (nbl_head)
+          {
+            NET_BUFFER_LIST_NEXT_NBL(nbl_tail) = nbl;
+            nbl_tail = nbl;
+          }
+          else
+          {
+            nbl_head = nbl;
+            nbl_tail = nbl;
+          }
+        }
         shadow->nb = NULL;
+        tx_packets++;
       }
       put_id_on_freelist(xi, txrsp->id);
     }
 
     xi->tx.rsp_cons = prod;
     /* resist the temptation to set the event more than +1... it breaks things */
-    /* although I think we could set it to higher if we knew there were more outstanding packets coming soon... */
     if (!dont_set_event)
       xi->tx.sring->rsp_event = prod + 1;
     KeMemoryBarrier();
@@ -541,23 +578,9 @@ XenNet_TxBufferGC(struct xennet_info *xi, BOOLEAN dont_set_event)
   KeReleaseSpinLockFromDpcLevel(&xi->tx_lock);
 
   /* must be done without holding any locks */
-  nb_entry = RemoveHeadList(&nb_head);
-  /* if empty, the above returns head*, not NULL */
-  while (nb_entry != &nb_head)
-  {
-    PNET_BUFFER_LIST nbl;
-    nb = CONTAINING_RECORD(nb_entry, NET_BUFFER, NB_LIST_ENTRY_FIELD);
-    nbl = NB_NBL(nb);
-    NBL_REF(nbl)--;
-    if (!NBL_REF(nbl))
-    {
-      nbl->Status = NDIS_STATUS_SUCCESS;
-      NdisMSendNetBufferListsComplete(xi->adapter_handle, nbl, NDIS_SEND_COMPLETE_FLAGS_DISPATCH_LEVEL);
-    }
-    tx_packets++;
-    nb_entry = RemoveHeadList(&nb_head);
-  }
-
+  if (nbl_head)
+    NdisMSendNetBufferListsComplete(xi->adapter_handle, nbl_head, NDIS_SEND_COMPLETE_FLAGS_DISPATCH_LEVEL);
+  
   /* must be done after we have truly given back all packets */
   KeAcquireSpinLockAtDpcLevel(&xi->tx_lock);
   xi->tx_outstanding -= tx_packets;
@@ -590,6 +613,7 @@ XenNet_SendNetBufferLists(
   PLIST_ENTRY nb_entry;
   KIRQL old_irql;
   PNET_BUFFER_LIST curr_nbl;
+  PNET_BUFFER_LIST next_nbl;
 
   UNREFERENCED_PARAMETER(port_number);
   //FUNCTION_ENTER();
@@ -597,24 +621,24 @@ XenNet_SendNetBufferLists(
   if (xi->inactive)
   {
     curr_nbl = nb_lists;
-    while(curr_nbl)
+    for (curr_nbl = nb_lists; curr_nbl; curr_nbl = NET_BUFFER_LIST_NEXT_NBL(curr_nbl))
     {
-      PNET_BUFFER_LIST next_nbl = NET_BUFFER_LIST_NEXT_NBL(curr_nbl);
-      NET_BUFFER_LIST_NEXT_NBL(curr_nbl) = NULL;
       KdPrint((__DRIVER_NAME "     NBL %p\n", curr_nbl));
       curr_nbl->Status = NDIS_STATUS_FAILURE;
-      NdisMSendNetBufferListsComplete(xi->adapter_handle, curr_nbl, (send_flags & NDIS_SEND_FLAGS_DISPATCH_LEVEL)?NDIS_SEND_COMPLETE_FLAGS_DISPATCH_LEVEL:0);
-      curr_nbl = next_nbl;
     }
+    /* this actions the whole list */
+    NdisMSendNetBufferListsComplete(xi->adapter_handle, nb_lists, (send_flags & NDIS_SEND_FLAGS_DISPATCH_LEVEL)?NDIS_SEND_COMPLETE_FLAGS_DISPATCH_LEVEL:0);
     return;
   }
 
   KeAcquireSpinLock(&xi->tx_lock, &old_irql);
   
-  for (curr_nbl = nb_lists; curr_nbl; curr_nbl = NET_BUFFER_LIST_NEXT_NBL(curr_nbl))
+  for (curr_nbl = nb_lists; curr_nbl; curr_nbl = next_nbl)
   {
     PNET_BUFFER curr_nb;
     NBL_REF(curr_nbl) = 0;
+    next_nbl = NET_BUFFER_LIST_NEXT_NBL(curr_nbl);
+    NET_BUFFER_LIST_NEXT_NBL(curr_nbl) = NULL;
     for (curr_nb = NET_BUFFER_LIST_FIRST_NB(curr_nbl); curr_nb; curr_nb = NET_BUFFER_NEXT_NB(curr_nb))
     {
       NB_NBL(curr_nb) = curr_nbl;
@@ -753,6 +777,7 @@ XenNet_TxShutdown(xennet_info_t *xi)
   PNET_BUFFER nb;
   PNET_BUFFER_LIST nbl;
   PLIST_ENTRY nb_entry;
+  LARGE_INTEGER timeout;
 
   FUNCTION_ENTER();
 
@@ -763,16 +788,16 @@ XenNet_TxShutdown(xennet_info_t *xi)
   while (xi->tx_outstanding)
   {
     KdPrint((__DRIVER_NAME "     Waiting for %d remaining packets to be sent\n", xi->tx_outstanding));
-    KeWaitForSingleObject(&xi->tx_idle_event, Executive, KernelMode, FALSE, NULL);
+    timeout.QuadPart = -1 * 1 * 1000 * 1000 * 10; /* 1 second */
+    KeWaitForSingleObject(&xi->tx_idle_event, Executive, KernelMode, FALSE, &timeout);
   }
 
   KeFlushQueuedDpcs();
 
   /* Free packets in tx queue */
-  nb_entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
-  /* if empty, the above returns head*, not NULL */
-  while (nb_entry != &xi->tx_waiting_pkt_list)
+  while (!IsListEmpty(&xi->tx_waiting_pkt_list))
   {
+    nb_entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
     nb = CONTAINING_RECORD(nb_entry, NET_BUFFER, NB_LIST_ENTRY_FIELD);
     nbl = NB_NBL(nb);
     NBL_REF(nbl)--;
@@ -781,7 +806,6 @@ XenNet_TxShutdown(xennet_info_t *xi)
       nbl->Status = NDIS_STATUS_FAILURE;
       NdisMSendNetBufferListsComplete(xi->adapter_handle, nbl, NDIS_SEND_COMPLETE_FLAGS_DISPATCH_LEVEL);
     }
-    nb_entry = RemoveHeadList(&xi->tx_waiting_pkt_list);
   }
   NdisDeleteNPagedLookasideList(&xi->tx_lookaside_list);
 

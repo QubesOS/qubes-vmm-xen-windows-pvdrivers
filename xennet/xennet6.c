@@ -482,6 +482,8 @@ XenNet_D0Entry(struct xennet_info *xi)
 
   return status;
 }
+
+#if 0
 static NDIS_OID supported_oids[] =
 {
   /* mandatory */
@@ -503,6 +505,8 @@ static NDIS_OID supported_oids[] =
   OID_GEN_LINK_PARAMETERS,       // S
   OID_GEN_INTERRUPT_MODERATION,  // QS
   
+  OID_GEN_MAXIMUM_SEND_PACKETS,  // Q
+
   /* general optional */
   OID_GEN_NETWORK_LAYER_ADDRESSES,       
   OID_GEN_TRANSPORT_HEADER_OFFSET,
@@ -534,6 +538,7 @@ static NDIS_OID supported_oids[] =
   OID_TCP_OFFLOAD_PARAMETERS,
   OID_OFFLOAD_ENCAPSULATION,
 };
+#endif
 
 // Called at <= DISPATCH_LEVEL
 static NDIS_STATUS
@@ -563,6 +568,7 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   NDIS_MINIPORT_ADAPTER_OFFLOAD_ATTRIBUTES offload_attributes;
   NDIS_OFFLOAD df_offload, hw_offload;
   NDIS_TCP_CONNECTION_OFFLOAD df_conn_offload, hw_conn_offload;
+  static NDIS_OID *supported_oids;
 
   UNREFERENCED_PARAMETER(driver_context);
 
@@ -587,14 +593,33 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   xi->current_lookahead = MIN_LOOKAHEAD_LENGTH;
 
   xi->event_channel = 0;
-#if 0
-  xi->config_csum = 1;
-  xi->config_csum_rx_check = 1;
-  xi->config_sg = 1;
-  xi->config_gso = 61440;
-  xi->config_page = NULL;
-  xi->config_rx_interrupt_moderation = 0;
-#endif
+  xi->stats.Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
+  xi->stats.Header.Revision = NDIS_STATISTICS_INFO_REVISION_1;
+  xi->stats.Header.Size = NDIS_SIZEOF_STATISTICS_INFO_REVISION_1;
+  xi->stats.SupportedStatistics = NDIS_STATISTICS_XMIT_OK_SUPPORTED
+    | NDIS_STATISTICS_RCV_OK_SUPPORTED
+    | NDIS_STATISTICS_XMIT_ERROR_SUPPORTED
+    | NDIS_STATISTICS_RCV_ERROR_SUPPORTED
+    | NDIS_STATISTICS_RCV_NO_BUFFER_SUPPORTED
+    | NDIS_STATISTICS_DIRECTED_BYTES_XMIT_SUPPORTED
+    | NDIS_STATISTICS_DIRECTED_FRAMES_XMIT_SUPPORTED
+    | NDIS_STATISTICS_MULTICAST_BYTES_XMIT_SUPPORTED
+    | NDIS_STATISTICS_MULTICAST_FRAMES_XMIT_SUPPORTED
+    | NDIS_STATISTICS_BROADCAST_BYTES_XMIT_SUPPORTED
+    | NDIS_STATISTICS_BROADCAST_FRAMES_XMIT_SUPPORTED
+    | NDIS_STATISTICS_DIRECTED_BYTES_RCV_SUPPORTED
+    | NDIS_STATISTICS_DIRECTED_FRAMES_RCV_SUPPORTED
+    | NDIS_STATISTICS_MULTICAST_BYTES_RCV_SUPPORTED
+    | NDIS_STATISTICS_MULTICAST_FRAMES_RCV_SUPPORTED
+    | NDIS_STATISTICS_BROADCAST_BYTES_RCV_SUPPORTED
+    | NDIS_STATISTICS_BROADCAST_FRAMES_RCV_SUPPORTED
+    | NDIS_STATISTICS_RCV_CRC_ERROR_SUPPORTED
+    | NDIS_STATISTICS_TRANSMIT_QUEUE_LENGTH_SUPPORTED
+    | NDIS_STATISTICS_BYTES_RCV_SUPPORTED
+    | NDIS_STATISTICS_BYTES_XMIT_SUPPORTED
+    | NDIS_STATISTICS_RCV_DISCARDS_SUPPORTED
+    | NDIS_STATISTICS_GEN_STATISTICS_SUPPORTED
+    | NDIS_STATISTICS_XMIT_DISCARDS_SUPPORTED;
   
   nrl = init_parameters->AllocatedResources;
   for (i = 0; i < nrl->Count; i++)
@@ -861,35 +886,27 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   general_attributes.ConnectionType = NET_IF_CONNECTION_DEDICATED;
   general_attributes.IfType = IF_TYPE_ETHERNET_CSMACD;
   general_attributes.IfConnectorPresent = TRUE;
-  general_attributes.SupportedStatistics = NDIS_STATISTICS_XMIT_OK_SUPPORTED              
-    | NDIS_STATISTICS_RCV_OK_SUPPORTED               
-    | NDIS_STATISTICS_XMIT_ERROR_SUPPORTED           
-    | NDIS_STATISTICS_RCV_ERROR_SUPPORTED            
-    | NDIS_STATISTICS_RCV_NO_BUFFER_SUPPORTED        
-    | NDIS_STATISTICS_DIRECTED_BYTES_XMIT_SUPPORTED  
-    | NDIS_STATISTICS_DIRECTED_FRAMES_XMIT_SUPPORTED 
-    | NDIS_STATISTICS_MULTICAST_BYTES_XMIT_SUPPORTED 
-    | NDIS_STATISTICS_MULTICAST_FRAMES_XMIT_SUPPORTED
-    | NDIS_STATISTICS_BROADCAST_BYTES_XMIT_SUPPORTED 
-    | NDIS_STATISTICS_BROADCAST_FRAMES_XMIT_SUPPORTED
-    | NDIS_STATISTICS_DIRECTED_BYTES_RCV_SUPPORTED   
-    | NDIS_STATISTICS_DIRECTED_FRAMES_RCV_SUPPORTED  
-    | NDIS_STATISTICS_MULTICAST_BYTES_RCV_SUPPORTED  
-    | NDIS_STATISTICS_MULTICAST_FRAMES_RCV_SUPPORTED 
-    | NDIS_STATISTICS_BROADCAST_BYTES_RCV_SUPPORTED  
-    | NDIS_STATISTICS_BROADCAST_FRAMES_RCV_SUPPORTED 
-    | NDIS_STATISTICS_RCV_CRC_ERROR_SUPPORTED        
-    | NDIS_STATISTICS_TRANSMIT_QUEUE_LENGTH_SUPPORTED
-    | NDIS_STATISTICS_BYTES_RCV_SUPPORTED            
-    | NDIS_STATISTICS_BYTES_XMIT_SUPPORTED           
-    | NDIS_STATISTICS_RCV_DISCARDS_SUPPORTED         
-    | NDIS_STATISTICS_GEN_STATISTICS_SUPPORTED       
-    | NDIS_STATISTICS_XMIT_DISCARDS_SUPPORTED;
+  general_attributes.SupportedStatistics = xi->stats.SupportedStatistics;
   general_attributes.SupportedPauseFunctions = NdisPauseFunctionsUnsupported;
   general_attributes.DataBackFillSize = 0; // see NdisRetreatNetBufferDataStart
   general_attributes.ContextBackFillSize = 0; // ?? NFI ??
+  
+  for (i = 0; xennet_oids[i].oid; i++);
+  
+  status = NdisAllocateMemoryWithTag((PVOID)&supported_oids, sizeof(NDIS_OID) * i, XENNET_POOL_TAG);
+  if (!NT_SUCCESS(status))
+  {
+    KdPrint(("NdisAllocateMemoryWithTag failed with 0x%x\n", status));
+    status = NDIS_STATUS_RESOURCES;
+    goto err;
+  }
+
+  for (i = 0; xennet_oids[i].oid; i++)
+  {
+    supported_oids[i] = xennet_oids[i].oid;
+  }
   general_attributes.SupportedOidList = supported_oids;
-  general_attributes.SupportedOidListLength = sizeof(supported_oids);
+  general_attributes.SupportedOidListLength = sizeof(NDIS_OID) * i;
   general_attributes.AutoNegotiationFlags = NDIS_LINK_STATE_XMIT_LINK_SPEED_AUTO_NEGOTIATED
     | NDIS_LINK_STATE_RCV_LINK_SPEED_AUTO_NEGOTIATED
     | NDIS_LINK_STATE_DUPLEX_AUTO_NEGOTIATED;
@@ -900,7 +917,8 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
     KdPrint(("NdisMSetMiniportAttributes(general) failed (%08x)\n", status));
     goto err;
   }
-  
+  NdisFreeMemory(supported_oids, 0, 0);
+    
   /* this is the initial offload state */
   RtlZeroMemory(&df_offload, sizeof(df_offload));
   df_offload.Header.Type = NDIS_OBJECT_TYPE_OFFLOAD;

@@ -34,13 +34,13 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define VENDOR_DRIVER_VERSION_MAJOR 0
 #define VENDOR_DRIVER_VERSION_MINOR 10
 
-#define MAX_LINK_SPEED 10000000; /* there is not really any theoretical maximum... */
+#define MAX_LINK_SPEED 10000000000L; /* there is not really any theoretical maximum... */
 
 #define VENDOR_DRIVER_VERSION (((VENDOR_DRIVER_VERSION_MAJOR) << 16) | (VENDOR_DRIVER_VERSION_MINOR))
 
 #define __DRIVER_NAME "XenNet"
 
-#define NB_LIST_ENTRY_FIELD MiniportReserved[0] // TX
+#define NB_LIST_ENTRY_FIELD MiniportReserved[0] // TX (2 entries)
 #define NB_HEADER_BUF_FIELD MiniportReserved[0] // RX
 #define NB_NBL_FIELD MiniportReserved[2] // TX
 #define NB_LIST_ENTRY(_nb) (*(PLIST_ENTRY)&(_nb)->NB_LIST_ENTRY_FIELD)
@@ -48,9 +48,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define NB_HEADER_BUF(_nb) (*(shared_buffer_t **)&(_nb)->NB_HEADER_BUF_FIELD)
 
 #define NBL_REF_FIELD MiniportReserved[0] // TX
+//#define NBL_LIST_ENTRY_FIELD MiniportReserved[0] // TX (2 entries) - overlaps with REF_FIELD
 //#define NBL_PACKET_COUNT_FIELD MiniportReserved[0] // RX
 //#define NBL_LAST_NB_FIELD MiniportReserved[1] // RX
 #define NBL_REF(_nbl) (*(ULONG_PTR *)&(_nbl)->NBL_REF_FIELD)
+//#define NBL_LIST_ENTRY(_nbl) (*(PLIST_ENTRY)&(_nbl)->NBL_LIST_ENTRY_FIELD)
 //#define NBL_PACKET_COUNT(_nbl) (*(ULONG_PTR *)&(_nbl)->NBL_PACKET_COUNT_FIELD)
 //#define NBL_LAST_NB(_nbl) (*(PNET_BUFFER *)&(_nbl)->NBL_LAST_NB_FIELD)
 
@@ -185,7 +187,7 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 #define MAX_PKT_HEADER_LENGTH (MAX_ETH_HEADER_LENGTH + MAX_IP4_HEADER_LENGTH + MAX_TCP_HEADER_LENGTH)
 
 #define MIN_LOOKAHEAD_LENGTH (MAX_IP4_HEADER_LENGTH + MAX_TCP_HEADER_LENGTH)
-#define MAX_LOOKAHEAD_LENGTH 256
+#define MAX_LOOKAHEAD_LENGTH PAGE_SIZE /* don't know if this is a good idea - was 256*/
 
 #define LINUX_MAX_SG_ELEMENTS 19
 
@@ -242,6 +244,8 @@ typedef struct {
   USHORT tcp_length;
   USHORT tcp_remaining;
   ULONG tcp_seq;
+  BOOLEAN is_multicast;
+  BOOLEAN is_broadcast;
   /* anything past here doesn't get cleared automatically by the ClearPacketInfo */
   UCHAR header_data[MAX_LOOKAHEAD_LENGTH + MAX_ETH_HEADER_LENGTH];
 } packet_info_t;
@@ -358,14 +362,25 @@ struct xennet_info
   /* config stuff calculated from the above */
   ULONG config_max_pkt_size;
 
-  /* stats */
-  ULONG64 stat_tx_ok;
-  ULONG64 stat_rx_ok;
-  ULONG64 stat_tx_error;
-  ULONG64 stat_rx_error;
-  ULONG64 stat_rx_no_buffer;
+  /* stats */\
+  NDIS_STATISTICS_INFO stats;
+  //ULONG64 stat_tx_ok;
+  //ULONG64 stat_rx_ok;
+  //ULONG64 stat_tx_error;
+  //ULONG64 stat_rx_error;
+  //ULONG64 stat_rx_no_buffer;
   
 } typedef xennet_info_t;
+
+struct xennet_oids_t {
+  ULONG oid;
+  char *oid_name;
+  ULONG min_length;
+  MINIPORT_OID_REQUEST *query_routine;
+  MINIPORT_OID_REQUEST *set_routine;
+};
+
+extern struct xennet_oids_t xennet_oids[];
 
 MINIPORT_OID_REQUEST XenNet_OidRequest;
 MINIPORT_CANCEL_OID_REQUEST XenNet_CancelOidRequest;

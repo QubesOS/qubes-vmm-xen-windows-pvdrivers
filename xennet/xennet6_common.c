@@ -138,6 +138,17 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
     return;
   }
 
+  if (pi->header[0] == 0xFF && pi->header[1] == 0xFF
+      && pi->header[2] == 0xFF && pi->header[3] == 0xFF
+      && pi->header[4] == 0xFF && pi->header[5] == 0xFF)
+  {
+    pi->is_broadcast = TRUE;
+  }
+  else if (pi->header[0] & 0x01)
+  {
+    pi->is_multicast = TRUE;
+  }
+
   switch (GET_NET_PUSHORT(&pi->header[12])) // L2 protocol field
   {
   case 0x0800: /* IPv4 */
@@ -251,21 +262,16 @@ XenNet_SumIpHeader(
 BOOLEAN
 XenNet_FilterAcceptPacket(struct xennet_info *xi,packet_info_t *pi)
 {
-  BOOLEAN is_multicast = FALSE;
-  BOOLEAN is_my_multicast = FALSE;
-  BOOLEAN is_broadcast = FALSE;
-  BOOLEAN is_directed = FALSE;
   ULONG i;
+  BOOLEAN is_my_multicast = FALSE;
+  BOOLEAN is_directed = FALSE;
 
-  if (pi->header[0] == 0xFF && pi->header[1] == 0xFF
-      && pi->header[2] == 0xFF && pi->header[3] == 0xFF
-      && pi->header[4] == 0xFF && pi->header[5] == 0xFF)
+  if (memcmp(xi->curr_mac_addr, pi->header, ETH_ALEN) == 0)
   {
-    is_broadcast = TRUE;
+    is_directed = TRUE;
   }
-  else if (pi->header[0] & 0x01)
+  else if (pi->is_multicast)
   {
-    is_multicast = TRUE;
     for (i = 0; i < xi->multicast_list_size; i++)
     {
       if (memcmp(xi->multicast_list[i], pi->header, 6) == 0)
@@ -274,13 +280,8 @@ XenNet_FilterAcceptPacket(struct xennet_info *xi,packet_info_t *pi)
     if (i < xi->multicast_list_size)
     {
       is_my_multicast = TRUE;
-    }    
+    }
   }
-  if (memcmp(xi->curr_mac_addr, pi->header, ETH_ALEN) == 0)
-  {
-    is_directed = TRUE;
-  }
-
   if (is_directed && (xi->packet_filter & NDIS_PACKET_TYPE_DIRECTED))
   {
     return TRUE;
@@ -289,11 +290,11 @@ XenNet_FilterAcceptPacket(struct xennet_info *xi,packet_info_t *pi)
   {
     return TRUE;
   }
-  if (is_multicast && (xi->packet_filter & NDIS_PACKET_TYPE_ALL_MULTICAST))
+  if (pi->is_multicast && (xi->packet_filter & NDIS_PACKET_TYPE_ALL_MULTICAST))
   {
     return TRUE;
   }
-  if (is_broadcast && (xi->packet_filter & NDIS_PACKET_TYPE_BROADCAST))
+  if (pi->is_broadcast && (xi->packet_filter & NDIS_PACKET_TYPE_BROADCAST))
   {
     return TRUE;
   }
@@ -301,6 +302,6 @@ XenNet_FilterAcceptPacket(struct xennet_info *xi,packet_info_t *pi)
   {
     return TRUE;
   }
-  return TRUE;
-  //return FALSE;
+  //return TRUE;
+  return FALSE;
 }

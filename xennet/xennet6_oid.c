@@ -20,6 +20,406 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "xennet6.h"
 
+#define DEF_OID_QUERY(oid, min_length) {oid, #oid, min_length, XenNet_Query##oid, NULL}
+#define DEF_OID_QUERYSET(oid, min_length) {oid, #oid, min_length, XenNet_Query##oid, XenNet_Set##oid}
+#define DEF_OID_SET(oid, min_length) {oid, #oid, min_length, NULL, XenNet_Set##oid}
+
+#define DEF_OID_QUERY_STAT(oid) DEF_OID_QUERY(##oid, 0) /* has to be 0 so the 4/8 size works */
+#define DEF_OID_QUERY_ULONG(oid) DEF_OID_QUERY(##oid, sizeof(ULONG))
+#define DEF_OID_QUERYSET_ULONG(oid) DEF_OID_QUERYSET(##oid, sizeof(ULONG))
+#define DEF_OID_SET_ULONG(oid) DEF_OID_SET(##oid, sizeof(ULONG))
+
+/*
+#define SET_ULONG(value) \
+  do { \
+    request->DATA.SET_INFORMATION.InformationBufferLength = sizeof(ULONG); \
+    *(ULONG *)request->DATA.SET_INFORMATION.InformationBuffer = value; \
+  } while (0);
+*/
+#define DEF_OID_QUERY_ROUTINE(oid, value, length) \
+NDIS_STATUS \
+XenNet_Query##oid(NDIS_HANDLE context, PNDIS_OID_REQUEST request) \
+{ \
+  struct xennet_info *xi = context; \
+  UNREFERENCED_PARAMETER(xi); \
+  if (request->DATA.QUERY_INFORMATION.InformationBufferLength < length) \
+  { \
+    request->DATA.QUERY_INFORMATION.BytesNeeded = length; \
+    return NDIS_STATUS_BUFFER_TOO_SHORT; \
+  } \
+  request->DATA.QUERY_INFORMATION.BytesWritten = length; \
+  NdisMoveMemory(request->DATA.QUERY_INFORMATION.InformationBuffer, value, length); \
+  return STATUS_SUCCESS; \
+}
+
+#define DEF_OID_QUERY_ULONG_ROUTINE(oid, value) \
+NDIS_STATUS \
+XenNet_Query##oid(NDIS_HANDLE context, PNDIS_OID_REQUEST request) \
+{ \
+  struct xennet_info *xi = context; \
+  UNREFERENCED_PARAMETER(xi); \
+  request->DATA.QUERY_INFORMATION.BytesWritten = sizeof(ULONG); \
+  *(ULONG *)request->DATA.QUERY_INFORMATION.InformationBuffer = value; \
+  return STATUS_SUCCESS; \
+}
+
+#define DEF_OID_QUERY_STAT_ROUTINE(oid, value) \
+NDIS_STATUS \
+XenNet_Query##oid(NDIS_HANDLE context, PNDIS_OID_REQUEST request) \
+{ \
+  struct xennet_info *xi = context; \
+  UNREFERENCED_PARAMETER(xi); \
+  if (request->DATA.QUERY_INFORMATION.InformationBufferLength >= 8) \
+  { \
+    request->DATA.QUERY_INFORMATION.BytesWritten = sizeof(ULONG64); \
+    *(ULONG64 *)request->DATA.QUERY_INFORMATION.InformationBuffer = (value); \
+  } \
+  else if (request->DATA.QUERY_INFORMATION.InformationBufferLength >= 4) \
+  { \
+    request->DATA.QUERY_INFORMATION.BytesWritten = sizeof(ULONG); \
+    request->DATA.QUERY_INFORMATION.BytesNeeded = sizeof(ULONG64); \
+    *(ULONG *)request->DATA.QUERY_INFORMATION.InformationBuffer = (ULONG)(value); \
+  } \
+  else \
+  { \
+    request->DATA.QUERY_INFORMATION.BytesNeeded = sizeof(ULONG64); \
+    return NDIS_STATUS_BUFFER_TOO_SHORT; \
+  } \
+  return STATUS_SUCCESS; \
+}
+
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_MAXIMUM_TOTAL_SIZE, xi->current_mtu_value + XN_HDR_SIZE)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_CURRENT_PACKET_FILTER, xi->packet_filter)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_CURRENT_LOOKAHEAD, xi->current_lookahead)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_TRANSMIT_BUFFER_SPACE, PAGE_SIZE * NET_TX_RING_SIZE * 4)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_RECEIVE_BUFFER_SPACE, PAGE_SIZE * NET_RX_RING_SIZE * 2)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_TRANSMIT_BLOCK_SIZE, PAGE_SIZE)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_RECEIVE_BLOCK_SIZE, PAGE_SIZE)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_MAXIMUM_SEND_PACKETS, 0)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_802_3_MAXIMUM_LIST_SIZE, MULTICAST_LIST_MAX_SIZE)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_HARDWARE_STATUS, xi->connected?NdisHardwareStatusReady:NdisHardwareStatusInitializing)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_VENDOR_ID, 0xFFFFFF) // Not guaranteed to be XENSOURCE_MAC_HDR;
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_VENDOR_DRIVER_VERSION, VENDOR_DRIVER_VERSION)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_MEDIA_SUPPORTED, NdisMedium802_3)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_MEDIA_IN_USE, NdisMedium802_3)
+DEF_OID_QUERY_ULONG_ROUTINE(OID_GEN_MAXIMUM_LOOKAHEAD, MAX_LOOKAHEAD_LENGTH)
+
+DEF_OID_QUERY_STAT_ROUTINE(OID_GEN_XMIT_OK, xi->stats.ifHCOutUcastPkts + xi->stats.ifHCOutMulticastPkts + xi->stats.ifHCOutBroadcastPkts)
+DEF_OID_QUERY_STAT_ROUTINE(OID_GEN_XMIT_ERROR, xi->stats.ifOutErrors)
+DEF_OID_QUERY_STAT_ROUTINE(OID_GEN_RCV_OK, xi->stats.ifHCInUcastPkts + xi->stats.ifHCInMulticastPkts + xi->stats.ifHCInBroadcastPkts)
+DEF_OID_QUERY_STAT_ROUTINE(OID_GEN_RCV_ERROR, xi->stats.ifInErrors)
+DEF_OID_QUERY_STAT_ROUTINE(OID_GEN_RCV_NO_BUFFER, xi->stats.ifInDiscards)
+DEF_OID_QUERY_STAT_ROUTINE(OID_802_3_RCV_ERROR_ALIGNMENT, 0)
+DEF_OID_QUERY_STAT_ROUTINE(OID_802_3_XMIT_ONE_COLLISION, 0)
+DEF_OID_QUERY_STAT_ROUTINE(OID_802_3_XMIT_MORE_COLLISIONS, 0)
+
+DEF_OID_QUERY_ROUTINE(OID_GEN_VENDOR_DESCRIPTION, XN_VENDOR_DESC, sizeof(XN_VENDOR_DESC))
+
+DEF_OID_QUERY_ROUTINE(OID_802_3_PERMANENT_ADDRESS, xi->perm_mac_addr, ETH_ALEN)
+DEF_OID_QUERY_ROUTINE(OID_802_3_CURRENT_ADDRESS, xi->curr_mac_addr, ETH_ALEN)
+
+DEF_OID_QUERY_ROUTINE(OID_802_3_MULTICAST_LIST, xi->multicast_list, xi->multicast_list_size * 6)
+
+NDIS_STATUS
+XenNet_SetOID_802_3_MULTICAST_LIST(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  struct xennet_info *xi = context;
+  UCHAR *multicast_list;
+  int i;
+
+  if (request->DATA.SET_INFORMATION.InformationBufferLength > MULTICAST_LIST_MAX_SIZE * 6)
+  {
+    return NDIS_STATUS_MULTICAST_FULL;
+  }
+  
+  if (request->DATA.SET_INFORMATION.InformationBufferLength % 6 != 0)
+  {
+    return NDIS_STATUS_MULTICAST_FULL;
+  }
+  multicast_list = request->DATA.SET_INFORMATION.InformationBuffer;
+  for (i = 0; i < (int)request->DATA.SET_INFORMATION.InformationBufferLength / 6; i++)
+  {
+    if (!(multicast_list[i * 6 + 0] & 0x01))
+    {
+      FUNCTION_MSG("Address %d (%02x:%02x:%02x:%02x:%02x:%02x) is not a multicast address\n", i,
+        (ULONG)multicast_list[i * 6 + 0], (ULONG)multicast_list[i * 6 + 1], 
+        (ULONG)multicast_list[i * 6 + 2], (ULONG)multicast_list[i * 6 + 3], 
+        (ULONG)multicast_list[i * 6 + 4], (ULONG)multicast_list[i * 6 + 5]);
+      /* the docs say that we should return NDIS_STATUS_MULTICAST_FULL if we get an invalid multicast address but I'm not sure if that's the case... */
+    }
+  }
+  memcpy(xi->multicast_list, multicast_list, request->DATA.SET_INFORMATION.InformationBufferLength);
+  xi->multicast_list_size = request->DATA.SET_INFORMATION.InformationBufferLength / 6;
+  return NDIS_STATUS_SUCCESS;
+}
+
+NDIS_STATUS
+XenNet_SetOID_GEN_CURRENT_PACKET_FILTER(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  struct xennet_info *xi = context;
+  PULONG data = request->DATA.SET_INFORMATION.InformationBuffer;
+  
+  request->DATA.SET_INFORMATION.BytesNeeded = sizeof(ULONG64);
+  if (*data & NDIS_PACKET_TYPE_DIRECTED)
+    FUNCTION_MSG("NDIS_PACKET_TYPE_DIRECTED\n");
+  if (*data & NDIS_PACKET_TYPE_MULTICAST)
+    FUNCTION_MSG("NDIS_PACKET_TYPE_MULTICAST\n");
+  if (*data & NDIS_PACKET_TYPE_ALL_MULTICAST)
+    FUNCTION_MSG("NDIS_PACKET_TYPE_ALL_MULTICAST\n");
+  if (*data & NDIS_PACKET_TYPE_BROADCAST)
+    FUNCTION_MSG("NDIS_PACKET_TYPE_BROADCAST\n");
+  if (*data & NDIS_PACKET_TYPE_PROMISCUOUS)
+    FUNCTION_MSG("NDIS_PACKET_TYPE_PROMISCUOUS\n");
+  if (*data & NDIS_PACKET_TYPE_ALL_FUNCTIONAL)
+    FUNCTION_MSG("NDIS_PACKET_TYPE_ALL_FUNCTIONAL (not supported)\n");
+  if (*data & NDIS_PACKET_TYPE_ALL_LOCAL)
+    FUNCTION_MSG("NDIS_PACKET_TYPE_ALL_LOCAL (not supported)\n");
+  if (*data & NDIS_PACKET_TYPE_FUNCTIONAL)
+    FUNCTION_MSG("NDIS_PACKET_TYPE_FUNCTIONAL (not supported)\n");
+  if (*data & NDIS_PACKET_TYPE_GROUP)
+    FUNCTION_MSG("NDIS_PACKET_TYPE_GROUP (not supported)\n");
+  if (*data & ~SUPPORTED_PACKET_FILTERS)
+  {
+    FUNCTION_MSG("returning NDIS_STATUS_NOT_SUPPORTED\n");
+    return NDIS_STATUS_NOT_SUPPORTED;
+  }
+  xi->packet_filter = *(ULONG *)data;
+  request->DATA.SET_INFORMATION.BytesRead = sizeof(ULONG);
+  return NDIS_STATUS_SUCCESS;
+}
+
+NDIS_STATUS
+XenNet_SetOID_GEN_CURRENT_LOOKAHEAD(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  struct xennet_info *xi = context;
+  PULONG data = request->DATA.QUERY_INFORMATION.InformationBuffer;
+  xi->current_lookahead = *(ULONG *)data;
+  FUNCTION_MSG("Set OID_GEN_CURRENT_LOOKAHEAD %d (%p)\n", xi->current_lookahead, xi);
+  return NDIS_STATUS_SUCCESS;
+}
+
+NDIS_STATUS
+XenNet_SetOID_GEN_LINK_PARAMETERS(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(request);
+  return STATUS_NOT_SUPPORTED;
+}
+
+NDIS_STATUS
+XenNet_QueryOID_GEN_INTERRUPT_MODERATION(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  PNDIS_INTERRUPT_MODERATION_PARAMETERS nimp;
+  UNREFERENCED_PARAMETER(context);
+  nimp = (PNDIS_INTERRUPT_MODERATION_PARAMETERS)request->DATA.QUERY_INFORMATION.InformationBuffer;
+  nimp->Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
+  nimp->Header.Revision = NDIS_INTERRUPT_MODERATION_PARAMETERS_REVISION_1;
+  nimp->Header.Size = NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1;
+  nimp->Flags = 0;
+  nimp->InterruptModeration = NdisInterruptModerationNotSupported;
+  request->DATA.SET_INFORMATION.BytesRead = sizeof(NDIS_INTERRUPT_MODERATION_PARAMETERS);
+  return STATUS_SUCCESS;
+}
+
+NDIS_STATUS
+XenNet_SetOID_GEN_INTERRUPT_MODERATION(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(request);
+  return STATUS_NOT_SUPPORTED;
+}
+
+NDIS_STATUS
+XenNet_QueryOID_GEN_STATISTICS(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  struct xennet_info *xi = context;
+
+  NdisMoveMemory(request->DATA.QUERY_INFORMATION.InformationBuffer, &xi->stats, sizeof(NDIS_STATISTICS_INFO));
+  request->DATA.SET_INFORMATION.BytesRead = sizeof(NDIS_STATISTICS_INFO);
+  return STATUS_SUCCESS;
+}
+
+NDIS_STATUS
+XenNet_SetOID_PNP_SET_POWER(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  UNREFERENCED_PARAMETER(context);
+  UNREFERENCED_PARAMETER(request);
+  return STATUS_NOT_SUPPORTED;
+}
+
+NDIS_STATUS
+XenNet_SetOID_GEN_NETWORK_LAYER_ADDRESSES(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  PNETWORK_ADDRESS_LIST nal = request->DATA.QUERY_INFORMATION.InformationBuffer;
+  PNETWORK_ADDRESS na;
+  PNETWORK_ADDRESS_IP ip;
+  int i;
+  
+  UNREFERENCED_PARAMETER(context);
+  FUNCTION_MSG("AddressType = %d\n", nal->AddressType);
+  FUNCTION_MSG("AddressCount = %d\n", nal->AddressCount);
+  if (nal->AddressCount == 0)
+  {
+    // remove addresses of AddressType type
+  }
+  else
+  {
+    na = nal->Address;
+    for (i = 0; i < nal->AddressCount; i++)
+    {
+      if ((ULONG_PTR)na - (ULONG_PTR)nal + FIELD_OFFSET(NETWORK_ADDRESS, Address) + na->AddressLength > request->DATA.QUERY_INFORMATION.InformationBufferLength)
+      {
+        FUNCTION_MSG("Out of bounds\n");
+        return NDIS_STATUS_INVALID_DATA;
+      }
+      switch(na->AddressType)
+      {
+      case NDIS_PROTOCOL_ID_TCP_IP:
+        FUNCTION_MSG("Address[%d].Type = NDIS_PROTOCOL_ID_TCP_IP\n", i);
+        FUNCTION_MSG("Address[%d].Length = %d\n", i, na->AddressLength);
+        if (na->AddressLength != NETWORK_ADDRESS_LENGTH_IP)
+        {
+          FUNCTION_MSG("Length is invalid\n");
+          break;
+        }
+        ip = (PNETWORK_ADDRESS_IP)na->Address;
+        FUNCTION_MSG("Address[%d].in_addr = %d.%d.%d.%d\n", i, ip->in_addr & 0xff, (ip->in_addr >> 8) & 0xff, (ip->in_addr >> 16) & 0xff, (ip->in_addr >> 24) & 0xff);
+        break;
+      default:
+        FUNCTION_MSG("Address[%d].Type = %d\n", i, na->AddressType);
+        FUNCTION_MSG("Address[%d].Length = %d\n", i, na->AddressLength);
+        break;
+      }
+      na = (PNETWORK_ADDRESS)((PUCHAR)na + FIELD_OFFSET(NETWORK_ADDRESS, Address) + na->AddressLength);
+    }
+  }
+  
+  return NDIS_STATUS_SUCCESS;
+}
+
+NDIS_STATUS
+XenNet_SetOID_GEN_MACHINE_NAME(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  UNICODE_STRING name;
+  UNREFERENCED_PARAMETER(context);
+  
+  name.Length = (USHORT)request->DATA.QUERY_INFORMATION.InformationBufferLength;
+  name.MaximumLength = (USHORT)request->DATA.QUERY_INFORMATION.InformationBufferLength;
+  name.Buffer = request->DATA.QUERY_INFORMATION.InformationBuffer;
+  FUNCTION_MSG("name = %wZ\n", &name);
+  return NDIS_STATUS_SUCCESS;
+}
+
+NDIS_STATUS
+XenNet_SetOID_OFFLOAD_ENCAPSULATION(NDIS_HANDLE context, PNDIS_OID_REQUEST request)
+{
+  struct xennet_info *xi = context;
+  /* mostly assume that NDIS vets the settings for us */
+  PNDIS_OFFLOAD_ENCAPSULATION noe = (PNDIS_OFFLOAD_ENCAPSULATION)request->DATA.SET_INFORMATION.InformationBuffer;
+  if (noe->IPv4.EncapsulationType != NDIS_ENCAPSULATION_IEEE_802_3)
+  {
+    FUNCTION_MSG("Unknown Encapsulation Type %d\n", noe->IPv4.EncapsulationType);
+    return NDIS_STATUS_NOT_SUPPORTED;
+  }
+    
+  switch(noe->IPv4.Enabled)
+  {
+  case NDIS_OFFLOAD_SET_ON:
+    FUNCTION_MSG(" IPv4.Enabled = NDIS_OFFLOAD_SET_ON\n");
+    xi->current_csum_supported = xi->backend_csum_supported && xi->frontend_csum_supported;
+    xi->current_gso_value = min(xi->backend_csum_supported, xi->frontend_csum_supported);
+    break;
+  case NDIS_OFFLOAD_SET_OFF:
+    FUNCTION_MSG(" IPv4.Enabled = NDIS_OFFLOAD_SET_OFF\n");
+    xi->current_csum_supported = FALSE;
+    xi->current_gso_value = 0;
+    break;
+  case NDIS_OFFLOAD_SET_NO_CHANGE:
+    FUNCTION_MSG(" IPv4.Enabled = NDIS_OFFLOAD_NO_CHANGE\n");
+    break;
+  }
+  FUNCTION_MSG(" IPv4.HeaderSize = %d\n", noe->IPv4.HeaderSize);
+  FUNCTION_MSG(" IPv6.EncapsulationType = %d\n", noe->IPv6.EncapsulationType);
+  switch(noe->IPv6.Enabled)
+  {
+  case NDIS_OFFLOAD_SET_ON:
+    FUNCTION_MSG(" IPv6.Enabled = NDIS_OFFLOAD_SET_ON (this is an error)\n");
+    break;
+  case NDIS_OFFLOAD_SET_OFF:
+    FUNCTION_MSG(" IPv6.Enabled = NDIS_OFFLOAD_SET_OFF\n");
+    break;
+  case NDIS_OFFLOAD_SET_NO_CHANGE:
+    FUNCTION_MSG(" IPv6.Enabled = NDIS_OFFLOAD_NO_CHANGE\n");
+    break;
+  }
+  FUNCTION_MSG(" IPv6.HeaderSize = %d\n", noe->IPv6.HeaderSize);
+  return NDIS_STATUS_SUCCESS;
+}
+
+struct xennet_oids_t xennet_oids[] = {
+  DEF_OID_QUERY_ULONG(OID_GEN_HARDWARE_STATUS),
+
+  DEF_OID_QUERY_ULONG(OID_GEN_TRANSMIT_BUFFER_SPACE),
+  DEF_OID_QUERY_ULONG(OID_GEN_RECEIVE_BUFFER_SPACE),
+  DEF_OID_QUERY_ULONG(OID_GEN_TRANSMIT_BLOCK_SIZE),
+  DEF_OID_QUERY_ULONG(OID_GEN_RECEIVE_BLOCK_SIZE),
+
+  DEF_OID_QUERY_ULONG(OID_GEN_VENDOR_ID),
+  DEF_OID_QUERY(OID_GEN_VENDOR_DESCRIPTION, sizeof(XN_VENDOR_DESC)),
+  DEF_OID_QUERY_ULONG(OID_GEN_VENDOR_DRIVER_VERSION),
+
+  DEF_OID_QUERYSET_ULONG(OID_GEN_CURRENT_PACKET_FILTER),
+  DEF_OID_QUERYSET_ULONG(OID_GEN_CURRENT_LOOKAHEAD),
+  //DEF_OID_QUERY(OID_GEN_DRIVER_VERSION),
+  DEF_OID_QUERY_ULONG(OID_GEN_MAXIMUM_TOTAL_SIZE),
+  DEF_OID_SET(OID_GEN_LINK_PARAMETERS, sizeof(NDIS_LINK_PARAMETERS)),
+  DEF_OID_QUERYSET(OID_GEN_INTERRUPT_MODERATION, sizeof(NDIS_INTERRUPT_MODERATION_PARAMETERS)),
+  
+  DEF_OID_QUERY_ULONG(OID_GEN_MAXIMUM_SEND_PACKETS),
+
+  /* general optional */
+  DEF_OID_SET(OID_GEN_NETWORK_LAYER_ADDRESSES, FIELD_OFFSET(NETWORK_ADDRESS_LIST, Address)),
+  DEF_OID_SET(OID_GEN_MACHINE_NAME, 0),
+  DEF_OID_SET(OID_OFFLOAD_ENCAPSULATION, sizeof(NDIS_OFFLOAD_ENCAPSULATION)),
+  //DEF_OID_QUERY(OID_GEN_TRANSPORT_HEADER_OFFSET, sizeof(TRANSPORT_HEADER_OFFSET)),
+
+  /* power */
+  //DEF_OID_QUERY(OID_PNP_CAPABILITIES, sizeof(NDIS_PNP_CAPABILITIES)),
+  DEF_OID_SET_ULONG(OID_PNP_SET_POWER),
+  //DEF_OID_QUERY_ULONG(OID_PNP_QUERY_POWER),
+  
+  /* stats */
+  DEF_OID_QUERY_STAT(OID_GEN_XMIT_OK),
+  DEF_OID_QUERY_STAT(OID_GEN_RCV_OK),
+  DEF_OID_QUERY_STAT(OID_GEN_XMIT_ERROR),
+  DEF_OID_QUERY_STAT(OID_GEN_RCV_ERROR),
+  DEF_OID_QUERY_STAT(OID_GEN_RCV_NO_BUFFER),
+  DEF_OID_QUERY_STAT(OID_802_3_RCV_ERROR_ALIGNMENT),
+  DEF_OID_QUERY_STAT(OID_802_3_XMIT_ONE_COLLISION),
+  DEF_OID_QUERY_STAT(OID_802_3_XMIT_MORE_COLLISIONS),
+  DEF_OID_QUERY_ULONG(OID_GEN_MEDIA_SUPPORTED),
+  DEF_OID_QUERY_ULONG(OID_GEN_MEDIA_IN_USE),
+  DEF_OID_QUERY(OID_GEN_STATISTICS, sizeof(NDIS_STATISTICS_INFO)),
+  DEF_OID_QUERY_ULONG(OID_GEN_MAXIMUM_LOOKAHEAD),
+  /* media-specific */
+  DEF_OID_QUERY(OID_802_3_PERMANENT_ADDRESS, 6),
+  DEF_OID_QUERY(OID_802_3_CURRENT_ADDRESS, 6),
+  DEF_OID_QUERYSET(OID_802_3_MULTICAST_LIST, 0),
+  DEF_OID_QUERY_ULONG(OID_802_3_MAXIMUM_LIST_SIZE),
+  
+#if 0
+  /* tcp offload */
+  DEF_OID_QUERY(OID_TCP_TASK_OFFLOAD,
+  DEF_OID_QUERY(OID_TCP_OFFLOAD_PARAMETERS,
+  DEF_OID_QUERY(OID_OFFLOAD_ENCAPSULATION,
+#endif
+
+  {0, "", 0, NULL, NULL}
+};
+
+static NDIS_OID supported_oids[ARRAY_SIZE(xennet_oids)];
+
+#if 0
 /* return 4 or 8 depending on size of buffer */
 #define HANDLE_STAT_RETURN \
   {if (InformationBufferLength == 4) { \
@@ -28,8 +428,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
     len = 8; \
     } }
 
-#define SET_LEN_AND_BREAK_IF_SHORT(_len) do { len = _len; if (len > InformationBufferLength) break; } while(0)
-  
+#define SET_LEN_AND_BREAK_IF_SHORT(_len) if ((len = _len) > InformationBufferLength) break;
+
 static NDIS_STATUS
 XenNet_QueryInformation(
   IN NDIS_HANDLE MiniportAdapterContext,
@@ -46,8 +446,8 @@ XenNet_QueryInformation(
   ULONG64 temp_data;
   PVOID data = &temp_data;
   PNDIS_INTERRUPT_MODERATION_PARAMETERS nimp;
-#if 0
   UCHAR vendor_desc[] = XN_VENDOR_DESC;
+#if 0
   PNDIS_TASK_OFFLOAD_HEADER ntoh;
   PNDIS_TASK_OFFLOAD nto;
   PNDIS_TASK_TCP_IP_CHECKSUM nttic;
@@ -67,18 +467,6 @@ XenNet_QueryInformation(
       data = supported_oids;
       len = sizeof(supported_oids);
       break;
-    case OID_GEN_HARDWARE_STATUS:
-      if (!xi->connected)
-      {
-        temp_data = NdisHardwareStatusInitializing;
-        FUNCTION_MSG("NdisHardwareStatusInitializing\n");
-      }
-      else
-      {
-        temp_data = NdisHardwareStatusReady;
-        FUNCTION_MSG("NdisHardwareStatusReady\n");
-      }
-      break;
     case OID_GEN_MEDIA_SUPPORTED:
       temp_data = NdisMedium802_3;
       break;
@@ -94,31 +482,6 @@ XenNet_QueryInformation(
     case OID_GEN_LINK_SPEED:
       temp_data = 10000000; /* 1Gb */
       break;
-    case OID_GEN_TRANSMIT_BUFFER_SPACE:
-      /* multiply this by some small number as we can queue additional packets */
-      temp_data = PAGE_SIZE * NET_TX_RING_SIZE * 4;
-      break;
-    case OID_GEN_RECEIVE_BUFFER_SPACE:
-      temp_data = PAGE_SIZE * NET_RX_RING_SIZE * 2;
-      break;
-    case OID_GEN_TRANSMIT_BLOCK_SIZE:
-      temp_data = PAGE_SIZE; //XN_MAX_PKT_SIZE;
-      break;
-    case OID_GEN_RECEIVE_BLOCK_SIZE:
-      temp_data = PAGE_SIZE; //XN_MAX_PKT_SIZE;
-      break;
-    case OID_GEN_VENDOR_DESCRIPTION:
-      data = vendor_desc;
-      len = sizeof(vendor_desc);
-      break;
-    case OID_GEN_DRIVER_VERSION:
-      temp_data = (NDIS_MINIPORT_MAJOR_VERSION << 8) | NDIS_MINIPORT_MINOR_VERSION;
-      len = 2;
-      break;
-    case OID_GEN_VENDOR_DRIVER_VERSION:
-      temp_data = VENDOR_DRIVER_VERSION;
-      len = 4;
-      break;
     case OID_GEN_MAC_OPTIONS:
       temp_data = NDIS_MAC_OPTION_COPY_LOOKAHEAD_DATA | 
         NDIS_MAC_OPTION_TRANSFERS_NOT_PEND |
@@ -129,10 +492,6 @@ XenNet_QueryInformation(
         temp_data = NdisMediaStateConnected;
       else
         temp_data = NdisMediaStateDisconnected;
-      break;
-    case OID_GEN_MAXIMUM_SEND_PACKETS:
-      /* this is actually ignored for deserialised drivers like us */
-      temp_data = 0; //XN_MAX_SEND_PKTS;
       break;
     case OID_GEN_XMIT_ERROR:
       temp_data = xi->stat_tx_error;
@@ -332,7 +691,20 @@ XenNet_QueryInformation(
       len = xi->multicast_list_size * 6;
       break;
     case OID_GEN_VENDOR_ID:
+      FUNCTION_MSG("OID_GEN_VENDOR_ID InformationBufferLength = %d\n", InformationBufferLength);
       temp_data = 0xFFFFFF; // Not guaranteed to be XENSOURCE_MAC_HDR;
+      break;
+    case OID_GEN_VENDOR_DESCRIPTION:
+      data = vendor_desc;
+      len = sizeof(vendor_desc);
+      break;
+    case OID_GEN_DRIVER_VERSION:
+      temp_data = (NDIS_MINIPORT_MAJOR_VERSION << 8) | NDIS_MINIPORT_MINOR_VERSION;
+      len = 2;
+      break;
+    case OID_GEN_VENDOR_DRIVER_VERSION:
+      temp_data = VENDOR_DRIVER_VERSION;
+      len = 4;
       break;
     case OID_TCP_CONNECTION_OFFLOAD_HARDWARE_CAPABILITIES:
       FUNCTION_MSG("Unhandled OID_TCP_CONNECTION_OFFLOAD_HARDWARE_CAPABILITIES\n");
@@ -342,6 +714,33 @@ XenNet_QueryInformation(
       break;
     case OID_TCP_OFFLOAD_CURRENT_CONFIG:
       FUNCTION_MSG("Unhandled OID_TCP_OFFLOAD_CURRENT_CONFIG\n");
+      break;
+    case OID_GEN_MAXIMUM_SEND_PACKETS:
+      /* this is actually ignored for deserialised drivers like us */
+      temp_data = 0;
+      break;
+    case OID_GEN_HARDWARE_STATUS:
+      if (!xi->connected)
+      {
+        temp_data = NdisHardwareStatusInitializing;
+      }
+      else
+      {
+        temp_data = NdisHardwareStatusReady;
+      }
+      break;
+    case OID_GEN_TRANSMIT_BUFFER_SPACE:
+      /* multiply this by some small number as we can queue additional packets */
+      temp_data = PAGE_SIZE * NET_TX_RING_SIZE * 4;
+      break;
+    case OID_GEN_RECEIVE_BUFFER_SPACE:
+      temp_data = PAGE_SIZE * NET_RX_RING_SIZE * 2;
+      break;
+    case OID_GEN_TRANSMIT_BLOCK_SIZE:
+      temp_data = PAGE_SIZE; //XN_MAX_PKT_SIZE;
+      break;
+    case OID_GEN_RECEIVE_BLOCK_SIZE:
+      temp_data = PAGE_SIZE; //XN_MAX_PKT_SIZE;
       break;
     default:
       FUNCTION_MSG("Unhandled get OID_%08x\n", Oid);
@@ -362,7 +761,7 @@ XenNet_QueryInformation(
   if (len > InformationBufferLength)
   {
     *BytesNeeded = len;
-    FUNCTION_MSG("(BUFFER_TOO_SHORT %d > %d)\n", len, InformationBufferLength);
+    FUNCTION_MSG("(BUFFER_TOO_SHORT OID_%08x len = %d > InformationBufferLength %d)\n", Oid, len, InformationBufferLength);
     return NDIS_STATUS_BUFFER_TOO_SHORT;
   }
 
@@ -965,61 +1364,75 @@ XenNet_SetInformation(
   //KdPrint((__DRIVER_NAME " <-- " __FUNCTION__ "\n"));
   return status;
 }
-
-#if 0
-set 0001021a OID_GEN_MACHINE_NAME
-get 00010111 OID_GEN_MAXIMUM_TOTAL_SIZE
-get 00010209 OID_GEN_INTERRUPT_MODERATION
-set 0001010e OID_GEN_CURRENT_PACKET_FILTER
-set 0001010f OID_GEN_CURRENT_LOOKAHEAD
-get 00010117 OID_GEN_SUPPORTED_GUIDS
-
-stat 00020101 OID_GEN_XMIT_OK
 #endif
 
 NDIS_STATUS
 XenNet_OidRequest(NDIS_HANDLE adapter_context, PNDIS_OID_REQUEST oid_request)
 {
   NTSTATUS status;
+  int i;
+  NDIS_OID oid;
+  MINIPORT_OID_REQUEST *routine;
   
   //FUNCTION_ENTER();
   switch(oid_request->RequestType)
   {
   case NdisRequestQueryInformation:
-    //FUNCTION_MSG("RequestType = NdisRequestQueryInformation\n");
+    FUNCTION_MSG("RequestType = NdisRequestQueryInformation\n");
     //FUNCTION_MSG("Oid = %08x\n", oid_request->DATA.QUERY_INFORMATION.Oid);
-    status = XenNet_QueryInformation(adapter_context,
-      oid_request->DATA.QUERY_INFORMATION.Oid,
-      oid_request->DATA.QUERY_INFORMATION.InformationBuffer,
-      oid_request->DATA.QUERY_INFORMATION.InformationBufferLength,
-      &oid_request->DATA.QUERY_INFORMATION.BytesWritten,
-      &oid_request->DATA.QUERY_INFORMATION.BytesNeeded);
+    oid = oid_request->DATA.QUERY_INFORMATION.Oid;
     break;
   case NdisRequestSetInformation:
-    //FUNCTION_MSG("RequestType = NdisRequestSetInformation\n");
-    //FUNCTION_MSG("Oid = %08x\n", oid_request->DATA.SET_INFORMATION.Oid);
-    status = XenNet_SetInformation(adapter_context,
-      oid_request->DATA.SET_INFORMATION.Oid,
-      oid_request->DATA.SET_INFORMATION.InformationBuffer,
-      oid_request->DATA.SET_INFORMATION.InformationBufferLength,
-      &oid_request->DATA.SET_INFORMATION.BytesRead,
-      &oid_request->DATA.SET_INFORMATION.BytesNeeded);
+    FUNCTION_MSG("RequestType = NdisRequestSetInformation\n");
+    oid = oid_request->DATA.SET_INFORMATION.Oid;
     break;
   case NdisRequestQueryStatistics:
-    //FUNCTION_MSG("RequestType = NdisRequestQueryStatistics\n");
-    //FUNCTION_MSG("Oid = %08x\n", oid_request->DATA.METHOD_INFORMATION.Oid);
-    status = XenNet_QueryStatistics(adapter_context,
-      oid_request->DATA.QUERY_INFORMATION.Oid,
-      oid_request->DATA.QUERY_INFORMATION.InformationBuffer,
-      oid_request->DATA.QUERY_INFORMATION.InformationBufferLength,
-      &oid_request->DATA.QUERY_INFORMATION.BytesWritten,
-      &oid_request->DATA.QUERY_INFORMATION.BytesNeeded);
+    FUNCTION_MSG("RequestType = NdisRequestQueryStatistics\n");
+    oid = oid_request->DATA.QUERY_INFORMATION.Oid;
     break;
   default:
     FUNCTION_MSG("RequestType = NdisRequestQuery%d\n", oid_request->RequestType);
-    status = NDIS_STATUS_NOT_SUPPORTED;
+    return NDIS_STATUS_NOT_SUPPORTED;
+  }
+  for (i = 0; xennet_oids[i].oid && xennet_oids[i].oid != oid; i++);
+
+  if (!xennet_oids[i].oid)
+  {
+    FUNCTION_MSG("Unsupported OID %08x\n", oid);
+    return NDIS_STATUS_NOT_SUPPORTED;
+  }
+  FUNCTION_MSG("Oid = %s\n", xennet_oids[i].oid_name);
+  routine = NULL;
+  switch(oid_request->RequestType)
+  {
+  case NdisRequestQueryInformation:
+  case NdisRequestQueryStatistics:
+    if (oid_request->DATA.QUERY_INFORMATION.InformationBufferLength < xennet_oids[i].min_length)
+    {
+      FUNCTION_MSG("InformationBufferLength %d < min_length %d\n", oid_request->DATA.QUERY_INFORMATION.InformationBufferLength < xennet_oids[i].min_length);
+      oid_request->DATA.QUERY_INFORMATION.BytesNeeded = xennet_oids[i].min_length;
+      return NDIS_STATUS_BUFFER_TOO_SHORT;
+    }
+    routine =  xennet_oids[i].query_routine;
+    break;
+  case NdisRequestSetInformation:
+    if (oid_request->DATA.SET_INFORMATION.InformationBufferLength < xennet_oids[i].min_length)
+    {
+      FUNCTION_MSG("InformationBufferLength %d < min_length %d\n", oid_request->DATA.SET_INFORMATION.InformationBufferLength < xennet_oids[i].min_length);
+      oid_request->DATA.SET_INFORMATION.BytesNeeded = xennet_oids[i].min_length;
+      return NDIS_STATUS_BUFFER_TOO_SHORT;
+    }
+    routine =  xennet_oids[i].set_routine;
     break;
   }
+  if (!routine)
+  {
+    FUNCTION_MSG("Operation not supported\n");
+    return NDIS_STATUS_NOT_SUPPORTED;
+  }
+  status = routine(adapter_context, oid_request);
+  FUNCTION_MSG("status = %08x\n", status);
+  
   //FUNCTION_EXIT();
   return status;
 }
