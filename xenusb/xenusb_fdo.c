@@ -94,7 +94,7 @@ XenUsb_ExecuteRequest(
   ASSERT(mdl);
   ASSERT(transfer_buffer_length);
 
-  FUNCTION_MSG("MmGetMdlVirtualAddress = %d\n", MmGetMdlVirtualAddress(mdl));
+  FUNCTION_MSG("MmGetMdlVirtualAddress = %p\n", MmGetMdlVirtualAddress(mdl));
   FUNCTION_MSG("MmGetMdlByteCount = %d\n", MmGetMdlByteCount(mdl));
   FUNCTION_MSG("MmGetMdlByteOffset = %d\n", MmGetMdlByteOffset(mdl));
   

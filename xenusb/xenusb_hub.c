@@ -719,7 +719,8 @@ XenUsbHub_UBIH_InitializeUsbDevice(
     usb_device->configs[i]->device = usb_device;
     memcpy(&usb_device->configs[i]->config_descriptor, config_descriptor, sizeof(USB_CONFIGURATION_DESCRIPTOR));
     ptr += config_descriptor->bLength;
-    for (j = 0; j < config_descriptor->bNumInterfaces; j++)
+    j = 0;
+    while (j < config_descriptor->bNumInterfaces)
     {
       interface_descriptor = (PUSB_INTERFACE_DESCRIPTOR)ptr;
       KdPrint((__DRIVER_NAME "       Interface %d\n", j));
@@ -736,9 +737,17 @@ XenUsbHub_UBIH_InitializeUsbDevice(
       usb_device->configs[i]->interfaces[j] = ExAllocatePoolWithTag(NonPagedPool, sizeof(xenusb_interface_t) + sizeof(PVOID) * interface_descriptor->bNumEndpoints, XENUSB_POOL_TAG);
       usb_device->configs[i]->interfaces[j]->config = usb_device->configs[i];
       memcpy(&usb_device->configs[i]->interfaces[j]->interface_descriptor, interface_descriptor, sizeof(USB_INTERFACE_DESCRIPTOR));
-      for (k = 0; k < interface_descriptor->bNumEndpoints; k++)
+      k = 0;
+      while (k < interface_descriptor->bNumEndpoints)
       {
         endpoint_descriptor = (PUSB_ENDPOINT_DESCRIPTOR)ptr;
+        if (endpoint_descriptor->bDescriptorType != 5)
+        {
+          KdPrint((__DRIVER_NAME "        Unknown bDescriptorType %d found length = %d\n", endpoint_descriptor->bDescriptorType, endpoint_descriptor->bLength));
+          ptr += endpoint_descriptor->bLength;
+          continue;
+        }
+
         KdPrint((__DRIVER_NAME "        Endpoint %d\n", k));
         KdPrint((__DRIVER_NAME "         bLength = %d\n", endpoint_descriptor->bLength));
         KdPrint((__DRIVER_NAME "         bDescriptorType = %d\n", endpoint_descriptor->bDescriptorType));
@@ -769,7 +778,9 @@ XenUsbHub_UBIH_InitializeUsbDevice(
         usb_device->configs[i]->interfaces[j]->endpoints[k]->pipe_value |= (endpoint_descriptor->bEndpointAddress & 0x80);
         usb_device->configs[i]->interfaces[j]->endpoints[k]->pipe_value |= (endpoint_descriptor->bEndpointAddress & 0x0F) << 15;
         memcpy(&usb_device->configs[i]->interfaces[j]->endpoints[k]->endpoint_descriptor, endpoint_descriptor, sizeof(USB_ENDPOINT_DESCRIPTOR));
+        k++;
       }
+      j++;
     }
   }
   usb_device->active_config = usb_device->configs[0];
@@ -1728,7 +1739,7 @@ XenUsbHub_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE(WDFDEVICE device, PIRP irp)
     USB_BUS_INTERFACE_HUB_V7 ubih6;
     USB_BUS_INTERFACE_HUB_V7 ubih7;
 #endif
-  } ubih;
+  } *ubih;
   union {
     USB_BUS_INTERFACE_USBDI_V1 ubiu0;
     USB_BUS_INTERFACE_USBDI_V1 ubiu1;
@@ -1752,73 +1763,78 @@ XenUsbHub_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE(WDFDEVICE device, PIRP irp)
 #endif
     )
     {
-      ubih.ubih5.Size = stack->Parameters.QueryInterface.Size;
-      ubih.ubih5.Version = stack->Parameters.QueryInterface.Version;
-      ubih.ubih5.BusContext = device;
-      ubih.ubih5.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
-      ubih.ubih5.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
+      ubih = (PVOID)stack->Parameters.QueryInterface.Interface;
+      ubih->ubih5.Size = stack->Parameters.QueryInterface.Size;
+      ubih->ubih5.Version = stack->Parameters.QueryInterface.Version;
+      ubih->ubih5.BusContext = device;
+      ubih->ubih5.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
+      ubih->ubih5.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
       /* these two were changed to the Ex functions in v6 so we set them here so they don't get overwritten */
-      ubih.ubih5.CreateUsbDevice = XenUsbHub_UBIH_CreateUsbDevice;
-      ubih.ubih5.InitializeUsbDevice = XenUsbHub_UBIH_InitializeUsbDevice;
+      ubih->ubih5.CreateUsbDevice = XenUsbHub_UBIH_CreateUsbDevice;
+      ubih->ubih5.InitializeUsbDevice = XenUsbHub_UBIH_InitializeUsbDevice;
       switch (stack->Parameters.QueryInterface.Version)
       {
 #if (NTDDI_VERSION >= NTDDI_VISTA)  
       case USB_BUSIF_HUB_VERSION_7:
-        ubih.ubih7.HubTestPoint = XenUsbHub_UBIH_HubTestPoint;
-        ubih.ubih7.GetDevicePerformanceInfo = XenUsbHub_UBIH_GetDevicePerformanceInfo;
-        ubih.ubih7.WaitAsyncPowerUp = XenUsbHub_UBIH_WaitAsyncPowerUp;
-        ubih.ubih7.GetDeviceAddress = XenUsbHub_UBIH_GetDeviceAddress;
-        ubih.ubih7.RefDeviceHandle = XenUsbHub_UBIH_RefDeviceHandle;
-        ubih.ubih7.DerefDeviceHandle = XenUsbHub_UBIH_DerefDeviceHandle;
-        ubih.ubih7.SetDeviceHandleIdleReadyState = XenUsbHub_UBIH_SetDeviceHandleIdleReadyState;
-        ubih.ubih7.HubIsRoot = XenUsbHub_UBIH_HubIsRoot;
-        ubih.ubih7.AcquireBusSemaphore = XenUsbHub_UBIH_AcquireBusSemaphore;
-        ubih.ubih7.ReleaseBusSemaphore = XenUsbHub_UBIH_ReleaseBusSemaphore;
-        ubih.ubih7.CaculatePipeBandwidth = XenUsbHub_UBIH_CaculatePipeBandwidth;
-        ubih.ubih7.SetBusSystemWakeMode = XenUsbHub_UBIH_SetBusSystemWakeMode;
-        ubih.ubih7.SetDeviceFlag = XenUsbHub_UBIH_SetDeviceFlag;
-        ubih.ubih7.HubTestPoint = XenUsbHub_UBIH_HubTestPoint;
-        ubih.ubih7.GetDevicePerformanceInfo = XenUsbHub_UBIH_GetDevicePerformanceInfo;
-        ubih.ubih7.WaitAsyncPowerUp = XenUsbHub_UBIH_WaitAsyncPowerUp;
-        ubih.ubih7.GetDeviceAddress = XenUsbHub_UBIH_GetDeviceAddress;
-        ubih.ubih7.RefDeviceHandle = XenUsbHub_UBIH_RefDeviceHandle;
-        ubih.ubih7.DerefDeviceHandle = XenUsbHub_UBIH_DerefDeviceHandle;
-        ubih.ubih7.SetDeviceHandleIdleReadyState = XenUsbHub_UBIH_SetDeviceHandleIdleReadyState;
-        ubih.ubih7.CreateUsbDeviceV7 = XenUsbHub_UBIH_CreateUsbDeviceV7;
-        ubih.ubih7.GetContainerIdForPort = XenUsbHub_UBIH_GetContainerIdForPort;
-        ubih.ubih7.SetContainerIdForPort = XenUsbHub_UBIH_SetContainerIdForPort;
-        ubih.ubih7.AbortAllDevicePipes = XenUsbHub_UBIH_AbortAllDevicePipes;
-        ubih.ubih7.SetDeviceErrataFlag = XenUsbHub_UBIH_SetDeviceErrataFlag;  
+        ubih->ubih7.HubTestPoint = XenUsbHub_UBIH_HubTestPoint;
+        ubih->ubih7.GetDevicePerformanceInfo = XenUsbHub_UBIH_GetDevicePerformanceInfo;
+        ubih->ubih7.WaitAsyncPowerUp = XenUsbHub_UBIH_WaitAsyncPowerUp;
+        ubih->ubih7.GetDeviceAddress = XenUsbHub_UBIH_GetDeviceAddress;
+        ubih->ubih7.RefDeviceHandle = XenUsbHub_UBIH_RefDeviceHandle;
+        ubih->ubih7.DerefDeviceHandle = XenUsbHub_UBIH_DerefDeviceHandle;
+        ubih->ubih7.SetDeviceHandleIdleReadyState = XenUsbHub_UBIH_SetDeviceHandleIdleReadyState;
+        ubih->ubih7.HubIsRoot = XenUsbHub_UBIH_HubIsRoot;
+        ubih->ubih7.AcquireBusSemaphore = XenUsbHub_UBIH_AcquireBusSemaphore;
+        ubih->ubih7.ReleaseBusSemaphore = XenUsbHub_UBIH_ReleaseBusSemaphore;
+        ubih->ubih7.CaculatePipeBandwidth = XenUsbHub_UBIH_CaculatePipeBandwidth;
+        ubih->ubih7.SetBusSystemWakeMode = XenUsbHub_UBIH_SetBusSystemWakeMode;
+        ubih->ubih7.SetDeviceFlag = XenUsbHub_UBIH_SetDeviceFlag;
+        ubih->ubih7.HubTestPoint = XenUsbHub_UBIH_HubTestPoint;
+        ubih->ubih7.GetDevicePerformanceInfo = XenUsbHub_UBIH_GetDevicePerformanceInfo;
+        ubih->ubih7.WaitAsyncPowerUp = XenUsbHub_UBIH_WaitAsyncPowerUp;
+        ubih->ubih7.GetDeviceAddress = XenUsbHub_UBIH_GetDeviceAddress;
+        ubih->ubih7.RefDeviceHandle = XenUsbHub_UBIH_RefDeviceHandle;
+        ubih->ubih7.DerefDeviceHandle = XenUsbHub_UBIH_DerefDeviceHandle;
+        ubih->ubih7.SetDeviceHandleIdleReadyState = XenUsbHub_UBIH_SetDeviceHandleIdleReadyState;
+        ubih->ubih7.CreateUsbDeviceV7 = XenUsbHub_UBIH_CreateUsbDeviceV7;
+        ubih->ubih7.GetContainerIdForPort = XenUsbHub_UBIH_GetContainerIdForPort;
+        ubih->ubih7.SetContainerIdForPort = XenUsbHub_UBIH_SetContainerIdForPort;
+        ubih->ubih7.AbortAllDevicePipes = XenUsbHub_UBIH_AbortAllDevicePipes;
+        ubih->ubih7.SetDeviceErrataFlag = XenUsbHub_UBIH_SetDeviceErrataFlag;  
         /* fall through */
       case USB_BUSIF_HUB_VERSION_6:
-        ubih.ubih6.CreateUsbDevice = XenUsbHub_UBIH_CreateUsbDeviceEx;
-        ubih.ubih6.InitializeUsbDevice = XenUsbHub_UBIH_InitializeUsbDeviceEx;
-        ubih.ubih6.HubIsRoot = XenUsbHub_UBIH_HubIsRoot;
-        ubih.ubih6.AcquireBusSemaphore = XenUsbHub_UBIH_AcquireBusSemaphore;
-        ubih.ubih6.ReleaseBusSemaphore = XenUsbHub_UBIH_ReleaseBusSemaphore;
-        ubih.ubih6.CaculatePipeBandwidth = XenUsbHub_UBIH_CaculatePipeBandwidth;
-        ubih.ubih6.SetBusSystemWakeMode = XenUsbHub_UBIH_SetBusSystemWakeMode;
-        ubih.ubih6.SetDeviceFlag = XenUsbHub_UBIH_SetDeviceFlag;
+        ubih->ubih6.CreateUsbDevice = XenUsbHub_UBIH_CreateUsbDeviceEx;
+        ubih->ubih6.InitializeUsbDevice = XenUsbHub_UBIH_InitializeUsbDeviceEx;
+        ubih->ubih6.HubIsRoot = XenUsbHub_UBIH_HubIsRoot;
+        ubih->ubih6.AcquireBusSemaphore = XenUsbHub_UBIH_AcquireBusSemaphore;
+        ubih->ubih6.ReleaseBusSemaphore = XenUsbHub_UBIH_ReleaseBusSemaphore;
+        ubih->ubih6.CaculatePipeBandwidth = XenUsbHub_UBIH_CaculatePipeBandwidth;
+        ubih->ubih6.SetBusSystemWakeMode = XenUsbHub_UBIH_SetBusSystemWakeMode;
+        ubih->ubih6.SetDeviceFlag = XenUsbHub_UBIH_SetDeviceFlag;
         /* fall through */
 #endif
       case USB_BUSIF_HUB_VERSION_5:
-        ubih.ubih5.GetUsbDescriptors = XenUsbHub_UBIH_GetUsbDescriptors;
-        ubih.ubih5.RemoveUsbDevice = XenUsbHub_UBIH_RemoveUsbDevice;
-        ubih.ubih5.RestoreUsbDevice = XenUsbHub_UBIH_RestoreUsbDevice;
-        ubih.ubih5.GetPortHackFlags = XenUsbHub_UBIH_GetPortHackFlags;
-        ubih.ubih5.QueryDeviceInformation = XenUsbHub_UBIH_QueryDeviceInformation;
-        ubih.ubih5.GetControllerInformation = XenUsbHub_UBIH_GetControllerInformation;
-        ubih.ubih5.ControllerSelectiveSuspend = XenUsbHub_UBIH_ControllerSelectiveSuspend;
-        ubih.ubih5.GetExtendedHubInformation = XenUsbHub_UBIH_GetExtendedHubInformation;
-        ubih.ubih5.GetRootHubSymbolicName = XenUsbHub_UBIH_GetRootHubSymbolicName;
-        ubih.ubih5.GetDeviceBusContext = XenUsbHub_UBIH_GetDeviceBusContext;
-        ubih.ubih5.Initialize20Hub = XenUsbHub_UBIH_Initialize20Hub;
-        ubih.ubih5.RootHubInitNotification = XenUsbHub_UBIH_RootHubInitNotification;
-        ubih.ubih5.FlushTransfers = XenUsbHub_UBIH_FlushTransfers;
-        ubih.ubih5.SetDeviceHandleData = XenUsbHub_UBIH_SetDeviceHandleData;
+        ubih->ubih5.GetUsbDescriptors = XenUsbHub_UBIH_GetUsbDescriptors;
+        ubih->ubih5.RemoveUsbDevice = XenUsbHub_UBIH_RemoveUsbDevice;
+        ubih->ubih5.RestoreUsbDevice = XenUsbHub_UBIH_RestoreUsbDevice;
+        ubih->ubih5.GetPortHackFlags = XenUsbHub_UBIH_GetPortHackFlags;
+        ubih->ubih5.QueryDeviceInformation = XenUsbHub_UBIH_QueryDeviceInformation;
+        ubih->ubih5.GetControllerInformation = XenUsbHub_UBIH_GetControllerInformation;
+        ubih->ubih5.ControllerSelectiveSuspend = XenUsbHub_UBIH_ControllerSelectiveSuspend;
+        ubih->ubih5.GetExtendedHubInformation = XenUsbHub_UBIH_GetExtendedHubInformation;
+        ubih->ubih5.GetRootHubSymbolicName = XenUsbHub_UBIH_GetRootHubSymbolicName;
+        ubih->ubih5.GetDeviceBusContext = XenUsbHub_UBIH_GetDeviceBusContext;
+        ubih->ubih5.Initialize20Hub = XenUsbHub_UBIH_Initialize20Hub;
+        ubih->ubih5.RootHubInitNotification = XenUsbHub_UBIH_RootHubInitNotification;
+        ubih->ubih5.FlushTransfers = XenUsbHub_UBIH_FlushTransfers;
+        ubih->ubih5.SetDeviceHandleData = XenUsbHub_UBIH_SetDeviceHandleData;
       }
       irp->IoStatus.Information = 0;
       irp->IoStatus.Status = STATUS_SUCCESS;
+    }
+    else
+    {
+      KdPrint((__DRIVER_NAME "     size/version mismatch\n"));
     }
   }
   else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &USB_BUS_INTERFACE_USBDI_GUID, sizeof(GUID)) == 0)
@@ -1860,6 +1876,10 @@ XenUsbHub_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE(WDFDEVICE device, PIRP irp)
       }
       irp->IoStatus.Information = 0;
       irp->IoStatus.Status = STATUS_SUCCESS;
+    }
+    else
+    {
+      KdPrint((__DRIVER_NAME "     size/version mismatch\n"));
     }
   }
   else if (memcmp(stack->Parameters.QueryInterface.InterfaceType, &GUID_TRANSLATOR_INTERFACE_STANDARD, sizeof(GUID)) == 0)
