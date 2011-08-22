@@ -189,6 +189,7 @@ typedef struct {
   PNET_BUFFER_LIST first_nbl;
   PNET_BUFFER_LIST last_nbl;
   ULONG packet_count;
+  ULONG nbl_count;
 } rx_context_t;
 
 static BOOLEAN
@@ -358,7 +359,6 @@ XenNet_MakePacket(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
     NET_BUFFER_LIST_INFO(nbl, TcpIpChecksumNetBufferListInfo) = csum_info.Value;
   }
   
-  //packet_count += NBL_PACKET_COUNT(nbl);
   if (!rc->first_nbl)
   {
     rc->first_nbl = nbl;
@@ -369,6 +369,7 @@ XenNet_MakePacket(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
   }
   rc->last_nbl = nbl;
   NET_BUFFER_LIST_NEXT_NBL(nbl) = NULL;
+  rc->nbl_count++;
   InterlockedIncrement(&xi->rx_outstanding);
   if (pi->is_multicast)
   {
@@ -712,7 +713,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   shared_buffer_t *page_buf;
   //LIST_ENTRY rx_header_only_packet_list;
   //PLIST_ENTRY entry;
-  ULONG nbl_count = 0;
+  //ULONG nbl_count = 0;
   ULONG interim_packet_data = 0;
   struct netif_extra_info *ei;
   rx_context_t rc;
@@ -731,6 +732,7 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
   rc.first_nbl = NULL;
   rc.last_nbl = NULL;
   rc.packet_count = 0;
+  rc.nbl_count = 0;
   
   /* get all the buffers off the ring as quickly as possible so the lock is held for a minimum amount of time */
   KeAcquireSpinLockAtDpcLevel(&xi->rx_lock);
@@ -945,7 +947,8 @@ XenNet_RxBufferCheck(struct xennet_info *xi)
 
   if (rc.first_nbl)
   {
-    NdisMIndicateReceiveNetBufferLists(xi->adapter_handle, rc.first_nbl, NDIS_DEFAULT_PORT_NUMBER, nbl_count,
+    NdisMIndicateReceiveNetBufferLists(xi->adapter_handle, rc.first_nbl,
+      NDIS_DEFAULT_PORT_NUMBER, rc.nbl_count,
       NDIS_RECEIVE_FLAGS_DISPATCH_LEVEL
       //| NDIS_RECEIVE_FLAGS_SINGLE_ETHER_TYPE 
       | NDIS_RECEIVE_FLAGS_PERFECT_FILTERED);
