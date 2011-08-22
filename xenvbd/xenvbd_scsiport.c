@@ -992,6 +992,8 @@ XenVbd_HwScsiInterrupt(PVOID DeviceExtension)
         shadow = &xvdd->shadows[rep->id & SHADOW_ID_ID_MASK];
         if (shadow->reset)
         {
+          shadow->srb->SrbStatus = SRB_STATUS_BUS_RESET;
+          ScsiPortNotification(RequestComplete, xvdd, shadow->srb);
           KdPrint((__DRIVER_NAME "     discarding reset shadow\n"));
           for (j = 0; j < shadow->req.nr_segments; j++)
           {
@@ -1540,13 +1542,9 @@ XenVbd_HwScsiResetBus(PVOID DeviceExtension, ULONG PathId)
     {
       if (xvdd->shadows[i].srb)
       {
-        KdPrint((__DRIVER_NAME "     Completing in-flight srb %p with status SRB_STATUS_BUS_RESET\n", xvdd->shadows[i].srb));
-        /* set reset here so that the interrupt won't do anything with the srb but will dispose of the shadow entry correctly */
+        //KdPrint((__DRIVER_NAME "     Completing in-flight srb %p with status SRB_STATUS_BUS_RESET\n", xvdd->shadows[i].srb));
+        /* set reset here so that the interrupt will return it with SRB_STATUS_BUS_RESET */
         xvdd->shadows[i].reset = TRUE;
-        xvdd->shadows[i].srb->SrbStatus = SRB_STATUS_BUS_RESET;
-        ScsiPortNotification(RequestComplete, xvdd, xvdd->shadows[i].srb);
-        xvdd->shadows[i].srb = NULL;
-        xvdd->shadows[i].aligned_buffer_in_use = FALSE;
       }
     }
 

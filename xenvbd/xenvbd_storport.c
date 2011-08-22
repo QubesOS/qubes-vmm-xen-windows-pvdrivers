@@ -179,6 +179,7 @@ XenVbd_InitConfig(PXENVBD_DEVICE_DATA xvdd)
   status = xvdd->vectors.XenPci_XenConfigDevice(xvdd->vectors.context);
   if (!NT_SUCCESS(status))
   {
+    xvdd->inactive = TRUE;
     KdPrint(("Failed to complete device configuration (%08x)\n", status));
     FUNCTION_EXIT();
     return SP_RETURN_BAD_CONFIG;
@@ -718,6 +719,8 @@ XenVbd_VirtualHwStorFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID Bu
     status = XenVbd_InitConfig(xvdd);
     if (status != SP_RETURN_FOUND)
     {
+      /* set inactive here so StartIo is harmless - we still get called with a PNP remove (or similar) */
+      xvdd->inactive = TRUE;
       FUNCTION_EXIT();
       return status;
     }
@@ -733,6 +736,8 @@ XenVbd_VirtualHwStorFindAdapter(PVOID DeviceExtension, PVOID HwContext, PVOID Bu
   status = XenVbd_InitFromConfig(xvdd);
   if (status != SP_RETURN_FOUND)
   {
+    /* set inactive here so StartIo is harmless - we still get called with a PNP remove (or similar) */
+    xvdd->inactive = TRUE;
     FUNCTION_EXIT();
     return status;
   }
