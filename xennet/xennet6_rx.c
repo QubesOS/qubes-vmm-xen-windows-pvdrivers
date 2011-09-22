@@ -50,8 +50,8 @@ get_pb_from_freelist(struct xennet_info *xi)
   pb->mdl = IoAllocateMdl(pb->virtual, PAGE_SIZE, FALSE, FALSE, NULL);
   if (!pb->mdl)
   {
-    NdisFreeMemory(pb, PAGE_SIZE, 0);
     NdisFreeMemory(pb->virtual, sizeof(shared_buffer_t), 0);
+    NdisFreeMemory(pb, PAGE_SIZE, 0);
     return NULL;
   }
   pb->gref = (grant_ref_t)xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0,
@@ -59,8 +59,8 @@ get_pb_from_freelist(struct xennet_info *xi)
   if (pb->gref == INVALID_GRANT_REF)
   {
     IoFreeMdl(pb->mdl);
-    NdisFreeMemory(pb, PAGE_SIZE, 0);
     NdisFreeMemory(pb->virtual, sizeof(shared_buffer_t), 0);
+    NdisFreeMemory(pb, PAGE_SIZE, 0);
     return NULL;
   }
   MmBuildMdlForNonPagedPool(pb->mdl);
@@ -82,6 +82,13 @@ put_pb_on_freelist(struct xennet_info *xi, shared_buffer_t *pb)
   {
     //NdisAdjustBufferLength(pb->buffer, PAGE_SIZE);
     //NDIS_BUFFER_LINKAGE(pb->buffer) = NULL;
+    if (xi->rx_pb_free > RX_MAX_PB_FREELIST)
+    {
+      IoFreeMdl(pb->mdl);
+      NdisFreeMemory(pb->virtual, sizeof(shared_buffer_t), 0);
+      NdisFreeMemory(pb, PAGE_SIZE, 0);
+      return;
+    }
     pb->mdl->ByteCount = PAGE_SIZE;
     pb->mdl->Next = NULL;
     pb->next = NULL;
