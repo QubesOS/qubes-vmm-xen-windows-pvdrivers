@@ -595,6 +595,14 @@ XenPci_InitialBalloonDown()
   if (!hypercall_stubs)
   {
     KdPrint((__DRIVER_NAME "     Failed to copy hypercall stubs. Maybe not running under Xen?\n"));
+    FUNCTION_EXIT();
+    return NULL;
+  }
+  if (xen_version_major < 4)
+  {
+    FUNCTION_MSG("No support for PoD. Cannot do initial balloon down.\n");
+    FUNCTION_MSG("Expect a crash if maxmem is set much larger than memory.\n");
+    FUNCTION_EXIT();
     return NULL;
   }
   ret = _HYPERVISOR_memory_op(hypercall_stubs, XENMEM_maximum_reservation, &domid);

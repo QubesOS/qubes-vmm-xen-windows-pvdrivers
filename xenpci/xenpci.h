@@ -81,6 +81,8 @@ DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82,
 #define BALLOON_UNIT_PAGES ((BALLOON_UNITS_KB << 10) >> PAGE_SHIFT)
 
 extern ULONG qemu_protocol_version;
+extern USHORT xen_version_major;
+extern USHORT xen_version_minor;
 
 typedef struct _ev_action_t {
   PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine;
