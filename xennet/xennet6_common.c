@@ -31,6 +31,11 @@ XenNet_BuildHeader(packet_info_t *pi, PUCHAR header, ULONG new_header_size)
   if (!header)
     header = pi->header;
 
+  if (new_header_size > pi->total_length)
+  {
+    new_header_size = pi->total_length;
+  }
+
   if (new_header_size <= pi->header_length)
   {
     //FUNCTION_EXIT();
