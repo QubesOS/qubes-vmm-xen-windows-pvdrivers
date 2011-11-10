@@ -358,8 +358,8 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNET_BUFFER nb)
         txN = XenNet_PutCbOnRing(xi, coalesce_buf, min(PAGE_SIZE, remaining), gref);
         ASSERT(txN);
         coalesce_buf = NULL;
-        remaining -= min(PAGE_SIZE, remaining);
         tx_length += min(PAGE_SIZE, remaining);
+        remaining -= min(PAGE_SIZE, remaining);
       }
     }
     else
