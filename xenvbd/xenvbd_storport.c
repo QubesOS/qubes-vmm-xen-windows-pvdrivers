@@ -1105,7 +1105,7 @@ XenVbd_HandleEventSynchronised(PVOID DeviceExtension, PVOID context)
   {
     rp = xvdd->ring.sring->rsp_prod;
     KeMemoryBarrier();
-    for (i = xvdd->ring.rsp_cons; i < rp; i++)
+    for (i = xvdd->ring.rsp_cons; i != rp; i++)
     {
       rep = XenVbd_GetResponse(xvdd, i);
 /*
