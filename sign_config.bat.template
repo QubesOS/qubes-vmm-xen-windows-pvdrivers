@@ -1,6 +1,4 @@
-SET CERT_NAME=friendly name of your certificate
-
-SET CA_CERT_NAME=friendly name of your CA cert
-SET CA_CERT_STORE=store of your CA cert (maybe root)
-SET CA_CERT_LOCATION=currentUser
-REM SET CA_CERT_LOCATION=localMachine
+SET CERT_FILENAME=pfx private certificate
+SET CERT_PASSWORD=pfx password
+SET CERT_CROSS_CERT=MS Cross Signing Certificate (if you have a proper authenticode cert)
+SET CERT_PUBLIC_FILENAME=cer public certificate (if you _don't_ have a proper authenticode cert)

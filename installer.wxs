@@ -43,10 +43,12 @@
 		    Type="raw" />
     </Property>
 
-    <?if $(env._BUILDARCH) = AMD64 ?>
+    <?ifdef env.CERT_PUBLIC_FILENAME?>
+    <?if $(env._BUILDARCH) = AMD64?>
       <Condition Message="Testsigning must be on for x64 when installing on Vista or newer.">
         <![CDATA[(VersionNT < 600) OR (SYSTEMSTARTOPTIONS >< "TESTSIGNING")]]>
       </Condition>
+    <?endif ?>
     <?endif ?>
 
     <Directory Id='TARGETDIR' Name='SourceDir'>
@@ -117,19 +119,25 @@
             <?endif ?>
           </Directory>
         </Directory>
+        <?ifdef env.CERT_PUBLIC_FILENAME?>
         <Component Id='Cert' Guid='11112EC8-8635-45fb-9AE8-C22310F1E82D'>
-          <File Id='gplpv.cer' Name='gplpv.cer' DiskId='1' Source='gplpv.cer' />
-          <iis:Certificate Id='gplpv.cer_root' Name='gplpv.cer' Request='no' BinaryKey='gplpv.cer' StoreLocation='localMachine' StoreName='root' Overwrite='no' />
-          <iis:Certificate Id='gplpv.cer_trustedPublisher' Name='gplpv.cer' Request='no' BinaryKey='gplpv.cer' StoreLocation='localMachine' StoreName='trustedPublisher' Overwrite='no' />
+          <File Id='$(env.CERT_PUBLIC_FILENAME)' Name='$(env.CERT_PUBLIC_FILENAME)' DiskId='1' Source='$(env.CERT_PUBLIC_FILENAME)' />
+          <iis:Certificate Id='$(env.CERT_PUBLIC_FILENAME)_root' Name='$(env.CERT_PUBLIC_FILENAME)' Request='no' BinaryKey='$(env.CERT_PUBLIC_FILENAME)' StoreLocation='localMachine' StoreName='root' Overwrite='no' />
+          <iis:Certificate Id='$(env.CERT_PUBLIC_FILENAME)_trustedPublisher' Name='$(env.CERT_PUBLIC_FILENAME)' Request='no' BinaryKey='$(env.CERT_PUBLIC_FILENAME)' StoreLocation='localMachine' StoreName='trustedPublisher' Overwrite='no' />
         </Component>
+        <?endif ?>
       </Directory>
     </Directory>
 
-    <Binary Id='gplpv.cer' SourceFile='gplpv.cer' />    
+    <?ifdef env.CERT_PUBLIC_FILENAME?>
+    <Binary Id='$(env.CERT_PUBLIC_FILENAME)' SourceFile='$(env.CERT_PUBLIC_FILENAME)' />
+    <?endif ?>
 
+    <?ifdef env.CERT_PUBLIC_FILENAME?>
     <Feature Id='Cert' Title='Install Certificate' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
       <ComponentRef Id='Cert' />
     </Feature>
+    <?endif ?>
     <Feature Id='Docs' Title='Install Docs' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='disallow'>
       <ComponentRef Id='Docs' />
     </Feature>
