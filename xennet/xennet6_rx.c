@@ -231,111 +231,115 @@ XenNet_MakePacket(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
     return FALSE;
   }
 
-  header_buf = get_hb_from_freelist(xi);
-  if (!header_buf)
-  {
-    KdPrint((__DRIVER_NAME "     No free header buffers\n"));
-    NdisFreeNetBufferList(nbl);
-    NdisFreeNetBuffer(nb);
-    //FUNCTION_EXIT();
-    return FALSE;
-  }
-  header_va = (PUCHAR)(header_buf + 1);
-  NdisMoveMemory(header_va, pi->header, pi->header_length);
-  //KdPrint((__DRIVER_NAME "     header_length = %d, current_lookahead = %d\n", pi->header_length, xi->current_lookahead));
-  //KdPrint((__DRIVER_NAME "     ip4_header_length = %d\n", pi->ip4_header_length));
-  //KdPrint((__DRIVER_NAME "     tcp_header_length = %d\n", pi->tcp_header_length));
-  /* make sure we satisfy the lookahead requirement */
-  if (pi->split_required)
-  {
-    /* for split packets we need to make sure the 'header' is no bigger than header+mss bytes */
-    XenNet_BuildHeader(pi, header_va, min((ULONG)MAX_ETH_HEADER_LENGTH + pi->ip4_header_length + pi->tcp_header_length + pi->mss, MAX_ETH_HEADER_LENGTH + max(MIN_LOOKAHEAD_LENGTH, xi->current_lookahead)));
-  }
-  else
-  {
-    XenNet_BuildHeader(pi, header_va, max(MIN_LOOKAHEAD_LENGTH, xi->current_lookahead) + MAX_ETH_HEADER_LENGTH);
-  }
-  header_extra = pi->header_length - (MAX_ETH_HEADER_LENGTH + pi->ip4_header_length + pi->tcp_header_length);
-  ASSERT(pi->header_length <= MAX_ETH_HEADER_LENGTH + MAX_LOOKAHEAD_LENGTH);
-  header_buf->mdl->ByteCount = pi->header_length;
-  mdl_head = mdl_tail = curr_mdl = header_buf->mdl;
-  NB_HEADER_BUF(nb) = header_buf;
-  header_buf->next = pi->curr_pb;
-  NET_BUFFER_FIRST_MDL(nb) = mdl_head;
-  NET_BUFFER_CURRENT_MDL(nb) = mdl_head;
-  NET_BUFFER_CURRENT_MDL_OFFSET(nb) = 0;
-  NET_BUFFER_DATA_OFFSET(nb) = 0;
-  NET_BUFFER_DATA_LENGTH(nb) = pi->header_length;
-
-  // TODO: if there are only a few bytes left on the first buffer then add them to the header buffer too... maybe
-
-  if (pi->split_required)
-  {
-    ULONG tcp_length;
-    USHORT new_ip4_length;
-    tcp_length = (USHORT)min(pi->mss, pi->tcp_remaining);
-    new_ip4_length = (USHORT)(pi->ip4_header_length + pi->tcp_header_length + tcp_length);
-    //KdPrint((__DRIVER_NAME "     new_ip4_length = %d\n", new_ip4_length));
-    //KdPrint((__DRIVER_NAME "     this tcp_length = %d\n", tcp_length));
-    SET_NET_USHORT(&header_va[XN_HDR_SIZE + 2], new_ip4_length);
-    SET_NET_ULONG(&header_va[XN_HDR_SIZE + pi->ip4_header_length + 4], pi->tcp_seq);
-    pi->tcp_seq += tcp_length;
-    pi->tcp_remaining = (USHORT)(pi->tcp_remaining - tcp_length);
-    /* part of the packet is already present in the header buffer for lookahead */
-    out_remaining = tcp_length - header_extra;
-    ASSERT((LONG)out_remaining >= 0);
-  }
-  else
-  {
-    out_remaining = pi->total_length - pi->header_length;
-    ASSERT((LONG)out_remaining >= 0);
-  }
-  //KdPrint((__DRIVER_NAME "     before loop - out_remaining = %d\n", out_remaining));
-
-  while (out_remaining != 0)
-  {
-    //ULONG in_buffer_offset;
-    ULONG in_buffer_length;
-    ULONG out_length;
-    
-    //KdPrint((__DRIVER_NAME "     in loop - out_remaining = %d, curr_buffer = %p, curr_pb = %p\n", out_remaining, pi->curr_mdl, pi->curr_pb));
-    if (!pi->curr_mdl || !pi->curr_pb)
+  if (!pi->first_mdl->Next && !pi->split_required) {
+    /* a single buffer <= MTU */
+    header_buf = NULL;
+    XenNet_BuildHeader(pi, pi->first_mdl_virtual, pi->first_mdl_length);
+    NET_BUFFER_FIRST_MDL(nb) = pi->first_mdl;
+    NET_BUFFER_CURRENT_MDL(nb) = pi->first_mdl;
+    NET_BUFFER_CURRENT_MDL_OFFSET(nb) = 0;
+    NET_BUFFER_DATA_OFFSET(nb) = 0;
+    NET_BUFFER_DATA_LENGTH(nb) = pi->total_length;
+    NB_FIRST_PB(nb) = pi->first_pb;
+    ref_pb(xi, pi->first_pb);
+  } else {
+    ASSERT(ndis_os_minor_version >= 1);
+    header_buf = get_hb_from_freelist(xi);
+    if (!header_buf)
     {
-      KdPrint((__DRIVER_NAME "     out of buffers for packet\n"));
-      //KdPrint((__DRIVER_NAME "     out_remaining = %d, curr_buffer = %p, curr_pb = %p\n", out_remaining, pi->curr_mdl, pi->curr_pb));
-      // TODO: free some stuff or we'll leak
-      /* unchain buffers then free packet */
+      KdPrint((__DRIVER_NAME "     No free header buffers\n"));
+      NdisFreeNetBufferList(nbl);
+      NdisFreeNetBuffer(nb);
       //FUNCTION_EXIT();
       return FALSE;
     }
+    header_va = (PUCHAR)(header_buf + 1);
+    NdisMoveMemory(header_va, pi->header, pi->header_length);
+    //KdPrint((__DRIVER_NAME "     header_length = %d, current_lookahead = %d\n", pi->header_length, xi->current_lookahead));
+    //KdPrint((__DRIVER_NAME "     ip4_header_length = %d\n", pi->ip4_header_length));
+    //KdPrint((__DRIVER_NAME "     tcp_header_length = %d\n", pi->tcp_header_length));
+    /* make sure only the header is in the first buffer (or the entire packet, but that is done in the above case) */
+    XenNet_BuildHeader(pi, header_va, MAX_ETH_HEADER_LENGTH + pi->ip4_header_length + pi->tcp_header_length);
+    header_extra = pi->header_length - (MAX_ETH_HEADER_LENGTH + pi->ip4_header_length + pi->tcp_header_length);
+    ASSERT(pi->header_length <= MAX_ETH_HEADER_LENGTH + MAX_LOOKAHEAD_LENGTH);
+    header_buf->mdl->ByteCount = pi->header_length;
+    mdl_head = mdl_tail = curr_mdl = header_buf->mdl;
+    NB_FIRST_PB(nb) = header_buf;
+    header_buf->next = pi->curr_pb;
+    NET_BUFFER_FIRST_MDL(nb) = mdl_head;
+    NET_BUFFER_CURRENT_MDL(nb) = mdl_head;
+    NET_BUFFER_CURRENT_MDL_OFFSET(nb) = 0;
+    NET_BUFFER_DATA_OFFSET(nb) = 0;
+    NET_BUFFER_DATA_LENGTH(nb) = pi->header_length;
 
-    in_buffer_length = MmGetMdlByteCount(pi->curr_mdl);
-    out_length = min(out_remaining, in_buffer_length - pi->curr_mdl_offset);
-    curr_mdl = IoAllocateMdl((PUCHAR)MmGetMdlVirtualAddress(pi->curr_mdl) + pi->curr_mdl_offset, out_length, FALSE, FALSE, NULL);
-    ASSERT(curr_mdl);
-    IoBuildPartialMdl(pi->curr_mdl, curr_mdl, (PUCHAR)MmGetMdlVirtualAddress(pi->curr_mdl) + pi->curr_mdl_offset, out_length);
-    mdl_tail->Next = curr_mdl;
-    mdl_tail = curr_mdl;
-    curr_mdl->Next = NULL; /* I think this might be redundant */
-    NET_BUFFER_DATA_LENGTH(nb) += out_length;
-    ref_pb(xi, pi->curr_pb);
-    pi->curr_mdl_offset = (USHORT)(pi->curr_mdl_offset + out_length);
-    if (pi->curr_mdl_offset == in_buffer_length)
+    if (pi->split_required)
     {
-      pi->curr_mdl = pi->curr_mdl->Next;
-      pi->curr_pb = pi->curr_pb->next;
-      pi->curr_mdl_offset = 0;
+      ULONG tcp_length;
+      USHORT new_ip4_length;
+      tcp_length = (USHORT)min(pi->mss, pi->tcp_remaining);
+      new_ip4_length = (USHORT)(pi->ip4_header_length + pi->tcp_header_length + tcp_length);
+      //KdPrint((__DRIVER_NAME "     new_ip4_length = %d\n", new_ip4_length));
+      //KdPrint((__DRIVER_NAME "     this tcp_length = %d\n", tcp_length));
+      SET_NET_USHORT(&header_va[XN_HDR_SIZE + 2], new_ip4_length);
+      SET_NET_ULONG(&header_va[XN_HDR_SIZE + pi->ip4_header_length + 4], pi->tcp_seq);
+      pi->tcp_seq += tcp_length;
+      pi->tcp_remaining = (USHORT)(pi->tcp_remaining - tcp_length);
+      /* part of the packet is already present in the header buffer for lookahead */
+      out_remaining = tcp_length - header_extra;
+      ASSERT((LONG)out_remaining >= 0);
     }
-    out_remaining -= out_length;
+    else
+    {
+      out_remaining = pi->total_length - pi->header_length;
+      ASSERT((LONG)out_remaining >= 0);
+    }
+    //KdPrint((__DRIVER_NAME "     before loop - out_remaining = %d\n", out_remaining));
+
+    while (out_remaining != 0)
+    {
+      //ULONG in_buffer_offset;
+      ULONG in_buffer_length;
+      ULONG out_length;
+      
+      //KdPrint((__DRIVER_NAME "     in loop - out_remaining = %d, curr_buffer = %p, curr_pb = %p\n", out_remaining, pi->curr_mdl, pi->curr_pb));
+      if (!pi->curr_mdl || !pi->curr_pb)
+      {
+        KdPrint((__DRIVER_NAME "     out of buffers for packet\n"));
+        //KdPrint((__DRIVER_NAME "     out_remaining = %d, curr_buffer = %p, curr_pb = %p\n", out_remaining, pi->curr_mdl, pi->curr_pb));
+        // TODO: free some stuff or we'll leak
+        /* unchain buffers then free packet */
+        //FUNCTION_EXIT();
+        return FALSE;
+      }
+
+      in_buffer_length = MmGetMdlByteCount(pi->curr_mdl);
+      out_length = min(out_remaining, in_buffer_length - pi->curr_mdl_offset);
+      curr_mdl = IoAllocateMdl((PUCHAR)MmGetMdlVirtualAddress(pi->curr_mdl) + pi->curr_mdl_offset, out_length, FALSE, FALSE, NULL);
+      ASSERT(curr_mdl);
+      IoBuildPartialMdl(pi->curr_mdl, curr_mdl, (PUCHAR)MmGetMdlVirtualAddress(pi->curr_mdl) + pi->curr_mdl_offset, out_length);
+      mdl_tail->Next = curr_mdl;
+      mdl_tail = curr_mdl;
+      curr_mdl->Next = NULL; /* I think this might be redundant */
+      NET_BUFFER_DATA_LENGTH(nb) += out_length;
+      ref_pb(xi, pi->curr_pb);
+      pi->curr_mdl_offset = (USHORT)(pi->curr_mdl_offset + out_length);
+      if (pi->curr_mdl_offset == in_buffer_length)
+      {
+        pi->curr_mdl = pi->curr_mdl->Next;
+        pi->curr_pb = pi->curr_pb->next;
+        pi->curr_mdl_offset = 0;
+      }
+      out_remaining -= out_length;
+    }
+    if (pi->split_required)
+    {
+      // TODO: only if Ip checksum is disabled...
+      //XenNet_SumIpHeader(header_va, pi->ip4_header_length);
+    }
+    if (header_extra > 0)
+      pi->header_length -= header_extra;
+    //ASSERT(*(shared_buffer_t **)&packet->MiniportReservedEx[0]);
   }
-  if (pi->split_required)
-  {
-    // TODO: only if Ip checksum is disabled...
-    //XenNet_SumIpHeader(header_va, pi->ip4_header_length);
-  }
-  if (header_extra > 0)
-    pi->header_length -= header_extra;
-  //ASSERT(*(shared_buffer_t **)&packet->MiniportReservedEx[0]);
   
   rc->packet_count++;
   NET_BUFFER_LIST_FIRST_NB(nbl) = nb;
@@ -400,142 +404,6 @@ XenNet_MakePacket(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
   return TRUE;
 }
 
-#if 0
-/*
- Windows appears to insist that the checksum on received packets is correct, and won't
- believe us when we lie about it, which happens when the packet is generated on the
- same bridge in Dom0. Doh!
- This is only for TCP and UDP packets. IP checksums appear to be correct anyways.
-*/
-
-static BOOLEAN
-XenNet_SumPacketData(
-  packet_info_t *pi,
-  PNDIS_PACKET packet,
-  BOOLEAN set_csum
-)
-{
-  USHORT i;
-  PUCHAR buffer;
-  PMDL mdl;
-  UINT total_length;
-  UINT data_length;
-  UINT buffer_length;
-  USHORT buffer_offset;
-  ULONG csum;
-  PUSHORT csum_ptr;
-  USHORT remaining;
-  USHORT ip4_length;
-  BOOLEAN csum_span = TRUE; /* when the USHORT to be checksummed spans a buffer */
-  
-  //FUNCTION_ENTER();
-
-  NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);
-  ASSERT(mdl);
-
-  ip4_length = GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 2]);
-  data_length = ip4_length + XN_HDR_SIZE;
-  
-  if ((USHORT)data_length > total_length)
-  {
-    KdPrint((__DRIVER_NAME "     Size Mismatch %d (ip4_length + XN_HDR_SIZE) != %d (total_length)\n", ip4_length + XN_HDR_SIZE, total_length));
-    return FALSE;
-  }
-
-  switch (pi->ip_proto)
-  {
-  case 6:
-    ASSERT(buffer_length >= (USHORT)(XN_HDR_SIZE + pi->ip4_header_length + 17));
-    csum_ptr = (USHORT *)&buffer[XN_HDR_SIZE + pi->ip4_header_length + 16];
-    break;
-  case 17:
-    ASSERT(buffer_length >= (USHORT)(XN_HDR_SIZE + pi->ip4_header_length + 7));
-    csum_ptr = (USHORT *)&buffer[XN_HDR_SIZE + pi->ip4_header_length + 6];
-    break;
-  default:
-    KdPrint((__DRIVER_NAME "     Don't know how to calc sum for IP Proto %d\n", pi->ip_proto));
-    //FUNCTION_EXIT();
-    return FALSE; // should never happen
-  }
-
-  if (set_csum)  
-    *csum_ptr = 0;
-
-  csum = 0;
-  csum += GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 12]) + GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 14]); // src
-  csum += GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 16]) + GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 18]); // dst
-  csum += ((USHORT)buffer[XN_HDR_SIZE + 9]);
-
-  remaining = ip4_length - pi->ip4_header_length;
-
-  csum += remaining;
-  
-  csum_span = FALSE;
-  buffer_offset = i = XN_HDR_SIZE + pi->ip4_header_length;
-  while (i < data_length)
-  {
-    /* don't include the checksum field itself in the calculation */
-    if ((pi->ip_proto == 6 && i == XN_HDR_SIZE + pi->ip4_header_length + 16) || (pi->ip_proto == 17 && i == XN_HDR_SIZE + pi->ip4_header_length + 6))
-    {
-      /* we know that this always happens in the header buffer so we are guaranteed the full two bytes */
-      i += 2;
-      buffer_offset += 2;
-      continue;
-    }
-    if (csum_span)
-    {
-      /* the other half of the next bit */
-      ASSERT(buffer_offset == 0);
-      csum += (USHORT)buffer[buffer_offset];
-      csum_span = FALSE;
-      i += 1;
-      buffer_offset += 1;
-    }
-    else if (buffer_offset == buffer_length - 1)
-    {
-      /* deal with a buffer ending on an odd byte boundary */
-      csum += (USHORT)buffer[buffer_offset] << 8;
-      csum_span = TRUE;
-      i += 1;
-      buffer_offset += 1;
-    }
-    else
-    {
-      csum += GET_NET_PUSHORT(&buffer[buffer_offset]);
-      i += 2;
-      buffer_offset += 2;
-    }
-    if (buffer_offset == buffer_length && i < total_length)
-    {
-      NdisGetNextBuffer(mdl, &mdl);
-      if (mdl == NULL)
-      {
-        KdPrint((__DRIVER_NAME "     Ran out of buffers\n"));
-        return FALSE; // should never happen
-      }
-      NdisQueryBufferSafe(mdl, &buffer, &buffer_length, NormalPagePriority);
-      ASSERT(buffer_length);
-      buffer_offset = 0;
-    }
-  }
-      
-  while (csum & 0xFFFF0000)
-    csum = (csum & 0xFFFF) + (csum >> 16);
-  
-  if (set_csum)
-  {
-    *csum_ptr = (USHORT)~GET_NET_USHORT((USHORT)csum);
-  }
-  else
-  {
-    //FUNCTION_EXIT();
-    return (BOOLEAN)(*csum_ptr == (USHORT)~GET_NET_USHORT((USHORT)csum));
-  }
-  //FUNCTION_EXIT();
-  return TRUE;
-}
-#endif
-
 static VOID
 XenNet_MakePackets(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
 {
@@ -558,7 +426,7 @@ XenNet_MakePackets(struct xennet_info *xi, rx_context_t *rc, packet_info_t *pi)
     switch (xi->current_gso_rx_split_type)
     {
     case RX_LSO_SPLIT_HALF:
-      pi->mss = (pi->tcp_length + 1) / 2;
+      pi->mss = max((pi->tcp_length + 1) / 2, pi->mss);
       break;
     case RX_LSO_SPLIT_NONE:
       pi->mss = 65535;
@@ -656,7 +524,7 @@ XenNet_ReturnNetBufferLists(NDIS_HANDLE adapter_context, PNET_BUFFER_LIST curr_n
       
       next_nb = NET_BUFFER_NEXT_NB(curr_nb);
       curr_mdl = NET_BUFFER_FIRST_MDL(curr_nb);
-      page_buf = NB_HEADER_BUF(curr_nb);
+      page_buf = NB_FIRST_PB(curr_nb);
       while (curr_mdl)
       {
         shared_buffer_t *next_buf;

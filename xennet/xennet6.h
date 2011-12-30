@@ -24,15 +24,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <ntddk.h>
 #include <wdm.h>
 #define NDIS_MINIPORT_DRIVER 1
-#define NDIS60_MINIPORT 1
-#define NDIS_SUPPORT_NDIS6 1
+#define NDIS61_MINIPORT 1
 #include <ndis.h>
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
 #include <liblfds.h>
 
 #define VENDOR_DRIVER_VERSION_MAJOR 0
-#define VENDOR_DRIVER_VERSION_MINOR 10
+#define VENDOR_DRIVER_VERSION_MINOR 11
 
 #define MAX_LINK_SPEED 10000000000L; /* there is not really any theoretical maximum... */
 
@@ -41,11 +40,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define __DRIVER_NAME "XenNet"
 
 #define NB_LIST_ENTRY_FIELD MiniportReserved[0] // TX (2 entries)
-#define NB_HEADER_BUF_FIELD MiniportReserved[0] // RX
+#define NB_FIRST_PB_FIELD MiniportReserved[0] // RX
 #define NB_NBL_FIELD MiniportReserved[2] // TX
 #define NB_LIST_ENTRY(_nb) (*(PLIST_ENTRY)&(_nb)->NB_LIST_ENTRY_FIELD)
 #define NB_NBL(_nb) (*(PNET_BUFFER_LIST *)&(_nb)->NB_NBL_FIELD)
-#define NB_HEADER_BUF(_nb) (*(shared_buffer_t **)&(_nb)->NB_HEADER_BUF_FIELD)
+#define NB_FIRST_PB(_nb) (*(shared_buffer_t **)&(_nb)->NB_FIRST_PB_FIELD)
 
 #define NBL_REF_FIELD MiniportReserved[0] // TX
 //#define NBL_LIST_ENTRY_FIELD MiniportReserved[0] // TX (2 entries) - overlaps with REF_FIELD
@@ -188,7 +187,7 @@ SET_NET_ULONG(PVOID ptr, ULONG data)
 #define MAX_PKT_HEADER_LENGTH (MAX_ETH_HEADER_LENGTH + MAX_IP4_HEADER_LENGTH + MAX_TCP_HEADER_LENGTH)
 
 #define MIN_LOOKAHEAD_LENGTH (MAX_IP4_HEADER_LENGTH + MAX_TCP_HEADER_LENGTH)
-#define MAX_LOOKAHEAD_LENGTH PAGE_SIZE /* don't know if this is a good idea - was 256*/
+#define MAX_LOOKAHEAD_LENGTH PAGE_SIZE
 
 #define LINUX_MAX_SG_ELEMENTS 19
 
@@ -330,7 +329,6 @@ struct xennet_info
   volatile LONG rx_hb_free;
   struct stack_state *rx_hb_stack;
   shared_buffer_t *rx_ring_pbs[NET_RX_RING_SIZE];
-  NPAGED_LOOKASIDE_LIST rx_lookaside_list;
   /* Receive-ring batched refills. */
   ULONG rx_target;
   ULONG rx_max_target;
@@ -382,6 +380,10 @@ struct xennet_oids_t {
 };
 
 extern struct xennet_oids_t xennet_oids[];
+
+extern USHORT ndis_os_major_version;
+extern USHORT ndis_os_minor_version;
+
 
 MINIPORT_OID_REQUEST XenNet_OidRequest;
 MINIPORT_CANCEL_OID_REQUEST XenNet_CancelOidRequest;

@@ -33,6 +33,9 @@ static KDEFERRED_ROUTINE XenNet_SuspendResume;
 
 NDIS_HANDLE driver_handle = NULL;
 
+USHORT ndis_os_major_version = 0;
+USHORT ndis_os_minor_version = 0;
+
 /* ----- BEGIN Other people's code --------- */
 /* from linux/include/linux/ctype.h, used under GPLv2 */
 #define _U      0x01    /* upper */
@@ -483,63 +486,6 @@ XenNet_D0Entry(struct xennet_info *xi)
   return status;
 }
 
-#if 0
-static NDIS_OID supported_oids[] =
-{
-  /* mandatory */
-  OID_GEN_HARDWARE_STATUS,       // Q
-
-  OID_GEN_TRANSMIT_BUFFER_SPACE, // Q
-  OID_GEN_RECEIVE_BUFFER_SPACE,  // Q
-  OID_GEN_TRANSMIT_BLOCK_SIZE,   // Q
-  OID_GEN_RECEIVE_BLOCK_SIZE,    // Q
-
-  OID_GEN_VENDOR_ID,             // Q
-  OID_GEN_VENDOR_DESCRIPTION,    // Q
-  OID_GEN_VENDOR_DRIVER_VERSION, // Q
-
-  OID_GEN_CURRENT_PACKET_FILTER, // QS
-  OID_GEN_CURRENT_LOOKAHEAD,     // QS
-  OID_GEN_DRIVER_VERSION,        // Q
-  OID_GEN_MAXIMUM_TOTAL_SIZE,    // Q
-  OID_GEN_LINK_PARAMETERS,       // S
-  OID_GEN_INTERRUPT_MODERATION,  // QS
-  
-  OID_GEN_MAXIMUM_SEND_PACKETS,  // Q
-
-  /* general optional */
-  OID_GEN_NETWORK_LAYER_ADDRESSES,       
-  OID_GEN_TRANSPORT_HEADER_OFFSET,
-
-  /* power */
-  OID_PNP_CAPABILITIES,
-  OID_PNP_SET_POWER,
-  OID_PNP_QUERY_POWER,
-  
-  /* stats */
-  OID_GEN_XMIT_OK,
-  OID_GEN_RCV_OK,
-  OID_GEN_XMIT_ERROR,
-  OID_GEN_RCV_ERROR,
-  OID_GEN_RCV_NO_BUFFER,
-  OID_GEN_STATISTICS,
-  
-  /* media-specific */
-  OID_802_3_PERMANENT_ADDRESS,
-  OID_802_3_CURRENT_ADDRESS,
-  OID_802_3_MULTICAST_LIST,
-  OID_802_3_MAXIMUM_LIST_SIZE,
-  OID_802_3_RCV_ERROR_ALIGNMENT,
-  OID_802_3_XMIT_ONE_COLLISION,
-  OID_802_3_XMIT_MORE_COLLISIONS,
-  
-  /* tcp offload */
-  OID_TCP_TASK_OFFLOAD,
-  OID_TCP_OFFLOAD_PARAMETERS,
-  OID_OFFLOAD_ENCAPSULATION,
-};
-#endif
-
 // Called at <= DISPATCH_LEVEL
 static NDIS_STATUS
 XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_MINIPORT_INIT_PARAMETERS init_parameters)
@@ -742,6 +688,10 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
     KdPrint(("ScatterGather = %d\n", config_param->ParameterData.IntegerData));
     xi->frontend_sg_supported = !!config_param->ParameterData.IntegerData;
   }
+  if (xi->frontend_sg_supported && ndis_os_minor_version < 1) {
+    FUNCTION_MSG("No support for SG with NDIS 6.0, disabled\n");
+    xi->frontend_sg_supported = FALSE;
+  }
   
   NdisInitUnicodeString(&config_param_name, L"LargeSendOffload");
   NdisReadConfiguration(&status, &config_param, config_handle, &config_param_name, NdisParameterInteger);
@@ -765,6 +715,10 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
       xi->frontend_gso_value = min(xi->frontend_gso_value, PAGE_SIZE - MAX_PKT_HEADER_LENGTH);
       KdPrint(("(clipped to %d with sg disabled)\n", xi->frontend_gso_value));
     }
+  }
+  if (xi->frontend_sg_supported && ndis_os_minor_version < 1) {
+    FUNCTION_MSG("No support for GSO with NDIS 6.0, disabled\n");
+    xi->frontend_gso_value = 0;
   }
 
   NdisInitUnicodeString(&config_param_name, L"LargeSendOffloadRxSplitMTU");
@@ -795,12 +749,12 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   if (!NT_SUCCESS(status))
   {
     KdPrint(("Could not read ChecksumOffload value (%08x)\n", status));
-    xi->backend_csum_supported = TRUE;
+    xi->frontend_csum_supported = TRUE;
   }
   else
   {
     KdPrint(("ChecksumOffload = %d\n", config_param->ParameterData.IntegerData));
-    xi->backend_csum_supported = !!config_param->ParameterData.IntegerData;
+    xi->frontend_csum_supported = !!config_param->ParameterData.IntegerData;
   }
 
   NdisInitUnicodeString(&config_param_name, L"MTU");
@@ -904,6 +858,7 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
   for (i = 0; xennet_oids[i].oid; i++)
   {
     supported_oids[i] = xennet_oids[i].oid;
+    FUNCTION_MSG("Supporting %08x (%s) %s %d bytes\n", xennet_oids[i].oid, xennet_oids[i].oid_name, (xennet_oids[i].query_routine?(xennet_oids[i].set_routine?"get/set":"get only"):(xennet_oids[i].set_routine?"set only":"none")), xennet_oids[i].min_length);
   }
   general_attributes.SupportedOidList = supported_oids;
   general_attributes.SupportedOidListLength = sizeof(NDIS_OID) * i;
@@ -1011,7 +966,38 @@ XenNet_Initialize(NDIS_HANDLE adapter_handle, NDIS_HANDLE driver_context, PNDIS_
     KdPrint(("NdisMSetMiniportAttributes(offload) failed (%08x)\n", status));
     goto err;
   }
-
+  
+  #if 0
+  if (ndis_os_minor_version >= 1) {
+    NDIS_MINIPORT_ADAPTER_HARDWARE_ASSIST_ATTRIBUTES hw_assist_attributes;
+    NDIS_HD_SPLIT_ATTRIBUTES hd_split_attributes;
+    
+    RtlZeroMemory(&hd_split_attributes, sizeof(hd_split_attributes));
+    hd_split_attributes.Header.Type = NDIS_OBJECT_TYPE_HD_SPLIT_ATTRIBUTES;
+    hd_split_attributes.Header.Revision = NDIS_HD_SPLIT_ATTRIBUTES_REVISION_1;
+    hd_split_attributes.Header.Size = NDIS_SIZEOF_HD_SPLIT_ATTRIBUTES_REVISION_1;
+    hd_split_attributes.HardwareCapabilities = NDIS_HD_SPLIT_CAPS_SUPPORTS_HEADER_DATA_SPLIT | NDIS_HD_SPLIT_CAPS_SUPPORTS_IPV4_OPTIONS | NDIS_HD_SPLIT_CAPS_SUPPORTS_TCP_OPTIONS;
+    hd_split_attributes.CurrentCapabilities = hd_split_attributes.HardwareCapabilities;
+    /* the other members are set on output */
+    
+    RtlZeroMemory(&hw_assist_attributes, sizeof(hw_assist_attributes));
+    hw_assist_attributes.Header.Type = NDIS_OBJECT_TYPE_MINIPORT_ADAPTER_HARDWARE_ASSIST_ATTRIBUTES;
+    hw_assist_attributes.Header.Revision = NDIS_MINIPORT_ADAPTER_HARDWARE_ASSIST_ATTRIBUTES_REVISION_1;
+    hw_assist_attributes.Header.Size = NDIS_SIZEOF_MINIPORT_ADAPTER_HARDWARE_ASSIST_ATTRIBUTES_REVISION_1;
+    hw_assist_attributes.HDSplitAttributes = &hd_split_attributes;
+    status = NdisMSetMiniportAttributes(xi->adapter_handle, (PNDIS_MINIPORT_ADAPTER_ATTRIBUTES)&hw_assist_attributes);
+    if (!NT_SUCCESS(status))
+    {
+      FUNCTION_MSG("NdisMSetMiniportAttributes(hw_assist) failed (%08x)\n", status);
+      goto err;
+    }
+    FUNCTION_MSG("HW Split enabled\n");
+    FUNCTION_MSG(" HDSplitFlags = %08x\n", hd_split_attributes.HDSplitFlags);
+    FUNCTION_MSG(" BackfillSize = %d\n", hd_split_attributes.BackfillSize);
+    FUNCTION_MSG(" MaxHeaderSize = %d\n", hd_split_attributes.MaxHeaderSize);
+    //what about backfill here?
+  }
+  #endif
   return NDIS_STATUS_SUCCESS;
   
 err:
@@ -1163,20 +1149,31 @@ DriverEntry(PDRIVER_OBJECT driver_object, PUNICODE_STRING registry_path)
   FUNCTION_ENTER();
 
   ndis_version = NdisGetVersion();
-  KdPrint((__DRIVER_NAME "     ndis_version = %08x\n", ndis_version));
+  
+  ndis_os_major_version = ndis_version >> 16;
+  ndis_os_minor_version = ndis_version & 0xFFFF;
 
   NdisZeroMemory(&mini_chars, sizeof(mini_chars));
 
   mini_chars.Header.Type = NDIS_OBJECT_TYPE_MINIPORT_DRIVER_CHARACTERISTICS;
-  mini_chars.Header.Revision = NDIS_MINIPORT_DRIVER_CHARACTERISTICS_REVISION_1;
-  mini_chars.Header.Size = NDIS_SIZEOF_MINIPORT_DRIVER_CHARACTERISTICS_REVISION_1;
+  
+  if (ndis_os_minor_version < 1) {
+    mini_chars.Header.Revision = NDIS_MINIPORT_DRIVER_CHARACTERISTICS_REVISION_1;
+    mini_chars.Header.Size = NDIS_SIZEOF_MINIPORT_DRIVER_CHARACTERISTICS_REVISION_1;
 
-  mini_chars.MajorNdisVersion = NDIS_MINIPORT_MAJOR_VERSION;
-  mini_chars.MinorNdisVersion = NDIS_MINIPORT_MINOR_VERSION;
+    mini_chars.MajorNdisVersion = 6;
+    mini_chars.MinorNdisVersion = 0;
+  } else {
+    mini_chars.Header.Revision = NDIS_MINIPORT_DRIVER_CHARACTERISTICS_REVISION_2;
+    mini_chars.Header.Size = NDIS_SIZEOF_MINIPORT_DRIVER_CHARACTERISTICS_REVISION_2;
+    mini_chars.MajorNdisVersion = 6;
+    mini_chars.MinorNdisVersion = 1;
+  }
   mini_chars.MajorDriverVersion = VENDOR_DRIVER_VERSION_MAJOR;
   mini_chars.MinorDriverVersion = VENDOR_DRIVER_VERSION_MINOR;
 
-  KdPrint((__DRIVER_NAME "     MajorNdisVersion = %d,  MinorNdisVersion = %d\n", NDIS_MINIPORT_MAJOR_VERSION, NDIS_MINIPORT_MINOR_VERSION));
+  KdPrint((__DRIVER_NAME "     Driver MajorNdisVersion = %d, Driver MinorNdisVersion = %d\n", NDIS_MINIPORT_MAJOR_VERSION, NDIS_MINIPORT_MINOR_VERSION));
+  KdPrint((__DRIVER_NAME "     Windows MajorNdisVersion = %d, Windows MinorNdisVersion = %d\n", ndis_os_major_version, ndis_os_minor_version));
 
   mini_chars.Flags = NDIS_WDM_DRIVER;
   
@@ -1193,10 +1190,10 @@ DriverEntry(PDRIVER_OBJECT driver_object, PUNICODE_STRING registry_path)
 
   mini_chars.OidRequestHandler = XenNet_OidRequest;
   mini_chars.CancelOidRequestHandler = XenNet_CancelOidRequest;
-  #if 0 // these must be for NDIS > 6.0 ?
-  mini_chars.DirectOidRequestHandler = NULL;
-  mini_chars.CancelDirectOidRequestHandler = NULL;
-  #endif
+  if (ndis_os_minor_version >= 1) {
+    mini_chars.DirectOidRequestHandler = NULL;
+    mini_chars.CancelDirectOidRequestHandler = NULL;
+  }
 
   mini_chars.SendNetBufferListsHandler = XenNet_SendNetBufferLists;
   mini_chars.CancelSendHandler = XenNet_CancelSend;

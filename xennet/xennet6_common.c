@@ -211,9 +211,10 @@ XenNet_ParsePacketHeader(packet_info_t *pi, PUCHAR alt_buffer, ULONG min_header_
 
   if (pi->header_length < (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length))
   {
-    if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + pi->tcp_header_length)))
+    /* we don't actually need the tcp options to analyse the header */
+    if (!XenNet_BuildHeader(pi, NULL, (ULONG)(XN_HDR_SIZE + pi->ip4_header_length + MIN_TCP_HEADER_LENGTH)))
     {
-      //KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header + TCP Options)\n"));
+      //KdPrint((__DRIVER_NAME "     packet too small (IP Header + IP Options + TCP Header (not including TCP Options))\n"));
       pi->parse_result = PARSE_TOO_SMALL;
       return;
     }
