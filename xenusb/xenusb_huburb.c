@@ -68,7 +68,7 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
   decode_retval = XenUsb_DecodeControlUrb(urb, &decode_data);
   if (decode_retval == URB_DECODE_UNKNOWN)
   {
-    FUNCTION_MSG("Calling WdfRequestCompletestatus with status = %08x\n", STATUS_UNSUCCESSFUL); //STATUS_UNSUCCESSFUL));
+    FUNCTION_MSG("Unknown URB - Calling WdfRequestCompletestatus with status = %08x\n", STATUS_UNSUCCESSFUL); //STATUS_UNSUCCESSFUL));
     urb->UrbHeader.Status = USBD_STATUS_INVALID_URB_FUNCTION;
     WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
     return;
@@ -76,7 +76,6 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
 
   urb->UrbHeader.Status = USBD_STATUS_INVALID_URB_FUNCTION;
   
-#if 0
   if (decode_retval != URB_DECODE_NOT_CONTROL)
   {
     FUNCTION_MSG("bmRequestType = %02x\n", decode_data.setup_packet.default_pipe_setup_packet.bmRequestType.B);
@@ -92,7 +91,6 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
     FUNCTION_MSG(" High = %02x\n", decode_data.setup_packet.default_pipe_setup_packet.wIndex.HiByte);
     FUNCTION_MSG("wLength = %04x\n", decode_data.setup_packet.default_pipe_setup_packet.wLength);
   }
-#endif
   
   switch(urb->UrbHeader.Function)
   {
@@ -186,7 +184,9 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
   case URB_FUNCTION_CONTROL_TRANSFER:
   case URB_FUNCTION_CLASS_DEVICE:
   case URB_FUNCTION_CLASS_OTHER:
+  case URB_FUNCTION_CLASS_INTERFACE:
   case URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE:
+  case URB_FUNCTION_GET_DESCRIPTOR_FROM_INTERFACE:
   case URB_FUNCTION_GET_STATUS_FROM_DEVICE:
     switch(decode_data.setup_packet.default_pipe_setup_packet.bRequest)
     {
@@ -301,7 +301,7 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
         *decode_data.length = FIELD_OFFSET(USB_HUB_DESCRIPTOR, bRemoveAndPowerMask[0]) + 2 + 1;
         uhd->bDescriptorLength = (UCHAR)*decode_data.length;
         uhd->bDescriptorType = 0x29;
-        uhd->bNumberOfPorts = 8;
+        uhd->bNumberOfPorts = (UCHAR)xudd->num_ports;
         uhd->wHubCharacteristics = 0x0012; // no power switching no overcurrent protection
         uhd->bPowerOnToPowerGood = 1; // 2ms units
         uhd->bHubControlCurrent = 0;
@@ -335,7 +335,28 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
       switch (decode_data.setup_packet.default_pipe_setup_packet.bmRequestType.Type)
       {
       case BMREQUEST_STANDARD: /* Standard */
-        KdPrint((__DRIVER_NAME "       Type=Standard (unsupported)\n"));
+        KdPrint((__DRIVER_NAME "       Type=Standard\n"));
+        switch (decode_data.setup_packet.default_pipe_setup_packet.bmRequestType.Recipient)
+        {
+        case BMREQUEST_TO_DEVICE:
+          KdPrint((__DRIVER_NAME "       Recipient=Device\n"));
+          switch (decode_data.setup_packet.default_pipe_setup_packet.wValue.W)
+          {
+          case 1: /* DEVICE_REMOTE_WAKEUP */
+            KdPrint((__DRIVER_NAME "       Feature=DEVICE_REMOTE_WAKEUP\n"));
+            /* fake this */
+            urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
+            break;
+          default:
+            FUNCTION_MSG(__DRIVER_NAME "       Feature=%d (not valid)\n", decode_data.setup_packet.default_pipe_setup_packet.wValue.W);
+            break;
+          }
+          break;
+        default:
+          FUNCTION_MSG(__DRIVER_NAME "       Recipient=%d (not valid)\n", decode_data.setup_packet.default_pipe_setup_packet.bmRequestType.Recipient);
+          break;
+        }
+        break;
         break;
       case BMREQUEST_CLASS: /* Class */
         KdPrint((__DRIVER_NAME "       Type=Class\n"));
@@ -348,6 +369,11 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
           case PORT_ENABLE:
             KdPrint((__DRIVER_NAME "        PORT_ENABLE\n"));
             xudd->ports[decode_data.setup_packet.default_pipe_setup_packet.wIndex.LowByte - 1].port_status &= ~(1 << PORT_ENABLE);
+            urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
+            break;
+          case PORT_SUSPEND:
+            KdPrint((__DRIVER_NAME "        PORT_SUSPEND (NOOP)\n"));
+            /* do something here */
             urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
             break;
           case C_PORT_CONNECTION:
@@ -384,7 +410,27 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
       switch (decode_data.setup_packet.default_pipe_setup_packet.bmRequestType.Type)
       {
       case 0: /* Standard */
-        KdPrint((__DRIVER_NAME "       Type=Standard (unsupported)\n"));
+        KdPrint((__DRIVER_NAME "       Type=Standard\n"));
+        switch (decode_data.setup_packet.default_pipe_setup_packet.bmRequestType.Recipient)
+        {
+        case BMREQUEST_TO_DEVICE:
+          KdPrint((__DRIVER_NAME "       Recipient=Device\n"));
+          switch (decode_data.setup_packet.default_pipe_setup_packet.wValue.W)
+          {
+          case 1: /* DEVICE_REMOTE_WAKEUP */
+            KdPrint((__DRIVER_NAME "       Feature=DEVICE_REMOTE_WAKEUP\n"));
+            /* fake this */
+            urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
+            break;
+          default:
+            FUNCTION_MSG(__DRIVER_NAME "       Feature=%d (not valid)\n", decode_data.setup_packet.default_pipe_setup_packet.wValue.W);
+            break;
+          }
+          break;
+        default:
+          FUNCTION_MSG(__DRIVER_NAME "       Recipient=%d (not valid)\n", decode_data.setup_packet.default_pipe_setup_packet.bmRequestType.Recipient);
+          break;
+        }
         break;
       case 1: /* Class */
         KdPrint((__DRIVER_NAME "       Type=Class\n"));
@@ -399,10 +445,15 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
             /* do something here */
             urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
             break;
+          case PORT_SUSPEND:
+            KdPrint((__DRIVER_NAME "        PORT_SUSPEND (NOOP)\n"));
+            /* do something here */
+            urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
+            break;
           case PORT_RESET:
             KdPrint((__DRIVER_NAME "        PORT_RESET\n"));
             /* just fake the reset by setting the status bit to indicate that the reset is complete*/
-            xudd->ports[decode_data.setup_packet.default_pipe_setup_packet.wIndex.LowByte - 1].port_status |= (1 << PORT_RESET);
+            //xudd->ports[decode_data.setup_packet.default_pipe_setup_packet.wIndex.LowByte - 1].port_status |= (1 << PORT_RESET);
             //xudd->ports[decode_data.setup_packet.default_pipe_setup_packet.wIndex.LowByte - 1].reset_counter = 10;
             // TODO: maybe fake a 10ms time here...
             xudd->ports[decode_data.setup_packet.default_pipe_setup_packet.wIndex.LowByte - 1].port_status &= ~(1 << PORT_RESET);
@@ -425,6 +476,9 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
             xudd->ports[urb->UrbControlVendorClassRequest.Index - 1].port_status,
             xudd->ports[urb->UrbControlVendorClassRequest.Index - 1].port_change));
           break;
+        default:
+          FUNCTION_MSG(__DRIVER_NAME "       Recipient=%d (not valid)\n", decode_data.setup_packet.default_pipe_setup_packet.bmRequestType.Recipient);
+          break;
         }
         break;
       }
@@ -437,6 +491,11 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
     break;
   case URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL:
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL\n"));
+    KdPrint((__DRIVER_NAME "      PipeHandle = %p\n", urb->UrbPipeRequest.PipeHandle));
+    urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
+    break;
+  case URB_FUNCTION_ABORT_PIPE:
+    KdPrint((__DRIVER_NAME "     URB_FUNCTION_ABORT_PIPE\n"));
     KdPrint((__DRIVER_NAME "      PipeHandle = %p\n", urb->UrbPipeRequest.PipeHandle));
     urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
     break;
@@ -575,7 +634,7 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
         urb->UrbControlVendorClassRequest.TransferBufferLength = FIELD_OFFSET(USB_HUB_DESCRIPTOR, bRemoveAndPowerMask[0]) + 2 + 1;
         uhd->bDescriptorLength = (UCHAR)urb->UrbControlVendorClassRequest.TransferBufferLength;
         uhd->bDescriptorType = 0x29;
-        uhd->bNumberOfPorts = 8;
+        uhd->bNumberOfPorts = xudd->num_ports;
         uhd->wHubCharacteristics = 0x0012; // no power switching no overcurrent protection
         uhd->bPowerOnToPowerGood = 1; // 2ms units
         uhd->bHubControlCurrent = 0;

@@ -262,19 +262,20 @@ XenUsb_HandleEvent(PVOID context)
       KdPrint((__DRIVER_NAME "     conn_rsp->speed = %d\n", conn_rsp->speed));
       
       xudd->ports[conn_rsp->portnum - 1].port_type = conn_rsp->speed;
+      xudd->ports[conn_rsp->portnum - 1].port_status &= ~((1 << PORT_LOW_SPEED) | (1 << PORT_HIGH_SPEED) | (1 << PORT_CONNECTION));
       switch (conn_rsp->speed)
       {
       case USB_PORT_TYPE_NOT_CONNECTED:
-        xudd->ports[conn_rsp->portnum - 1].port_status = 0; //(1 << PORT_ENABLE);
+        //xudd->ports[conn_rsp->portnum - 1].port_status |= 0;
         break;
       case USB_PORT_TYPE_LOW_SPEED:
-        xudd->ports[conn_rsp->portnum - 1].port_status = (1 << PORT_LOW_SPEED) | (1 << PORT_CONNECTION); // | (1 << PORT_ENABLE);
+        xudd->ports[conn_rsp->portnum - 1].port_status |= (1 << PORT_LOW_SPEED) | (1 << PORT_CONNECTION);
         break;
       case USB_PORT_TYPE_FULL_SPEED:
-        xudd->ports[conn_rsp->portnum - 1].port_status = (1 << PORT_CONNECTION); // | (1 << PORT_ENABLE);
+        xudd->ports[conn_rsp->portnum - 1].port_status |= (1 << PORT_CONNECTION);
         break;
       case USB_PORT_TYPE_HIGH_SPEED:
-        xudd->ports[conn_rsp->portnum - 1].port_status = (1 << PORT_HIGH_SPEED) | (1 << PORT_CONNECTION); // | (1 << PORT_ENABLE);
+        xudd->ports[conn_rsp->portnum - 1].port_status |= (1 << PORT_HIGH_SPEED) | (1 << PORT_CONNECTION);
         break;
       }      
       xudd->ports[conn_rsp->portnum - 1].port_change |= (1 << PORT_CONNECTION);
@@ -791,7 +792,7 @@ XenUsb_EvtIoDeviceControl(
         if (output_buffer_length >= FIELD_OFFSET(USB_NODE_INFORMATION, u.HubInformation.HubDescriptor.bRemoveAndPowerMask) + 3)
         {
           uni->u.HubInformation.HubDescriptor.bDescriptorType = 0x29;
-          uni->u.HubInformation.HubDescriptor.bNumberOfPorts = 8;
+          uni->u.HubInformation.HubDescriptor.bNumberOfPorts = xudd->num_ports;
           uni->u.HubInformation.HubDescriptor.wHubCharacteristics = 0x0012; // no power switching no overcurrent protection
           uni->u.HubInformation.HubDescriptor.bPowerOnToPowerGood = 1; // 2ms units
           uni->u.HubInformation.HubDescriptor.bHubControlCurrent = 0;

@@ -256,11 +256,15 @@ XenUsbHub_EvtIoInternalDeviceControl(
     break;
 #if (NTDDI_VERSION >= NTDDI_VISTA)
   case IOCTL_INTERNAL_USB_GET_HUB_NAME:
-    KdPrint((__DRIVER_NAME "     IOCTL_INTERNAL_USB_GET_HUB_NAME\n"));
-    status = WdfRequestRetrieveOutputBuffer(request, output_buffer_length, (PVOID *)&uhn, &length);
-    uhn->ActualLength = sizeof(USB_HUB_NAME);
-    uhn->HubName[0] = 0;
-    status = STATUS_SUCCESS;
+    KdPrint((__DRIVER_NAME "     IOCTL_INTERNAL_USB_GET_HUB_NAME (hub)\n"));
+    status = WdfRequestRetrieveOutputBuffer(request, FIELD_OFFSET(USB_HUB_NAME, HubName) + 18, (PVOID *)&uhn, &length);
+    if (NT_SUCCESS(status))
+    {
+      /* not sure this is correct... it's not the full symbolic name */
+      uhn->ActualLength = sizeof(USB_HUB_NAME);
+      RtlStringCbCopyW(uhn->HubName, length - FIELD_OFFSET(USB_HUB_NAME, HubName), L"ROOT_HUB");
+      status = STATUS_SUCCESS;
+    }
     break;
 #endif
   case IOCTL_INTERNAL_USB_GET_PORT_STATUS:
@@ -342,10 +346,12 @@ XenUsbHub_EvtIoInternalDeviceControl(
     FUNCTION_MSG(" NtStatus = %08x\n", usfd->NtStatus);
     FUNCTION_MSG(" UsbdStatus = %08x\n", usfd->UsbdStatus);
     FUNCTION_MSG(" ConnectStatus = %08x\n", usfd->ConnectStatus);
+#if 0
     FUNCTION_MSG(" DriverData[0] = %s\n", usfd->DriverData);
     FUNCTION_MSG(" DriverData[0] = %S\n", usfd->DriverData);
     FUNCTION_MSG(" DriverData[5] = %s\n", &usfd->DriverData[5]);
     FUNCTION_MSG(" DriverData[5] = %S\n", &usfd->DriverData[5]);
+#endif
     status = STATUS_SUCCESS;
     break;  
 #endif
@@ -718,6 +724,8 @@ XenUsbHub_UBIH_InitializeUsbDevice(
     usb_device->configs[i] = ExAllocatePoolWithTag(NonPagedPool, sizeof(xenusb_config_t) + sizeof(PVOID) * config_descriptor->bNumInterfaces, XENUSB_POOL_TAG);
     usb_device->configs[i]->device = usb_device;
     memcpy(&usb_device->configs[i]->config_descriptor, config_descriptor, sizeof(USB_CONFIGURATION_DESCRIPTOR));
+    usb_device->configs[i]->config_descriptor_all = ExAllocatePoolWithTag(NonPagedPool, config_descriptor->wTotalLength, XENUSB_POOL_TAG);
+    memcpy(usb_device->configs[i]->config_descriptor_all, config_descriptor, config_descriptor->wTotalLength);
     ptr += config_descriptor->bLength;
     j = 0;
     while (j < config_descriptor->bNumInterfaces)
@@ -832,11 +840,13 @@ XenUsbHub_UBIH_GetUsbDescriptors(
   
   usb_config = usb_device->active_config;
   ptr = ConfigDescriptorBuffer;
-  KdPrint((__DRIVER_NAME "     memcpy(%p, %p, %d)\n", ptr, &usb_config->config_descriptor, sizeof(USB_CONFIGURATION_DESCRIPTOR)));
-  memcpy(ptr, &usb_config->config_descriptor, sizeof(USB_CONFIGURATION_DESCRIPTOR));
-  ptr += sizeof(USB_CONFIGURATION_DESCRIPTOR);
-  ((PUSB_CONFIGURATION_DESCRIPTOR)ConfigDescriptorBuffer)->wTotalLength += 1;
+  memcpy(ptr, usb_config->config_descriptor_all, min(usb_config->config_descriptor.wTotalLength, *ConfigDescriptorBufferLength));
+  *ConfigDescriptorBufferLength = ((PUSB_CONFIGURATION_DESCRIPTOR)ConfigDescriptorBuffer)->wTotalLength;
+
 #if 0
+  ptr += sizeof(USB_CONFIGURATION_DESCRIPTOR);
+  // why was this here? ((PUSB_CONFIGURATION_DESCRIPTOR)ConfigDescriptorBuffer)->wTotalLength += 1;
+
   for (i = 0; i < usb_config->config_descriptor.bNumInterfaces; i++)
   {
     memcpy(ptr, &usb_config->interfaces[i]->interface_descriptor, sizeof(USB_INTERFACE_DESCRIPTOR));
@@ -849,9 +859,9 @@ XenUsbHub_UBIH_GetUsbDescriptors(
       ((PUSB_CONFIGURATION_DESCRIPTOR)ConfigDescriptorBuffer)->wTotalLength += sizeof(USB_ENDPOINT_DESCRIPTOR);
     }
   }
+  *ConfigDescriptorBufferLength = ((PUSB_CONFIGURATION_DESCRIPTOR)ConfigDescriptorBuffer)->wTotalLength;
 #endif
-  *ConfigDescriptorBufferLength = sizeof(USB_CONFIGURATION_DESCRIPTOR); //((PUSB_CONFIGURATION_DESCRIPTOR)ConfigDescriptorBuffer)->wTotalLength;
-  
+
   FUNCTION_EXIT();
   return status;
 }
@@ -1207,6 +1217,35 @@ XenUsbHub_UBIH_CreateUsbDeviceEx(
   return status;
 }
 
+#if (NTDDI_VERSION >= NTDDI_VISTA)  
+static NTSTATUS
+XenUsbHub_UBIH_CreateUsbDeviceV7(
+    PVOID BusContext,
+    PUSB_DEVICE_HANDLE *NewDeviceHandle,
+    PUSB_DEVICE_HANDLE HsHubDeviceHandle,
+    USHORT PortStatus,
+    PUSB_PORT_PATH PortPath,
+    PUSB_CD_ERROR_INFORMATION CdErrorInfo,
+    USHORT TtPortNumber,
+    PDEVICE_OBJECT PdoDeviceObject,
+    PUNICODE_STRING PhysicalDeviceObjectName)
+{
+  NTSTATUS status;
+  
+  UNREFERENCED_PARAMETER(PdoDeviceObject);
+  UNREFERENCED_PARAMETER(PhysicalDeviceObjectName);
+  
+  FUNCTION_ENTER();
+  KdPrint((__DRIVER_NAME "     PortPath->PortPathDepth = %d\n", PortPath->PortPathDepth));
+  KdPrint((__DRIVER_NAME "     PortPath->PortPath[%d] = %d\n", PortPath->PortPathDepth - 1));
+  status = XenUsbHub_UBIH_CreateUsbDeviceEx(BusContext, NewDeviceHandle, &HsHubDeviceHandle, PortStatus, (USHORT)PortPath->PortPath[PortPath->PortPathDepth-1], CdErrorInfo, TtPortNumber);
+  KdPrint((__DRIVER_NAME "     PdoDeviceObject = %p\n", PdoDeviceObject));
+  KdPrint((__DRIVER_NAME "     PhysicalDeviceObjectName = %S\n", PhysicalDeviceObjectName->Buffer));
+  FUNCTION_EXIT();
+  return status;
+}
+#endif
+
 static NTSTATUS
 XenUsbHub_UBIH_InitializeUsbDeviceEx(
  PVOID BusContext,
@@ -1379,8 +1418,9 @@ XenUsbHub_UBIH_RefDeviceHandle(
   UNREFERENCED_PARAMETER(Object);
   UNREFERENCED_PARAMETER(Tag);
   FUNCTION_ENTER();
+  FUNCTION_MSG("This should do something\n");
   FUNCTION_EXIT();
-  return STATUS_UNSUCCESSFUL;
+  return STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -1412,32 +1452,6 @@ XenUsbHub_UBIH_SetDeviceHandleIdleReadyState(
   FUNCTION_ENTER();
   FUNCTION_EXIT();
   return (ULONG)-1;
-}
-
-static NTSTATUS
-XenUsbHub_UBIH_CreateUsbDeviceV7(
-    PVOID BusContext,
-    PUSB_DEVICE_HANDLE *NewDeviceHandle,
-    PUSB_DEVICE_HANDLE HsHubDeviceHandle,
-    USHORT PortStatus,
-    PUSB_PORT_PATH PortPath,
-    PUSB_CD_ERROR_INFORMATION CdErrorInfo,
-    USHORT TtPortNumber,
-    PDEVICE_OBJECT PdoDeviceObject,
-    PUNICODE_STRING PhysicalDeviceObjectName)
-{
-  UNREFERENCED_PARAMETER(BusContext);
-  UNREFERENCED_PARAMETER(NewDeviceHandle);
-  UNREFERENCED_PARAMETER(HsHubDeviceHandle);
-  UNREFERENCED_PARAMETER(PortStatus);
-  UNREFERENCED_PARAMETER(PortPath);
-  UNREFERENCED_PARAMETER(CdErrorInfo);
-  UNREFERENCED_PARAMETER(TtPortNumber);
-  UNREFERENCED_PARAMETER(PdoDeviceObject);
-  UNREFERENCED_PARAMETER(PhysicalDeviceObjectName);
-  FUNCTION_ENTER();
-  FUNCTION_EXIT();
-  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS
@@ -1477,7 +1491,7 @@ XenUsbHub_UBIH_AbortAllDevicePipes(
   UNREFERENCED_PARAMETER(DeviceHandle);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_UNSUCCESSFUL;
+  return STATUS_SUCCESS;
 }
 
 static VOID
@@ -1525,9 +1539,9 @@ XenUsbHub_UBIU_QueryBusTime(
   UNREFERENCED_PARAMETER(BusContext);
   UNREFERENCED_PARAMETER(CurrentFrame);
   
-  FUNCTION_ENTER();
+  //FUNCTION_ENTER();
   *CurrentFrame = frame_no++;
-  FUNCTION_EXIT();
+  //FUNCTION_EXIT();
   return status;
 }
 
@@ -1651,7 +1665,7 @@ XenUsbHub_UBIHSS_SuspendHub(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_UNSUCCESSFUL;
+  return STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -1661,7 +1675,7 @@ XenUsbHub_UBIHSS_ResumeHub(
   UNREFERENCED_PARAMETER(BusContext);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_UNSUCCESSFUL;
+  return STATUS_SUCCESS;
 }
 
 VOID
@@ -1705,13 +1719,14 @@ XenUsbHub_ProcessHubInterruptEvent(xenusb_endpoint_t *endpoint)
 
   for (i = 0; i < xudd->num_ports; i++)
   {
-    if (xudd->ports[i].port_change)
-    {
+FUNCTION_MSG("port %d - status = %04x, change = %04x\n", xudd->ports[i].port_number, xudd->ports[i].port_status, xudd->ports[i].port_change);
+    if (xudd->ports[i].port_change) {
       FUNCTION_MSG("Port change on port %d - status = %04x, change = %04x\n",
         xudd->ports[i].port_number, xudd->ports[i].port_status, xudd->ports[i].port_change);
       ((PUCHAR)urb->UrbBulkOrInterruptTransfer.TransferBuffer)[xudd->ports[i].port_number >> 3] |= 1 << (xudd->ports[i].port_number & 7);
       port_change_flag = TRUE;
     }
+FUNCTION_MSG("port %d - status = %04x, change = %04x\n", xudd->ports[i].port_number, xudd->ports[i].port_status, xudd->ports[i].port_change);
   }
   WdfSpinLockRelease(endpoint->lock);
   if (port_change_flag)
@@ -1776,19 +1791,6 @@ XenUsbHub_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE(WDFDEVICE device, PIRP irp)
       {
 #if (NTDDI_VERSION >= NTDDI_VISTA)  
       case USB_BUSIF_HUB_VERSION_7:
-        ubih->ubih7.HubTestPoint = XenUsbHub_UBIH_HubTestPoint;
-        ubih->ubih7.GetDevicePerformanceInfo = XenUsbHub_UBIH_GetDevicePerformanceInfo;
-        ubih->ubih7.WaitAsyncPowerUp = XenUsbHub_UBIH_WaitAsyncPowerUp;
-        ubih->ubih7.GetDeviceAddress = XenUsbHub_UBIH_GetDeviceAddress;
-        ubih->ubih7.RefDeviceHandle = XenUsbHub_UBIH_RefDeviceHandle;
-        ubih->ubih7.DerefDeviceHandle = XenUsbHub_UBIH_DerefDeviceHandle;
-        ubih->ubih7.SetDeviceHandleIdleReadyState = XenUsbHub_UBIH_SetDeviceHandleIdleReadyState;
-        ubih->ubih7.HubIsRoot = XenUsbHub_UBIH_HubIsRoot;
-        ubih->ubih7.AcquireBusSemaphore = XenUsbHub_UBIH_AcquireBusSemaphore;
-        ubih->ubih7.ReleaseBusSemaphore = XenUsbHub_UBIH_ReleaseBusSemaphore;
-        ubih->ubih7.CaculatePipeBandwidth = XenUsbHub_UBIH_CaculatePipeBandwidth;
-        ubih->ubih7.SetBusSystemWakeMode = XenUsbHub_UBIH_SetBusSystemWakeMode;
-        ubih->ubih7.SetDeviceFlag = XenUsbHub_UBIH_SetDeviceFlag;
         ubih->ubih7.HubTestPoint = XenUsbHub_UBIH_HubTestPoint;
         ubih->ubih7.GetDevicePerformanceInfo = XenUsbHub_UBIH_GetDevicePerformanceInfo;
         ubih->ubih7.WaitAsyncPowerUp = XenUsbHub_UBIH_WaitAsyncPowerUp;
@@ -1918,6 +1920,16 @@ XenUsbHub_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE(WDFDEVICE device, PIRP irp)
 }
 
 NTSTATUS
+XenUsbHub_PLI_GetLocationString(PVOID context, PWCHAR *location_strings) {
+  UNREFERENCED_PARAMETER(context);
+  
+  FUNCTION_ENTER();
+  *location_strings = L"james\0";
+  FUNCTION_EXIT();
+  return STATUS_SUCCESS;
+}
+
+NTSTATUS
 XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER identification_header,
   PWDFDEVICE_INIT child_init)
@@ -1937,7 +1949,10 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   WDF_IO_QUEUE_CONFIG queue_config;
 #if (NTDDI_VERSION >= NTDDI_VISTA)
   WDF_QUERY_INTERFACE_CONFIG interface_config;
+#if 0
   USB_BUS_INTERFACE_HUB_SELECTIVE_SUSPEND ubihss;
+#endif
+  PNP_LOCATION_INTERFACE pli;
 #endif
   UCHAR pnp_minor_functions[] = { IRP_MN_QUERY_INTERFACE };
 
@@ -2126,6 +2141,7 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   WdfDeviceSetPowerCapabilities(child_device, &child_power_capabilities);  
 
 #if (NTDDI_VERSION >= NTDDI_VISTA)
+#if 0
   ubihss.BusContext = child_device;
   ubihss.Size = sizeof(USB_BUS_INTERFACE_HUB_SELECTIVE_SUSPEND);
   ubihss.Version = USB_BUSIF_HUB_SS_VERSION_0;
@@ -2137,6 +2153,17 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   status = WdfDeviceAddQueryInterface(child_device, &interface_config);
   if (!NT_SUCCESS(status))
     return status;
+#endif
+  pli.Size = sizeof(USB_BUS_INTERFACE_HUB_SELECTIVE_SUSPEND);
+  pli.Version = 1;
+  pli.Context = child_device;
+  pli.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
+  pli.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
+  pli.GetLocationString = XenUsbHub_PLI_GetLocationString;
+  WDF_QUERY_INTERFACE_CONFIG_INIT(&interface_config, (PINTERFACE)&pli, &GUID_PNP_LOCATION_INTERFACE, NULL);
+  status = WdfDeviceAddQueryInterface(child_device, &interface_config);
+  if (!NT_SUCCESS(status))
+    return status;  
 #endif
 
   status = WdfDeviceCreateDeviceInterface(child_device, &GUID_DEVINTERFACE_USB_HUB, NULL);

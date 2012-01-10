@@ -158,6 +158,7 @@ typedef struct _xenusb_interface_t {
 typedef struct _xenusb_config_t {
   xenusb_device_t *device;
   USB_CONFIGURATION_DESCRIPTOR config_descriptor;
+  PUCHAR config_descriptor_all;
   xenusb_interface_t *interfaces[0];
 } xenusb_config_t;
 
@@ -188,11 +189,18 @@ typedef struct
   ULONG reset_counter;
 } xenusb_port_t;
 
-typedef struct {  
+/*
+TODO: this driver crashes under checked build of windows (or probably just checked usbhub.sys)
+Needs a magic number of (ULONG)'HUBx' at the start of BusContext
+Other magic numbers (ULONG)'BStx' at offset 0x4C of some structure
+ and (ULONG)'HUB ' somewhere in an FDO extension(?)
+*/
+
+typedef struct {
+  ULONG magic; /* (ULONG)'HUBx' */
+  /* other magic numbers are (ULONG)'BStx' at offset 0x4C and (ULONG)'HUB ' somewhere in an FDO extension(?) */
   BOOLEAN XenBus_ShuttingDown;
   WDFQUEUE io_queue;
-  //WDFDMAENABLER dma_enabler;
-  
   WDFCHILDLIST child_list;
   
   WDFDEVICE root_hub_device;
@@ -341,8 +349,11 @@ XenUsb_ExecuteRequest(
 #define URB_DECODE_NOT_CONTROL 3 /* URB is known but not a control packet */
 
 typedef struct {
+  char *urb_function_name;
   PULONG length;
   PVOID buffer;
+  PVOID mdl;
+  ULONG transfer_flags;
   union {
     USB_DEFAULT_PIPE_SETUP_PACKET default_pipe_setup_packet;
     UCHAR raw[8];
