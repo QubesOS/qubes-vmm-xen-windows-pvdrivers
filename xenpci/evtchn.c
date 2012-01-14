@@ -73,7 +73,7 @@ EvtChn_AckEvent(PVOID context, evtchn_port_t port, BOOLEAN *last_interrupt)
 
   val = synch_clear_bit(evt_bit, (volatile xen_long_t *)&xpdd->evtchn_pending_pvt[pcpu][evt_word]);
   *last_interrupt = TRUE;
-  for (i = 0; i < sizeof(xen_ulong_t) * 8; i++)
+  for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt[pcpu]); i++)
   {
     if (xpdd->evtchn_pending_pvt[pcpu][i])
     {
@@ -168,7 +168,7 @@ to CPU != 0, but we should always use vcpu_info[0]
         break;
       case EVT_ACTION_TYPE_SUSPEND:
         KdPrint((__DRIVER_NAME "     EVT_ACTION_TYPE_SUSPEND\n"));
-        for (i = 0; i < ARRAY_SIZE(xpdd->evtchn_pending_pvt[pcpu]); i++)
+        for (i = 0; i < NR_EVENTS; i++)
         {
           if (!(xpdd->ev_actions[i].flags & EVT_ACTION_FLAGS_NO_SUSPEND))
           {

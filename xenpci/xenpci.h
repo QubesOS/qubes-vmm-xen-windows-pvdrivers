@@ -114,7 +114,8 @@ typedef struct _XENBUS_WATCH_ENTRY {
   int Active;
 } XENBUS_WATCH_ENTRY, *PXENBUS_WATCH_ENTRY;
 
-#define NR_EVENTS 1024
+/* number of events is 1024 on 32 bits and 4096 on 64 bits */
+#define NR_EVENTS (sizeof(xen_ulong_t) * 8 * sizeof(xen_ulong_t) * 8)
 #define WATCH_RING_SIZE 128
 #define NR_XB_REQS 32
 #define MAX_WATCH_ENTRIES 128
