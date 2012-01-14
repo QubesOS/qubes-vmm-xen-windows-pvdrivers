@@ -346,12 +346,6 @@ XenUsbHub_EvtIoInternalDeviceControl(
     FUNCTION_MSG(" NtStatus = %08x\n", usfd->NtStatus);
     FUNCTION_MSG(" UsbdStatus = %08x\n", usfd->UsbdStatus);
     FUNCTION_MSG(" ConnectStatus = %08x\n", usfd->ConnectStatus);
-#if 0
-    FUNCTION_MSG(" DriverData[0] = %s\n", usfd->DriverData);
-    FUNCTION_MSG(" DriverData[0] = %S\n", usfd->DriverData);
-    FUNCTION_MSG(" DriverData[5] = %s\n", &usfd->DriverData[5]);
-    FUNCTION_MSG(" DriverData[5] = %S\n", &usfd->DriverData[5]);
-#endif
     status = STATUS_SUCCESS;
     break;  
 #endif
@@ -572,14 +566,6 @@ XenUsbHub_UBIH_CreateUsbDevice(
   return status;
 }
 
-static VOID
-XenUsb_SetEventCallback(usbif_shadow_t *shadow)
-{
-  FUNCTION_ENTER();
-  KeSetEvent(&shadow->event, IO_NO_INCREMENT, FALSE);
-  FUNCTION_EXIT();
-}
-
 static NTSTATUS
 XenUsbHub_UBIH_InitializeUsbDevice(
  PVOID BusContext,
@@ -588,19 +574,21 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   NTSTATUS status = STATUS_SUCCESS;
   WDFDEVICE device = BusContext;
   PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(device);
-  PXENUSB_DEVICE_DATA xudd = GetXudd(xupdd->wdf_device_bus_fdo);
+  //PXENUSB_DEVICE_DATA xudd = GetXudd(xupdd->wdf_device_bus_fdo);
   WDF_IO_QUEUE_CONFIG queue_config;
   xenusb_device_t *usb_device = DeviceHandle;
   PUCHAR ptr;
   PVOID buf;
   PMDL mdl;
-  usbif_shadow_t *shadow;
+  pvurb_t pvurb; /* this can be local because it never leaves this routine */
   PUSB_DEVICE_DESCRIPTOR device_descriptor;
   PUSB_CONFIGURATION_DESCRIPTOR config_descriptor;
   PUSB_INTERFACE_DESCRIPTOR interface_descriptor;
   PUSB_ENDPOINT_DESCRIPTOR endpoint_descriptor;
   int i, j, k;
   PUSB_DEFAULT_PIPE_SETUP_PACKET setup_packet;
+  WDF_MEMORY_DESCRIPTOR pvurb_descriptor;
+  WDF_REQUEST_SEND_OPTIONS send_options;
   
   FUNCTION_ENTER();
 
@@ -617,40 +605,36 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   buf = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENUSB_POOL_TAG);
   mdl = IoAllocateMdl(buf, PAGE_SIZE, FALSE, FALSE, NULL);
   MmBuildMdlForNonPagedPool(mdl);
-  shadow = get_shadow_from_freelist(xudd);
+
+  WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&pvurb_descriptor, &pvurb, sizeof(pvurb));
+  WDF_REQUEST_SEND_OPTIONS_INIT(&send_options, WDF_REQUEST_SEND_OPTION_TIMEOUT);
+  WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&send_options, WDF_REL_TIMEOUT_IN_SEC(10));
 
   /* set the address */
-  KeInitializeEvent(&shadow->event, NotificationEvent, FALSE);
-  shadow->callback = XenUsb_SetEventCallback;
-  shadow->req.id = shadow->id;
-  shadow->req.pipe = LINUX_PIPE_TYPE_CTRL | usb_device->port_number;
-  shadow->req.transfer_flags = 0; 
-  shadow->req.buffer_length = 0;
-  setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)shadow->req.u.ctrl;
+  pvurb.req.pipe = LINUX_PIPE_TYPE_CTRL | usb_device->port_number;
+  pvurb.req.transfer_flags = 0; 
+  pvurb.req.buffer_length = 0;
+  setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)pvurb.req.u.ctrl;
   setup_packet->bmRequestType.Recipient = BMREQUEST_TO_DEVICE;
   setup_packet->bmRequestType.Type = BMREQUEST_STANDARD;
   setup_packet->bmRequestType.Dir = BMREQUEST_HOST_TO_DEVICE;
   setup_packet->bRequest = USB_REQUEST_SET_ADDRESS;
   setup_packet->wValue.W = usb_device->address;
   setup_packet->wIndex.W = 0;
-  setup_packet->wLength = shadow->req.buffer_length;
-  status = XenUsb_ExecuteRequest(xudd, shadow, NULL, NULL, 0);
-  //TODO: Handle failure here
-  KeWaitForSingleObject(&shadow->event, Executive, KernelMode, FALSE, NULL);
-  KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-  KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-  KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-  KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-  KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
+  setup_packet->wLength = pvurb.req.buffer_length;
+  pvurb.mdl = NULL;
+  status = WdfIoTargetSendInternalIoctlOthersSynchronously(xupdd->bus_fdo_target, NULL, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, &pvurb_descriptor, NULL, NULL, &send_options, NULL);
+  FUNCTION_MSG("IOCTL_INTERNAL_PVUSB_SUBMIT_URB status = %08x\n", status);
+  FUNCTION_MSG("rsp start_frame = %d\n", pvurb.rsp.start_frame);
+  FUNCTION_MSG("rsp status = %d\n", pvurb.rsp.status);
+  FUNCTION_MSG("rsp actual_length = %d\n", pvurb.rsp.actual_length);
+  FUNCTION_MSG("rsp error_count = %d\n", pvurb.rsp.error_count);
 
   /* get the device descriptor */
-  KeInitializeEvent(&shadow->event, NotificationEvent, FALSE);
-  shadow->callback = XenUsb_SetEventCallback;
-  shadow->req.id = shadow->id;
-  shadow->req.pipe = LINUX_PIPE_DIRECTION_IN | LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
-  shadow->req.transfer_flags = 0; 
-  shadow->req.buffer_length = PAGE_SIZE;
-  setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)shadow->req.u.ctrl;
+  pvurb.req.pipe = LINUX_PIPE_DIRECTION_IN | LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
+  pvurb.req.transfer_flags = 0; 
+  pvurb.req.buffer_length = PAGE_SIZE;
+  setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)pvurb.req.u.ctrl;
   setup_packet->bmRequestType.Recipient = BMREQUEST_TO_DEVICE;
   setup_packet->bmRequestType.Type = BMREQUEST_STANDARD;
   setup_packet->bmRequestType.Dir = BMREQUEST_DEVICE_TO_HOST;
@@ -658,15 +642,14 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   setup_packet->wValue.LowByte = 0;
   setup_packet->wValue.HiByte = USB_DEVICE_DESCRIPTOR_TYPE; //device descriptor
   setup_packet->wIndex.W = 0;
-  setup_packet->wLength = shadow->req.buffer_length;
-  status = XenUsb_ExecuteRequest(xudd, shadow, NULL, mdl, PAGE_SIZE);
-  //TODO: Handle failure here
-  KeWaitForSingleObject(&shadow->event, Executive, KernelMode, FALSE, NULL);
-  KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-  KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-  KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-  KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-  KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
+  setup_packet->wLength = pvurb.req.buffer_length;
+  pvurb.mdl = mdl;
+  status = WdfIoTargetSendInternalIoctlOthersSynchronously(xupdd->bus_fdo_target, NULL, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, &pvurb_descriptor, NULL, NULL, &send_options, NULL);
+  FUNCTION_MSG("IOCTL_INTERNAL_PVUSB_SUBMIT_URB status = %08x\n", status);
+  KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", pvurb.rsp.start_frame));
+  KdPrint((__DRIVER_NAME "     rsp status = %d\n", pvurb.rsp.status));
+  KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", pvurb.rsp.actual_length));
+  KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", pvurb.rsp.error_count));
   ptr = buf;
   device_descriptor = (PUSB_DEVICE_DESCRIPTOR)ptr;
   KdPrint((__DRIVER_NAME "     bLength = %d\n", device_descriptor->bLength));
@@ -687,13 +670,10 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   /* get the config descriptor */
   for (i = 0; i < device_descriptor->bNumConfigurations; i++)
   {
-    KeInitializeEvent(&shadow->event, NotificationEvent, FALSE);
-    shadow->callback = XenUsb_SetEventCallback;
-    shadow->req.id = shadow->id;
-    shadow->req.pipe = LINUX_PIPE_DIRECTION_IN | LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
-    shadow->req.transfer_flags = 0; 
-    shadow->req.buffer_length = PAGE_SIZE;
-    setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)shadow->req.u.ctrl;
+    pvurb.req.pipe = LINUX_PIPE_DIRECTION_IN | LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
+    pvurb.req.transfer_flags = 0; 
+    pvurb.req.buffer_length = PAGE_SIZE;
+    setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)pvurb.req.u.ctrl;
     setup_packet->bmRequestType.Recipient = BMREQUEST_TO_DEVICE;
     setup_packet->bmRequestType.Type = BMREQUEST_STANDARD;
     setup_packet->bmRequestType.Dir = BMREQUEST_DEVICE_TO_HOST;
@@ -701,15 +681,13 @@ XenUsbHub_UBIH_InitializeUsbDevice(
     setup_packet->wValue.LowByte = (UCHAR)(i + 1);
     setup_packet->wValue.HiByte = USB_CONFIGURATION_DESCRIPTOR_TYPE; //device descriptor
     setup_packet->wIndex.W = 0;
-    setup_packet->wLength = shadow->req.buffer_length;
-    status = XenUsb_ExecuteRequest(xudd, shadow, buf, NULL, PAGE_SIZE);
-    //TODO: Handle failure here
-    KeWaitForSingleObject(&shadow->event, Executive, KernelMode, FALSE, NULL);
-    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
+    setup_packet->wLength = pvurb.req.buffer_length;
+    pvurb.mdl = mdl;
+    status = WdfIoTargetSendInternalIoctlOthersSynchronously(xupdd->bus_fdo_target, NULL, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, &pvurb_descriptor, NULL, NULL, &send_options, NULL);
+    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", pvurb.rsp.start_frame));
+    KdPrint((__DRIVER_NAME "     rsp status = %d\n", pvurb.rsp.status));
+    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", pvurb.rsp.actual_length));
+    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", pvurb.rsp.error_count));
     ptr = buf;
     config_descriptor = (PUSB_CONFIGURATION_DESCRIPTOR)ptr;
     KdPrint((__DRIVER_NAME "     Config %d\n", i));
@@ -791,20 +769,18 @@ XenUsbHub_UBIH_InitializeUsbDevice(
       j++;
     }
   }
+
   usb_device->active_config = usb_device->configs[0];
   usb_device->active_interface = usb_device->configs[0]->interfaces[0];
 
   WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchParallel); // should this be serial?
   queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB;
   queue_config.PowerManaged = TRUE; /* power managed queue for SUBMIT_URB */
-  status = WdfIoQueueCreate(xupdd->wdf_device_bus_fdo, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &usb_device->urb_queue);
+  status = WdfIoQueueCreate(device, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &usb_device->urb_queue);
   if (!NT_SUCCESS(status)) {
       KdPrint((__DRIVER_NAME "     Error creating urb_queue 0x%x\n", status));
       return status;
   }
-
-  put_shadow_on_freelist(xudd, shadow);
-
   FUNCTION_EXIT();
   return status;
 }
@@ -1947,6 +1923,7 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   WDF_PNPPOWER_EVENT_CALLBACKS child_pnp_power_callbacks;
   WDF_DEVICE_POWER_CAPABILITIES child_power_capabilities;
   WDF_IO_QUEUE_CONFIG queue_config;
+  WDF_IO_TARGET_OPEN_PARAMS target_params;
 #if (NTDDI_VERSION >= NTDDI_VISTA)
   WDF_QUERY_INTERFACE_CONFIG interface_config;
 #if 0
@@ -2000,6 +1977,8 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
 
   WdfDeviceInitSetIoType(child_init, WdfDeviceIoDirect);
 
+  WdfPdoInitAllowForwardingRequestToParent(child_init);
+
   WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&child_attributes, XENUSB_PDO_DEVICE_DATA);
   status = WdfDeviceCreate(&child_init, &child_attributes, &child_device);
   if (!NT_SUCCESS(status))
@@ -2013,6 +1992,12 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   
   xupdd->wdf_device = child_device;
   xupdd->wdf_device_bus_fdo = WdfChildListGetDevice(child_list);
+
+  status = WdfIoTargetCreate(bus_device, WDF_NO_OBJECT_ATTRIBUTES, &xupdd->bus_fdo_target);
+  ASSERT(NT_SUCCESS(status));
+  WDF_IO_TARGET_OPEN_PARAMS_INIT_EXISTING_DEVICE(&target_params, WdfDeviceWdmGetDeviceObject(bus_device));
+  status = WdfIoTargetOpen(xupdd->bus_fdo_target, &target_params);
+  ASSERT(NT_SUCCESS(status));
   
   xupdd->usb_device = ExAllocatePoolWithTag(NonPagedPool, sizeof(xenusb_device_t), XENUSB_POOL_TAG);
   // get address from freelist...
@@ -2068,17 +2053,6 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->endpoint_descriptor.wMaxPacketSize = 2;
   xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->endpoint_descriptor.bInterval = 12;
   WdfSpinLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->lock);
-#if 0
-  WDF_TIMER_CONFIG_INIT(&timer_config, XenUsbHub_HubInterruptTimer);  
-  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&timer_attributes, pxenusb_endpoint_t);
-  timer_attributes.ParentObject = child_device;
-  status = WdfTimerCreate(&timer_config, &timer_attributes, &xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->interrupt_timer);
-  if (!NT_SUCCESS(status)) {
-      KdPrint((__DRIVER_NAME "     Error creating timer 0x%x\n", status));
-      return status;
-  }
-  *GetEndpoint(xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]->interrupt_timer) = xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0];
-#endif
 
   WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchParallel);
   queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB;

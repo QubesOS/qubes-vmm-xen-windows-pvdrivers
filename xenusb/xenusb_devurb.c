@@ -21,123 +21,18 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define EPROTO          71      /* Protocol error */
 
-static VOID
-XenUsb_UrbCallback(usbif_shadow_t *shadow)
-{
-  WDFQUEUE queue;
-  WDFDEVICE device;
-  PXENUSB_DEVICE_DATA xudd;
-  //ULONG i;
-
-  FUNCTION_ENTER();
-
-  ASSERT(shadow->request);
-  queue = WdfRequestGetIoQueue(shadow->request);
-  ASSERT(queue);
-  device = WdfIoQueueGetDevice(queue);
-  ASSERT(device);
-  xudd = GetXudd(device);
-
-  switch (shadow->urb->UrbHeader.Function)
-  {
-  case URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE:
-    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
-    KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-    KdPrint((__DRIVER_NAME "     URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE\n"));
-    shadow->urb->UrbControlDescriptorRequest.TransferBufferLength = shadow->total_length;
-    break;
-  case URB_FUNCTION_GET_DESCRIPTOR_FROM_INTERFACE:
-    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
-    KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-    KdPrint((__DRIVER_NAME "     URB_FUNCTION_GET_DESCRIPTOR_FROM_INTERFACE\n"));
-    shadow->urb->UrbControlDescriptorRequest.TransferBufferLength = shadow->total_length;
-    break;
-  case URB_FUNCTION_SELECT_CONFIGURATION:
-    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
-    KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-    KdPrint((__DRIVER_NAME "     URB_FUNCTION_SELECT_CONFIGURATION\n"));
-    break;
-  case URB_FUNCTION_SELECT_INTERFACE:
-    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
-    KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-    KdPrint((__DRIVER_NAME "     URB_FUNCTION_SELECT_INTERFACE\n"));
-    break;
-  case URB_FUNCTION_CLASS_INTERFACE:
-    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
-    KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-    KdPrint((__DRIVER_NAME "     URB_FUNCTION_CLASS_INTERFACE\n"));
-    shadow->urb->UrbControlVendorClassRequest.TransferBufferLength = shadow->total_length;
-    break;
-  case URB_FUNCTION_CONTROL_TRANSFER:
-  case URB_FUNCTION_CONTROL_TRANSFER_EX:
-    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
-    KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-    KdPrint((__DRIVER_NAME "     URB_FUNCTION_CONTROL_TRANSFER (_EX)\n"));
-    shadow->urb->UrbControlTransfer.TransferBufferLength = shadow->total_length;
-    break;
-  case URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER:
-//    if (shadow->rsp.status)
-    {
-      KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-      KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-      KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-      KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-      KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
-      KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-      KdPrint((__DRIVER_NAME "     URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER\n"));
-    }
-    shadow->urb->UrbBulkOrInterruptTransfer.TransferBufferLength = shadow->total_length;
-    break;
-  case URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL:
-    KdPrint((__DRIVER_NAME "     URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL\n"));
-    break;
-  default:
-    KdPrint((__DRIVER_NAME "     rsp id = %d\n", shadow->rsp.id));
-    KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", shadow->rsp.start_frame));
-    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-    KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", shadow->rsp.actual_length));
-    KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", shadow->rsp.error_count));
-    KdPrint((__DRIVER_NAME "     total_length = %d\n", shadow->total_length));
-    KdPrint((__DRIVER_NAME "     Unknown function %x\n", shadow->urb->UrbHeader.Function));
-    break;
-  }
-  switch (shadow->rsp.status)
+static USBD_STATUS
+XenUsb_GetUsbdStatusFromPvStatus(ULONG pvstatus) {
+  switch (pvstatus)
   {
   case 0:
-    shadow->urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
-    break;
+    return USBD_STATUS_SUCCESS;
   case -EPROTO: /*  ? */
-    shadow->urb->UrbHeader.Status = USBD_STATUS_CRC;
-    KdPrint((__DRIVER_NAME "     rsp status = -EPROTO\n"));
-    break;
+    FUNCTION_MSG("pvstatus = -EPROTO\n");
+    return USBD_STATUS_CRC;
   case -EPIPE: /* see linux code - EPIPE is when the HCD returned a stall */
-    shadow->urb->UrbHeader.Status = USBD_STATUS_STALL_PID;
-    KdPrint((__DRIVER_NAME "     rsp status = -EPIPE (USBD_STATUS_STALL_PID)\n"));
-    break;
+    FUNCTION_MSG("pvstatus = -EPIPE (USBD_STATUS_STALL_PID)\n");
+    return USBD_STATUS_STALL_PID;
 #if 0
   case -EOVERFLOW:
     shadow->urb->UrbHeader.Status USBD_STATUS_DATA_OVERRUN;
@@ -146,18 +41,47 @@ XenUsb_UrbCallback(usbif_shadow_t *shadow)
     shadow->urb->UrbHeader.Status USBD_STATUS_ERROR_SHORT_TRANSFER;
     break;
 #endif
+  case -ESHUTDOWN:
+    FUNCTION_MSG("pvstatus = -USBD_STATUS_INTERNAL_HC_ERROR\n");
+    return USBD_STATUS_INTERNAL_HC_ERROR;
   default:
-    //shadow->urb->UrbHeader.Status = USBD_STATUS_ENDPOINT_HALTED;
-    shadow->urb->UrbHeader.Status = USBD_STATUS_INTERNAL_HC_ERROR;
-    KdPrint((__DRIVER_NAME "     rsp status = %d\n", shadow->rsp.status));
-    break;
+    FUNCTION_MSG("pvstatus = %d\n", pvstatus);
+    return USBD_STATUS_INTERNAL_HC_ERROR;
   }
-  if (shadow->urb->UrbHeader.Status == USBD_STATUS_SUCCESS)
-    WdfRequestComplete(shadow->request, STATUS_SUCCESS);
-  else
-    WdfRequestComplete(shadow->request, STATUS_UNSUCCESSFUL);
-  put_shadow_on_freelist(xudd, shadow);
+}
 
+VOID
+XenUsb_CompletionBulkInterrupt(
+  WDFREQUEST request,
+  WDFIOTARGET target,
+  PWDF_REQUEST_COMPLETION_PARAMS params,
+  WDFCONTEXT context)
+{
+  PURB urb;
+  pvurb_t *pvurb = context;
+  WDF_REQUEST_PARAMETERS wrp;
+
+  UNREFERENCED_PARAMETER(target);
+
+  FUNCTION_ENTER();
+
+  WDF_REQUEST_PARAMETERS_INIT(&wrp);
+  WdfRequestGetParameters(request, &wrp);
+  urb = (PURB)wrp.Parameters.Others.Arg1;
+  ASSERT(urb);
+  KdPrint((__DRIVER_NAME "     URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER\n"));
+  KdPrint((__DRIVER_NAME "     rsp id = %d\n", pvurb->rsp.id));
+  KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", pvurb->rsp.start_frame));
+  KdPrint((__DRIVER_NAME "     rsp status = %d\n", pvurb->rsp.status));
+  KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", pvurb->rsp.actual_length));
+  KdPrint((__DRIVER_NAME "     rsp error_count = %d\n", pvurb->rsp.error_count));
+  KdPrint((__DRIVER_NAME "     total_length = %d\n", pvurb->total_length));
+  urb->UrbHeader.Status = XenUsb_GetUsbdStatusFromPvStatus(pvurb->rsp.status);
+  urb->UrbBulkOrInterruptTransfer.TransferBufferLength = (ULONG)params->IoStatus.Information;
+  if (urb->UrbHeader.Status == USBD_STATUS_SUCCESS)
+    WdfRequestComplete(request, STATUS_SUCCESS);
+  else
+    WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
   FUNCTION_EXIT();
 }
 
@@ -167,20 +91,22 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
   WDFREQUEST request,
   size_t output_buffer_length,
   size_t input_buffer_length,
-  ULONG io_control_code)
+  ULONG io_control_code) 
 {
   NTSTATUS status;
   WDFDEVICE device = WdfIoQueueGetDevice(queue);
-  PXENUSB_DEVICE_DATA xudd = GetXudd(device);
+  PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(device);
   WDF_REQUEST_PARAMETERS wrp;
+  WDF_MEMORY_DESCRIPTOR pvurb_descriptor;
+  WDFMEMORY pvurb_memory;
+  WDF_REQUEST_SEND_OPTIONS send_options;
   PURB urb;
-  usbif_shadow_t *shadow;
+  pvurb_t *pvurb;
+  pvurb_t local_pvurb; /* just use stack allocated space when submitting synchronously */
   PUSB_DEFAULT_PIPE_SETUP_PACKET setup_packet;
-  //PMDL mdl;
   PUSBD_INTERFACE_INFORMATION interface_information;
   ULONG i, j;
   xenusb_device_t *usb_device;
-  //PUSB_HUB_DESCRIPTOR uhd;
   xenusb_endpoint_t *endpoint;
   urb_decode_t decode_data;
   ULONG decode_retval;
@@ -193,7 +119,7 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
 
   ASSERT(io_control_code == IOCTL_INTERNAL_USB_SUBMIT_URB);
 
-  status = STATUS_ACCESS_VIOLATION; //STATUS_UNSUCCESSFUL;
+  status = STATUS_UNSUCCESSFUL;
 
   WDF_REQUEST_PARAMETERS_INIT(&wrp);
   WdfRequestGetParameters(request, &wrp);
@@ -335,16 +261,12 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     {
       // ? unconfigure device here
     }
-    shadow = get_shadow_from_freelist(xudd);
-    shadow->request = request;
-    shadow->urb = urb;
-    shadow->mdl = NULL;
-    //shadow->dma_transaction = NULL;
-    shadow->callback = XenUsb_UrbCallback;
-    shadow->req.id = shadow->id;
-    shadow->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
-    shadow->req.transfer_flags = 0;
-    setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)shadow->req.u.ctrl;
+    pvurb = &local_pvurb; //ExAllocatePoolWithTag(NonPagedPool, sizeof(*pvurb), XENUSB_POOL_TAG);
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&pvurb_descriptor, pvurb, sizeof(*pvurb));
+    pvurb->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
+    pvurb->req.transfer_flags = 0;
+    pvurb->req.buffer_length = 0;
+    setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)pvurb->req.u.ctrl;
     setup_packet->bmRequestType.Recipient = BMREQUEST_TO_DEVICE;
     setup_packet->bmRequestType.Type = BMREQUEST_STANDARD;
     setup_packet->bmRequestType.Dir = BMREQUEST_HOST_TO_DEVICE;
@@ -352,10 +274,20 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     setup_packet->wLength = 0;
     setup_packet->wValue.W = urb->UrbSelectConfiguration.ConfigurationDescriptor->bConfigurationValue;
     setup_packet->wIndex.W = 0;
-    status = XenUsb_ExecuteRequest(xudd, shadow, NULL, NULL, 0);
-    if (!NT_SUCCESS(status))
-    {
-      KdPrint((__DRIVER_NAME "     XenUsb_ExecuteRequest status = %08x\n", status));
+    pvurb->mdl = NULL;
+    WDF_REQUEST_SEND_OPTIONS_INIT(&send_options, WDF_REQUEST_SEND_OPTION_TIMEOUT);
+    WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&send_options, WDF_REL_TIMEOUT_IN_SEC(10));
+    status = WdfIoTargetSendInternalIoctlOthersSynchronously(xupdd->bus_fdo_target, request, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, &pvurb_descriptor, NULL, NULL, &send_options, NULL);
+    FUNCTION_MSG("IOCTL_INTERNAL_PVUSB_SUBMIT_URB status = %08x\n", status);
+    if (!NT_SUCCESS(status)) {
+      WdfRequestComplete(request, status);
+    } else {
+      FUNCTION_MSG("rsp start_frame = %d\n", pvurb->rsp.start_frame);
+      FUNCTION_MSG("rsp status = %d\n", pvurb->rsp.status);
+      FUNCTION_MSG("rsp actual_length = %d\n", pvurb->rsp.actual_length);
+      FUNCTION_MSG("rsp error_count = %d\n", pvurb->rsp.error_count);
+      urb->UrbHeader.Status = XenUsb_GetUsbdStatusFromPvStatus(pvurb->rsp.status);
+      WdfRequestComplete(request, pvurb->rsp.status?STATUS_UNSUCCESSFUL:STATUS_SUCCESS);
     }
     break;
   case URB_FUNCTION_SELECT_INTERFACE:
@@ -383,16 +315,12 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
       KdPrint((__DRIVER_NAME "       PipeFlags = %08x\n", interface_information->Pipes[i].PipeFlags));
     }
 
-    shadow = get_shadow_from_freelist(xudd);
-    shadow->request = request;
-    shadow->urb = urb;
-    shadow->mdl = NULL;
-    //shadow->dma_transaction = NULL;
-    shadow->callback = XenUsb_UrbCallback;
-    shadow->req.id = shadow->id;
-    shadow->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
-    shadow->req.transfer_flags = 0;
-    setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)shadow->req.u.ctrl;
+    pvurb = &local_pvurb; //ExAllocatePoolWithTag(NonPagedPool, sizeof(*pvurb), XENUSB_POOL_TAG);
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&pvurb_descriptor, pvurb, sizeof(*pvurb));
+    pvurb->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
+    pvurb->req.transfer_flags = 0;
+    pvurb->req.buffer_length = 0;
+    setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)pvurb->req.u.ctrl;
     setup_packet->bmRequestType.Recipient = BMREQUEST_TO_INTERFACE;
     setup_packet->bmRequestType.Type = BMREQUEST_STANDARD;
     setup_packet->bmRequestType.Dir = BMREQUEST_HOST_TO_DEVICE;
@@ -400,10 +328,20 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     setup_packet->wLength = 0;
     setup_packet->wValue.W = urb->UrbSelectInterface.Interface.AlternateSetting;
     setup_packet->wIndex.W = urb->UrbSelectInterface.Interface.InterfaceNumber;
-    status = XenUsb_ExecuteRequest(xudd, shadow, NULL, NULL, 0);
-    if (!NT_SUCCESS(status))
-    {
-      KdPrint((__DRIVER_NAME "     XenUsb_ExecuteRequest status = %08x\n", status));
+    pvurb->mdl = NULL;
+    WDF_REQUEST_SEND_OPTIONS_INIT(&send_options, WDF_REQUEST_SEND_OPTION_TIMEOUT);
+    WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&send_options, WDF_REL_TIMEOUT_IN_SEC(10));
+    status = WdfIoTargetSendInternalIoctlOthersSynchronously(xupdd->bus_fdo_target, request, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, &pvurb_descriptor, NULL, NULL, &send_options, NULL);
+    FUNCTION_MSG("IOCTL_INTERNAL_PVUSB_SUBMIT_URB status = %08x\n", status);
+    if (!NT_SUCCESS(status)) {
+      WdfRequestComplete(request, status);
+    } else {
+      FUNCTION_MSG("rsp start_frame = %d\n", pvurb->rsp.start_frame);
+      FUNCTION_MSG("rsp status = %d\n", pvurb->rsp.status);
+      FUNCTION_MSG("rsp actual_length = %d\n", pvurb->rsp.actual_length);
+      FUNCTION_MSG("rsp error_count = %d\n", pvurb->rsp.error_count);
+      urb->UrbHeader.Status = XenUsb_GetUsbdStatusFromPvStatus(pvurb->rsp.status);
+      WdfRequestComplete(request, pvurb->rsp.status?STATUS_UNSUCCESSFUL:STATUS_SUCCESS);
     }
     break;
 #if (NTDDI_VERSION >= NTDDI_VISTA)  
@@ -431,42 +369,65 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     FUNCTION_MSG("wLength = %04x\n", decode_data.setup_packet.default_pipe_setup_packet.wLength);
     FUNCTION_MSG("decode_data.transfer_flags = %08x\n", decode_data.transfer_flags);
     FUNCTION_MSG("*decode_data.length = %04x\n", *decode_data.length);
-    shadow = get_shadow_from_freelist(xudd);
-    shadow->request = request;
-    shadow->urb = urb;
-    shadow->callback = XenUsb_UrbCallback;
-    shadow->req.id = shadow->id;
-    shadow->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
-    shadow->req.transfer_flags = 0; 
+    pvurb = &local_pvurb;
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&pvurb_descriptor, pvurb, sizeof(*pvurb));
+    pvurb->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
+    pvurb->req.transfer_flags = 0; 
     if (!(decode_data.transfer_flags & USBD_SHORT_TRANSFER_OK))
-      shadow->req.transfer_flags |= LINUX_URB_SHORT_NOT_OK;
+      pvurb->req.transfer_flags |= LINUX_URB_SHORT_NOT_OK;
     if (decode_data.transfer_flags & (USBD_TRANSFER_DIRECTION_IN | USBD_SHORT_TRANSFER_OK))
-      shadow->req.pipe |= LINUX_PIPE_DIRECTION_IN;
+      pvurb->req.pipe |= LINUX_PIPE_DIRECTION_IN;
     else
-      shadow->req.pipe |= LINUX_PIPE_DIRECTION_OUT;
-    memcpy(shadow->req.u.ctrl, decode_data.setup_packet.raw, 8);
-    FUNCTION_MSG("req.pipe = %08x\n", shadow->req.pipe);
-    FUNCTION_MSG("req.transfer_flags = %08x\n", shadow->req.transfer_flags);
-    status = XenUsb_ExecuteRequest(xudd, shadow, decode_data.buffer, decode_data.mdl, *decode_data.length);
+      pvurb->req.pipe |= LINUX_PIPE_DIRECTION_OUT;
+    memcpy(pvurb->req.u.ctrl, decode_data.setup_packet.raw, 8);
+    FUNCTION_MSG("req.pipe = %08x\n", pvurb->req.pipe);
+    FUNCTION_MSG("req.transfer_flags = %08x\n", pvurb->req.transfer_flags);
+    if (decode_data.buffer) {
+      FUNCTION_MSG("decode_data.buffer = %p\n", decode_data.buffer);
+      pvurb->mdl = IoAllocateMdl(decode_data.buffer, *decode_data.length, FALSE, FALSE, NULL);
+      FUNCTION_MSG("pvurb->mdl = %p\n", pvurb->mdl);
+      MmBuildMdlForNonPagedPool(pvurb->mdl);
+    } else {
+      FUNCTION_MSG("decode_data.mdl = %p\n", decode_data.mdl);
+      pvurb->mdl = decode_data.mdl;
+    }
+    WDF_REQUEST_SEND_OPTIONS_INIT(&send_options, WDF_REQUEST_SEND_OPTION_TIMEOUT);
+    WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&send_options, WDF_REL_TIMEOUT_IN_SEC(10));
+    status = WdfIoTargetSendInternalIoctlOthersSynchronously(xupdd->bus_fdo_target, request, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, &pvurb_descriptor, NULL, NULL, &send_options, NULL);
+    if (decode_data.buffer)
+      IoFreeMdl(pvurb->mdl);
+    FUNCTION_MSG("IOCTL_INTERNAL_PVUSB_SUBMIT_URB status = %08x\n", status);
     if (!NT_SUCCESS(status)) {
-      KdPrint((__DRIVER_NAME "     XenUsb_ExecuteRequest status = %08x\n", status));
+      WdfRequestComplete(request, status);
+    } else {
+      FUNCTION_MSG("rsp start_frame = %d\n", pvurb->rsp.start_frame);
+      FUNCTION_MSG("rsp status = %d\n", pvurb->rsp.status);
+      FUNCTION_MSG("rsp actual_length = %d\n", pvurb->rsp.actual_length);
+      FUNCTION_MSG("rsp error_count = %d\n", pvurb->rsp.error_count);
+      urb->UrbHeader.Status = XenUsb_GetUsbdStatusFromPvStatus(pvurb->rsp.status);
+      WdfRequestComplete(request, pvurb->rsp.status?STATUS_UNSUCCESSFUL:STATUS_SUCCESS);
     }
     break;
   case URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER: /* 11.12.4 */
-    endpoint = urb->UrbBulkOrInterruptTransfer.PipeHandle;    
-    KdPrint((__DRIVER_NAME "      pipe_handle = %p\n", endpoint));
-    KdPrint((__DRIVER_NAME "      pipe_value = %08x\n", endpoint->pipe_value));
-    shadow = get_shadow_from_freelist(xudd);
-    KdPrint((__DRIVER_NAME "      id = %d\n", shadow->id));
-    shadow->request = request;
-    shadow->urb = urb;
-    shadow->callback = XenUsb_UrbCallback;
-    shadow->req.id = shadow->id;
-    shadow->req.pipe = endpoint->pipe_value;
-    shadow->req.transfer_flags = 0;
-    shadow->req.u.intr.interval = endpoint->endpoint_descriptor.bInterval; /* check this... maybe there is some overridden value that should be used? */
+    endpoint = urb->UrbBulkOrInterruptTransfer.PipeHandle;
+    FUNCTION_MSG("endpoint address = %02x\n", endpoint->endpoint_descriptor.bEndpointAddress);
+    FUNCTION_MSG("endpoint interval = %02x\n", endpoint->endpoint_descriptor.bInterval);
+    FUNCTION_MSG("pipe_direction_bit = %08x\n", endpoint->pipe_value & LINUX_PIPE_DIRECTION_IN);
+    FUNCTION_MSG("short_ok_bit = %08x\n", urb->UrbBulkOrInterruptTransfer.TransferFlags & USBD_SHORT_TRANSFER_OK);
+    FUNCTION_MSG("flags_direction_bit = %08x\n", urb->UrbBulkOrInterruptTransfer.TransferFlags & USBD_TRANSFER_DIRECTION_IN);
+    FUNCTION_MSG("pipe_handle = %p\n", endpoint);
+    FUNCTION_MSG("pipe_value = %08x\n", endpoint->pipe_value);
+    
+    pvurb = ExAllocatePoolWithTag(NonPagedPool, sizeof(*pvurb), XENUSB_POOL_TAG);
+    status = WdfMemoryCreatePreallocated(WDF_NO_OBJECT_ATTRIBUTES, pvurb, sizeof(*pvurb), &pvurb_memory);
+    ASSERT(NT_SUCCESS(status));
+    pvurb->req.pipe = endpoint->pipe_value;
+    pvurb->req.transfer_flags = 0; 
     if (!(urb->UrbBulkOrInterruptTransfer.TransferFlags & USBD_SHORT_TRANSFER_OK) && (endpoint->pipe_value & LINUX_PIPE_DIRECTION_IN))
-      shadow->req.transfer_flags |= LINUX_URB_SHORT_NOT_OK;
+      pvurb->req.transfer_flags |= LINUX_URB_SHORT_NOT_OK;
+    pvurb->req.u.intr.interval = endpoint->endpoint_descriptor.bInterval; /* check this... maybe there is some overridden value that should be used? */
+    FUNCTION_MSG("req.pipe = %08x\n", pvurb->req.pipe);
+    FUNCTION_MSG("req.transfer_flags = %08x\n", pvurb->req.transfer_flags);
     switch(endpoint->endpoint_descriptor.bmAttributes & USB_ENDPOINT_TYPE_MASK)
     {
     case USB_ENDPOINT_TYPE_BULK:
@@ -479,32 +440,39 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
       KdPrint((__DRIVER_NAME "      USB_ENDPOINT_TYPE_%d\n", endpoint->endpoint_descriptor.bmAttributes));
       break;
     }
-
-    FUNCTION_MSG("endpoint address = %02x\n", endpoint->endpoint_descriptor.bEndpointAddress);
-    FUNCTION_MSG("endpoint interval = %02x\n", endpoint->endpoint_descriptor.bInterval);
-    FUNCTION_MSG("pipe_direction_bit = %08x\n", endpoint->pipe_value & LINUX_PIPE_DIRECTION_IN);
-    FUNCTION_MSG("short_ok_bit = %08x\n", urb->UrbBulkOrInterruptTransfer.TransferFlags & USBD_SHORT_TRANSFER_OK);
-    FUNCTION_MSG("flags_direction_bit = %08x\n", urb->UrbBulkOrInterruptTransfer.TransferFlags & USBD_TRANSFER_DIRECTION_IN);
-    status = XenUsb_ExecuteRequest(xudd, shadow, urb->UrbBulkOrInterruptTransfer.TransferBuffer, urb->UrbBulkOrInterruptTransfer.TransferBufferMDL, urb->UrbBulkOrInterruptTransfer.TransferBufferLength);
-    if (!NT_SUCCESS(status))
-    {
-      KdPrint((__DRIVER_NAME "     XenUsb_ExecuteRequest status = %08x\n", status));
+    if (urb->UrbBulkOrInterruptTransfer.TransferBuffer) {
+      pvurb->mdl = IoAllocateMdl(urb->UrbBulkOrInterruptTransfer.TransferBuffer, urb->UrbBulkOrInterruptTransfer.TransferBufferLength, FALSE, FALSE, NULL);
+      MmBuildMdlForNonPagedPool(pvurb->mdl);
+    } else {
+      pvurb->mdl = urb->UrbBulkOrInterruptTransfer.TransferBufferMDL;
+    }
+    status = WdfIoTargetFormatRequestForInternalIoctlOthers(xupdd->bus_fdo_target, request, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, pvurb_memory, NULL, NULL, NULL, NULL, NULL);
+    FUNCTION_MSG("IOCTL_INTERNAL_PVUSB_SUBMIT_URB status = %08x\n", status);
+    if (!NT_SUCCESS(status)) {
+      if (urb->UrbBulkOrInterruptTransfer.TransferBuffer)
+        IoFreeMdl(pvurb->mdl);
+      WdfRequestComplete(request, status);
+    }
+    WdfRequestSetCompletionRoutine(request, XenUsb_CompletionBulkInterrupt, pvurb);
+    if (!WdfRequestSend(request, xupdd->bus_fdo_target, NULL)) {
+      FUNCTION_MSG("WdfRequestSend returned FALSE\n");
+      if (urb->UrbBulkOrInterruptTransfer.TransferBuffer)
+        IoFreeMdl(pvurb->mdl);
+      WdfRequestComplete(request, WdfRequestGetStatus(request));
     }
     break;
   case URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL:
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL\n"));
     KdPrint((__DRIVER_NAME "      PipeHandle = %p\n", urb->UrbPipeRequest.PipeHandle));
     /* we only clear the stall here */
-    endpoint = urb->UrbBulkOrInterruptTransfer.PipeHandle;    
-    shadow = get_shadow_from_freelist(xudd);
-    shadow->request = request;
-    shadow->urb = urb;
-    shadow->mdl = NULL;
-    shadow->callback = XenUsb_UrbCallback;
-    shadow->req.id = shadow->id;
-    shadow->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
-    shadow->req.transfer_flags = 0;
-    setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)shadow->req.u.ctrl;
+    endpoint = urb->UrbBulkOrInterruptTransfer.PipeHandle;
+
+    pvurb = &local_pvurb; //ExAllocatePoolWithTag(NonPagedPool, sizeof(*pvurb), XENUSB_POOL_TAG);
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&pvurb_descriptor, pvurb, sizeof(*pvurb));
+    pvurb->req.pipe = LINUX_PIPE_TYPE_CTRL | (usb_device->address << 8) | usb_device->port_number;
+    pvurb->req.transfer_flags = 0;
+    pvurb->req.buffer_length = 0;
+    setup_packet = (PUSB_DEFAULT_PIPE_SETUP_PACKET)pvurb->req.u.ctrl;
     setup_packet->bmRequestType.Recipient = BMREQUEST_TO_ENDPOINT;
     setup_packet->bmRequestType.Type = BMREQUEST_STANDARD;
     setup_packet->bmRequestType.Dir = BMREQUEST_HOST_TO_DEVICE;
@@ -512,10 +480,20 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     setup_packet->wLength = 0;
     setup_packet->wValue.W = 0; /* 0 == ENDPOINT_HALT */
     setup_packet->wIndex.W = endpoint->endpoint_descriptor.bEndpointAddress;
-    status = XenUsb_ExecuteRequest(xudd, shadow, NULL, NULL, 0);
-    if (!NT_SUCCESS(status))
-    {
-      KdPrint((__DRIVER_NAME "     XenUsb_ExecuteRequest status = %08x\n", status));
+    pvurb->mdl = NULL;
+    WDF_REQUEST_SEND_OPTIONS_INIT(&send_options, WDF_REQUEST_SEND_OPTION_TIMEOUT);
+    WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&send_options, WDF_REL_TIMEOUT_IN_SEC(10));
+    status = WdfIoTargetSendInternalIoctlOthersSynchronously(xupdd->bus_fdo_target, request, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, &pvurb_descriptor, NULL, NULL, &send_options, NULL);
+    FUNCTION_MSG("IOCTL_INTERNAL_PVUSB_SUBMIT_URB status = %08x\n", status);
+    if (!NT_SUCCESS(status)) {
+      WdfRequestComplete(request, status);
+    } else {
+      FUNCTION_MSG("rsp start_frame = %d\n", pvurb->rsp.start_frame);
+      FUNCTION_MSG("rsp status = %d\n", pvurb->rsp.status);
+      FUNCTION_MSG("rsp actual_length = %d\n", pvurb->rsp.actual_length);
+      FUNCTION_MSG("rsp error_count = %d\n", pvurb->rsp.error_count);
+      urb->UrbHeader.Status = XenUsb_GetUsbdStatusFromPvStatus(pvurb->rsp.status);
+      WdfRequestComplete(request, pvurb->rsp.status?STATUS_UNSUCCESSFUL:STATUS_SUCCESS);
     }
     break;
   case URB_FUNCTION_ABORT_PIPE:
@@ -527,11 +505,9 @@ XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB(
     break;
   default:
     KdPrint((__DRIVER_NAME "     URB_FUNCTION_%04x\n", urb->UrbHeader.Function));
-    KdPrint((__DRIVER_NAME "     Calling WdfRequestCompletestatus with status = %08x\n", status));
     urb->UrbHeader.Status = USBD_STATUS_INVALID_URB_FUNCTION;
-    WdfRequestComplete(request, STATUS_ACCESS_VIOLATION); //STATUS_UNSUCCESSFUL);
+    WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
     break;
   }
   FUNCTION_EXIT();
 }
-

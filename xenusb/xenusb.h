@@ -25,7 +25,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define _XENUSB_H_
 
 #define __attribute__(arg) /* empty */
-#define EISCONN 127
+
+#define ECONNRESET  104
+#define ESHUTDOWN   108
+#define EINPROGRESS 115
+#define EISCONN     127
 
 #include <ntifs.h>
 #include <ntddk.h>
@@ -97,37 +101,39 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define LINUX_URB_ZERO_PACKET         0x0040  /* Finish bulk OUT with short packet */
 #define LINUX_URB_NO_INTERRUPT        0x0080  /* HINT: no non-error interrupt needed */
 
-#define PRE_DECLARE_TYPE_TYPEDEF(x) struct _##x; typedef struct _##x x##_t
+//#define PRE_DECLARE_TYPE_TYPEDEF(x) struct _##x; typedef struct _##x x##_t
 
-#if 0
 struct _usbif_shadow;
 typedef struct _usbif_shadow usbif_shadow_t;
-#endif
-
-PRE_DECLARE_TYPE_TYPEDEF(usbif_shadow);
 
 struct _usbif_shadow {
   uint16_t id;
-  union
-  {
-    struct {
-      WDFREQUEST request;
-      PURB urb;
-    };
-    KEVENT event;
-  };
-  //WDFDMATRANSACTION dma_transaction;
-  PMDL mdl;
+  WDFREQUEST request;
+  usbif_urb_request_t req_storage; /* used by cancel/unlink */
+  usbif_urb_request_t *req;
+  usbif_urb_response_t *rsp;
+  PMDL mdl; /* can be null for requests with no data */
   ULONG total_length;
-  /* called at DISPATCH_LEVEL */
-  VOID (*callback)(usbif_shadow_t *);
-  usbif_urb_request_t req;
-  usbif_urb_response_t rsp;
-  usbif_shadow_t *next; /* for gathering shadows from the ring for callback */
+  usbif_shadow_t *next; /* collect then process responses as they come off the ring */
 };
 
+/* needs to be at least USB_URB_RING_SIZE number of requests available */
 #define MAX_SHADOW_ENTRIES 64
-#define SHADOW_ENTRIES min(MAX_SHADOW_ENTRIES, USB_URB_RING_SIZE)
+#define SHADOW_ENTRIES max(MAX_SHADOW_ENTRIES, USB_URB_RING_SIZE)
+
+/*
+for IOCTL_PVUSB_SUBMIT_URB, the pvusb_urb_t struct is passed as Parameters.Others.Arg1
+req must have pipe, transfer_flags, buffer_length, and u fields filled in
+*/
+
+#define IOCTL_INTERNAL_PVUSB_SUBMIT_URB CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_NEITHER, FILE_READ_DATA | FILE_WRITE_DATA)
+
+typedef struct _pvurb {
+  usbif_urb_request_t req;
+  usbif_urb_response_t rsp;
+  PMDL mdl; /* can be null for requests with no data */
+  ULONG total_length;
+} pvurb_t;
 
 struct _xenusb_endpoint_t;
 struct _xenusb_interface_t;
@@ -201,6 +207,7 @@ typedef struct {
   /* other magic numbers are (ULONG)'BStx' at offset 0x4C and (ULONG)'HUB ' somewhere in an FDO extension(?) */
   BOOLEAN XenBus_ShuttingDown;
   WDFQUEUE io_queue;
+  WDFQUEUE pvurb_queue;
   WDFCHILDLIST child_list;
   
   WDFDEVICE root_hub_device;
@@ -235,6 +242,7 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENUSB_DEVICE_DATA, GetXudd)
 typedef struct {  
   WDFDEVICE wdf_device;
   WDFDEVICE wdf_device_bus_fdo;
+  WDFIOTARGET bus_fdo_target;
   WDFQUEUE io_queue;
   WDFQUEUE urb_queue;
   ULONG device_number;
@@ -243,7 +251,6 @@ typedef struct {
   xenusb_device_t *usb_device;
   PVOID BusCallbackContext;
   PRH_INIT_CALLBACK BusCallbackFunction;
-
 } XENUSB_PDO_DEVICE_DATA, *PXENUSB_PDO_DEVICE_DATA;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENUSB_PDO_DEVICE_DATA, GetXupdd)
@@ -266,6 +273,7 @@ typedef struct {
   //xenusb_compatible_id_details_t xucid[1];
 } XENUSB_PDO_IDENTIFICATION_DESCRIPTION, *PXENUSB_PDO_IDENTIFICATION_DESCRIPTION;
 
+/* call with ring lock held */
 static usbif_shadow_t *
 get_shadow_from_freelist(PXENUSB_DEVICE_DATA xudd)
 {
@@ -278,6 +286,7 @@ get_shadow_from_freelist(PXENUSB_DEVICE_DATA xudd)
   return &xudd->shadows[xudd->shadow_free_list[xudd->shadow_free]];
 }
 
+/* call with ring lock held */
 static VOID
 put_shadow_on_freelist(PXENUSB_DEVICE_DATA xudd, usbif_shadow_t *shadow)
 {
@@ -334,14 +343,6 @@ XenUsb_EnumeratePorts(WDFDEVICE device);
 
 EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL XenUsb_EvtIoInternalDeviceControl_DEVICE_SUBMIT_URB;
 EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB;
-
-NTSTATUS
-XenUsb_ExecuteRequest(
-  PXENUSB_DEVICE_DATA xudd,
-  usbif_shadow_t *shadow,
-  PVOID transfer_buffer,
-  PMDL transfer_buffer_mdl,
-  ULONG transfer_buffer_length);
 
 #define URB_DECODE_UNKNOWN     0 /* URB is unknown */
 #define URB_DECODE_COMPLETE    1 /* URB is decoded and no further work should be required */

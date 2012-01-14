@@ -32,106 +32,9 @@ static EVT_WDF_DEVICE_QUERY_REMOVE XenUsb_EvtDeviceQueryRemove;
 static EVT_WDFDEVICE_WDM_IRP_PREPROCESS XenUsb_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE;
 static EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL XenUsb_EvtIoDeviceControl;
 static EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL XenUsb_EvtIoInternalDeviceControl;
+static EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL XenUsb_EvtIoInternalDeviceControl_PVURB;
 static EVT_WDF_IO_QUEUE_IO_DEFAULT XenUsb_EvtIoDefault;
 //static EVT_WDF_PROGRAM_DMA XenUsb_ExecuteRequestCallback;
-
-NTSTATUS
-XenUsb_ExecuteRequest(
- PXENUSB_DEVICE_DATA xudd,
- usbif_shadow_t *shadow,
- PVOID transfer_buffer,
- PMDL transfer_buffer_mdl,
- ULONG transfer_buffer_length)
-{
-  NTSTATUS status = STATUS_SUCCESS;
-  KIRQL old_irql;
-  PMDL mdl;
-  int i;
-  int notify;
-  ULONG remaining;
-  USHORT offset;
-  
-  FUNCTION_ENTER();
-  FUNCTION_MSG("IRQL = %d\n", KeGetCurrentIrql());
-  
-  KdPrint((__DRIVER_NAME "     transfer_buffer = %p\n", transfer_buffer));
-  KdPrint((__DRIVER_NAME "     transfer_buffer_mdl = %p\n", transfer_buffer_mdl));
-  KdPrint((__DRIVER_NAME "     transfer_buffer_length = %d\n", transfer_buffer_length));
-  shadow->total_length = 0;
-  if (!transfer_buffer_length)
-  {
-    shadow->mdl = NULL;
-    shadow->req.nr_buffer_segs = 0;
-    shadow->req.buffer_length = 0;
-
-    KeAcquireSpinLock(&xudd->urb_ring_lock, &old_irql);
-    *RING_GET_REQUEST(&xudd->urb_ring, xudd->urb_ring.req_prod_pvt) = shadow->req;
-    xudd->urb_ring.req_prod_pvt++;
-    RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xudd->urb_ring, notify);
-    if (notify)
-    {
-      //KdPrint((__DRIVER_NAME "     Notifying\n"));
-      xudd->vectors.EvtChn_Notify(xudd->vectors.context, xudd->event_channel);
-    }
-    KeReleaseSpinLock(&xudd->urb_ring_lock, old_irql);
-    FUNCTION_EXIT();
-    return STATUS_SUCCESS;
-  }
-  ASSERT(transfer_buffer || transfer_buffer_mdl);
-  if (transfer_buffer)
-  {
-    mdl = IoAllocateMdl(transfer_buffer, transfer_buffer_length, FALSE, FALSE, NULL);
-    ASSERT(mdl);
-    MmBuildMdlForNonPagedPool(mdl);
-    shadow->mdl = mdl;
-  }
-  else
-  {
-    mdl = transfer_buffer_mdl;
-    shadow->mdl = NULL;
-  }
-
-  ASSERT(mdl);
-  ASSERT(transfer_buffer_length);
-
-  FUNCTION_MSG("MmGetMdlVirtualAddress = %p\n", MmGetMdlVirtualAddress(mdl));
-  FUNCTION_MSG("MmGetMdlByteCount = %d\n", MmGetMdlByteCount(mdl));
-  FUNCTION_MSG("MmGetMdlByteOffset = %d\n", MmGetMdlByteOffset(mdl));
-  
-  remaining = MmGetMdlByteCount(mdl);
-  offset = (USHORT)MmGetMdlByteOffset(mdl);
-  shadow->req.buffer_length = (USHORT)MmGetMdlByteCount(mdl);
-  shadow->req.nr_buffer_segs = (USHORT)ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(mdl), MmGetMdlByteCount(mdl));
-  for (i = 0; i < shadow->req.nr_buffer_segs; i++)
-  {
-    shadow->req.seg[i].gref = xudd->vectors.GntTbl_GrantAccess(xudd->vectors.context, 0,
-         (ULONG)MmGetMdlPfnArray(mdl)[i], FALSE, INVALID_GRANT_REF, (ULONG)'XUSB');
-    shadow->req.seg[i].offset = (USHORT)offset;
-    shadow->req.seg[i].length = (USHORT)min(remaining, PAGE_SIZE);
-    offset = 0;
-    remaining -= shadow->req.seg[i].length;
-    KdPrint((__DRIVER_NAME "     seg = %d\n", i));
-    KdPrint((__DRIVER_NAME "      gref = %d\n", shadow->req.seg[i].gref));
-    KdPrint((__DRIVER_NAME "      offset = %d\n", shadow->req.seg[i].offset));
-    KdPrint((__DRIVER_NAME "      length = %d\n", shadow->req.seg[i].length));
-  }
-  KdPrint((__DRIVER_NAME "     buffer_length = %d\n", shadow->req.buffer_length));
-  KdPrint((__DRIVER_NAME "     nr_buffer_segs = %d\n", shadow->req.nr_buffer_segs));
-
-  KeAcquireSpinLock(&xudd->urb_ring_lock, &old_irql);
-  *RING_GET_REQUEST(&xudd->urb_ring, xudd->urb_ring.req_prod_pvt) = shadow->req;
-  xudd->urb_ring.req_prod_pvt++;
-  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xudd->urb_ring, notify);
-  if (notify)
-  {
-    //KdPrint((__DRIVER_NAME "     Notifying\n"));
-    xudd->vectors.EvtChn_Notify(xudd->vectors.context, xudd->event_channel);
-  }
-  KeReleaseSpinLock(&xudd->urb_ring_lock, old_irql);
-  
-  FUNCTION_EXIT();
-  return status;
-}
 
 NTSTATUS
 XenUsb_EvtDeviceQueryRemove(WDFDEVICE device)
@@ -191,6 +94,7 @@ XenUsb_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE(WDFDEVICE device, PIRP irp)
 static BOOLEAN
 XenUsb_HandleEvent(PVOID context)
 {
+  NTSTATUS status;
   PXENUSB_DEVICE_DATA xudd = context;
   RING_IDX prod, cons;
   usbif_urb_response_t *urb_rsp;
@@ -212,37 +116,49 @@ XenUsb_HandleEvent(PVOID context)
     for (cons = xudd->urb_ring.rsp_cons; cons != prod; cons++)
     {
       urb_rsp = RING_GET_RESPONSE(&xudd->urb_ring, cons);
+//      FUNCTION_MSG("urb_rsp->id = %d\n", urb_rsp->id);
       shadow = &xudd->shadows[urb_rsp->id];
-      ASSERT(shadow->callback);
-      shadow->rsp = *urb_rsp;
-      shadow->next = NULL;
-      shadow->total_length += urb_rsp->actual_length;
+//      FUNCTION_MSG("shadow = %p\n", shadow);
+//      FUNCTION_MSG("shadow->rsp = %p\n", shadow->rsp);
+      if (usbif_pipeunlink(shadow->req->pipe)) {
+        FUNCTION_MSG("is a cancel request for request %p\n", shadow->request);
+        FUNCTION_MSG("urb_ring rsp status = %d\n", urb_rsp->status);
+        // status should be 115 == EINPROGRESS
+        put_shadow_on_freelist(xudd, shadow);
+        /* nothing else to do - clean up when the real request comes off the ring */
+      } else {
+        *shadow->rsp = *urb_rsp;
+  //      FUNCTION_MSG("A\n");
+        shadow->next = NULL;
+  //      FUNCTION_MSG("B\n");
+        shadow->total_length += urb_rsp->actual_length;
 
-      KdPrint((__DRIVER_NAME "     urb_ring rsp id = %d\n", shadow->rsp.id));
-      KdPrint((__DRIVER_NAME "     urb_ring rsp start_frame = %d\n", shadow->rsp.start_frame));
-      KdPrint((__DRIVER_NAME "     urb_ring rsp status = %d\n", shadow->rsp.status));
-      KdPrint((__DRIVER_NAME "     urb_ring rsp actual_length = %d\n", shadow->rsp.actual_length));
-      KdPrint((__DRIVER_NAME "     urb_ring rsp error_count = %d\n", shadow->rsp.error_count));
-      KdPrint((__DRIVER_NAME "     urb_ring total_length = %d\n", shadow->total_length));
-
-      if (complete_tail)
-      {
-        complete_tail->next = shadow;
+        KdPrint((__DRIVER_NAME "     urb_ring rsp id = %d\n", shadow->rsp->id));
+        KdPrint((__DRIVER_NAME "     urb_ring rsp start_frame = %d\n", shadow->rsp->start_frame));
+        KdPrint((__DRIVER_NAME "     urb_ring rsp status = %d\n", shadow->rsp->status));
+        KdPrint((__DRIVER_NAME "     urb_ring rsp actual_length = %d\n", shadow->rsp->actual_length));
+        KdPrint((__DRIVER_NAME "     urb_ring rsp error_count = %d\n", shadow->rsp->error_count));
+        KdPrint((__DRIVER_NAME "     urb_ring total_length = %d\n", shadow->total_length));
+        
+        status = WdfRequestUnmarkCancelable(shadow->request);
+        if (status == STATUS_CANCELLED) {
+          FUNCTION_MSG("Cancel was called\n");
+        }
+        if (complete_tail) {
+          complete_tail->next = shadow;
+        } else {
+          complete_head = shadow;
+        }
+        complete_tail = shadow;
       }
-      else
-      {
-        complete_head = shadow;
-      }
-      complete_tail = shadow;
+//      FUNCTION_MSG("C\n");
     }
+//    FUNCTION_MSG("D\n");
 
     xudd->urb_ring.rsp_cons = cons;
-    if (cons != xudd->urb_ring.req_prod_pvt)
-    {
+    if (cons != xudd->urb_ring.req_prod_pvt) {
       RING_FINAL_CHECK_FOR_RESPONSES(&xudd->urb_ring, more_to_do);
-    }
-    else
-    {
+    } else {
       xudd->urb_ring.sring->rsp_event = cons + 1;
       more_to_do = FALSE;
     }
@@ -299,32 +215,21 @@ XenUsb_HandleEvent(PVOID context)
   KeReleaseSpinLockFromDpcLevel(&xudd->conn_ring_lock);
 
   shadow = complete_head;
-  while (shadow != NULL)
-  {
-    if (shadow->req.buffer_length)
-    {
+  while (shadow != NULL) {
+    complete_head = shadow->next;
+    if (shadow->req->buffer_length) {
       int i;
-      for (i = 0; i < shadow->req.nr_buffer_segs; i++)
-      {
+      for (i = 0; i < shadow->req->nr_buffer_segs; i++) {
         xudd->vectors.GntTbl_EndAccess(xudd->vectors.context,
-          shadow->req.seg[i].gref, FALSE, (ULONG)'XUSB');        
+          shadow->req->seg[i].gref, FALSE, (ULONG)'XUSB');
       }
-      // free grant refs
-      if (shadow->mdl)
-      {
-        IoFreeMdl(shadow->mdl);
-      }
-      shadow->callback(shadow);
     }
-    else
-    {
-      shadow->callback(shadow);
-    }
-    shadow = shadow->next;
+    WdfRequestCompleteWithInformation(shadow->request, (shadow->rsp->status==ECONNRESET)?STATUS_CANCELLED:STATUS_SUCCESS, shadow->total_length); /* the WDFREQUEST is always successfull here even if the shadow->rsp has an error */
+    put_shadow_on_freelist(xudd, shadow);
+    shadow = complete_head;
   }
 
-  if (port_changed)
-  {
+  if (port_changed) {
     PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(xudd->root_hub_device);
     XenUsbHub_ProcessHubInterruptEvent(xupdd->usb_device->configs[0]->interfaces[0]->endpoints[0]);
   }
@@ -754,9 +659,6 @@ XenUsb_EvtIoDeviceControl(
   NTSTATUS status;
   WDFDEVICE device = WdfIoQueueGetDevice(queue);
   PXENUSB_DEVICE_DATA xudd = GetXudd(device);
-  //WDF_REQUEST_PARAMETERS wrp;
-  //PURB urb;
-  //xenusb_device_t *usb_device;
 
   UNREFERENCED_PARAMETER(queue);
   UNREFERENCED_PARAMETER(input_buffer_length);
@@ -766,58 +668,9 @@ XenUsb_EvtIoDeviceControl(
 
   status = STATUS_BAD_INITIAL_PC;
 
-  //WDF_REQUEST_PARAMETERS_INIT(&wrp);
-  //WdfRequestGetParameters(request, &wrp);
-
   // these are in api\usbioctl.h
   switch(io_control_code)
   {
-#if 0
-  case IOCTL_USB_GET_NODE_INFORMATION:
-  {
-    PUSB_NODE_INFORMATION uni;
-    size_t length;
-    
-    KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_INFORMATION\n"));
-    KdPrint((__DRIVER_NAME "      output_buffer_length = %d\n", output_buffer_length));
-    // make sure size is >= bDescriptorLength
-    status = WdfRequestRetrieveOutputBuffer(request, output_buffer_length, (PVOID *)&uni, &length);
-    if (NT_SUCCESS(status))
-    {
-      switch(uni->NodeType)
-      {
-      case UsbHub:
-        KdPrint((__DRIVER_NAME "      NodeType = UsbHub\n"));
-        uni->u.HubInformation.HubDescriptor.bDescriptorLength = FIELD_OFFSET(USB_HUB_DESCRIPTOR, bRemoveAndPowerMask) + 3;
-        if (output_buffer_length >= FIELD_OFFSET(USB_NODE_INFORMATION, u.HubInformation.HubDescriptor.bRemoveAndPowerMask) + 3)
-        {
-          uni->u.HubInformation.HubDescriptor.bDescriptorType = 0x29;
-          uni->u.HubInformation.HubDescriptor.bNumberOfPorts = xudd->num_ports;
-          uni->u.HubInformation.HubDescriptor.wHubCharacteristics = 0x0012; // no power switching no overcurrent protection
-          uni->u.HubInformation.HubDescriptor.bPowerOnToPowerGood = 1; // 2ms units
-          uni->u.HubInformation.HubDescriptor.bHubControlCurrent = 0;
-          // DeviceRemovable bits (includes an extra bit at the start)
-          uni->u.HubInformation.HubDescriptor.bRemoveAndPowerMask[0] = 0;
-          uni->u.HubInformation.HubDescriptor.bRemoveAndPowerMask[1] = 0;
-          // PortPwrCtrlMask
-          uni->u.HubInformation.HubDescriptor.bRemoveAndPowerMask[2] = 0xFF;
-          uni->u.HubInformation.HubIsBusPowered = TRUE;
-        }
-        WdfRequestSetInformation(request, FIELD_OFFSET(USB_NODE_INFORMATION, u.HubInformation.HubDescriptor.bRemoveAndPowerMask) + 3);
-        break;
-      case UsbMIParent:
-        KdPrint((__DRIVER_NAME "      NodeType = UsbMIParent\n"));
-        status = STATUS_BAD_INITIAL_PC;
-        break;
-      }
-    }
-    else
-    {
-      KdPrint((__DRIVER_NAME "     WdfRequestRetrieveOutputBuffer = %08x\n", status));
-    }    
-    break;
-  }
-#endif
   case IOCTL_USB_GET_NODE_CONNECTION_INFORMATION:
     KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_NODE_CONNECTION_INFORMATION\n"));
     break;
@@ -973,6 +826,139 @@ XenUsb_EvtIoDeviceControl(
   FUNCTION_EXIT();
 }
 
+EVT_WDF_REQUEST_CANCEL XenUsb_EvtRequestCancelPvUrb;
+
+VOID
+XenUsb_EvtRequestCancelPvUrb(
+  WDFREQUEST request)
+{
+  WDFDEVICE device = WdfIoQueueGetDevice(WdfRequestGetIoQueue(request));
+  PXENUSB_DEVICE_DATA xudd = GetXudd(device);
+  WDF_REQUEST_PARAMETERS wrp;
+  usbif_shadow_t *shadow;
+  pvurb_t *pvurb;
+  KIRQL old_irql;
+  int notify;
+
+  FUNCTION_ENTER();
+  FUNCTION_MSG("cancelling request %p\n", request);
+  
+  WDF_REQUEST_PARAMETERS_INIT(&wrp);
+  WdfRequestGetParameters(request, &wrp);
+  pvurb = (pvurb_t *)wrp.Parameters.Others.Arg1;
+  FUNCTION_MSG("pvurb = %p\n", pvurb);
+  ASSERT(pvurb);
+  // acquire ring lock
+  shadow = get_shadow_from_freelist(xudd);
+  ASSERT(shadow); /* not sure what to do if we were to run out of shadow entries */
+  shadow->request = request;
+  shadow->req = &shadow->req_storage;
+  *shadow->req = pvurb->req;
+  shadow->req->id = shadow->id;
+  shadow->req->pipe = usbif_setunlink_pipe(shadow->req->pipe);
+  shadow->req->u.unlink.unlink_id = pvurb->req.id;
+  KeAcquireSpinLock(&xudd->urb_ring_lock, &old_irql);
+  *RING_GET_REQUEST(&xudd->urb_ring, xudd->urb_ring.req_prod_pvt) = *shadow->req;
+  xudd->urb_ring.req_prod_pvt++;
+  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xudd->urb_ring, notify);
+  if (notify) {
+    KdPrint((__DRIVER_NAME "     Notifying\n"));
+    xudd->vectors.EvtChn_Notify(xudd->vectors.context, xudd->event_channel);
+  }
+  KeReleaseSpinLock(&xudd->urb_ring_lock, old_irql);  
+  
+  FUNCTION_EXIT();
+}
+
+static VOID
+XenUsb_EvtIoInternalDeviceControl_PVURB(
+  WDFQUEUE queue,
+  WDFREQUEST request,
+  size_t output_buffer_length,
+  size_t input_buffer_length,
+  ULONG io_control_code)
+{
+  NTSTATUS status;
+  WDFDEVICE device = WdfIoQueueGetDevice(queue);
+  PXENUSB_DEVICE_DATA xudd = GetXudd(device);
+  WDF_REQUEST_PARAMETERS wrp;
+  usbif_shadow_t *shadow;
+  pvurb_t *pvurb;
+  KIRQL old_irql;
+  int i;
+  int notify;
+  
+  UNREFERENCED_PARAMETER(input_buffer_length);
+  UNREFERENCED_PARAMETER(output_buffer_length);
+  UNREFERENCED_PARAMETER(io_control_code);
+
+  FUNCTION_ENTER();
+
+  ASSERT(io_control_code == IOCTL_INTERNAL_PVUSB_SUBMIT_URB);
+
+  WDF_REQUEST_PARAMETERS_INIT(&wrp);
+  WdfRequestGetParameters(request, &wrp);
+  pvurb = (pvurb_t *)wrp.Parameters.Others.Arg1;
+  FUNCTION_MSG("pvurb = %p\n", pvurb);
+  ASSERT(pvurb);
+
+  FUNCTION_MSG("IRQL = %d\n", KeGetCurrentIrql());
+
+  shadow = get_shadow_from_freelist(xudd);
+//  FUNCTION_MSG("shadow = %p\n", shadow);
+//  FUNCTION_MSG("shadow->id = %p\n", shadow->id);
+  ASSERT(shadow);
+  shadow->request = request;
+  shadow->req = &pvurb->req;
+//  FUNCTION_MSG("shadow->req = %p\n", shadow->req);
+  shadow->rsp = &pvurb->rsp;
+//  FUNCTION_MSG("shadow->rsp = %p\n", shadow->rsp);
+  shadow->req->id = shadow->id;
+  shadow->mdl = pvurb->mdl;
+  shadow->total_length = 0;
+  
+  if (!shadow->mdl) {
+    shadow->req->nr_buffer_segs = 0;
+    shadow->req->buffer_length = 0;
+  } else {
+    ULONG remaining = MmGetMdlByteCount(shadow->mdl);
+    USHORT offset = (USHORT)MmGetMdlByteOffset(shadow->mdl);
+    shadow->req->buffer_length = (USHORT)MmGetMdlByteCount(shadow->mdl);
+    shadow->req->nr_buffer_segs = (USHORT)ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(shadow->mdl), MmGetMdlByteCount(shadow->mdl));
+    for (i = 0; i < shadow->req->nr_buffer_segs; i++) {
+      shadow->req->seg[i].gref = xudd->vectors.GntTbl_GrantAccess(xudd->vectors.context, 0,
+           (ULONG)MmGetMdlPfnArray(shadow->mdl)[i], FALSE, INVALID_GRANT_REF, (ULONG)'XUSB');
+      shadow->req->seg[i].offset = (USHORT)offset;
+      shadow->req->seg[i].length = (USHORT)min((USHORT)remaining, (USHORT)PAGE_SIZE - offset);
+      offset = 0;
+      remaining -= shadow->req->seg[i].length;
+      KdPrint((__DRIVER_NAME "     seg = %d\n", i));
+      KdPrint((__DRIVER_NAME "      gref = %d\n", shadow->req->seg[i].gref));
+      KdPrint((__DRIVER_NAME "      offset = %d\n", shadow->req->seg[i].offset));
+      KdPrint((__DRIVER_NAME "      length = %d\n", shadow->req->seg[i].length));
+    }
+    KdPrint((__DRIVER_NAME "     buffer_length = %d\n", shadow->req->buffer_length));
+    KdPrint((__DRIVER_NAME "     nr_buffer_segs = %d\n", shadow->req->nr_buffer_segs));
+  }
+
+  KeAcquireSpinLock(&xudd->urb_ring_lock, &old_irql);
+  status = WdfRequestMarkCancelableEx(request, XenUsb_EvtRequestCancelPvUrb);
+  if (status == STATUS_CANCELLED) {
+    FUNCTION_MSG("request already cancelled");
+    // ...
+  }
+  *RING_GET_REQUEST(&xudd->urb_ring, xudd->urb_ring.req_prod_pvt) = *shadow->req;
+  xudd->urb_ring.req_prod_pvt++;
+  RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xudd->urb_ring, notify);
+  if (notify) {
+    KdPrint((__DRIVER_NAME "     Notifying\n"));
+    xudd->vectors.EvtChn_Notify(xudd->vectors.context, xudd->event_channel);
+  }
+  KeReleaseSpinLock(&xudd->urb_ring_lock, old_irql);  
+  
+  FUNCTION_EXIT();
+}
+
 static VOID
 XenUsb_EvtIoInternalDeviceControl(
   WDFQUEUE queue,
@@ -981,35 +967,26 @@ XenUsb_EvtIoInternalDeviceControl(
   size_t input_buffer_length,
   ULONG io_control_code)
 {
-  //WDFDEVICE device = WdfIoQueueGetDevice(queue);
-  //PXENUSB_DEVICE_DATA xudd = GetXudd(device);
-  PURB urb;
-  xenusb_device_t *usb_device;
-  WDF_REQUEST_PARAMETERS wrp;
+  WDFDEVICE device = WdfIoQueueGetDevice(queue);
+  PXENUSB_DEVICE_DATA xudd = GetXudd(device);
+  //WDF_REQUEST_PARAMETERS wrp;
+  //pvusb_urb_t *urb;
 
-  UNREFERENCED_PARAMETER(queue);
   UNREFERENCED_PARAMETER(input_buffer_length);
   UNREFERENCED_PARAMETER(output_buffer_length);
 
   FUNCTION_ENTER();
 
-  WDF_REQUEST_PARAMETERS_INIT(&wrp);
-  WdfRequestGetParameters(request, &wrp);
+  //WDF_REQUEST_PARAMETERS_INIT(&wrp);
+  //WdfRequestGetParameters(request, &wrp);
 
   switch(io_control_code)
   {
-  case IOCTL_INTERNAL_USB_SUBMIT_URB:
-    FUNCTION_MSG("IOCTL_INTERNAL_USB_SUBMIT_URB\n");
-    urb = (PURB)wrp.Parameters.Others.Arg1;
-    FUNCTION_MSG("urb = %p\n", urb);
-    ASSERT(urb);
-    usb_device = urb->UrbHeader.UsbdDeviceHandle;
-    FUNCTION_MSG("usb_device = %p\n", usb_device);
-    ASSERT(usb_device);
-    if (usb_device == (xenusb_device_t *)((ULONG_PTR)0 - 1))
-      WdfRequestComplete(request, STATUS_INVALID_PARAMETER);
-    else
-      WdfRequestForwardToIoQueue(request, usb_device->urb_queue);
+  case IOCTL_INTERNAL_PVUSB_SUBMIT_URB:
+    FUNCTION_MSG("IOCTL_INTERNAL_PVUSB_SUBMIT_URB\n");
+    //urb = (pvusb_urb_t *)wrp.Parameters.Others.Arg1;
+    //FUNCTION_MSG("urb = %p\n", urb);
+    WdfRequestForwardToIoQueue(request, xudd->pvurb_queue);
     break;
   default:
     KdPrint((__DRIVER_NAME "     Unknown IOCTL %08x\n", io_control_code));
@@ -1139,6 +1116,18 @@ XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   status = WdfIoQueueCreate(device, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &xudd->io_queue);
   if (!NT_SUCCESS(status)) {
       KdPrint((__DRIVER_NAME "     Error creating io_queue 0x%x\n", status));
+      return status;
+  }
+
+  WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchParallel);
+  queue_config.PowerManaged = FALSE; /* ? */
+  //queue_config.EvtIoDeviceControl = XenUsb_EvtIoDeviceControl;
+  queue_config.EvtIoInternalDeviceControl = XenUsb_EvtIoInternalDeviceControl_PVURB;
+  //queue_config.EvtIoDefault = XenUsb_EvtIoDefault;
+  queue_config.Settings.Parallel.NumberOfPresentedRequests = USB_URB_RING_SIZE; /* the queue controls if the ring is full */
+  status = WdfIoQueueCreate(device, &queue_config, WDF_NO_OBJECT_ATTRIBUTES, &xudd->pvurb_queue);
+  if (!NT_SUCCESS(status)) {
+      KdPrint((__DRIVER_NAME "     Error creating urb_queue 0x%x\n", status));
       return status;
   }
 
