@@ -264,6 +264,7 @@ struct xennet_info
   evtchn_port_t event_channel;
   ULONG state;
   char backend_path[MAX_XENBUS_STR_LEN];
+  domid_t backend_id;
   ULONG backend_state;
   PVOID config_page;
   UCHAR multicast_list[MULTICAST_LIST_MAX_SIZE][6];

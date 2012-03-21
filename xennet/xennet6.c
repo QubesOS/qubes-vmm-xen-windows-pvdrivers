@@ -170,6 +170,12 @@ XenNet_ConnectBackend(struct xennet_info *xi)
       }
       break;
     case XEN_INIT_TYPE_READ_STRING_FRONT:
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
+      if (strcmp(setting, "backend-id") == 0)
+      {
+        xi->backend_id = (domid_t)atoi(value);
+        KdPrint((__DRIVER_NAME "     got backend_id = %d\n", xi->backend_id));
+      }
       break;
     case XEN_INIT_TYPE_READ_STRING_BACK:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
@@ -349,7 +355,7 @@ XenNet_HandleEvent(PVOID context)
   struct xennet_info *xi = context;
   ULONG suspend_resume_state_pdo;
   
-  //FUNCTION_ENTER();
+  FUNCTION_ENTER();
   suspend_resume_state_pdo = xi->device_state->suspend_resume_state_pdo;
   KeMemoryBarrier();
 
@@ -361,7 +367,7 @@ XenNet_HandleEvent(PVOID context)
   {
     KeInsertQueueDpc(&xi->rxtx_dpc, NULL, NULL);
   }
-  //FUNCTION_EXIT();
+  FUNCTION_EXIT();
   return TRUE;
 }
 
@@ -431,6 +437,7 @@ XenNet_D0Entry(struct xennet_info *xi)
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-sg", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-gso-tcpv4", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_FRONT, "backend-id", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1", NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1", NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->frontend_csum_supported);
