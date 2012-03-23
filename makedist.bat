@@ -3,8 +3,7 @@ IF NOT EXIST set_ddk_path.bat ECHO >set_ddk_path.bat SET DDK_PATH=C:\WinDDK\7600
 rem IF NOT EXIST set_ddk_path_2k.bat ECHO >set_ddk_path_2k.bat SET DDK_PATH_2K=C:\WinDDK\6001.18002
 
 SET VERSION=0.11.0
-SET BUILD_NUMBER=0
-IF EXIST build_number.bat CALL build_number.bat
+SET BUILD_NUMBER=20000
 
 SET GPLPV_VERSION=%VERSION%.%BUILD_NUMBER%
 
