@@ -1,0 +1,7 @@
+Clone original GPL PV Drivers repo here, using mercurial into win-pvdriver.hg:
+
+hg clone http://xenbits.xensource.com/ext/win-pvdrivers win-pvdrivers.hg
+
+Then use e.g. fast-export.sh (git://repo.or.cz/fast-export.git) to convert it
+to git repo and merge into Qubes git repo (e.g. convert into "master" branch
+and then merge carefully into "qubes" branch).
