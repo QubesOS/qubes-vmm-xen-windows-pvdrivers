@@ -12,7 +12,7 @@ sudo kpartx -a winpvsources.img
 # Now, we're assuming that the part was mounted as /dev/mapper/loop0p1
 # I'm not sure how to check this?
 
-mkfs.ntfs /dev/mapper/loop0p1 || exit 1
+mkfs.ntfs --fast /dev/mapper/loop0p1 || exit 1
 mkdir -p $MNT
 sudo mount /dev/mapper/loop0p1 $MNT
 sudo mkdir $MNT/winpvdrivers
