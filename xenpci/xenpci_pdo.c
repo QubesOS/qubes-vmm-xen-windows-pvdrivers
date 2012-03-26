@@ -194,6 +194,19 @@ XenPci_GetBackendAndAddWatch(WDFDEVICE device)
   RtlStringCbCopyA(xppdd->backend_path, ARRAY_SIZE(xppdd->backend_path), value);
   XenPci_FreeMem(value);
 
+  /* Get backend id */
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path),
+    "%s/backend-id", xppdd->path);
+  res = XenBus_Read(xpdd, XBT_NIL, path, &value);
+  if (res)
+  {
+    KdPrint((__DRIVER_NAME "    Failed to read backend id\n"));
+    XenPci_FreeMem(res);
+    return STATUS_UNSUCCESSFUL;
+  }
+  xppdd->backend_id = (domid_t)atoi(value);
+  XenPci_FreeMem(value);
+
   /* Add watch on backend state */
   RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/state", xppdd->backend_path);
   XenBus_AddWatch(xpdd, XBT_NIL, path, XenPci_BackendStateHandler, device);
@@ -651,6 +664,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   RtlStringCbCopyA(vectors.path, 128, xppdd->path);
   RtlStringCbCopyA(vectors.backend_path, 128, xppdd->backend_path);
   //vectors.pdo_event_channel = xpdd->pdo_event_channel;
+  vectors.backend_id = xppdd->backend_id;
   vectors.XenBus_Read = XenPci_XenBus_Read;
   vectors.XenBus_Write = XenPci_XenBus_Write;
   vectors.XenBus_Printf = XenPci_XenBus_Printf;
@@ -687,7 +701,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
         KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %p\n", setting, address));
         SHARED_RING_INIT((struct dummy_sring *)address);
         if ((gref = GntTbl_GrantAccess(
-          xpdd, 0, (ULONG)*MmGetMdlPfnArray(ring), FALSE, INVALID_GRANT_REF, (ULONG)'XPDO')) != INVALID_GRANT_REF)
+          xpdd, xppdd->backend_id, (ULONG)*MmGetMdlPfnArray(ring), FALSE, INVALID_GRANT_REF, (ULONG)'XPDO')) != INVALID_GRANT_REF)
         {
           RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
           KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_RING - %s = %d\n", setting, gref));
@@ -716,7 +730,7 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
     case XEN_INIT_TYPE_EVENT_CHANNEL: /* frontend event channel */
     case XEN_INIT_TYPE_EVENT_CHANNEL_DPC: /* frontend event channel bound to dpc */
     case XEN_INIT_TYPE_EVENT_CHANNEL_IRQ: /* frontend event channel bound to irq */
-      if ((event_channel = EvtChn_AllocUnbound(xpdd, 0)) != 0)
+      if ((event_channel = EvtChn_AllocUnbound(xpdd, xppdd->backend_id)) != 0)
       {
         KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_EVENT_CHANNEL - %s = %d\n", setting, event_channel));
         RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/%s", xppdd->path, setting);
@@ -1434,6 +1448,7 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   xppdd->backend_state = XenbusStateUnknown;
   xppdd->frontend_state = XenbusStateUnknown;
   xppdd->backend_path[0] = '\0';
+  xppdd->backend_id = 0;
     
   FUNCTION_EXIT();
   

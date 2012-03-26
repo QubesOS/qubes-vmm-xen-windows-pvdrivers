@@ -169,8 +169,6 @@ XenNet_ConnectBackend(struct xennet_info *xi)
         xi->event_channel = PtrToUlong(value);
       }
       break;
-    case XEN_INIT_TYPE_READ_STRING_FRONT:
-      break;
     case XEN_INIT_TYPE_READ_STRING_BACK:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
       if (strcmp(setting, "mac") == 0)
@@ -349,7 +347,7 @@ XenNet_HandleEvent(PVOID context)
   struct xennet_info *xi = context;
   ULONG suspend_resume_state_pdo;
   
-  //FUNCTION_ENTER();
+  FUNCTION_ENTER();
   suspend_resume_state_pdo = xi->device_state->suspend_resume_state_pdo;
   KeMemoryBarrier();
 
@@ -361,7 +359,7 @@ XenNet_HandleEvent(PVOID context)
   {
     KeInsertQueueDpc(&xi->rxtx_dpc, NULL, NULL);
   }
-  //FUNCTION_EXIT();
+  FUNCTION_EXIT();
   return TRUE;
 }
 

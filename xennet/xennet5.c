@@ -162,8 +162,6 @@ XenNet_ConnectBackend(struct xennet_info *xi)
         xi->event_channel = PtrToUlong(value);
       }
       break;
-    case XEN_INIT_TYPE_READ_STRING_FRONT:
-      break;
     case XEN_INIT_TYPE_READ_STRING_BACK:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
       if (strcmp(setting, "mac") == 0)
