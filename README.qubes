@@ -6,9 +6,10 @@ The resulting winpvsources.img file can be passed to a Windows-based HVM and bui
 
 2) Create an ISO containing built drivers and installer:
 
-TODO
+./mkinstalliso.sh
 
-
+The resulting winpvdrivers.iso can be attached to a Windows HVM in order to install
+the Qubes PV drivers.
 
 Windows Build Machine Preparation
 -----------------------------------
