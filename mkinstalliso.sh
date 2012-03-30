@@ -23,3 +23,5 @@ sudo umount  $MNT
 sudo kpartx -d $SRCIMG
 genisoimage -o $ISOIMG -m .gitignore -JR $ISODIR
 
+# Now, make also an RPM containg this ISO
+rpmbuild --target noarch --define "_rpmdir rpm/" -bb iso_rpm.spec
