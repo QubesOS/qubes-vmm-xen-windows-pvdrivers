@@ -21,5 +21,5 @@ fi
     
 sudo umount  $MNT
 sudo kpartx -d $SRCIMG
-genisoimage -o $ISOIMG -JR $ISODIR
+genisoimage -o $ISOIMG -m .gitignore -JR $ISODIR
 
