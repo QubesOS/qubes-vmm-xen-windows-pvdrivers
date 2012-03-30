@@ -12,10 +12,10 @@ PV Drivers for Vista and Windows 7 VMs.
 
 %install
 mkdir -p $RPM_BUILD_ROOT/usr/lib/qubes/
-cp winpvdrivers.iso $RPM_BUILD_ROOT/usr/lib/qubes/
+cp pvdrivers-win7.iso $RPM_BUILD_ROOT/usr/lib/qubes/
 
 %files
-/usr/lib/qubes/winpvdrivers.iso
+/usr/lib/qubes/pvdrivers-win7.iso
 
 
 
