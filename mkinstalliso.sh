@@ -10,7 +10,8 @@ sudo kpartx -a $SRCIMG
 # I'm not sure how to check this?
 sudo mount /dev/mapper/loop0p1 $MNT
 
-cp $MNT/winpvdrivers/gplpv*.msi $ISODIR/
+rm -f $ISODIR/*.msi
+cp $MNT/winpvdrivers/gplpv_Vista2008*.msi $ISODIR/
 if [ $? -ne 0 ]; then
     echo "No installation files found! Have you built the drivers?"
     sudo umount  $MNT 
