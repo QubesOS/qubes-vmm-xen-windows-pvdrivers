@@ -700,10 +700,12 @@ XenScsi_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
       PXENSCSI_LU_DATA lud = ScsiPortGetLogicalUnit(DeviceExtension, Srb->PathId, Srb->TargetId, Srb->Lun);
       if (lud != NULL && lud->sense_len)
       {
+        int i;
         KdPrint((__DRIVER_NAME "     Emulating REQUEST_SENSE (lu data = %p)\n", lud));
         memcpy(Srb->DataBuffer, lud->sense_buffer, min(lud->sense_len, Srb->DataTransferLength));
-        if (lud->sense_len < Srb->DataTransferLength)
+        if (lud->sense_len > Srb->DataTransferLength)
         {
+          KdPrint((__DRIVER_NAME "     Sense overrun Srb->DataTransferLength = %d, lud->sense_len = %d\n", Srb->DataTransferLength, lud->sense_len));
           Srb->DataTransferLength = lud->sense_len;
           Srb->SrbStatus = SRB_STATUS_DATA_OVERRUN;
         }
@@ -711,8 +713,8 @@ XenScsi_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK Srb)
         {
           Srb->SrbStatus = SRB_STATUS_SUCCESS;
         }
-        //for (i = 0; i < Srb->DataTransferLength; i++)
-        //  KdPrint((__DRIVER_NAME "     sense %02x: %02x\n", i, (ULONG)((PUCHAR)Srb->DataBuffer)[i]));
+        for (i = 0; i < min(lud->sense_len, 8); i++)
+          KdPrint((__DRIVER_NAME "     sense %02x: %02x\n", i, (ULONG)((PUCHAR)lud->sense_buffer)[i]));
         lud->sense_len = 0;
         ScsiPortNotification(RequestComplete, DeviceExtension, Srb);
         ScsiPortNotification(NextRequest, DeviceExtension);
