@@ -200,8 +200,6 @@ XenUsb_HandleEvent(PVOID context)
         break;
       }
       put_id_on_freelist(xudd, partial_pvurb->rsp.id);
-      FUNCTION_MSG("B pvurb = %p\n", partial_pvurb->pvurb);
-      FUNCTION_MSG("B request = %p\n", partial_pvurb->pvurb->request);
       partial_pvurb->pvurb->next = NULL;
       if (!partial_pvurb->pvurb->ref) {
         if (complete_tail) {
@@ -226,8 +224,6 @@ XenUsb_HandleEvent(PVOID context)
 
   pvurb = complete_head;
   while (pvurb != NULL) {
-    FUNCTION_MSG("C pvurb = %p\n", pvurb);
-    FUNCTION_MSG("C request = %p\n", pvurb->request);
     complete_head = pvurb->next;
     status = WdfRequestUnmarkCancelable(pvurb->request);
     if (status == STATUS_CANCELLED) {
@@ -965,9 +961,7 @@ XenUsb_EvtIoInternalDeviceControl_PVURB(
   WDF_REQUEST_PARAMETERS_INIT(&wrp);
   WdfRequestGetParameters(request, &wrp);
   pvurb = (pvurb_t *)wrp.Parameters.Others.Arg1;
-  FUNCTION_MSG("A pvurb = %p\n", pvurb);
   ASSERT(pvurb);
-  FUNCTION_MSG("A request = %p\n", pvurb->request);
   RtlZeroMemory(&pvurb->rsp, sizeof(pvurb->rsp));
   pvurb->status = STATUS_SUCCESS;
   pvurb->request = request;
