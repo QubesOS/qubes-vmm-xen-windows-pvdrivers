@@ -42,6 +42,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <errno.h>
 #define NTSTRSAFE_LIB
 #include <ntstrsafe.h>
+#include <liblfds.h>
 
 #define __DRIVER_NAME "XenUSB"
 
@@ -101,25 +102,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define LINUX_URB_ZERO_PACKET         0x0040  /* Finish bulk OUT with short packet */
 #define LINUX_URB_NO_INTERRUPT        0x0080  /* HINT: no non-error interrupt needed */
 
-//#define PRE_DECLARE_TYPE_TYPEDEF(x) struct _##x; typedef struct _##x x##_t
-
-struct _usbif_shadow;
-typedef struct _usbif_shadow usbif_shadow_t;
-
-struct _usbif_shadow {
-  uint16_t id;
-  WDFREQUEST request;
-  usbif_urb_request_t req_storage; /* used by cancel/unlink */
-  usbif_urb_request_t *req;
-  usbif_urb_response_t *rsp;
-  PMDL mdl; /* can be null for requests with no data */
-  ULONG total_length;
-  usbif_shadow_t *next; /* collect then process responses as they come off the ring */
-};
+struct _pvurb;
+struct _partial_pvurb;
+typedef struct _pvurb pvurb_t;
+typedef struct _partial_pvurb partial_pvurb_t;
 
 /* needs to be at least USB_URB_RING_SIZE number of requests available */
-#define MAX_SHADOW_ENTRIES 64
-#define SHADOW_ENTRIES max(MAX_SHADOW_ENTRIES, USB_URB_RING_SIZE)
+#define MAX_ID_COUNT 64
+#define ID_COUNT min(MAX_ID_COUNT, USB_URB_RING_SIZE)
 
 /*
 for IOCTL_PVUSB_SUBMIT_URB, the pvusb_urb_t struct is passed as Parameters.Others.Arg1
@@ -128,12 +118,28 @@ req must have pipe, transfer_flags, buffer_length, and u fields filled in
 
 #define IOCTL_INTERNAL_PVUSB_SUBMIT_URB CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_NEITHER, FILE_READ_DATA | FILE_WRITE_DATA)
 
-typedef struct _pvurb {
+struct _partial_pvurb {
+  LIST_ENTRY entry;
+  pvurb_t *pvurb;
+  partial_pvurb_t *other_partial_pvurb; /* link to the cancelled or cancelling partial_pvurb */
   usbif_urb_request_t req;
   usbif_urb_response_t rsp;
-  PMDL mdl; /* can be null for requests with no data */
+  PMDL mdl;
+  BOOLEAN on_ring; /* is (or has been) on the hardware ring */
+};
+  
+struct _pvurb {
+  /* set by xenusb_devurb.c */
+  usbif_urb_request_t req;  /* only pipe, transfer_flags, isoc/intr filled out by submitter */
+  PMDL mdl;                 /* can be null for requests with no data */
+  /* set by xenusb_fdo.c */
+  usbif_urb_response_t rsp; /* only status, actual_length, error_count valid */
+  NTSTATUS status;
+  WDFREQUEST request;
+  ULONG ref;                /* reference counting */
   ULONG total_length;
-} pvurb_t;
+  pvurb_t *next; /* collect then process responses as they come off the ring */
+};
 
 struct _xenusb_endpoint_t;
 struct _xenusb_interface_t;
@@ -147,7 +153,6 @@ typedef struct _xenusb_device_t xenusb_device_t;
 typedef struct _xenusb_endpoint_t {
   xenusb_interface_t *interface;
   ULONG pipe_value;
-  //WDFTIMER interrupt_timer;
   WDFQUEUE queue;
   WDFSPINLOCK lock;
   USB_ENDPOINT_DESCRIPTOR endpoint_descriptor;
@@ -155,7 +160,6 @@ typedef struct _xenusb_endpoint_t {
 //WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(pxenusb_endpoint_t, GetEndpoint)
 
 typedef struct _xenusb_interface_t {
-  //ULONG pipe_value;
   xenusb_config_t *config;
   USB_INTERFACE_DESCRIPTOR interface_descriptor;
   xenusb_endpoint_t *endpoints[0];
@@ -212,9 +216,8 @@ typedef struct {
   
   WDFDEVICE root_hub_device;
 
-  usbif_shadow_t shadows[MAX_SHADOW_ENTRIES];
-  USHORT shadow_free_list[MAX_SHADOW_ENTRIES];
-  USHORT shadow_free;
+  struct stack_state *id_ss;
+  partial_pvurb_t *partial_pvurbs[MAX_ID_COUNT];
 
   PUCHAR config_page;
 
@@ -225,11 +228,14 @@ typedef struct {
   KSPIN_LOCK urb_ring_lock;
   usbif_urb_sring_t *urb_sring;
   usbif_urb_front_ring_t urb_ring;
+  LIST_ENTRY partial_pvurb_queue;
+  LIST_ENTRY partial_pvurb_ring;
 
   KSPIN_LOCK conn_ring_lock;
   usbif_conn_sring_t *conn_sring;
   usbif_conn_front_ring_t conn_ring;
 
+  domid_t backend_id;
   evtchn_port_t event_channel;
 
   XENPCI_VECTORS vectors;
@@ -273,26 +279,22 @@ typedef struct {
   //xenusb_compatible_id_details_t xucid[1];
 } XENUSB_PDO_IDENTIFICATION_DESCRIPTION, *PXENUSB_PDO_IDENTIFICATION_DESCRIPTION;
 
-/* call with ring lock held */
-static usbif_shadow_t *
-get_shadow_from_freelist(PXENUSB_DEVICE_DATA xudd)
-{
-  if (xudd->shadow_free == 0)
-  {
-    KdPrint((__DRIVER_NAME "     No more shadow entries\n"));
-    return NULL;
+
+static uint16_t
+get_id_from_freelist(PXENUSB_DEVICE_DATA xudd) {
+  ULONG_PTR _id;
+  if (!stack_pop(xudd->id_ss, (VOID *)&_id)) {
+    KdPrint((__DRIVER_NAME "     No more id's\n"));
+    return (uint16_t)-1;
   }
-  xudd->shadow_free--;
-  return &xudd->shadows[xudd->shadow_free_list[xudd->shadow_free]];
+  return (uint16_t)_id;
 }
 
 /* call with ring lock held */
 static VOID
-put_shadow_on_freelist(PXENUSB_DEVICE_DATA xudd, usbif_shadow_t *shadow)
-{
-  xudd->shadow_free_list[xudd->shadow_free] = (USHORT)shadow->id;
-  shadow->request = NULL;
-  xudd->shadow_free++;
+put_id_on_freelist(PXENUSB_DEVICE_DATA xudd, uint16_t id) {
+  ULONG_PTR _id = id;
+  stack_push(xudd->id_ss, (VOID *)_id);
 }
 
 static
@@ -321,17 +323,6 @@ XenUsb_GetResponse(PXENVBD_DEVICE_DATA xudd, ULONG i)
   return RING_GET_RESPONSE(&xvdd->ring, i);
 }
 #endif
-
-
-/*
-EVT_WDF_DEVICE_PREPARE_HARDWARE XenUsb_EvtDevicePrepareHardware;
-EVT_WDF_DEVICE_RELEASE_HARDWARE XenUsb_EvtDeviceReleaseHardware;
-EVT_WDF_DEVICE_D0_ENTRY XenUsb_EvtDeviceD0Entry;
-EVT_WDF_DEVICE_D0_ENTRY_POST_INTERRUPTS_ENABLED XenUsb_EvtDeviceD0EntryPostInterruptsEnabled;
-EVT_WDF_DEVICE_D0_EXIT XenUsb_EvtDeviceD0Exit;
-EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED XenUsb_EvtDeviceD0ExitPreInterruptsDisabled;
-EVT_WDF_DEVICE_QUERY_REMOVE XenUsb_EvtDeviceQueryRemove;
-*/
 
 EVT_WDF_DRIVER_DEVICE_ADD XenUsb_EvtDriverDeviceAdd;
 

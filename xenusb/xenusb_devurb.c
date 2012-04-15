@@ -27,7 +27,7 @@ XenUsb_GetUsbdStatusFromPvStatus(ULONG pvstatus) {
   {
   case 0:
     return USBD_STATUS_SUCCESS;
-  case -EPROTO: /*  ? */
+  case -EPROTO: /*  -71 */
     FUNCTION_MSG("pvstatus = -EPROTO\n");
     return USBD_STATUS_CRC;
   case -EPIPE: /* see linux code - EPIPE is when the HCD returned a stall */
@@ -41,9 +41,9 @@ XenUsb_GetUsbdStatusFromPvStatus(ULONG pvstatus) {
     shadow->urb->UrbHeader.Status USBD_STATUS_ERROR_SHORT_TRANSFER;
     break;
 #endif
-  case -ESHUTDOWN:
-    FUNCTION_MSG("pvstatus = -USBD_STATUS_INTERNAL_HC_ERROR\n");
-    return USBD_STATUS_INTERNAL_HC_ERROR;
+  case -ESHUTDOWN: /* -108 */
+    FUNCTION_MSG("pvstatus = -ESHUTDOWN (USBD_STATUS_DEVICE_GONE)\n");
+    return USBD_STATUS_DEVICE_GONE;
   default:
     FUNCTION_MSG("pvstatus = %d\n", pvstatus);
     return USBD_STATUS_INTERNAL_HC_ERROR;
