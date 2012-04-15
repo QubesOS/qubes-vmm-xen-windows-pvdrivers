@@ -754,43 +754,39 @@ XenUsb_EvtIoDeviceControl(
     KdPrint((__DRIVER_NAME "     IOCTL_USB_GET_ROOT_HUB_NAME\n"));
     KdPrint((__DRIVER_NAME "      output_buffer_length = %d\n", output_buffer_length));
       
-    if (output_buffer_length < sizeof(USB_HCD_DRIVERKEY_NAME))
-    {
+    if (output_buffer_length < sizeof(USB_HCD_DRIVERKEY_NAME)) {
       status = STATUS_BUFFER_TOO_SMALL;
-    }
-    else
-    {
+    } else {
       status = WdfRequestRetrieveOutputBuffer(request, output_buffer_length, (PVOID *)&uhdn, &length);
-      if (NT_SUCCESS(status))
-      {
+      if (NT_SUCCESS(status)) {
         WDFSTRING symbolic_link_wdfstring;
         UNICODE_STRING symbolic_link;
         
         uhdn->DriverKeyName[0] = 0;
         status = WdfStringCreate(NULL, WDF_NO_OBJECT_ATTRIBUTES, &symbolic_link_wdfstring);
-        status = WdfDeviceRetrieveDeviceInterfaceString(xudd->root_hub_device, &GUID_DEVINTERFACE_USB_HUB, NULL, symbolic_link_wdfstring);
-        if (NT_SUCCESS(status))
-        {
-          WdfStringGetUnicodeString(symbolic_link_wdfstring, &symbolic_link);
-          /* remove leading \??\ from name */
-          symbolic_link.Buffer += 4;
-          symbolic_link.Length -= 4 * sizeof(WCHAR);
-          required_length = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + symbolic_link.Length + sizeof(WCHAR);
-          FUNCTION_MSG("output_buffer_length = %d\n", output_buffer_length);
-          FUNCTION_MSG("required_length = %d\n", required_length);
-          if (output_buffer_length >= required_length)
-          {
-            uhdn->ActualLength = required_length;
-            memcpy(uhdn->DriverKeyName, symbolic_link.Buffer, symbolic_link.Length);
-            uhdn->DriverKeyName[symbolic_link.Length / 2] = 0;
-            WdfRequestSetInformation(request, required_length);
-          }
-          else
-          {
-            uhdn->ActualLength = required_length;
-            uhdn->DriverKeyName[0] = 0;
-            status = STATUS_SUCCESS;
-            WdfRequestSetInformation(request, output_buffer_length);
+        if (NT_SUCCESS(status)) {
+          status = WdfDeviceRetrieveDeviceInterfaceString(xudd->root_hub_device, &GUID_DEVINTERFACE_USB_HUB, NULL, symbolic_link_wdfstring);
+          if (NT_SUCCESS(status)) {
+            WdfStringGetUnicodeString(symbolic_link_wdfstring, &symbolic_link);
+            /* remove leading \??\ from name */
+            symbolic_link.Buffer += 4;
+            symbolic_link.Length -= 4 * sizeof(WCHAR);
+            required_length = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + symbolic_link.Length + sizeof(WCHAR);
+            FUNCTION_MSG("output_buffer_length = %d\n", output_buffer_length);
+            FUNCTION_MSG("required_length = %d\n", required_length);
+            if (output_buffer_length >= required_length) {
+              uhdn->ActualLength = required_length;
+              memcpy(uhdn->DriverKeyName, symbolic_link.Buffer, symbolic_link.Length);
+              uhdn->DriverKeyName[symbolic_link.Length / 2] = 0;
+              WdfRequestSetInformation(request, required_length);
+            } else {
+              uhdn->ActualLength = required_length;
+              uhdn->DriverKeyName[0] = 0;
+              status = STATUS_SUCCESS;
+              WdfRequestSetInformation(request, output_buffer_length);
+            }
+          } else {
+            KdPrint((__DRIVER_NAME "     WdfStringCreate = %08x\n", status));
           }
         }
         else
@@ -813,46 +809,46 @@ XenUsb_EvtIoDeviceControl(
     PUSB_HCD_DRIVERKEY_NAME uhdn;
     size_t length;
     ULONG required_length = sizeof(USB_HCD_DRIVERKEY_NAME);
+    ULONG key_length;
     
     KdPrint((__DRIVER_NAME "     IOCTL_GET_HCD_DRIVERKEY_NAME\n"));
     KdPrint((__DRIVER_NAME "      output_buffer_length = %d\n", output_buffer_length));
       
-    if (output_buffer_length < sizeof(USB_HCD_DRIVERKEY_NAME))
+    if (output_buffer_length < sizeof(USB_HCD_DRIVERKEY_NAME)) {
+      FUNCTION_MSG("Buffer too small (%d < %d)\n", output_buffer_length, sizeof(USB_HCD_DRIVERKEY_NAME));
       status = STATUS_BUFFER_TOO_SMALL;
+      break;
+    }
+    status = WdfRequestRetrieveOutputBuffer(request, output_buffer_length, (PVOID *)&uhdn, &length);
+    if (!NT_SUCCESS(status)) {
+      KdPrint((__DRIVER_NAME "     WdfRequestRetrieveOutputBuffer = %08x\n", status));
+      break;
+    }
+    status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 0, NULL, &key_length);
+    if (!NT_SUCCESS(status)) {
+      KdPrint((__DRIVER_NAME "     WdfDeviceQueryProperty = %08x\n", status));
+      break;
+    }    
+    KdPrint((__DRIVER_NAME "      key_length = %d\n", key_length));
+    required_length = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + key_length + 2;
+    uhdn->ActualLength = required_length;
+    FUNCTION_MSG("output_buffer_length = %d\n", output_buffer_length);
+    FUNCTION_MSG("required_length = %d\n", required_length);
+    if (output_buffer_length >= required_length)
+    {
+      status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 
+        required_length - FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName), uhdn->DriverKeyName,
+        &key_length);
+      WdfRequestSetInformation(request, required_length);
+    }
     else
     {
-      status = WdfRequestRetrieveOutputBuffer(request, output_buffer_length, (PVOID *)&uhdn, &length);
-      if (NT_SUCCESS(status))
-      {
-        ULONG key_length;
-        status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 0, NULL, &key_length);
-        KdPrint((__DRIVER_NAME "      key_length = %d\n", key_length));
-        status = STATUS_SUCCESS;
-        required_length = FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName) + key_length + 2;
-        uhdn->ActualLength = required_length;
-        FUNCTION_MSG("output_buffer_length = %d\n", output_buffer_length);
-        FUNCTION_MSG("required_length = %d\n", required_length);
-        if (output_buffer_length >= required_length)
-        {
-          status = WdfDeviceQueryProperty(device, DevicePropertyDriverKeyName, 
-            required_length - FIELD_OFFSET(USB_HCD_DRIVERKEY_NAME, DriverKeyName), uhdn->DriverKeyName,
-            &key_length);
-          WdfRequestSetInformation(request, required_length);
-        }
-        else
-        {
-          uhdn->DriverKeyName[0] = 0;
-          status = STATUS_SUCCESS;
-          WdfRequestSetInformation(request, output_buffer_length);
-        }
-        FUNCTION_MSG(" uhdn->ActualLength = %d\n", uhdn->ActualLength);
-        FUNCTION_MSG(" uhdn->DriverKeyName = %S\n", uhdn->DriverKeyName);
-      }
-      else
-      {
-        KdPrint((__DRIVER_NAME "     WdfRequestRetrieveOutputBuffer = %08x\n", status));
-      }
+      uhdn->DriverKeyName[0] = 0;
+      status = STATUS_SUCCESS;
+      WdfRequestSetInformation(request, output_buffer_length);
     }
+    FUNCTION_MSG(" uhdn->ActualLength = %d\n", uhdn->ActualLength);
+    FUNCTION_MSG(" uhdn->DriverKeyName = %S\n", uhdn->DriverKeyName);
     break;
   }
 #if 0
@@ -971,6 +967,14 @@ XenUsb_EvtIoInternalDeviceControl_PVURB(
   }
   KeAcquireSpinLock(&xudd->urb_ring_lock, &old_irql);
   status = WdfRequestMarkCancelableEx(request, XenUsb_EvtRequestCancelPvUrb);
+  if (!NT_SUCCESS(status)) {
+    KeReleaseSpinLock(&xudd->urb_ring_lock, old_irql);  
+    FUNCTION_MSG("WdfRequestMarkCancelableEx returned %08x\n", status);
+    WdfRequestComplete(request, STATUS_INSUFFICIENT_RESOURCES);
+    FUNCTION_EXIT();
+    return;
+  }  
+  
   partial_pvurb->req = pvurb->req;
   partial_pvurb->mdl = pvurb->mdl; /* 1:1 right now, but may need to split up large pvurb into smaller partial_pvurb's */
   partial_pvurb->pvurb = pvurb;
@@ -1203,16 +1207,28 @@ XenUsb_EvtDriverDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   WdfDeviceSetBusInformationForChildren(device, &pbi);
 
   status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_USB_HOST_CONTROLLER, NULL);
-  if (!NT_SUCCESS(status))
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_MSG("WdfDeviceCreateDeviceInterface returned %08x\n");
     return status;
+  }
 
   /* USB likes to have a registry key with the symbolic link name in it */
   status = WdfStringCreate(NULL, WDF_NO_OBJECT_ATTRIBUTES, &symbolicname_value_wdfstring);
-  status = WdfDeviceRetrieveDeviceInterfaceString(device, &GUID_DEVINTERFACE_USB_HOST_CONTROLLER, NULL, symbolicname_value_wdfstring);
-  if (!NT_SUCCESS(status))
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_MSG("WdfStringCreate returned %08x\n");
     return status;
+  }
+  status = WdfDeviceRetrieveDeviceInterfaceString(device, &GUID_DEVINTERFACE_USB_HOST_CONTROLLER, NULL, symbolicname_value_wdfstring);
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_MSG("WdfDeviceRetrieveDeviceInterfaceString returned %08x\n");
+    return status;
+  }
   WdfStringGetUnicodeString(symbolicname_value_wdfstring, &symbolicname_value);
   status = WdfDeviceOpenRegistryKey(device, PLUGPLAY_REGKEY_DEVICE, KEY_SET_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &device_key);
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_MSG("WdfDeviceOpenRegistryKey returned %08x\n");
+    return status;
+  }
   WdfRegistryAssignUnicodeString(device_key, &symbolicname_name, &symbolicname_value);
 
   FUNCTION_EXIT();

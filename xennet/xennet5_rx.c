@@ -371,14 +371,17 @@ XenNet_SumPacketData(
   //FUNCTION_ENTER();
 
   NdisGetFirstBufferFromPacketSafe(packet, &mdl, &buffer, &buffer_length, &total_length, NormalPagePriority);
+  if (!buffer) {
+    FUNCTION_MSG("NdisGetFirstBufferFromPacketSafe failed, buffer == NULL\n");
+    return FALSE;
+  }
   ASSERT(mdl);
 
   ip4_length = GET_NET_PUSHORT(&buffer[XN_HDR_SIZE + 2]);
   data_length = ip4_length + XN_HDR_SIZE;
   
-  if ((USHORT)data_length > total_length)
-  {
-    KdPrint((__DRIVER_NAME "     Size Mismatch %d (ip4_length + XN_HDR_SIZE) != %d (total_length)\n", ip4_length + XN_HDR_SIZE, total_length));
+  if ((USHORT)data_length > total_length) {
+    FUNCTION_MSG("Size Mismatch %d (ip4_length + XN_HDR_SIZE) != %d (total_length)\n", ip4_length + XN_HDR_SIZE, total_length);
     return FALSE;
   }
 
@@ -692,6 +695,7 @@ XenNet_ReturnPacket(
       /* this isn't actually a share_buffer, it is some memory allocated for the header - just free it */
       PUCHAR va;
       UINT len;
+      #pragma warning(suppress:28193) /* va is valid because it was mapped earlier */
       NdisQueryBufferSafe(buffer, &va, &len, NormalPagePriority);
       NdisFreeToNPagedLookasideList(&xi->rx_lookaside_list, va - sizeof(shared_buffer_t));
       NdisFreeBuffer(buffer);

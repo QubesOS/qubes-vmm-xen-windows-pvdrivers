@@ -21,6 +21,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #define EPROTO          71      /* Protocol error */
 
+EVT_WDF_REQUEST_COMPLETION_ROUTINE XenUsb_CompletionBulkInterrupt;
+
 static USBD_STATUS
 XenUsb_GetUsbdStatusFromPvStatus(ULONG pvstatus) {
   switch (pvstatus)

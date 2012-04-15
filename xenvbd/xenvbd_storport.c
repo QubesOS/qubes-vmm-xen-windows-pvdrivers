@@ -1949,8 +1949,10 @@ XenVbd_HwStorAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Con
     }
     /* increase the tag every time we stop/start to track where the gref's came from */
     xvdd->grant_tag++;
-    if (XenVbd_InitFromConfig(xvdd) != SP_RETURN_FOUND)
+    if (XenVbd_InitFromConfig(xvdd) != SP_RETURN_FOUND) {
+      #pragma warning(suppress:28159)
       KeBugCheckEx(DATA_COHERENCY_EXCEPTION, 0, (ULONG_PTR)xvdd, 0, 0);
+    }
     xvdd->ring_detect_state = RING_DETECT_STATE_NOT_STARTED;
     
     //XenVbd_StartRingDetection(xvdd);

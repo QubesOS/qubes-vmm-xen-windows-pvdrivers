@@ -187,10 +187,15 @@ do_hibernate()
   printf("token_handle = %p\n", token_handle);
 
   tp = malloc(sizeof(TOKEN_PRIVILEGES) + sizeof(LUID_AND_ATTRIBUTES));
+  if (!tp) {
+    printf("malloc failed\n");
+    CloseHandle(token_handle);
+    return;
+  }
   tp->PrivilegeCount = 1;
-  if (!LookupPrivilegeValueA(NULL, SE_SHUTDOWN_NAME, &tp->Privileges[0].Luid))
-  {
+  if (!LookupPrivilegeValueA(NULL, SE_SHUTDOWN_NAME, &tp->Privileges[0].Luid)) {
     printf("LookupPrivilegeValue failed\n");
+    free(tp);
     CloseHandle(token_handle);
     return;
   }
@@ -198,15 +203,16 @@ do_hibernate()
   tp->Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
   if (!AdjustTokenPrivileges(token_handle, FALSE, tp, 0, NULL, NULL))
   {
+    printf("AdjustTokenPrivileges failed\n");
+    free(tp);
     CloseHandle(token_handle);
     return;
   }
 
-  if (!SetSuspendState(TRUE, FALSE, FALSE))
-  {
+  if (!SetSuspendState(TRUE, FALSE, FALSE)) {
     printf("hibernate failed\n");
   }
-
+  free(tp);
   CloseHandle(token_handle);
 }
 
@@ -227,10 +233,16 @@ do_shutdown(BOOL bRebootAfterShutdown)
   printf("token_handle = %p\n", token_handle);
 
   tp = malloc(sizeof(TOKEN_PRIVILEGES) + sizeof(LUID_AND_ATTRIBUTES));
+  if (!tp) {
+    printf("malloc failed\n");
+    CloseHandle(token_handle);
+    return;
+  }
   tp->PrivilegeCount = 1;
   if (!LookupPrivilegeValueA(NULL, SE_SHUTDOWN_NAME, &tp->Privileges[0].Luid))
   {
     printf("LookupPrivilegeValue failed\n");
+    free(tp);
     CloseHandle(token_handle);
     return;
   }
@@ -238,10 +250,11 @@ do_shutdown(BOOL bRebootAfterShutdown)
   tp->Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
   if (!AdjustTokenPrivileges(token_handle, FALSE, tp, 0, NULL, NULL))
   {
+    free(tp);
     CloseHandle(token_handle);
     return;
   }
-
+  #pragma warning(suppress:28159)
   if (!InitiateSystemShutdownEx(NULL, NULL, 0, TRUE, bRebootAfterShutdown, SHTDN_REASON_FLAG_PLANNED | SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_MINOR_OTHER))
   {
     printf("InitiateSystemShutdownEx failed\n");
@@ -249,6 +262,7 @@ do_shutdown(BOOL bRebootAfterShutdown)
   }
   printf("InitiateSystemShutdownEx succeeded\n");
 
+  free(tp);
   CloseHandle(token_handle);
 }
 

@@ -27,6 +27,7 @@ DRIVER_INITIALIZE DriverEntry;
 static IO_WORKITEM_ROUTINE XenNet_ResumeWorkItem;
 #if (VER_PRODUCTBUILD >= 7600)
 static KDEFERRED_ROUTINE XenNet_SuspendResume;
+static KDEFERRED_ROUTINE XenNet_RxTxDpc;
 #endif
 
 #pragma NDIS_INIT_FUNCTION(DriverEntry)

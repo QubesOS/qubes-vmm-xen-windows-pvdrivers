@@ -405,6 +405,7 @@ extern PULONG InitSafeBootMode;
 VOID
 XenPci_HideQemuDevices()
 {
+  #pragma warning(suppress:28138)
   WRITE_PORT_USHORT(XEN_IOPORT_DEVICE_MASK, (USHORT)qemu_hide_flags_value); //QEMU_UNPLUG_ALL_IDE_DISKS|QEMU_UNPLUG_ALL_NICS);
   KdPrint((__DRIVER_NAME "     Disabled qemu devices %02x\n", qemu_hide_flags_value));
 }
@@ -412,15 +413,20 @@ XenPci_HideQemuDevices()
 static BOOLEAN
 XenPci_CheckHideQemuDevices()
 {
+  #pragma warning(suppress:28138)
   if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0x49d2)
   {
+    #pragma warning(suppress:28138)
     qemu_protocol_version = READ_PORT_UCHAR(XEN_IOPORT_VERSION);
     KdPrint((__DRIVER_NAME "     Version = %d\n", qemu_protocol_version));
     switch(qemu_protocol_version)
     {
     case 1:
+      #pragma warning(suppress:28138)
       WRITE_PORT_USHORT(XEN_IOPORT_PRODUCT, XEN_PV_PRODUCT_NUMBER);
+      #pragma warning(suppress:28138)
       WRITE_PORT_ULONG(XEN_IOPORT_BUILD, XEN_PV_PRODUCT_BUILD);
+      #pragma warning(suppress:28138)
       if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) != 0x49d2)
       {
         KdPrint((__DRIVER_NAME "     Blacklisted\n"));
@@ -622,6 +628,12 @@ XenPci_InitialBalloonDown()
 
   /* this code is mostly duplicated from the actual balloon thread... too hard to reuse */
   pfns = ExAllocatePoolWithTag(NonPagedPool, max(BALLOON_UNIT_PAGES, (64 << 8)) * sizeof(xen_pfn_t), XENPCI_POOL_TAG);
+  if (!pfns) {
+      /* If we can't balloon down then we are going to crash in strange ways later. Better to bug check now. */
+      KdPrint((__DRIVER_NAME "     Initial Balloon Down failed - no memory for pfn list\n"));
+      #pragma warning(suppress:28159)
+      KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000003, 0x00000000, 0x00000000, 0x00000000);
+  }
   curr_pfns_offset = 0;
   /* this makes sure we balloon up to the next multiple of BALLOON_UNITS_KB */
   for (j = 0; j < (int)extra_kb; j += BALLOON_UNITS_KB)
@@ -636,8 +648,8 @@ XenPci_InitialBalloonDown()
     {
       /* this should actually never happen. If we can't allocate the memory it means windows is using it, and if it was using it we would have crashed already... */
       KdPrint((__DRIVER_NAME "     Initial Balloon Down failed\n"));
+      #pragma warning(suppress:28159)
       KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000002, extra_kb, j, 0x00000000);
-      break;
     }
     else
     {
@@ -680,6 +692,9 @@ XenPci_InitialBalloonDown()
   return head;
 }
 
+/* this isn't freed on shutdown... perhaps it should be */
+PVOID dump_page;
+
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -700,7 +715,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
   WDFSTRING wdf_system_start_options;
   UNICODE_STRING system_start_options;
 #if (NTDDI_VERSION >= NTDDI_WS03SP1)  
-  PVOID dump_page;
   ULONG dump_header_size;
 #endif
   

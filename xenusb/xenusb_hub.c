@@ -40,7 +40,11 @@ static EVT_WDF_TIMER XenUsbHub_HubInterruptTimer;
 static EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL XenUsbHub_EvtIoInternalDeviceControl;
 static EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL XenUsbHub_EvtIoDeviceControl;
 static EVT_WDF_IO_QUEUE_IO_DEFAULT XenUsbHub_EvtIoDefault;
+static EVT_WDFDEVICE_WDM_IRP_PREPROCESS XenUsbHub_EvtDeviceWdmIrpPreprocessQUERY_INTERFACE;
+
 static USB_BUSIFFN_CREATE_USB_DEVICE XenUsbHub_UBIH_CreateUsbDevice;
+static USB_BUSIFFN_CREATE_USB_DEVICE_EX XenUsbHub_UBIH_CreateUsbDeviceEx;
+static USB_BUSIFFN_CREATE_USB_DEVICE_V7 XenUsbHub_UBIH_CreateUsbDeviceV7;
 static USB_BUSIFFN_INITIALIZE_USB_DEVICE XenUsbHub_UBIH_InitializeUsbDevice;
 static USB_BUSIFFN_GET_USB_DESCRIPTORS XenUsbHub_UBIH_GetUsbDescriptors;
 static USB_BUSIFFN_REMOVE_USB_DEVICE XenUsbHub_UBIH_RemoveUsbDevice;
@@ -56,6 +60,28 @@ static USB_BUSIFFN_INITIALIZE_20HUB XenUsbHub_UBIH_Initialize20Hub;
 static USB_BUSIFFN_ROOTHUB_INIT_NOTIFY XenUsbHub_UBIH_RootHubInitNotification;
 static USB_BUSIFFN_FLUSH_TRANSFERS XenUsbHub_UBIH_FlushTransfers;
 static USB_BUSIFFN_SET_DEVHANDLE_DATA XenUsbHub_UBIH_SetDeviceHandleData;
+static USB_BUSIFFN_INITIALIZE_USB_DEVICE_EX XenUsbHub_UBIH_InitializeUsbDeviceEx;
+static USB_BUSIFFN_IS_ROOT XenUsbHub_UBIH_HubIsRoot;
+static USB_BUSIFFN_TEST_POINT XenUsbHub_UBIH_HubTestPoint;
+static USB_BUSIFFN_GET_DEVICE_PERFORMANCE_INFO XenUsbHub_UBIH_GetDevicePerformanceInfo;
+static USB_BUSIFFN_WAIT_ASYNC_POWERUP XenUsbHub_UBIH_WaitAsyncPowerUp;
+static USB_BUSIFFN_GET_DEVICE_ADDRESS XenUsbHub_UBIH_GetDeviceAddress;
+static USB_BUSIFFN_REF_DEVICE_HANDLE XenUsbHub_UBIH_RefDeviceHandle;
+static USB_BUSIFFN_DEREF_DEVICE_HANDLE XenUsbHub_UBIH_DerefDeviceHandle;
+static USB_BUSIFFN_SET_DEVICE_HANDLE_IDLE_READY_STATE XenUsbHub_UBIH_SetDeviceHandleIdleReadyState;
+static USB_BUSIFFN_GET_CONTAINER_ID_FOR_PORT XenUsbHub_UBIH_GetContainerIdForPort;
+static USB_BUSIFFN_SET_CONTAINER_ID_FOR_PORT XenUsbHub_UBIH_SetContainerIdForPort;
+static USB_BUSIFFN_ABORT_ALL_DEVICE_PIPES XenUsbHub_UBIH_AbortAllDevicePipes;
+static USB_BUSIFFN_SET_DEVICE_ERRATA_FLAG XenUsbHub_UBIH_SetDeviceErrataFlag;
+static USB_BUSIFFN_ACQUIRE_SEMAPHORE XenUsbHub_UBIH_AcquireBusSemaphore;
+static USB_BUSIFFN_RELEASE_SEMAPHORE XenUsbHub_UBIH_ReleaseBusSemaphore;
+static USB_BUSIFFN_CALC_PIPE_BANDWIDTH XenUsbHub_UBIH_CaculatePipeBandwidth;
+static USB_BUSIFFN_SET_BUS_WAKE_MODE XenUsbHub_UBIH_SetBusSystemWakeMode;
+static USB_BUSIFFN_SET_DEVICE_FLAG XenUsbHub_UBIH_SetDeviceFlag;
+
+
+
+
 
 static VOID
 XenUsbHub_EvtIoDefault(
@@ -401,15 +427,28 @@ XenUsbHub_EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous_sta
 
   /* USB likes to have a registry key with the symbolic link name in it. Have to wait until D0Entry as this is the PDO */
   status = WdfStringCreate(NULL, WDF_NO_OBJECT_ATTRIBUTES, &symbolicname_value_wdfstring);
-  status = WdfDeviceRetrieveDeviceInterfaceString(device, &GUID_DEVINTERFACE_USB_HUB, NULL, symbolicname_value_wdfstring);
-  FUNCTION_MSG("WdfDeviceREtrieveDeviceInterfaceString = %08x\n", status);
-  if (!NT_SUCCESS(status))
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_MSG("WdfStringCreate = %08x\n", status);
     return status;
+  }
+  status = WdfDeviceRetrieveDeviceInterfaceString(device, &GUID_DEVINTERFACE_USB_HUB, NULL, symbolicname_value_wdfstring);
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_MSG("WdfDeviceREtrieveDeviceInterfaceString = %08x\n", status);
+    return status;
+  }
   WdfStringGetUnicodeString(symbolicname_value_wdfstring, &symbolicname_value);
   FUNCTION_MSG("ROOT_HUB SymbolicName = %S\n", symbolicname_value.Buffer);
   status = WdfDeviceOpenRegistryKey(device, PLUGPLAY_REGKEY_DEVICE, KEY_SET_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &device_key);
-  WdfRegistryAssignUnicodeString(device_key, &symbolicname_name, &symbolicname_value);
-
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_MSG("WdfDeviceOpenRegistryKey = %08x\n", status);
+    return status;
+  }
+  status = WdfRegistryAssignUnicodeString(device_key, &symbolicname_name, &symbolicname_value);
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_MSG("WdfDeviceOpenRegistryKey = %08x\n", status);
+    return status;
+  }
+  WdfRegistryClose(device_key);
   FUNCTION_EXIT();
   
   return status;
@@ -538,7 +577,7 @@ static NTSTATUS
 XenUsbHub_UBIH_CreateUsbDevice(
   PVOID BusContext,
   PUSB_DEVICE_HANDLE *DeviceHandle,
-  PUSB_DEVICE_HANDLE *HubDeviceHandle,
+  PUSB_DEVICE_HANDLE HubDeviceHandle,
   USHORT PortStatus,
   USHORT PortNumber)
 {
@@ -551,14 +590,17 @@ XenUsbHub_UBIH_CreateUsbDevice(
   
   FUNCTION_ENTER();
 
-  KdPrint((__DRIVER_NAME "     BusContext = %p\n", BusContext));
-  KdPrint((__DRIVER_NAME "     DeviceHandle = %p\n", DeviceHandle));
-  KdPrint((__DRIVER_NAME "     *DeviceHandle = %p\n", *DeviceHandle));
-  KdPrint((__DRIVER_NAME "     HubDeviceHandle = %p\n", HubDeviceHandle));
-  KdPrint((__DRIVER_NAME "     *HubDeviceHandle = %p\n", *HubDeviceHandle));
-  KdPrint((__DRIVER_NAME "     PortStatus = %04X\n", PortStatus));
-  KdPrint((__DRIVER_NAME "     PortNumber = %d\n", PortNumber));
+  FUNCTION_MSG("BusContext = %p\n", BusContext);
+  FUNCTION_MSG("DeviceHandle = %p\n", DeviceHandle);
+  FUNCTION_MSG("*DeviceHandle = %p\n", *DeviceHandle);
+  FUNCTION_MSG("HubDeviceHandle = %p\n", HubDeviceHandle);
+  FUNCTION_MSG("PortStatus = %04X\n", PortStatus);
+  FUNCTION_MSG("PortNumber = %d\n", PortNumber);
   usb_device = ExAllocatePoolWithTag(NonPagedPool, sizeof(xenusb_device_t), XENUSB_POOL_TAG);
+  if (!usb_device) {
+    FUNCTION_EXIT();
+    return STATUS_INSUFFICIENT_RESOURCES;
+  }
   usb_device->port_number = PortNumber;
   *DeviceHandle = usb_device;  
 
@@ -603,7 +645,15 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   xupdd->usb_device->device_type = Usb20Device;
 
   buf = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENUSB_POOL_TAG);
+  if (!buf) {
+    FUNCTION_MSG("ExAllocatePoolWithTag(buf) failed\n");
+    return STATUS_INSUFFICIENT_RESOURCES;
+  }
   mdl = IoAllocateMdl(buf, PAGE_SIZE, FALSE, FALSE, NULL);
+  if (!mdl) {
+    FUNCTION_MSG("IoAllocateMdl(buf) failed\n", status);
+    return STATUS_INSUFFICIENT_RESOURCES;
+  }
   MmBuildMdlForNonPagedPool(mdl);
 
   WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&pvurb_descriptor, &pvurb, sizeof(pvurb));
@@ -624,6 +674,10 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   setup_packet->wLength = pvurb.req.buffer_length;
   pvurb.mdl = NULL;
   status = WdfIoTargetSendInternalIoctlOthersSynchronously(xupdd->bus_fdo_target, NULL, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, &pvurb_descriptor, NULL, NULL, &send_options, NULL);
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_MSG("WdfIoTargetSendInternalIoctlOthersSynchronously(USB_REQUEST_SET_ADDRESS) = %08x\n", status);
+    return status;
+  }
   FUNCTION_MSG("IOCTL_INTERNAL_PVUSB_SUBMIT_URB status = %08x\n", status);
   FUNCTION_MSG("rsp start_frame = %d\n", pvurb.rsp.start_frame);
   FUNCTION_MSG("rsp status = %d\n", pvurb.rsp.status);
@@ -645,7 +699,10 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   setup_packet->wLength = pvurb.req.buffer_length;
   pvurb.mdl = mdl;
   status = WdfIoTargetSendInternalIoctlOthersSynchronously(xupdd->bus_fdo_target, NULL, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, &pvurb_descriptor, NULL, NULL, &send_options, NULL);
-  FUNCTION_MSG("IOCTL_INTERNAL_PVUSB_SUBMIT_URB status = %08x\n", status);
+  if (!NT_SUCCESS(status)) {
+    FUNCTION_MSG("WdfIoTargetSendInternalIoctlOthersSynchronously(USB_REQUEST_GET_DESCRIPTOR, USB_DEVICE_DESCRIPTOR_TYPE) = %08x\n", status);
+    return status;
+  }
   KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", pvurb.rsp.start_frame));
   KdPrint((__DRIVER_NAME "     rsp status = %d\n", pvurb.rsp.status));
   KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", pvurb.rsp.actual_length));
@@ -656,6 +713,10 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   KdPrint((__DRIVER_NAME "     bNumConfigurations = %d\n", device_descriptor->bNumConfigurations));
   memcpy(&usb_device->device_descriptor, device_descriptor, device_descriptor->bLength);
   usb_device->configs = ExAllocatePoolWithTag(NonPagedPool, sizeof(PVOID) * device_descriptor->bNumConfigurations, XENUSB_POOL_TAG);
+  if (!usb_device->configs) {
+    FUNCTION_MSG("ExAllocatePoolWithTag(usb_device->configs) failed\n");
+    return STATUS_INSUFFICIENT_RESOURCES;
+  }
   KdPrint((__DRIVER_NAME "     bLength = %d\n", device_descriptor->bLength));
   KdPrint((__DRIVER_NAME "     bDescriptorType = %d\n", device_descriptor->bDescriptorType));
   KdPrint((__DRIVER_NAME "     bcdUSB = %04x\n", device_descriptor->bcdUSB));
@@ -684,6 +745,10 @@ XenUsbHub_UBIH_InitializeUsbDevice(
     setup_packet->wLength = pvurb.req.buffer_length;
     pvurb.mdl = mdl;
     status = WdfIoTargetSendInternalIoctlOthersSynchronously(xupdd->bus_fdo_target, NULL, IOCTL_INTERNAL_PVUSB_SUBMIT_URB, &pvurb_descriptor, NULL, NULL, &send_options, NULL);
+    if (!NT_SUCCESS(status)) {
+      FUNCTION_MSG("WdfIoTargetSendInternalIoctlOthersSynchronously(USB_REQUEST_GET_DESCRIPTOR, USB_CONFIGURATION_DESCRIPTOR_TYPE) = %08x\n", status);
+      return status;
+    }
     KdPrint((__DRIVER_NAME "     rsp start_frame = %d\n", pvurb.rsp.start_frame));
     KdPrint((__DRIVER_NAME "     rsp status = %d\n", pvurb.rsp.status));
     KdPrint((__DRIVER_NAME "     rsp actual_length = %d\n", pvurb.rsp.actual_length));
@@ -700,6 +765,10 @@ XenUsbHub_UBIH_InitializeUsbDevice(
     KdPrint((__DRIVER_NAME "      bmAttributes = %02x\n", config_descriptor->bmAttributes));
     KdPrint((__DRIVER_NAME "      MaxPower = %d\n", config_descriptor->MaxPower));
     usb_device->configs[i] = ExAllocatePoolWithTag(NonPagedPool, sizeof(xenusb_config_t) + sizeof(PVOID) * config_descriptor->bNumInterfaces, XENUSB_POOL_TAG);
+    if (!usb_device->configs) {
+      FUNCTION_MSG("ExAllocatePoolWithTag(usb_device->configs[i]) failed\n");
+      return STATUS_INSUFFICIENT_RESOURCES;
+    }
     usb_device->configs[i]->device = usb_device;
     memcpy(&usb_device->configs[i]->config_descriptor, config_descriptor, sizeof(USB_CONFIGURATION_DESCRIPTOR));
     usb_device->configs[i]->config_descriptor_all = ExAllocatePoolWithTag(NonPagedPool, config_descriptor->wTotalLength, XENUSB_POOL_TAG);
@@ -1171,7 +1240,7 @@ static NTSTATUS
 XenUsbHub_UBIH_CreateUsbDeviceEx(
   PVOID BusContext,
   PUSB_DEVICE_HANDLE *DeviceHandle,
-  PUSB_DEVICE_HANDLE *HubDeviceHandle,
+  PUSB_DEVICE_HANDLE HubDeviceHandle,
   USHORT PortStatus,
   USHORT PortNumber,
   PUSB_CD_ERROR_INFORMATION CdErrorInfo,
@@ -1399,7 +1468,7 @@ XenUsbHub_UBIH_RefDeviceHandle(
   return STATUS_SUCCESS;
 }
 
-static NTSTATUS
+static VOID
 XenUsbHub_UBIH_DerefDeviceHandle(
   PVOID BusContext,
   PUSB_DEVICE_HANDLE DeviceHandle,
@@ -1413,7 +1482,6 @@ XenUsbHub_UBIH_DerefDeviceHandle(
   FUNCTION_ENTER();
   FUNCTION_MSG("This should do something\n");
   FUNCTION_EXIT();
-  return STATUS_SUCCESS;
 }
 
 static ULONG
@@ -1444,7 +1512,7 @@ XenUsbHub_UBIH_GetContainerIdForPort(
   return STATUS_UNSUCCESSFUL;
 }
 
-static NTSTATUS
+static VOID
 XenUsbHub_UBIH_SetContainerIdForPort(
   PVOID BusContext,
   USHORT PortNumber,
@@ -1455,7 +1523,6 @@ XenUsbHub_UBIH_SetContainerIdForPort(
   UNREFERENCED_PARAMETER(ContainerId);
   FUNCTION_ENTER();
   FUNCTION_EXIT();
-  return STATUS_UNSUCCESSFUL;
 }
 
 static NTSTATUS

@@ -480,7 +480,7 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
     {
       PHYSICAL_ADDRESS physical_address = MmGetPhysicalAddress(ptr);
       
-      gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0,
+      gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context,
                (ULONG)(physical_address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF, (ULONG)'SCSI');
       if (gref == INVALID_GRANT_REF)
       {
@@ -1603,8 +1603,10 @@ XenVbd_HwScsiAdapterControl(PVOID DeviceExtension, SCSI_ADAPTER_CONTROL_TYPE Con
     KdPrint((__DRIVER_NAME "     ScsiRestartAdapter\n"));
     if (!xvdd->inactive)
     {
-      if (XenVbd_InitFromConfig(xvdd) != SP_RETURN_FOUND)
+      if (XenVbd_InitFromConfig(xvdd) != SP_RETURN_FOUND) {
+        #pragma warning(suppress:28159)
         KeBugCheckEx(DATA_COHERENCY_EXCEPTION, 0, (ULONG_PTR) xvdd, 0, 0);
+      }
       xvdd->ring_detect_state = RING_DETECT_STATE_NOT_STARTED;
     }
     break;

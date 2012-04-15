@@ -518,7 +518,8 @@ XenNet_TxBufferGC(struct xennet_info *xi, BOOLEAN dont_set_event)
         PUCHAR header;
         nb = shadow->nb;
         mdl = NET_BUFFER_CURRENT_MDL(nb);
-        header = MmGetSystemAddressForMdlSafe(mdl, LowPagePriority); /* already mapped so guaranteed to work */
+        #pragma warning(suppress:28193) /* already mapped so guaranteed to work */
+        header = MmGetSystemAddressForMdlSafe(mdl, LowPagePriority);
         header += NET_BUFFER_CURRENT_MDL_OFFSET(nb);
 
         xi->stats.ifHCOutOctets += nb->DataLength;
