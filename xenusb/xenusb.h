@@ -108,8 +108,8 @@ typedef struct _pvurb pvurb_t;
 typedef struct _partial_pvurb partial_pvurb_t;
 
 /* needs to be at least USB_URB_RING_SIZE number of requests available */
-#define MAX_ID_COUNT 64
-#define ID_COUNT min(MAX_ID_COUNT, USB_URB_RING_SIZE)
+#define MAX_REQ_ID_COUNT 64
+#define REQ_ID_COUNT min(MAX_REQ_ID_COUNT, USB_URB_RING_SIZE)
 
 /*
 for IOCTL_PVUSB_SUBMIT_URB, the pvusb_urb_t struct is passed as Parameters.Others.Arg1
@@ -216,8 +216,8 @@ typedef struct {
   
   WDFDEVICE root_hub_device;
 
-  struct stack_state *id_ss;
-  partial_pvurb_t *partial_pvurbs[MAX_ID_COUNT];
+  struct stack_state *req_id_ss;
+  partial_pvurb_t *partial_pvurbs[MAX_REQ_ID_COUNT];
 
   PUCHAR config_page;
 
@@ -245,6 +245,8 @@ typedef struct {
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENUSB_DEVICE_DATA, GetXudd)
 
+#define DEV_ID_COUNT 64
+
 typedef struct {  
   WDFDEVICE wdf_device;
   WDFDEVICE wdf_device_bus_fdo;
@@ -252,8 +254,7 @@ typedef struct {
   WDFQUEUE io_queue;
   WDFQUEUE urb_queue;
   ULONG device_number;
-  //ULONG port_number;
-  //ULONG port_type;
+  struct stack_state *dev_id_ss;
   xenusb_device_t *usb_device;
   PVOID BusCallbackContext;
   PRH_INIT_CALLBACK BusCallbackFunction;
@@ -281,20 +282,19 @@ typedef struct {
 
 
 static uint16_t
-get_id_from_freelist(PXENUSB_DEVICE_DATA xudd) {
+get_id_from_freelist(struct stack_state *ss) {
   ULONG_PTR _id;
-  if (!stack_pop(xudd->id_ss, (VOID *)&_id)) {
+  if (!stack_pop(ss, (VOID *)&_id)) {
     KdPrint((__DRIVER_NAME "     No more id's\n"));
     return (uint16_t)-1;
   }
   return (uint16_t)_id;
 }
 
-/* call with ring lock held */
 static VOID
-put_id_on_freelist(PXENUSB_DEVICE_DATA xudd, uint16_t id) {
+put_id_on_freelist(struct stack_state *ss, uint16_t id) {
   ULONG_PTR _id = id;
-  stack_push(xudd->id_ss, (VOID *)_id);
+  stack_push(ss, (VOID *)_id);
 }
 
 static
@@ -308,21 +308,6 @@ ULONGLONG parse_numeric_string(PCHAR string)
   }
   return val;
 }
-
-#if 0
-static VOID
-XenUsb_PutRequest(PXENVBD_DEVICE_DATA xudd, usbif_request_t *req)
-{
-  *RING_GET_REQUEST(&xudd->ring, xudd->ring.req_prod_pvt) = *req;
-  xudd->ring.req_prod_pvt++;
-}
-
-static usbif_request_t *
-XenUsb_GetResponse(PXENVBD_DEVICE_DATA xudd, ULONG i)
-{
-  return RING_GET_RESPONSE(&xvdd->ring, i);
-}
-#endif
 
 EVT_WDF_DRIVER_DEVICE_ADD XenUsb_EvtDriverDeviceAdd;
 

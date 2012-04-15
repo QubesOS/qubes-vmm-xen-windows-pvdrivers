@@ -105,7 +105,7 @@ PutRequestsOnRing(PXENUSB_DEVICE_DATA xudd) {
   while ((partial_pvurb = (partial_pvurb_t *)RemoveHeadList((PLIST_ENTRY)&xudd->partial_pvurb_queue)) != (partial_pvurb_t *)&xudd->partial_pvurb_queue) {
     FUNCTION_MSG("partial_pvurb = %p\n", partial_pvurb);
     /* if this partial_pvurb is cancelling another we don't need to check if the cancelled partial_pvurb is on the ring - that is taken care of in HandleEvent */
-    id = get_id_from_freelist(xudd);
+    id = get_id_from_freelist(xudd->req_id_ss);
     if (id == (uint16_t)-1) {
       FUNCTION_MSG("no free ring slots\n");
       InsertHeadList(&xudd->partial_pvurb_queue, &partial_pvurb->entry);
@@ -199,7 +199,7 @@ XenUsb_HandleEvent(PVOID context)
       default:
         break;
       }
-      put_id_on_freelist(xudd, partial_pvurb->rsp.id);
+      put_id_on_freelist(xudd->req_id_ss, partial_pvurb->rsp.id);
       partial_pvurb->pvurb->next = NULL;
       if (!partial_pvurb->pvurb->ref) {
         if (complete_tail) {
@@ -242,16 +242,18 @@ XenUsb_HandleEvent(PVOID context)
     KeMemoryBarrier();
     for (cons = xudd->conn_ring.rsp_cons; cons != prod; cons++)
     {
+      USHORT old_port_status;
       conn_rsp = RING_GET_RESPONSE(&xudd->conn_ring, cons);
       KdPrint((__DRIVER_NAME "     conn_rsp->portnum = %d\n", conn_rsp->portnum));
       KdPrint((__DRIVER_NAME "     conn_rsp->speed = %d\n", conn_rsp->speed));
       
+      old_port_status = xudd->ports[conn_rsp->portnum - 1].port_status;
       xudd->ports[conn_rsp->portnum - 1].port_type = conn_rsp->speed;
       xudd->ports[conn_rsp->portnum - 1].port_status &= ~((1 << PORT_LOW_SPEED) | (1 << PORT_HIGH_SPEED) | (1 << PORT_CONNECTION));
       switch (conn_rsp->speed)
       {
       case USB_PORT_TYPE_NOT_CONNECTED:
-        //xudd->ports[conn_rsp->portnum - 1].port_status |= 0;
+        xudd->ports[conn_rsp->portnum - 1].port_status &= ~(1 << PORT_ENABLE);
         break;
       case USB_PORT_TYPE_LOW_SPEED:
         xudd->ports[conn_rsp->portnum - 1].port_status |= (1 << PORT_LOW_SPEED) | (1 << PORT_CONNECTION);
@@ -263,8 +265,9 @@ XenUsb_HandleEvent(PVOID context)
         xudd->ports[conn_rsp->portnum - 1].port_status |= (1 << PORT_HIGH_SPEED) | (1 << PORT_CONNECTION);
         break;
       }      
-      xudd->ports[conn_rsp->portnum - 1].port_change |= (1 << PORT_CONNECTION);
-      port_changed = TRUE;    
+      xudd->ports[conn_rsp->portnum - 1].port_change |= (xudd->ports[conn_rsp->portnum - 1].port_status ^ old_port_status) & ((1 << PORT_ENABLE) | (1 << PORT_CONNECTION));
+      if (xudd->ports[conn_rsp->portnum - 1].port_change)
+        port_changed = TRUE;
       conn_req = RING_GET_REQUEST(&xudd->conn_ring, xudd->conn_ring.req_prod_pvt);
       conn_req->id = conn_rsp->id;
       xudd->conn_ring.req_prod_pvt++;
@@ -386,9 +389,9 @@ XenUsb_CompleteXenbusInit(PXENUSB_DEVICE_DATA xudd)
     return STATUS_BAD_INITIAL_PC;
   }
   
-  stack_new(&xudd->id_ss, ID_COUNT);
-  for (i = 0; i < ID_COUNT; i++)  {
-    put_id_on_freelist(xudd, (uint16_t)i);
+  stack_new(&xudd->req_id_ss, REQ_ID_COUNT);
+  for (i = 0; i < REQ_ID_COUNT; i++)  {
+    put_id_on_freelist(xudd->req_id_ss, (uint16_t)i);
   }
   
   return STATUS_SUCCESS;

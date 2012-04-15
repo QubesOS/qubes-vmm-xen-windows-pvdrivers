@@ -639,7 +639,7 @@ XenUsbHub_UBIH_InitializeUsbDevice(
   usb_device->pdo_device = BusContext;
   
   // TODO: get address from freelist and assign it to the device...
-  usb_device->address = 2;
+  usb_device->address = (UCHAR)get_id_from_freelist(xupdd->dev_id_ss);
   // TODO: get this stuff properly ...
   xupdd->usb_device->device_speed = UsbHighSpeed;
   xupdd->usb_device->device_type = Usb20Device;
@@ -838,6 +838,7 @@ XenUsbHub_UBIH_InitializeUsbDevice(
       j++;
     }
   }
+  ExFreePoolWithTag(buf, XENUSB_POOL_TAG);
 
   usb_device->active_config = usb_device->configs[0];
   usb_device->active_interface = usb_device->configs[0]->interfaces[0];
@@ -918,9 +919,10 @@ XenUsbHub_UBIH_RemoveUsbDevice (
  ULONG Flags)
 {
   NTSTATUS status = STATUS_SUCCESS;
-
-  UNREFERENCED_PARAMETER(BusContext);
-  UNREFERENCED_PARAMETER(DeviceHandle);
+  WDFDEVICE device = BusContext;
+  PXENUSB_PDO_DEVICE_DATA xupdd = GetXupdd(device);
+  xenusb_device_t *usb_device = DeviceHandle;
+  int i, j, k;
 
   FUNCTION_ENTER();
   
@@ -930,6 +932,20 @@ XenUsbHub_UBIH_RemoveUsbDevice (
   if (Flags & USBD_MARK_DEVICE_BUSY)
     KdPrint((__DRIVER_NAME "     USBD_MARK_DEVICE_BUSY\n"));
 
+  put_id_on_freelist(xupdd->dev_id_ss, (uint16_t)usb_device->address);
+  // check if there are no pending requests
+  for (i = 0; i < usb_device->device_descriptor.bNumConfigurations; i++) {
+    for (j = 0; j < usb_device->configs[i]->config_descriptor.bNumInterfaces; j++) {
+      for (k = 0; k < usb_device->configs[i]->interfaces[j]->interface_descriptor.bNumEndpoints; k++) {
+        ExFreePoolWithTag(usb_device->configs[i]->interfaces[j]->endpoints[k], XENUSB_POOL_TAG);
+      }
+      ExFreePoolWithTag(usb_device->configs[i]->interfaces[j], XENUSB_POOL_TAG);
+    }
+    ExFreePoolWithTag(usb_device->configs[i]->config_descriptor_all, XENUSB_POOL_TAG);
+    ExFreePoolWithTag(usb_device->configs[i], XENUSB_POOL_TAG);
+  }
+  ExFreePoolWithTag(usb_device->configs, XENUSB_POOL_TAG);
+  ExFreePoolWithTag(usb_device, XENUSB_POOL_TAG);
   FUNCTION_EXIT();
   return status;
 }
@@ -1999,6 +2015,7 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   PNP_LOCATION_INTERFACE pli;
 #endif
   UCHAR pnp_minor_functions[] = { IRP_MN_QUERY_INTERFACE };
+  int i;
 
   FUNCTION_ENTER();
 
@@ -2056,6 +2073,12 @@ XenUsb_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   xupdd = GetXupdd(child_device);
 
   xudd->root_hub_device = child_device;
+  
+  stack_new(&xupdd->dev_id_ss, DEV_ID_COUNT);
+  /* 0 is invalid and 1 is the root hub */
+  for (i = 2; i < DEV_ID_COUNT; i++)  {
+    put_id_on_freelist(xupdd->dev_id_ss, (uint16_t)i);
+  }
   
   xupdd->wdf_device = child_device;
   xupdd->wdf_device_bus_fdo = WdfChildListGetDevice(child_list);
