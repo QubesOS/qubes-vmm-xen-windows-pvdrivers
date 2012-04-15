@@ -311,9 +311,6 @@ XenUsb_StartXenbusInit(PXENUSB_DEVICE_DATA xudd)
       break;
     case XEN_INIT_TYPE_READ_STRING_FRONT:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING_FRONT - %s = %s\n", setting, value));
-      if (strcmp(setting, "backend-id") == 0) {
-        xudd->backend_id = (domid_t)atoi(value);
-      }
       break;
     case XEN_INIT_TYPE_VECTORS:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_VECTORS\n"));
@@ -447,7 +444,6 @@ XenUsb_EvtDevicePrepareHardware(WDFDEVICE device, WDFCMRESLIST resources_raw, WD
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_RING, "conn-ring-ref", NULL, NULL);
   #pragma warning(suppress:4054)
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_EVENT_CHANNEL_DPC, "event-channel", (PVOID)XenUsb_HandleEvent, xudd);
-  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_FRONT, "backend-id", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
   __ADD_XEN_INIT_UCHAR(&ptr, 0); /* no pre-connect required */
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_POST_CONNECT, NULL, NULL, NULL);
@@ -990,7 +986,7 @@ XenUsb_EvtIoInternalDeviceControl_PVURB(
     partial_pvurb->req.buffer_length = (USHORT)MmGetMdlByteCount(partial_pvurb->mdl);
     partial_pvurb->req.nr_buffer_segs = (USHORT)ADDRESS_AND_SIZE_TO_SPAN_PAGES(MmGetMdlVirtualAddress(partial_pvurb->mdl), MmGetMdlByteCount(partial_pvurb->mdl));
     for (i = 0; i < partial_pvurb->req.nr_buffer_segs; i++) {
-      partial_pvurb->req.seg[i].gref = xudd->vectors.GntTbl_GrantAccess(xudd->vectors.context, xudd->backend_id,
+      partial_pvurb->req.seg[i].gref = xudd->vectors.GntTbl_GrantAccess(xudd->vectors.context,
            (ULONG)MmGetMdlPfnArray(partial_pvurb->mdl)[i], FALSE, INVALID_GRANT_REF, (ULONG)'XUSB');
       partial_pvurb->req.seg[i].offset = (USHORT)offset;
       partial_pvurb->req.seg[i].length = (USHORT)min((USHORT)remaining, (USHORT)PAGE_SIZE - offset);

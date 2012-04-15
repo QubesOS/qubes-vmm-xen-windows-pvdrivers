@@ -203,7 +203,7 @@ XenPci_GetBackendAndAddWatch(WDFDEVICE device)
     XenPci_FreeMem(res);
     return STATUS_UNSUCCESSFUL;
   }
-  xppdd->backend_id = atoi(value);
+  xppdd->backend_id = (domid_t)atoi(value);
   XenPci_FreeMem(value);
 
   /* Add watch on backend state */
@@ -354,13 +354,13 @@ XenPci_EvtChn_Sync(PVOID context, PXEN_EVTCHN_SYNC_ROUTINE sync_routine, PVOID s
 }
 
 static grant_ref_t
-XenPci_GntTbl_GrantAccess(PVOID context, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref, ULONG tag)
+XenPci_GntTbl_GrantAccess(PVOID context, uint32_t frame, int readonly, grant_ref_t ref, ULONG tag)
 {
   WDFDEVICE device = context;
   PXENPCI_PDO_DEVICE_DATA xppdd = GetXppdd(device);
   PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
   
-  return GntTbl_GrantAccess(xpdd, domid, frame, readonly, ref, tag);
+  return GntTbl_GrantAccess(xpdd, xppdd->backend_id, frame, readonly, ref, tag);
 }
 
 static BOOLEAN

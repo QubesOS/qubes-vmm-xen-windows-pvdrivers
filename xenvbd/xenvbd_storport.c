@@ -605,7 +605,7 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
         ULONG length;       
         physical_address = StorPortGetPhysicalAddress(xvdd, srb, ptr, &length);
       }
-      gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0,
+      gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context,
              (ULONG)(physical_address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF, xvdd->grant_tag);
       if (gref == INVALID_GRANT_REF)
       {

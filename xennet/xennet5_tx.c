@@ -49,7 +49,7 @@ XenNet_PutCbOnRing(struct xennet_info *xi, PVOID coalesce_buf, ULONG length, gra
   ASSERT(xi->tx_shadows[tx->id].gref == INVALID_GRANT_REF);
   ASSERT(!xi->tx_shadows[tx->id].cb);
   xi->tx_shadows[tx->id].cb = coalesce_buf;
-  tx->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0, (ULONG)(MmGetPhysicalAddress(coalesce_buf).QuadPart >> PAGE_SHIFT), FALSE, gref, (ULONG)'XNTX');
+  tx->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, (ULONG)(MmGetPhysicalAddress(coalesce_buf).QuadPart >> PAGE_SHIFT), FALSE, gref, (ULONG)'XNTX');
   xi->tx_shadows[tx->id].gref = tx->gref;
   tx->offset = 0;
   tx->size = (USHORT)length;
@@ -342,7 +342,7 @@ XenNet_HWSendPacket(struct xennet_info *xi, PNDIS_PACKET packet)
       offset = MmGetMdlByteOffset(pi.curr_buffer) + pi.curr_mdl_offset;
       pfn = MmGetMdlPfnArray(pi.curr_buffer)[offset >> PAGE_SHIFT];
       txN->offset = (USHORT)offset & (PAGE_SIZE - 1);
-      txN->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0, (ULONG)pfn, FALSE, gref, (ULONG)'XNTX');
+      txN->gref = xi->vectors.GntTbl_GrantAccess(xi->vectors.context, (ULONG)pfn, FALSE, gref, (ULONG)'XNTX');
       ASSERT(xi->tx_shadows[txN->id].gref == INVALID_GRANT_REF);
       xi->tx_shadows[txN->id].gref = txN->gref;
       //ASSERT(sg->Elements[sg_element].Length > sg_offset);

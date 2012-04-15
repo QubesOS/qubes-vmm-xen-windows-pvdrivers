@@ -635,7 +635,7 @@ XenScsi_PutSrbOnRing(PXENSCSI_DEVICE_DATA xsdd, PSCSI_REQUEST_BLOCK Srb)
     {
       return; /* better than crashing... */
     }
-    xsdd->vectors.GntTbl_GrantAccess(xsdd->vectors.context, 0, (ULONG)pfn, 0, shadow->req.seg[shadow->req.nr_segments].gref, (ULONG)'SCSI');
+    xsdd->vectors.GntTbl_GrantAccess(xsdd->vectors.context, 0, (ULONG)pfn, shadow->req.seg[shadow->req.nr_segments].gref, (ULONG)'SCSI');
     shadow->req.seg[shadow->req.nr_segments].offset = (USHORT)(physical_address.LowPart & (PAGE_SIZE - 1));
     shadow->req.seg[shadow->req.nr_segments].length = (USHORT)min(PAGE_SIZE - (ULONG)shadow->req.seg[shadow->req.nr_segments].offset, remaining);
     remaining -= (ULONG)shadow->req.seg[shadow->req.nr_segments].length;

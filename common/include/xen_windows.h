@@ -250,7 +250,7 @@ typedef BOOLEAN
 (*PXEN_EVTCHN_SYNC)(PVOID Context, PXEN_EVTCHN_SYNC_ROUTINE sync_routine, PVOID sync_context);
 
 typedef grant_ref_t
-(*PXEN_GNTTBL_GRANTACCESS)(PVOID Context, domid_t domid, uint32_t frame, int readonly, grant_ref_t ref, ULONG tag);
+(*PXEN_GNTTBL_GRANTACCESS)(PVOID Context, uint32_t frame, int readonly, grant_ref_t ref, ULONG tag);
 
 typedef BOOLEAN
 (*PXEN_GNTTBL_ENDACCESS)(PVOID Context, grant_ref_t ref, BOOLEAN keepref, ULONG tag);
@@ -305,7 +305,7 @@ XenPci_FreeMem(PVOID Ptr)
   ExFreePoolWithTag(Ptr, XENPCI_POOL_TAG);
 }
 
-#define XEN_DATA_MAGIC 0x12345679
+#define XEN_DATA_MAGIC (ULONG)'XV02'
 
 typedef struct {
   ULONG magic;
