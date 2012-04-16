@@ -204,7 +204,7 @@ XenPci_GetBackendAndAddWatch(WDFDEVICE device)
     XenPci_FreeMem(res);
     return STATUS_UNSUCCESSFUL;
   }
-  xppdd->backend_id = (domid_t)atoi(value);
+  xppdd->backend_id = atoi(value);
   XenPci_FreeMem(value);
 
   /* Add watch on backend state */
