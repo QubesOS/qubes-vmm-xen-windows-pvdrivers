@@ -331,7 +331,6 @@ typedef struct {
 
   CHAR path[128];
   CHAR backend_path[128];
-  domid_t backend_id;
 
   PXEN_XENBUS_READ XenBus_Read;
   PXEN_XENBUS_WRITE XenBus_Write;

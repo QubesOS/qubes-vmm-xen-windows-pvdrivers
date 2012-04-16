@@ -664,7 +664,6 @@ XenPci_XenConfigDeviceSpecifyBuffers(WDFDEVICE device, PUCHAR src, PUCHAR dst)
   RtlStringCbCopyA(vectors.path, 128, xppdd->path);
   RtlStringCbCopyA(vectors.backend_path, 128, xppdd->backend_path);
   //vectors.pdo_event_channel = xpdd->pdo_event_channel;
-  vectors.backend_id = xppdd->backend_id;
   vectors.XenBus_Read = XenPci_XenBus_Read;
   vectors.XenBus_Write = XenPci_XenBus_Write;
   vectors.XenBus_Printf = XenPci_XenBus_Printf;
