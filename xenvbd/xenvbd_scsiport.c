@@ -480,7 +480,7 @@ XenVbd_PutQueuedSrbsOnRing(PXENVBD_DEVICE_DATA xvdd)
     {
       PHYSICAL_ADDRESS physical_address = MmGetPhysicalAddress(ptr);
       
-      gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, xvdd->vectors.backend_id,
+      gref = xvdd->vectors.GntTbl_GrantAccess(xvdd->vectors.context, 0,
                (ULONG)(physical_address.QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF, (ULONG)'SCSI');
       if (gref == INVALID_GRANT_REF)
       {
