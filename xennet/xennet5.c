@@ -162,6 +162,13 @@ XenNet_ConnectBackend(struct xennet_info *xi)
         xi->event_channel = PtrToUlong(value);
       }
       break;
+    case XEN_INIT_TYPE_READ_STRING_FRONT:
+      KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
+      if (strcmp(setting, "backend-id") == 0)
+      {
+        xi->backend_id = (domid_t)atoi(value);
+      }
+      break;
     case XEN_INIT_TYPE_READ_STRING_BACK:
       KdPrint((__DRIVER_NAME "     XEN_INIT_TYPE_READ_STRING - %s = %s\n", setting, value));
       if (strcmp(setting, "mac") == 0)
@@ -420,6 +427,7 @@ XenNet_D0Entry(struct xennet_info *xi)
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mac", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-sg", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "feature-gso-tcpv4", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_FRONT, "backend-id", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "request-rx-copy", "1", NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_WRITE_STRING, "feature-rx-notify", "1", NULL);
   RtlStringCbPrintfA(buf, ARRAY_SIZE(buf), "%d", !xi->config_csum);
