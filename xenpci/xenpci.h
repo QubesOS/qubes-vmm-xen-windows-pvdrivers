@@ -254,7 +254,6 @@ typedef struct {
   ULONG irq_vector;
   KIRQL irq_level;
   char backend_path[128];
-  domid_t backend_id;
   //PVOID xenbus_request;
   KEVENT backend_state_event;
   ULONG backend_state;
