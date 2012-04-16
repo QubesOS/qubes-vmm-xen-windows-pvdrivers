@@ -381,6 +381,11 @@ XenUsb_EvtIoInternalDeviceControl_ROOTHUB_SUBMIT_URB(
             xudd->ports[decode_data.setup_packet.default_pipe_setup_packet.wIndex.LowByte - 1].port_change &= ~(1 << PORT_CONNECTION);
             urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
             break;
+          case C_PORT_ENABLE:
+            KdPrint((__DRIVER_NAME "        C_PORT_ENABLE\n"));
+            xudd->ports[decode_data.setup_packet.default_pipe_setup_packet.wIndex.LowByte - 1].port_change &= ~(1 << PORT_ENABLE);
+            urb->UrbHeader.Status = USBD_STATUS_SUCCESS;
+            break;
           case C_PORT_RESET:
             KdPrint((__DRIVER_NAME "        C_PORT_RESET\n"));
             xudd->ports[decode_data.setup_packet.default_pipe_setup_packet.wIndex.LowByte - 1].port_change &= ~(1 << PORT_RESET);

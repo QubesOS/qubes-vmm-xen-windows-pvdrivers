@@ -88,11 +88,16 @@ static void XenDbgPrint(PCHAR string, ULONG length)
       for (j = 1000000000000000000L; j >= 1; j /= 10)
         if (current_time.QuadPart / j)
           break;
-      for (; j >= 1; j /= 10)
+      for (; j >= 1; j /= 10) {
+        #pragma warning(suppress:28138)
         WRITE_PORT_UCHAR(XEN_IOPORT_LOG, '0' + (UCHAR)((current_time.QuadPart / j) % 10));
+      }
+      #pragma warning(suppress:28138)
       WRITE_PORT_UCHAR(XEN_IOPORT_LOG, ':');
+      #pragma warning(suppress:28138)
       WRITE_PORT_UCHAR(XEN_IOPORT_LOG, ' ');
     }
+    #pragma warning(suppress:28138)
     WRITE_PORT_UCHAR(XEN_IOPORT_LOG, string[i]);
     last_newline = (string[i] == '\n');
   }
@@ -103,6 +108,7 @@ static void XenDbgPrint(PCHAR string, ULONG length)
 static VOID
 XenPci_DbgWriteChar(CHAR c)
 {
+  #pragma warning(suppress:28138)
   WRITE_PORT_UCHAR(XEN_IOPORT_LOG, c);
 }
 
@@ -111,6 +117,7 @@ XenPci_DbgWriteString(PCHAR string)
 {
   while (*string)
   {
+    #pragma warning(suppress:28138)
     WRITE_PORT_UCHAR(XEN_IOPORT_LOG, *string);
     string++;
   }
@@ -258,7 +265,9 @@ XenPci_HookDbgPrint()
 {
   NTSTATUS status = STATUS_SUCCESS;
 
+  #pragma warning(suppress:28138)
   if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0x49d2
+    #pragma warning(suppress:28138)
     || READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0xd249)
   {
     //#pragma warning(suppress:4055)
@@ -299,7 +308,9 @@ XenPci_UnHookDbgPrint()
 {
   NTSTATUS status = STATUS_SUCCESS;
 
+  #pragma warning(suppress:28138)
   if (READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0x49d2
+    #pragma warning(suppress:28138)
     || READ_PORT_USHORT(XEN_IOPORT_MAGIC) == 0xd249)
   {
     //#pragma warning(suppress:4055)

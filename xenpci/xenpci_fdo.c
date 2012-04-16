@@ -189,6 +189,7 @@ XenPci_SysrqHandler(char *path, PVOID context)
   case 0:
     break;
   case 'B': /* cause a bug check */
+    #pragma warning(suppress:28159)
     KeBugCheckEx(('X' << 16)|('E' << 8)|('N'), 0x00000001, 0x00000000, 0x00000000, 0x00000000);
     break;
   case 'A': /* cause an assert */
@@ -595,7 +596,11 @@ XenPci_SuspendEvtDpc(PVOID context)
   WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
   attributes.ParentObject = device;
   status = WdfWorkItemCreate(&workitem_config, &attributes, &workitem);
-  // TODO: check status here
+  if (status != STATUS_SUCCESS) {
+    /* how should we fail here */
+    FUNCTION_MSG("WdfWorkItemCreate failed\n");
+    return;
+  }
   WdfWorkItemEnqueue(workitem);
 }
 

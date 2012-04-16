@@ -54,7 +54,7 @@ get_pb_from_freelist(struct xennet_info *xi)
     NdisFreeMemory(pb, sizeof(shared_buffer_t), 0);
     return NULL;
   }
-  pb->gref = (grant_ref_t)xi->vectors.GntTbl_GrantAccess(xi->vectors.context, 0,
+  pb->gref = (grant_ref_t)xi->vectors.GntTbl_GrantAccess(xi->vectors.context,
             (ULONG)(MmGetPhysicalAddress(pb->virtual).QuadPart >> PAGE_SHIFT), FALSE, INVALID_GRANT_REF, (ULONG)'XNRX');
   if (pb->gref == INVALID_GRANT_REF)
   {
