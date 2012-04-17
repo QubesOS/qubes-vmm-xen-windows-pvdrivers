@@ -1,7 +1,7 @@
 #!/bin/sh
 
 SRCIMG=winpvsources.img
-ISOIMG=winpvdrivers.iso
+ISOIMG=pvdrivers-win7.iso
 MNT=mnt
 ISODIR=iso/
 
@@ -10,7 +10,8 @@ OUTPUT=`sudo kpartx -a -v $SRCIMG`
 DEV=/dev/mapper/`echo $OUTPUT | cut -f 3 -d ' '`
 sudo mount $DEV $MNT
 
-cp $MNT/winpvdrivers/gplpv*.msi $ISODIR/
+rm -f $ISODIR/*.msi
+cp $MNT/winpvdrivers/gplpv_Vista2008*.msi $ISODIR/
 if [ $? -ne 0 ]; then
     echo "No installation files found! Have you built the drivers?"
     sudo umount  $MNT 
@@ -20,5 +21,7 @@ fi
     
 sudo umount  $MNT
 sudo kpartx -d $SRCIMG
-genisoimage -o $ISOIMG -JR $ISODIR
+genisoimage -o $ISOIMG -m .gitignore -JR $ISODIR
 
+# Now, make also an RPM containg this ISO
+rpmbuild --target noarch --define "_rpmdir rpm/" -bb iso_rpm.spec

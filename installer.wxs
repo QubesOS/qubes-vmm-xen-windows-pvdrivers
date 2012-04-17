@@ -153,7 +153,7 @@
         <ComponentRef Id='XenScsi' />
       </Feature>
       <?endif ?>
-      <Feature Id='XenNet' Title='XenNet Driver' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+      <Feature Id='XenNet' Title='XenNet Driver' Level='2' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
         <ComponentRef Id='XenNet' />
       </Feature>
       <?if $(env.DDK_TARGET_OS) != Win2K ?>
