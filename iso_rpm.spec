@@ -4,6 +4,7 @@ Release:	1
 Summary:	PV Drivers for Vista and Windows 7 VMs
 Group:		Qubes
 License:    GPL
+Provides:   qubes-core-dom0-pvdrivers
 
 %define _builddir %(pwd)
 
