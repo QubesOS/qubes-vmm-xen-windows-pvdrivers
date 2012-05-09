@@ -152,6 +152,7 @@ XenVbd_InitConfig(PXENVBD_DEVICE_DATA xvdd)
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "mode", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sectors", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "sector-size", NULL, NULL);
+  ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_READ_STRING_BACK, "removable", NULL, NULL);
   ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_XB_STATE_MAP_PRE_CONNECT, NULL, NULL, NULL);
   __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitialised);
   __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateConnected);
@@ -295,6 +296,11 @@ XenVbd_InitFromConfig(PXENVBD_DEVICE_DATA xvdd)
           KdPrint((__DRIVER_NAME "     mode = unknown\n"));
           xvdd->device_mode = XENVBD_DEVICEMODE_UNKNOWN;
         }
+      }
+      else if (strcmp(setting, "removable") == 0)
+      {
+        xvdd->removable = (BOOLEAN)parse_numeric_string(value);
+        KdPrint((__DRIVER_NAME "     removable = %d\n", xvdd->removable));
       }
       break;
     case XEN_INIT_TYPE_QEMU_PROTOCOL_VERSION:
@@ -1445,12 +1451,15 @@ XenVbd_HwStorStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
           {
             PINQUIRYDATA id = (PINQUIRYDATA)data_buffer;
             id->DeviceType = DIRECT_ACCESS_DEVICE;
+            id->DeviceTypeQualifier = DEVICE_CONNECTED;
+            id->DeviceTypeModifier = 0;
             id->Versions = 4; /* minimum that WHQL says we must support */
             id->ResponseDataFormat = 2; /* not sure about this but WHQL complains otherwise */
             id->HiSupport = 1; /* WHQL test says we should set this */
             //id->AdditionalLength = FIELD_OFFSET(INQUIRYDATA, VendorSpecific) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength);
             id->AdditionalLength = sizeof(INQUIRYDATA) - FIELD_OFFSET(INQUIRYDATA, AdditionalLength) - 1;
             id->CommandQueue = 1;
+            id->RemovableMedia = xvdd->removable;
             memcpy(id->VendorId, scsi_device_manufacturer, 8); // vendor id
             memcpy(id->ProductId, scsi_disk_model, 16); // product id
             memcpy(id->ProductRevisionLevel, "0000", 4); // product revision level

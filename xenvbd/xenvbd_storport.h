@@ -157,6 +157,7 @@ struct
   BOOLEAN aligned_buffer_in_use;
   ULONG aligned_buffer_size;
   PVOID aligned_buffer;
+  BOOLEAN removable;
 /*  
   ULONGLONG interrupts;
   ULONGLONG aligned_requests;
