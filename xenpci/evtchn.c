@@ -146,11 +146,14 @@ to CPU != 0, but we should always use vcpu_info[0]
     evt_words &= ~(1 << evt_word);
     while (bit_scan_forward(&evt_bit, shared_info_area->evtchn_pending[evt_word] & ~shared_info_area->evtchn_mask[evt_word]))
     {
-      synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
-      handled = TRUE;
       port = (evt_word << BITS_PER_LONG_SHIFT) + evt_bit;
       ev_action = &xpdd->ev_actions[port];
       ev_action->count++;
+	  if(ev_action->mask_on_fire) {
+		  EvtChn_Mask(xpdd, port);
+	  }
+      synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
+      handled = TRUE;
       switch (ev_action->type)
       {
       case EVT_ACTION_TYPE_NORMAL:
@@ -252,6 +255,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE Servi
   xpdd->ev_actions[Port].ServiceContext = ServiceContext;
   xpdd->ev_actions[Port].xpdd = xpdd;
   xpdd->ev_actions[Port].flags = flags;
+  xpdd->ev_actions[Port].mask_on_fire = FALSE;
   KeMemoryBarrier();
   xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_NORMAL;
 
@@ -263,7 +267,7 @@ EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE Servi
 }
 
 NTSTATUS
-EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags)
+EvtChn_BindDpcReplace(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags, BOOLEAN replace, BOOLEAN mask_on_fire)
 {
   PXENPCI_DEVICE_DATA xpdd = Context;
   ev_action_t *action = &xpdd->ev_actions[Port];
@@ -272,10 +276,17 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE Se
   
   if (InterlockedCompareExchange((volatile LONG *)&action->type, EVT_ACTION_TYPE_NEW, EVT_ACTION_TYPE_EMPTY) != EVT_ACTION_TYPE_EMPTY)
   {
-    KdPrint((__DRIVER_NAME " Handler for port %d already registered\n", Port));
-    return STATUS_UNSUCCESSFUL;
+	if (!replace) {
+	    KdPrint((__DRIVER_NAME " Handler for port %d already registered\n", Port));
+	    return STATUS_UNSUCCESSFUL;
+	}
+	KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
   }
 
+  if(mask_on_fire) {
+	  KdPrint(("Setting event port %d to mask-on-fire\n", Port));
+  }
+  xpdd->ev_actions[Port].mask_on_fire = mask_on_fire;
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
   xpdd->ev_actions[Port].ServiceContext = ServiceContext;
   xpdd->ev_actions[Port].xpdd = xpdd;
@@ -288,6 +299,13 @@ EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE Se
   FUNCTION_EXIT();
 
   return STATUS_SUCCESS;
+}
+
+NTSTATUS
+EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags) {
+
+	return EvtChn_BindDpcReplace(Context, Port, ServiceRoutine, ServiceContext, flags, TRUE, FALSE);
+
 }
 
 NTSTATUS
@@ -306,6 +324,7 @@ EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR descriptio
 
   xpdd->ev_actions[Port].vector = vector;
   xpdd->ev_actions[Port].xpdd = xpdd;
+  xpdd->ev_actions[Port].mask_on_fire = FALSE;
   KeMemoryBarrier();
   xpdd->ev_actions[Port].type = EVT_ACTION_TYPE_IRQ;
   RtlStringCbCopyA(xpdd->ev_actions[Port].description, 128, description);
@@ -360,6 +379,21 @@ EvtChn_Unmask(PVOID context, evtchn_port_t port)
 
   synch_clear_bit(port & (BITS_PER_LONG - 1),
     (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_mask[port >> BITS_PER_LONG_SHIFT]);
+  return STATUS_SUCCESS;
+}
+
+/* Un-pends an event channel which was pending.
+   Intended to allow userspace evtchn to get more events even if
+   the channel fired whilst it was masked.
+   Beware race: Must unmask, then reset, which might cause a spurious double-fire. */
+
+NTSTATUS
+EvtChn_Reset(PVOID context, evtchn_port_t port) 
+{
+  PXENPCI_DEVICE_DATA xpdd = context;
+
+  synch_clear_bit(port & (BITS_PER_LONG - 1),
+    (volatile xen_long_t *)&xpdd->shared_info_area->evtchn_pending[port >> BITS_PER_LONG_SHIFT]);
   return STATUS_SUCCESS;
 }
 

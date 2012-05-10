@@ -102,6 +102,9 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   WDFKEY param_key;
   DECLARE_CONST_UNICODE_STRING(veto_devices_name, L"veto_devices");
   WDF_DEVICE_POWER_CAPABILITIES power_capabilities;
+  WDF_OBJECT_ATTRIBUTES request_attributes;
+  WDF_TIMER_CONFIG timer_config;
+  WDF_OBJECT_ATTRIBUTES timer_attributes;
   int i;
   
   UNREFERENCED_PARAMETER(driver);
@@ -119,6 +122,10 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   pnp_power_callbacks.EvtDeviceUsageNotification = XenPci_EvtDeviceUsageNotification;
 
   WdfDeviceInitSetPnpPowerEventCallbacks(device_init, &pnp_power_callbacks);
+
+  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&request_attributes, XENPCI_REQUEST_DATA);
+  WdfDeviceInitSetRequestAttributes(device_init, &request_attributes);
+  WdfDeviceInitSetIoInCallerContextCallback(device_init, XenPci_EvtIoInCallerContext);
 
   WdfDeviceInitSetDeviceType(device_init, FILE_DEVICE_BUS_EXTENDER);
   WdfDeviceInitSetExclusive(device_init, FALSE);
@@ -146,6 +153,20 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   xpdd = GetXpdd(device);
   xpdd->wdf_device = device;
   xpdd->child_list = WdfFdoGetDefaultChildList(device);
+  WdfSpinLockCreate(NULL, &xpdd->evtchn_port_user_lock);
+
+  /* gntmem globals setup */
+
+  WDF_TIMER_CONFIG_INIT_PERIODIC(&timer_config, GntMem_EvtTimerFunc, 10000 /* 10 seconds */);
+  WDF_OBJECT_ATTRIBUTES_INIT(&timer_attributes);
+  timer_attributes.ParentObject = device;
+  WdfTimerCreate(&timer_config, &timer_attributes, &xpdd->gntmem_cleanup_timer);
+  xpdd->gntmem_allowed_pages = 0;
+  xpdd->gntmem_mapped_pages = 0;
+  xpdd->gntmem_free_work_queued = 0;
+  InitializeListHead(&xpdd->gntmem_pending_free_list_head);
+  WdfSpinLockCreate(NULL, &xpdd->gntmem_quota_lock);
+  WdfSpinLockCreate(NULL, &xpdd->gntmem_pending_free_lock);
 
   WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &veto_devices);
   status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &param_key);
@@ -227,8 +248,8 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
       return status;
   }
 
-  RtlInitUnicodeString(&reference, L"gntdev");
-  status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_GNTDEV, &reference);
+  RtlInitUnicodeString(&reference, L"gntmem");
+  status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_GNTMEM, &reference);
   if (!NT_SUCCESS(status)) {
       KdPrint(("Error registering device interface 0x%x\n", status));
       return status;

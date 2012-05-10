@@ -23,10 +23,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define __attribute__(arg) /* empty */
 #define EISCONN 127
 
-#include <ntddk.h>
+#include <ntifs.h>
 
 /* including ntifs.h (only needed for this function) causes PREFast to trip up on lots of bogus errors */
-PDEVICE_OBJECT IoGetLowerDeviceObject(IN PDEVICE_OBJECT DeviceObject); 
+//PDEVICE_OBJECT IoGetLowerDeviceObject(IN PDEVICE_OBJECT DeviceObject); 
 //#include <ntifs.h>
 
 //#include <wdm.h>
@@ -96,6 +96,7 @@ typedef struct _ev_action_t {
   ULONG count;
   PVOID xpdd;
   ULONG generation; /* increases each time the event is renewed */
+  BOOLEAN mask_on_fire;
 } ev_action_t;
 
 typedef struct _XENBUS_WATCH_RING
@@ -208,6 +209,20 @@ typedef struct {
   struct xsd_sockmsg *xb_msg;
   ULONG xb_msg_offset;
   
+  /* userspace evtchn related ("global" storage) */
+  VOID* evtchn_port_user[NR_EVENTS];
+  WDFSPINLOCK evtchn_port_user_lock;
+
+  /* userspace gntmem related global storage */
+  int gntmem_mapped_pages;
+  int gntmem_allowed_pages;
+  BOOLEAN gntmem_free_work_queued;
+  LIST_ENTRY gntmem_pending_free_list_head;
+  WDFSPINLOCK gntmem_pending_free_lock;
+  WDFSPINLOCK gntmem_quota_lock;
+  WDFTIMER gntmem_cleanup_timer;
+
+
   WDFCHILDLIST child_list;
   
   KSPIN_LOCK suspend_lock;  
@@ -292,7 +307,7 @@ typedef struct {
 //#define DEVICE_INTERFACE_TYPE_LEGACY 0
 #define DEVICE_INTERFACE_TYPE_XENBUS 1
 #define DEVICE_INTERFACE_TYPE_EVTCHN 2
-#define DEVICE_INTERFACE_TYPE_GNTDEV 3
+#define DEVICE_INTERFACE_TYPE_GNTMEM 3
 
 typedef struct {
   ULONG len;
@@ -306,12 +321,23 @@ typedef struct {
 } XENBUS_INTERFACE_DATA, *PXENBUS_INTERFACE_DATA;
 
 typedef struct {
-  ULONG dummy; /* fill this in with whatever is required */
+
+	WDFQUEUE io_queue;
+	evtchn_port_t *ring;
+	unsigned int ring_cons, ring_prod, ring_overflow;
+	WDFSPINLOCK lock;
+	LIST_ENTRY bound_channels_list_head;
+
+	domid_t restrict_domid;
+
 } EVTCHN_INTERFACE_DATA, *PEVTCHN_INTERFACE_DATA;
 
 typedef struct {
-  ULONG dummy;  /* fill this in with whatever is required */
-} GNTDEV_INTERFACE_DATA, *PGNTDEV_INTERFACE_DATA;
+  WDFQUEUE pending_grant_requests;
+  WDFSPINLOCK pending_queue_lock;
+  int mapped_pages;
+  int allowed_pages;
+} GNTMEM_INTERFACE_DATA, *PGNTMEM_INTERFACE_DATA;
 
 typedef struct {
   ULONG type;
@@ -322,14 +348,36 @@ typedef struct {
   union {
     XENBUS_INTERFACE_DATA xenbus;
     EVTCHN_INTERFACE_DATA evtchn;
-    GNTDEV_INTERFACE_DATA gntdev;
+    GNTMEM_INTERFACE_DATA gntmem;
   };
 } XENPCI_DEVICE_INTERFACE_DATA, *PXENPCI_DEVICE_INTERFACE_DATA;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_INTERFACE_DATA, GetXpdid)
 
+struct grant_record;
+
+typedef struct {
+	PMDL mdl;
+	PVOID base_vaddr;
+	PEPROCESS process;
+	struct grant_record* record;
+	INT32 uid;
+} XENPCI_REQUEST_DATA, *PXENPCI_REQUEST_DATA;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_REQUEST_DATA, GetRequestData);
+
 NTSTATUS
 XenBus_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_config, WDFFILEOBJECT file_object);
+NTSTATUS
+EvtChn_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_config, WDFFILEOBJECT file_object);
+NTSTATUS
+GntMem_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_config, WDFFILEOBJECT file_object);
+
+VOID
+XenPci_EvtIoInCallerContext(WDFDEVICE Device, WDFREQUEST Request);
+VOID
+GntMem_EvtIoInCallerContext(PXENPCI_DEVICE_INTERFACE_DATA xpdid, WDFREQUEST Request, WDFDEVICE Device);
+VOID GntMem_EvtTimerFunc(WDFTIMER timer);
 
 EVT_WDF_DEVICE_FILE_CREATE XenPci_EvtDeviceFileCreate;
 EVT_WDF_FILE_CLOSE XenPci_EvtFileClose;
@@ -443,9 +491,13 @@ EvtChn_Mask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
 EvtChn_Unmask(PVOID Context, evtchn_port_t Port);
 NTSTATUS
+EvtChn_Reset(PVOID Context, evtchn_port_t Port);
+NTSTATUS
 EvtChn_Bind(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags);
 NTSTATUS
 EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags);
+NTSTATUS
+EvtChn_BindDpcReplace(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags, BOOLEAN replace, BOOLEAN mask_on_fire);
 NTSTATUS
 EvtChn_BindIrq(PVOID Context, evtchn_port_t Port, ULONG vector, PCHAR description, ULONG flags);
 evtchn_port_t
