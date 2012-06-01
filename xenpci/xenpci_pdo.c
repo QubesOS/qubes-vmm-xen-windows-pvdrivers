@@ -63,6 +63,48 @@ XenPci_ReadBackendState(PXENPCI_PDO_DEVICE_DATA xppdd)
   }
 }
 
+/* currently supported only by vbd devices */
+static ULONG
+XenPci_ReadRemovable(PXENPCI_PDO_DEVICE_DATA xppdd)
+{
+  PXENPCI_DEVICE_DATA xpdd = GetXpdd(xppdd->wdf_device_bus_fdo);
+  char path[128];
+  char *value;
+  char *err;
+  char backend_path[128];
+  ULONG removable;
+
+  /* Get backend path if not present in xppdd */
+  if (!xppdd->backend_path[0]) {
+    RtlStringCbPrintfA(path, ARRAY_SIZE(path),
+        "%s/backend", xppdd->path);
+    err = XenBus_Read(xpdd, XBT_NIL, path, &value);
+    if (err)
+    {
+      KdPrint((__DRIVER_NAME "    Failed to read backend path\n"));
+      XenPci_FreeMem(err);
+      return 0;
+    }
+    RtlStringCbCopyA(backend_path, ARRAY_SIZE(backend_path), value);
+    XenPci_FreeMem(value);
+  } else {
+    RtlStringCbCopyA(backend_path, ARRAY_SIZE(backend_path), xppdd->backend_path);
+  }
+
+  RtlStringCbPrintfA(path, ARRAY_SIZE(path), "%s/removable", backend_path);
+  err = XenBus_Read(xpdd, XBT_NIL, path, &value);
+  if (err)
+  {
+    XenPci_FreeMem(err);
+    return 0;
+  }
+  else
+  {
+    removable = atoi(value);
+    XenPci_FreeMem(value);
+    return removable;
+  }
+}
 static NTSTATUS
 XenPciPdo_ReconfigureCompletionRoutine(
   PDEVICE_OBJECT device_object,
@@ -1324,6 +1366,7 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   WDF_PNPPOWER_EVENT_CALLBACKS child_pnp_power_callbacks;
   UCHAR pnp_minor_functions[] = { IRP_MN_START_DEVICE };
   WDF_DEVICE_POWER_CAPABILITIES child_power_capabilities;
+  ULONG is_removable;
   
   FUNCTION_ENTER();
 
@@ -1404,6 +1447,16 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   xppdd->wdf_device = child_device;
   xppdd->wdf_device_bus_fdo = WdfChildListGetDevice(child_list);
 
+  RtlStringCbCopyA(xppdd->path, ARRAY_SIZE(xppdd->path), identification->path);
+  RtlStringCbCopyA(xppdd->device, ARRAY_SIZE(xppdd->device), identification->device);
+  xppdd->index = identification->index;
+  KeInitializeEvent(&xppdd->backend_state_event, SynchronizationEvent, FALSE);
+  ExInitializeFastMutex(&xppdd->backend_state_mutex);
+  xppdd->backend_state = XenbusStateUnknown;
+  xppdd->frontend_state = XenbusStateUnknown;
+  xppdd->backend_path[0] = '\0';
+  xppdd->backend_id = 0;
+
   xppdd->config_page_mdl = AllocateUncachedPage();
 
   xppdd->device_state.magic = XEN_DEVICE_STATE_MAGIC;
@@ -1415,6 +1468,8 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   WdfDeviceSetSpecialFileSupport(child_device, WdfSpecialFileHibernation, TRUE);
   WdfDeviceSetSpecialFileSupport(child_device, WdfSpecialFileDump, TRUE);
 
+  is_removable = XenPci_ReadRemovable(xppdd);
+  KdPrint((__DRIVER_NAME "     is_removable: %d\n", is_removable));
   WDF_DEVICE_PNP_CAPABILITIES_INIT(&child_pnp_capabilities);
   child_pnp_capabilities.LockSupported = WdfFalse;
   child_pnp_capabilities.EjectSupported  = WdfTrue;
@@ -1422,7 +1477,8 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   child_pnp_capabilities.DockDevice  = WdfFalse;
   child_pnp_capabilities.UniqueID  = WdfFalse;
   child_pnp_capabilities.SilentInstall  = WdfTrue;
-  child_pnp_capabilities.SurpriseRemovalOK  = WdfTrue;
+  /* when SurpriseRemovalOK == WdfTrue, device will be hidden from "remove hardware" list */
+  child_pnp_capabilities.SurpriseRemovalOK  = is_removable ? WdfFalse : WdfTrue;
   child_pnp_capabilities.HardwareDisabled = WdfFalse;
   WdfDeviceSetPnpCapabilities(child_device, &child_pnp_capabilities);
 
@@ -1438,16 +1494,6 @@ XenPci_EvtChildListCreateDevice(WDFCHILDLIST child_list,
   child_power_capabilities.DeviceState[PowerSystemShutdown]  = PowerDeviceD3;
   WdfDeviceSetPowerCapabilities(child_device, &child_power_capabilities);  
 
-  RtlStringCbCopyA(xppdd->path, ARRAY_SIZE(xppdd->path), identification->path);
-  RtlStringCbCopyA(xppdd->device, ARRAY_SIZE(xppdd->device), identification->device);
-  xppdd->index = identification->index;
-  KeInitializeEvent(&xppdd->backend_state_event, SynchronizationEvent, FALSE);
-  ExInitializeFastMutex(&xppdd->backend_state_mutex);
-  xppdd->backend_state = XenbusStateUnknown;
-  xppdd->frontend_state = XenbusStateUnknown;
-  xppdd->backend_path[0] = '\0';
-  xppdd->backend_id = 0;
-    
   FUNCTION_EXIT();
   
   return status;
