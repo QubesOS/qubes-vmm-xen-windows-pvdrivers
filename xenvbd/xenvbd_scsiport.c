@@ -1423,7 +1423,7 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
       break;
     case SCSIOP_START_STOP_UNIT:
       KdPrint((__DRIVER_NAME "     Command = SCSIOP_START_STOP_UNIT\n"));
-      srb->SrbStatus = SRB_STATUS_SUCCESS;
+      srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
       break;
     case SCSIOP_RESERVE_UNIT:
       KdPrint((__DRIVER_NAME "     Command = SCSIOP_RESERVE_UNIT\n"));
@@ -1431,6 +1431,10 @@ XenVbd_HwScsiStartIo(PVOID DeviceExtension, PSCSI_REQUEST_BLOCK srb)
       break;
     case SCSIOP_RELEASE_UNIT:
       KdPrint((__DRIVER_NAME "     Command = SCSIOP_RELEASE_UNIT\n"));
+      srb->SrbStatus = SRB_STATUS_SUCCESS;
+      break;
+    case SCSIOP_MEDIUM_REMOVAL:
+      KdPrint((__DRIVER_NAME "     Command = SCSIOP_MEDIUM_REMOVAL\n"));
       srb->SrbStatus = SRB_STATUS_SUCCESS;
       break;
     default:
