@@ -1680,9 +1680,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
     __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateClosed);
     __ADD_XEN_INIT_UCHAR(&ptr, 50);
-    __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitialising);
-    __ADD_XEN_INIT_UCHAR(&ptr, XenbusStateInitWait);
-    __ADD_XEN_INIT_UCHAR(&ptr, 50);
     __ADD_XEN_INIT_UCHAR(&ptr, 0);
     
     ADD_XEN_INIT_REQ(&ptr, XEN_INIT_TYPE_END, NULL, NULL, NULL);
