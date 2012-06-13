@@ -11,7 +11,7 @@
     Language='1033' Codepage='1252' Version='$(env.GPLPV_VERSION)' Manufacturer='James Harper'>
 
     <Package Id='*' Keywords='Installer' Description="GPL PV Drivers for Windows"
-      Comments='no comment' Manufacturer='James Harper'
+      Comments='no comment' Manufacturer='James Harper' InstallScope='perMachine'
       InstallerVersion='100' Languages='1033' Compressed='yes' SummaryCodepage='1252' />
 
     <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
