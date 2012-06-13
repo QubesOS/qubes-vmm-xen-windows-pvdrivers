@@ -1,15 +1,17 @@
+This method is obsolete, use qubes-builder instead. But still can be used by
+developers to build specific (eg debug) version of drivers.
+
 1) Create an IMG file with the sources:
 
 ./mksrcimg.sh
 
 The resulting winpvsources.img file can be passed to a Windows-based HVM and build there.
 
-2) Create an ISO containing built drivers and installer:
+2) Extract built drivers:
 
-./mkinstalliso.sh
+./extractmsi.sh
 
-The resulting winpvdrivers.iso can be attached to a Windows HVM in order to install
-the Qubes PV drivers.
+Builded msi files will be stored in msi/ dir.
 
 Windows Build Machine Preparation
 -----------------------------------
