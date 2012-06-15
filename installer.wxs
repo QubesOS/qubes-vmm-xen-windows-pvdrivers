@@ -26,6 +26,8 @@
     
     <Media Id='1' Cabinet='gplpv.cab' EmbedCab='yes' />
 
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A later version of [ProductName] is already installed. Setup will now exit."/>
+
     <?if $(env.DDK_TARGET_OS) != Win2K?>
     <Binary Id='waitfordevices.vbs' SourceFile='waitnopendinginstallevents\waitfordevices.vbs'/>
     <Binary Id='waitnopendinginstallevents.exe' SourceFile='waitnopendinginstallevents\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\waitnopendinginstallevents.exe'/>
