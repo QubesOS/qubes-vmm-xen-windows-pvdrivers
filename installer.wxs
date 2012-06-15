@@ -2,8 +2,10 @@
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi' xmlns:difx='http://schemas.microsoft.com/wix/DifxAppExtension' xmlns:iis='http://schemas.microsoft.com/wix/IIsExtension'>
   <?if $(env._BUILDARCH) = x86 ?>
     <?define ARCHDIR = i386 ?>
+    <?define PFILESDIR = ProgramFilesFolder ?>
   <?elseif $(env._BUILDARCH) = AMD64 ?>
     <?define ARCHDIR = amd64 ?>
+    <?define PFILESDIR = ProgramFiles64Folder ?>
   <?endif ?>
 
   <Product Name='GPL PV Drivers for Windows' Id='*'
@@ -12,7 +14,8 @@
 
     <Package Id='*' Keywords='Installer' Description="GPL PV Drivers for Windows"
       Comments='no comment' Manufacturer='James Harper' InstallScope='perMachine'
-      InstallerVersion='100' Languages='1033' Compressed='yes' SummaryCodepage='1252' />
+      InstallerVersion='200' InstallPrivileges="elevated" Languages='1033'
+      Compressed='yes' SummaryCodepage='1252' />
 
     <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
 
@@ -52,7 +55,7 @@
     <?endif ?>
 
     <Directory Id='TARGETDIR' Name='SourceDir'>
-      <Directory Id='ProgramFilesFolder' Name='PFiles'>
+      <Directory Id='$(var.PFILESDIR)'>
         <Directory Id='XenProgramFilesDir' Name='Xen PV Drivers'>
           <Directory Id='BinDir' Name='bin'>
             <Component Id='ShutdownMon' Guid='BF8DC887-4B46-4e77-ACD3-125E8A2BAB8E'>
