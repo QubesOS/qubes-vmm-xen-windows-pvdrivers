@@ -37,6 +37,8 @@
 #include "xenpci.h"
 #include <evtchn_ioctl.h>
 
+#define ALLOW_EMPTY_EVTCHN_READ
+
 #define EVTCHN_RING_SIZE     (PAGE_SIZE / sizeof(evtchn_port_t))
 #define EVTCHN_RING_MASK(_i) ((_i)&(EVTCHN_RING_SIZE-1))
 
@@ -77,9 +79,14 @@ EvtChn_ProcessReadRequest(WDFREQUEST request, size_t length, NTSTATUS* retcode, 
 	/* Whole number of ports. Redundant check for some paths */
 	length &= ~(sizeof(evtchn_port_t)-1);
 	if (length == 0) {
+#ifndef ALLOW_EMPTY_EVTCHN_READ
 		KdPrint(("EvtChn: buffer size %d too small\n", length));
 		*retcode = STATUS_BUFFER_TOO_SMALL;
 		*retinfo = 0;
+#else
+		*retcode = STATUS_SUCCESS;
+		*retinfo = 0;
+#endif
 		return;
 	}
 
@@ -212,12 +219,14 @@ EvtChn_EvtIoRead(WDFQUEUE queue, WDFREQUEST request, size_t length) {
 
 	/* Whole number of ports. */
 	length &= ~(sizeof(evtchn_port_t)-1);
+#ifndef ALLOW_EMPTY_EVTCHN_READ
 	if (length == 0) {
 		/* Might as well reject this early, rather than taking locks for nothing */
 		KdPrint(("EvtChn: buffer of size %d too small\n", length));
 		WdfRequestCompleteWithInformation(request, STATUS_BUFFER_TOO_SMALL, 0);
 		return;
 	}
+#endif
 
 	// Okay, this request is acceptable: queue it up
 	status = WdfRequestForwardToIoQueue(request, xpdid->evtchn.io_queue);
