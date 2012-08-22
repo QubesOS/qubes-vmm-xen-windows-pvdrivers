@@ -277,6 +277,10 @@ EvtChn_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
 	WdfSpinLockAcquire(xpdd->evtchn_port_user_lock);
 	for (i = 0; i < (length/sizeof(evtchn_port_t)); i++) {
 		if ((ports[i] < ((unsigned)NR_EVENT_CHANNELS)) && (xpdd->evtchn_port_user[ports[i]] == xpdid)) {
+			if (!EvtChn_Test_Masked(xpdd, ports[i])) {
+				KdPrint(("EvtChn: user unmask of already unmasked port %d\n", ports[i]));
+				continue;
+			}
 			KdPrint(("EvtChn: user unmask of port %d\n", ports[i]));
 			EvtChn_Unmask(xpdd, ports[i]);
 			EvtChn_Reset(xpdd, ports[i]); 

@@ -486,6 +486,8 @@ EvtChn_Suspend(PXENPCI_DEVICE_DATA xpdd);
 NTSTATUS
 EvtChn_Resume(PXENPCI_DEVICE_DATA xpdd);
 
+BOOLEAN
+EvtChn_Test_Masked(PVOID Context, evtchn_port_t Port);
 NTSTATUS
 EvtChn_Mask(PVOID Context, evtchn_port_t Port);
 NTSTATUS

@@ -372,6 +372,14 @@ EvtChn_Mask(PVOID Context, evtchn_port_t port)
   return STATUS_SUCCESS;
 }
 
+BOOLEAN
+EvtChn_Test_Masked(PVOID Context, evtchn_port_t port)
+{
+  PXENPCI_DEVICE_DATA xpdd = Context;
+
+  return (xpdd->shared_info_area->evtchn_mask[port >> BITS_PER_LONG_SHIFT] >> (port & (BITS_PER_LONG - 1))) & 1;
+}
+
 NTSTATUS
 EvtChn_Unmask(PVOID context, evtchn_port_t port)
 {
