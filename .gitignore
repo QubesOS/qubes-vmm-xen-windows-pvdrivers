@@ -1,3 +1,5 @@
 winpvsources.img
 winpvdrivers.iso
 rpm/
+*.cer
+*.pfx
