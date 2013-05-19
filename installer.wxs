@@ -126,16 +126,16 @@
         </Directory>
         <?ifdef env.CERT_PUBLIC_FILENAME?>
         <Component Id='Cert' Guid='11112EC8-8635-45fb-9AE8-C22310F1E82D'>
-          <File Id='$(env.CERT_PUBLIC_FILENAME)' Name='$(env.CERT_PUBLIC_FILENAME)' DiskId='1' Source='$(env.CERT_PUBLIC_FILENAME)' />
-          <iis:Certificate Id='$(env.CERT_PUBLIC_FILENAME)_root' Name='$(env.CERT_PUBLIC_FILENAME)' Request='no' BinaryKey='$(env.CERT_PUBLIC_FILENAME)' StoreLocation='localMachine' StoreName='root' Overwrite='no' />
-          <iis:Certificate Id='$(env.CERT_PUBLIC_FILENAME)_trustedPublisher' Name='$(env.CERT_PUBLIC_FILENAME)' Request='no' BinaryKey='$(env.CERT_PUBLIC_FILENAME)' StoreLocation='localMachine' StoreName='trustedPublisher' Overwrite='no' />
+          <File Id='xen_pvdrivers_cert' Name='xen_pvdrivers_cert' DiskId='1' Source='$(env.CERT_PUBLIC_FILENAME)' />
+          <iis:Certificate Id='xen_pvdrivers_cert_root' Name='xen_pvdrivers_cert' Request='no' BinaryKey='xen_pvdrivers_cert' StoreLocation='localMachine' StoreName='root' Overwrite='no' />
+          <iis:Certificate Id='xen_pvdrivers_cert_trustedPublisher' Name='xen_pvdrivers_cert' Request='no' BinaryKey='xen_pvdrivers_cert' StoreLocation='localMachine' StoreName='trustedPublisher' Overwrite='no' />
         </Component>
         <?endif ?>
       </Directory>
     </Directory>
 
     <?ifdef env.CERT_PUBLIC_FILENAME?>
-    <Binary Id='$(env.CERT_PUBLIC_FILENAME)' SourceFile='$(env.CERT_PUBLIC_FILENAME)' />
+    <Binary Id='xen_pvdrivers_cert' SourceFile='$(env.CERT_PUBLIC_FILENAME)' />
     <?endif ?>
 
     <?ifdef env.CERT_PUBLIC_FILENAME?>
