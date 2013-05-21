@@ -3,3 +3,12 @@ winpvdrivers.iso
 rpm/
 *.cer
 *.pfx
+.obj/
+obj???_*_*/
+build???_*_*.err
+build???_*_*.log
+build???_*_*.wrn
+*.msi
+.*.swp
+tools/libs
+liblfds.6/bin
