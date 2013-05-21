@@ -11,6 +11,7 @@ DLLDEF=xenevtchn.def
 INCLUDES=$(INCLUDES); \
                     $(DDK_INC_PATH)\wdm; \
                     ..\include;\
+                    ..\..\xenpci;\
 
 SOURCES=xenevtchn.c
 
