@@ -32,6 +32,22 @@ struct xs_handle;
 typedef unsigned __int32 uint32_t;
 typedef uint32_t xs_transaction_t;
 
+/* Bitmask of permissions. */
+enum xs_perm_type {
+    XS_PERM_NONE = 0,
+    XS_PERM_READ = 1,
+    XS_PERM_WRITE = 2,
+    /* Internal use. */
+    XS_PERM_ENOENT_OK = 4,
+    XS_PERM_OWNER = 8,
+};
+
+struct xs_permissions
+{
+    unsigned int id;
+    enum xs_perm_type perms;
+};
+
 /* Connect to the xs daemon.
  * Returns a handle or NULL.
  */

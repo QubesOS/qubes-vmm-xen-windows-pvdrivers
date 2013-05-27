@@ -20,22 +20,6 @@
 #ifndef _XS_LIB_H
 #define _XS_LIB_H
 
-/* Bitmask of permissions. */
-enum xs_perm_type {
-	XS_PERM_NONE = 0,
-	XS_PERM_READ = 1,
-	XS_PERM_WRITE = 2,
-	/* Internal use. */
-	XS_PERM_ENOENT_OK = 4,
-	XS_PERM_OWNER = 8,
-};
-
-struct xs_permissions
-{
-	unsigned int id;
-	enum xs_perm_type perms;
-};
-
 /* Each 10 bits takes ~ 3 digits, plus one, plus one for nul terminator. */
 #define MAX_STRLEN(x) ((sizeof(x) * CHAR_BIT + CHAR_BIT-1) / 10 * 3 + 2)
 
