@@ -9,12 +9,15 @@
 #ifndef XEN_GNTMEM_H
 #define XEN_GNTMEM_H
 
+#include <windows.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef UINT32 grant_ref_t;
 typedef UINT16 domid_t;
+typedef unsigned int evtchn_port_t;
 struct gntmem_handle;
 
 /* Open gntmem driver; returns a handle for use in all other calls, or INVALID_HANDLE_VALUE on error */
@@ -47,6 +50,10 @@ int gntmem_set_global_quota(struct gntmem_handle* h, int new_limit);
    gntmem_rescind_grants had been called, and access to (*grants_out) will result in a page fault.
    */
 void* gntmem_grant_pages_to_domain(struct gntmem_handle* h, domid_t domain, int n_pages, grant_ref_t* grants_out);
+
+void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t
+        domain, int n_pages, int notify_offset, evtchn_port_t notify_port,
+        grant_ref_t* grants_out);
 
 #ifdef __cplusplus
 }

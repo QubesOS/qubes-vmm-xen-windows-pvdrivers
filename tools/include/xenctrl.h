@@ -18,6 +18,9 @@
 #ifndef XENCTRL_EVTCHN_H
 #define XENCTRL_EVTCHN_H
 
+#include <stdint.h>
+#include <xen_gntmem.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -25,6 +28,10 @@ extern "C" {
 /* A port identifier is guaranteed to fit in 31 bits. */
 typedef int evtchn_port_or_error_t;
 typedef unsigned int evtchn_port_t;
+
+typedef void xentoollog_logger;
+typedef struct gntmem_handle xc_gntshr;
+typedef HANDLE xc_evtchn;
 
 /*
  * Return a handle to the event channel driver, or -1 on failure, in which case
@@ -103,6 +110,21 @@ int xc_evtchn_unmask(HANDLE xce_handle, evtchn_port_t port);
  * Returns -1 on failure, in which case call GetLastError for more information.
  */
 int xc_evtchn_reset(HANDLE xce_handle);
+
+xc_gntshr *xc_gntshr_open(xentoollog_logger *logger,
+                              unsigned open_flags);
+
+int xc_gntshr_close(xc_gntshr *xcg);
+
+void *xc_gntshr_share_pages(xc_gntshr *xcg, domid_t domid,
+                int count, uint32_t *refs, int writable);
+
+void *xc_gntshr_share_page_notify(xc_gntshr *xcg, domid_t domid,
+                uint32_t *ref, int writable,
+                uint32_t notify_offset,
+                evtchn_port_t notify_port);
+
+int xc_gntshr_munmap(xc_gntshr *xcg, void *start_address, uint32_t count);
 
 #ifdef __cplusplus
 }

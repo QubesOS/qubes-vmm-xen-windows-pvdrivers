@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <xenctrl.h>
 #include <xen_public.h>
 #include <gntmem_ioctl.h>
 #include <xen_gntmem.h>
@@ -211,13 +212,15 @@ int gntmem_set_global_quota(struct gntmem_handle* h, int new_limit) {
 
 }
 
-void* gntmem_grant_pages_to_domain(struct gntmem_handle* h, domid_t domain, int n_pages, grant_ref_t* grants_out) {
+
+void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domain, int n_pages, int notify_offset, evtchn_port_t notify_port, grant_ref_t* grants_out) {
 
 	DWORD bytesWritten;
 	int out_buffer_size;
 	void* out_buffer;
 	struct grant_handle* new_handle;
 	struct ioctl_gntmem_get_grants get_grants;
+	struct ioctl_gntmem_unmap_notify unmap_notify;
 	OVERLAPPED ggol;
 	PVOID	pResult;
 
@@ -254,6 +257,25 @@ void* gntmem_grant_pages_to_domain(struct gntmem_handle* h, domid_t domain, int 
 		}
 	}
 
+    if (notify_offset > -1 || notify_port != -1) {
+        OVERLAPPED umol;
+
+        unmap_notify.uid = new_handle->uid;
+        umol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+        if(!DeviceIoControl(h->h, IOCTL_GNTMEM_UNMAP_NOTIFY, &unmap_notify, sizeof(unmap_notify),
+                    NULL, 0, NULL, &umol)) {
+            if(GetLastError() != ERROR_IO_PENDING) {
+                fprintf(stderr, "Warning: failed to set unmap notify, ignoring error\n");
+            }
+        }
+
+        if(!GetOverlappedResult(h->h, &umol, &bytesWritten, TRUE)) {
+            fprintf(stderr, "Warning: failed to set unmap notify, ignoring error\n");
+        }
+    }
+
+
 	get_grants.uid = new_handle->uid;
 	ggol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
@@ -288,5 +310,10 @@ void* gntmem_grant_pages_to_domain(struct gntmem_handle* h, domid_t domain, int 
 	pResult = *((void**)out_buffer);
 	free(out_buffer);
 	return pResult;
+}
+
+void* gntmem_grant_pages_to_domain(struct gntmem_handle* h, domid_t domain,
+        int n_pages, grant_ref_t* grants_out) {
+    return gntmem_grant_pages_to_domain_notify(h, domain, n_pages, -1, -1, grants_out);
 }
 

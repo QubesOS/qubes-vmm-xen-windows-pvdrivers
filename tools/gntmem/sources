@@ -13,7 +13,7 @@ INCLUDES=$(INCLUDES); \
                     ..\include;\
                     ..\..\xenpci;\
 
-SOURCES=xengntmem.c
+SOURCES=xengntmem.c xc_gntmem.c
 
 TARGETLIBS=\
         $(SDK_LIB_PATH)\setupapi.lib     \
