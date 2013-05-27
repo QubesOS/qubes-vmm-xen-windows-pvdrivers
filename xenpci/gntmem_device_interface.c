@@ -39,7 +39,8 @@ struct grant_record {
 	grant_ref_t* grants;
 	int n_pages;
 	PMDL mdl;
-
+	int notify_offset;
+	evtchn_port_t notify_port;
 };
 
 typedef struct {
@@ -173,6 +174,28 @@ VOID GntMem_EvtIoInCallerContext(PXENPCI_DEVICE_INTERFACE_DATA xpdid, WDFREQUEST
 
 }
 
+static void possibly_notify_unmap(struct grant_record* rec, PXENPCI_DEVICE_DATA xpdd) {
+	PVOID mapped_area;
+	char *mapped_area_char;
+
+	if (rec->notify_offset >= 0) {
+		mapped_area = MmGetSystemAddressForMdlSafe(rec->mdl, LowPagePriority);
+		if (!mapped_area) {
+			KdPrint(("gntmem: failed to map MDL for notification\n"));
+		} else {
+			mapped_area_char = mapped_area;
+			mapped_area_char[rec->notify_offset] = 0;
+			MmUnmapLockedPages(mapped_area, rec->mdl);
+		}
+		rec->notify_offset = -1;
+	}
+
+	if (rec->notify_port != -1) {
+		EvtChn_Notify(xpdd, rec->notify_port);
+		rec->notify_port = (evtchn_port_t)-1;
+	}
+}
+
 /* Tries to free all the grants indicated by a given grant_record, and free the grant list.
    Returns TRUE if successful; otherwise the grant list still stands and some remain to be
    ungranted. Does not touch the MDL, as freeing that would be incompatible with our current IRQL.
@@ -182,6 +205,9 @@ static BOOLEAN try_destroy_grant_record(struct grant_record* rec, PXENPCI_DEVICE
 
 	int i;
 	BOOLEAN any_failures = FALSE;
+
+	possibly_notify_unmap(rec, xpdd);
+
 	for(i = 0; i < rec->n_pages; i++) {
 
 		if(rec->grants[i] != INVALID_GRANT_REF) {
@@ -597,6 +623,8 @@ static VOID
 				grant_record->n_pages = grant_request->n_pages;
 				grant_record->grants = grant_record_list;
 				grant_record->mdl = xprq->mdl;
+				grant_record->notify_offset = -1;
+				grant_record->notify_port = (evtchn_port_t)-1;
 
 				for(i = 0; i < grant_record->n_pages; i++) {
 					grant_ref_t new_grant;
@@ -673,6 +701,45 @@ static VOID
 				rc = STATUS_SUCCESS;
 				info = (sizeof(void*) + (sizeof(grant_ref_t) * this_rq_data->record->n_pages));
 
+				break;
+			}
+
+		case IOCTL_GNTMEM_UNMAP_NOTIFY:
+			{
+
+				struct ioctl_gntmem_unmap_notify* unmap_notify = (struct ioctl_gntmem_unmap_notify*)inbuffer;
+				WDFREQUEST last_rq_examined = NULL;
+				PXENPCI_REQUEST_DATA this_rq_data = NULL;
+
+				KdPrint(("IOCTL is UNMAP_NOTIFY for granted section UID %d\n", unmap_notify->uid));
+
+				WdfSpinLockAcquire(xpdid->gntmem.pending_queue_lock);
+
+				while(NT_SUCCESS(WdfIoQueueFindRequest(xpdid->gntmem.pending_grant_requests, last_rq_examined, NULL, NULL, &last_rq_examined))) {
+
+					this_rq_data = GetRequestData(last_rq_examined);
+					if(this_rq_data->uid == unmap_notify->uid)
+						break;
+
+				}
+
+				WdfSpinLockRelease(xpdid->gntmem.pending_queue_lock);
+
+				if(!last_rq_examined) {
+					KdPrint(("gntmem: No such section\n"));
+					rc = STATUS_INVALID_PARAMETER;
+					break;
+				}
+				if (unmap_notify->notify_offset > this_rq_data->record->n_pages * PAGE_SIZE) {
+					KdPrint(("gntmem: notify_offest outside of mapped area\n"));
+					rc = STATUS_INVALID_PARAMETER;
+					break;
+				}
+				this_rq_data->record->notify_offset = unmap_notify->notify_offset;
+				this_rq_data->record->notify_port = unmap_notify->notify_port;
+
+				rc = STATUS_SUCCESS;
+				info = 0;
 				break;
 			}
 
