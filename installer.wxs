@@ -132,6 +132,11 @@
         </Component>
         <?endif ?>
       </Directory>
+      <Directory Id='SystemFolder'>
+        <Component Id='XenVchan' Guid='d557155e-0d78-4ae6-8fe1-b5d2fba733a7'>
+          <File Id='libxenvchan.dll' Name='libxenvchan.dll' DiskId='1' Source='tools\libs\$(var.ARCHDIR)\libxenvchan.dll'/>
+        </Component>
+      </Directory>
     </Directory>
 
     <?ifdef env.CERT_PUBLIC_FILENAME?>
@@ -175,6 +180,9 @@
       <ComponentRef Id='CopyConfig' />
     </Feature>
     <?endif ?>
+    <Feature Id='XenVchan' Title='Xen Vchan communication library' Level='1' AllowAdvertise='no' InstallDefault='local' Absent='allow'>
+      <ComponentRef Id='XenVchan'/>
+    </Feature>
 
     <InstallExecuteSequence>
       <ScheduleReboot After='InstallFinalize' />
