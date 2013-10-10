@@ -71,4 +71,13 @@ struct ioctl_gntmem_get_grants {
 };
 // Output is a void* followed by (n_pages) grants.
 
+/* Setup notification on unmap event */
+#define IOCTL_GNTMEM_UNMAP_NOTIFY \
+	CTL_CODE(FILE_DEVICE_BUS_EXTENDER, 0x804, METHOD_BUFFERED, FILE_READ_DATA | FILE_WRITE_DATA)
+struct ioctl_gntmem_unmap_notify {
+	INT32 uid;
+	int notify_offset;
+	evtchn_port_t notify_port;
+};
+
 #endif /* __WINDOWS_PUBLIC_GNTMEM_H__ */
