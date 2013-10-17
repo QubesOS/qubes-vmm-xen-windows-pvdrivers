@@ -22,7 +22,7 @@
     <Binary Id='waitfordevices.vbs' SourceFile='waitnopendinginstallevents\waitfordevices.vbs'/>
     <Binary Id='waitnopendinst.exe' SourceFile='waitnopendinginstallevents\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\waitnopendinginstallevents.exe'/>
     <?endif?>
-    <CustomAction Id='InstallShutdownMonService' FileKey='shutdownmon.exe' ExeCommand='-i' Execute='deferred' Return='check'/>
+    <CustomAction Id='InstallShutdownMonService' FileKey='shutdownmon.exe' ExeCommand='-i' Execute='deferred' Return='check' Impersonate='no'/>
     <CustomAction Id='UnInstallShutdownMonService' FileKey='shutdownmon.exe' ExeCommand='-u' Execute='deferred' Return='check' Impersonate='no'/>
     <?if $(env.DDK_TARGET_OS) != Win2K ?>
     <CustomAction Id='WaitForDevices' BinaryKey='waitfordevices.vbs' VBScriptCall='DoWaitForDevices' Execute='deferred' Return='check' Impersonate='no'/>
