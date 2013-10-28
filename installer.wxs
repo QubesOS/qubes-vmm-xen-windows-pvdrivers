@@ -109,8 +109,8 @@
         <?ifdef env.CERT_PUBLIC_FILENAME?>
         <Component Id='Cert' Guid='11112EC8-8635-45fb-9AE8-C22310F1E82D'>
           <File Id='xen_pvdrivers_cert' Name='xen_pvdrivers_cert' DiskId='1' Source='$(env.CERT_PUBLIC_FILENAME)' />
-          <iis:Certificate Id='xen_pvdrivers_cert_root' Name='xen_pvdrivers_cert' Request='no' BinaryKey='xen_pvdrivers_cert' StoreLocation='localMachine' StoreName='root' Overwrite='no' />
-          <iis:Certificate Id='xen_pvdrivers_cert_trustedPublisher' Name='xen_pvdrivers_cert' Request='no' BinaryKey='xen_pvdrivers_cert' StoreLocation='localMachine' StoreName='trustedPublisher' Overwrite='no' />
+          <iis:Certificate Id='xen_pvdrivers_cert_root' Name='xen_pvdrivers_cert' Request='no' BinaryKey='xen_pvdrivers_cert' StoreLocation='localMachine' StoreName='root' Overwrite='yes' />
+          <iis:Certificate Id='xen_pvdrivers_cert_trustedPublisher' Name='xen_pvdrivers_cert' Request='no' BinaryKey='xen_pvdrivers_cert' StoreLocation='localMachine' StoreName='trustedPublisher' Overwrite='yes' />
         </Component>
         <?endif ?>
       </Directory>
@@ -127,6 +127,9 @@
 
     <InstallExecuteSequence>
       <ScheduleReboot  Sequence='7000'/>
+      <?ifdef env.CERT_PUBLIC_FILENAME?>
+      <Custom Action="InstallCertificates" Before='MsiProcessDrivers' />
+      <?endif ?>
       <Custom Action='UnInstallShutdownMonService' Before='StopServices'>$ShutdownMon=2</Custom> 
       <Custom Action='InstallShutdownMonService' After='StartServices'>$ShutdownMon>2</Custom> 
       <?if $(env.DDK_TARGET_OS) != Win2K ?>
