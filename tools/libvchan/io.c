@@ -125,7 +125,7 @@ static inline int send_notify(struct libxenvchan *ctrl, uint8_t bit)
  */
 static inline int fast_get_data_ready(struct libxenvchan *ctrl, size_t request)
 {
-	int ready = rd_prod(ctrl) - rd_cons(ctrl);
+	size_t ready = rd_prod(ctrl) - rd_cons(ctrl);
 	if (ready >= request)
 		return ready;
 	/* We plan to consume all data; please tell us if you send more */
@@ -152,7 +152,7 @@ int libxenvchan_data_ready(struct libxenvchan *ctrl)
  */
 static inline int fast_get_buffer_space(struct libxenvchan *ctrl, size_t request)
 {
-	int ready = wr_ring_size(ctrl) - (wr_prod(ctrl) - wr_cons(ctrl));
+	size_t ready = wr_ring_size(ctrl) - (wr_prod(ctrl) - wr_cons(ctrl));
 	if (ready >= request)
 		return ready;
 	/* We plan to fill the buffer; please tell us when you've read it */
@@ -189,7 +189,7 @@ int libxenvchan_wait(struct libxenvchan *ctrl)
 static int do_send(struct libxenvchan *ctrl, const void *data, size_t size)
 {
 	int real_idx = wr_prod(ctrl) & (wr_ring_size(ctrl) - 1);
-	int avail_contig = wr_ring_size(ctrl) - real_idx;
+	size_t avail_contig = wr_ring_size(ctrl) - real_idx;
 	if (avail_contig > size)
 		avail_contig = size;
 	xen_mb(); /* read indexes /then/ write data */
@@ -211,7 +211,7 @@ static int do_send(struct libxenvchan *ctrl, const void *data, size_t size)
  */
 int libxenvchan_send(struct libxenvchan *ctrl, const void *data, size_t size)
 {
-	int avail;
+	size_t avail;
 	while (1) {
 		if (!libxenvchan_is_open(ctrl))
 			return -1;
@@ -229,7 +229,7 @@ int libxenvchan_send(struct libxenvchan *ctrl, const void *data, size_t size)
 
 int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
 {
-	int avail;
+	size_t avail;
 	if (!libxenvchan_is_open(ctrl))
 		return -1;
 	if (ctrl->blocking) {
@@ -260,7 +260,7 @@ int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
 static int do_recv(struct libxenvchan *ctrl, void *data, size_t size)
 {
 	int real_idx = rd_cons(ctrl) & (rd_ring_size(ctrl) - 1);
-	int avail_contig = rd_ring_size(ctrl) - real_idx;
+	size_t avail_contig = rd_ring_size(ctrl) - real_idx;
 	if (avail_contig > size)
 		avail_contig = size;
 	xen_rmb(); /* data read must happen /after/ rd_cons read */
@@ -284,7 +284,7 @@ static int do_recv(struct libxenvchan *ctrl, void *data, size_t size)
 int libxenvchan_recv(struct libxenvchan *ctrl, void *data, size_t size)
 {
 	while (1) {
-		int avail = fast_get_data_ready(ctrl, size);
+		size_t avail = fast_get_data_ready(ctrl, size);
 		if (size <= avail)
 			return do_recv(ctrl, data, size);
 		if (!libxenvchan_is_open(ctrl))
@@ -301,7 +301,7 @@ int libxenvchan_recv(struct libxenvchan *ctrl, void *data, size_t size)
 int libxenvchan_read(struct libxenvchan *ctrl, void *data, size_t size)
 {
 	while (1) {
-		int avail = fast_get_data_ready(ctrl, size);
+		size_t avail = fast_get_data_ready(ctrl, size);
 		if (avail && size > avail)
 			size = avail;
 		if (avail)
