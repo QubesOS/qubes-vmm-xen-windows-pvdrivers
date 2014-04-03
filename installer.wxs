@@ -22,8 +22,7 @@
     <Binary Id='waitfordevices.vbs' SourceFile='waitnopendinginstallevents\waitfordevices.vbs'/>
     <Binary Id='waitnopendinst.exe' SourceFile='waitnopendinginstallevents\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\waitnopendinginstallevents.exe'/>
     <?endif?>
-    <CustomAction Id='InstallShutdownMonService' FileKey='shutdownmon.exe' ExeCommand='-i' Execute='deferred' Return='check' Impersonate='no'/>
-    <CustomAction Id='UnInstallShutdownMonService' FileKey='shutdownmon.exe' ExeCommand='-u' Execute='deferred' Return='check' Impersonate='no'/>
+    <CustomAction Id='UnInstallOldService' FileKey='shutdownmon.exe' ExeCommand='-u' Execute='deferred' Return='check' Impersonate='no'/>
     <?if $(env.DDK_TARGET_OS) != Win2K ?>
     <CustomAction Id='WaitForDevices' BinaryKey='waitfordevices.vbs' VBScriptCall='DoWaitForDevices' Execute='deferred' Return='check' Impersonate='no'/>
     <CustomAction Id='WaitNoPendingInstallEvents' BinaryKey='waitnopendinst.exe' ExeCommand='300000' Execute='deferred' Return='check' Impersonate='no'/>
@@ -44,6 +43,20 @@
           <Directory Id='BinDir' Name='bin'>
             <Component Id='ShutdownMon' Guid='BF8DC887-4B46-4e77-ACD3-125E8A2BAB8E'>
               <File Id='shutdownmon.exe' Name='shutdownmon.exe' DiskId='1' Source='shutdownmon\obj$(env.BUILD_ALT_DIR)\$(var.ARCHDIR)\shutdownmon.exe' />
+              <ServiceInstall
+              Id="ServiceInstaller"
+              Type="ownProcess"
+              Vital="no"
+              Name="ShutdownMon"
+              Arguments="-s"
+              DisplayName="Xen Shutdown Monitor"
+              Description="Xen Shutdown Monitor"
+              Start="auto"
+              Account="LocalSystem"
+              ErrorControl="ignore"
+              Interactive="no"
+              />
+              <ServiceControl Id="StartService" Remove="uninstall" Name="ShutdownMon" Wait="no" />
             </Component>
             <?if $(env.DDK_TARGET_OS) != Win2K ?>
             <Component Id='CopyConfig' Guid='C01F8A97-1410-41ce-A16E-76E6072FDFF8'>
@@ -130,8 +143,7 @@
       <?ifdef env.CERT_PUBLIC_FILENAME?>
       <Custom Action="InstallCertificates" Before='MsiProcessDrivers' />
       <?endif ?>
-      <Custom Action='UnInstallShutdownMonService' Before='StopServices'>$ShutdownMon=2</Custom> 
-      <Custom Action='InstallShutdownMonService' After='StartServices'>$ShutdownMon>2</Custom> 
+      <Custom Action='UnInstallOldService' Before='InstallServices'>NOT Installed</Custom>
       <?if $(env.DDK_TARGET_OS) != Win2K ?>
       <Custom Action='WaitForDevices' After='MsiProcessDrivers'>1</Custom>
       <Custom Action='WaitNoPendingInstallEvents' After='WaitForDevices'>1</Custom>
