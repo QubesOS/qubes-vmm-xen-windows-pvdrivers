@@ -192,7 +192,7 @@ remove_service()
     return;
   }
 
-  service_handle = OpenService(manager_handle, SERVICE_ID, DELETE);
+  service_handle = OpenService(manager_handle, SERVICE_ID, DELETE | SERVICE_STOP | SERVICE_QUERY_STATUS);
  
   if (!service_handle) 
   {
