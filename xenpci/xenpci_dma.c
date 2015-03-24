@@ -29,6 +29,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define MAP_TYPE_MDL      2
 #define MAP_TYPE_REMAPPED 3
 
+#define XENPCI_GNTTBL_TAG 'TGPX'
+
 
 #if 0
 kd> dt _ADAPTER_OBJECT 81e96b08 -v
@@ -202,7 +204,7 @@ XenPci_DOP_AllocateCommonBuffer(
   //KdPrint((__DRIVER_NAME "     pfn = %08x\n", (ULONG)pfn));
   ASSERT(pfn); /* lazy */
   
-  gref = (grant_ref_t)GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, INVALID_GRANT_REF);
+  gref = (grant_ref_t) GntTbl_GrantAccess(xpdd, 0, (ULONG) pfn, FALSE, INVALID_GRANT_REF, XENPCI_GNTTBL_TAG);
   //KdPrint((__DRIVER_NAME "     gref = %08x\n", (ULONG)gref));
   ASSERT(gref != INVALID_GRANT_REF); /* lazy */
 
@@ -236,7 +238,7 @@ XenPci_DOP_FreeCommonBuffer(
   xpdd = GetXpdd(xen_dma_adapter->xppdd->wdf_device_bus_fdo);
   gref = (grant_ref_t)(logical_address.QuadPart >> PAGE_SHIFT);
   //KdPrint((__DRIVER_NAME "     F Releasing Grant Ref %d\n", gref));
-  GntTbl_EndAccess(xpdd, gref, FALSE);
+  GntTbl_EndAccess(xpdd, gref, FALSE, XENPCI_GNTTBL_TAG);
   //KdPrint((__DRIVER_NAME "     F Released Grant Ref\n"));
   ExFreePoolWithTag(virtual_address, XENPCI_POOL_TAG);
 
@@ -314,7 +316,7 @@ XenPci_DOP_AllocateAdapterChannel(
   
   for (i = 0; i < NumberOfMapRegisters; i++)
   {
-    map_register_base->regs[i].gref = GntTbl_GetRef(xpdd);
+    map_register_base->regs[i].gref = GntTbl_GetRef(xpdd, XENPCI_GNTTBL_TAG);
     if (map_register_base->regs[i].gref == INVALID_GRANT_REF)
     {
       KdPrint((__DRIVER_NAME "     Not enough gref's for AdapterChannel list\n"));
@@ -322,7 +324,7 @@ XenPci_DOP_AllocateAdapterChannel(
       NumberOfMapRegisters = i;
       for (i = 0; i < NumberOfMapRegisters; i++)
       {
-        GntTbl_PutRef(xpdd, map_register_base->regs[i].gref);
+        GntTbl_PutRef(xpdd, map_register_base->regs[i].gref, XENPCI_GNTTBL_TAG);
       }
       //KdPrint((__DRIVER_NAME "     B Free %p\n", map_register_base));
       ExFreePoolWithTag(map_register_base, XENPCI_POOL_TAG);
@@ -426,7 +428,7 @@ XenPci_DOP_FreeMapRegisters(
   for (i = 0; i < map_register_base->total_map_registers; i++)
   {
     map_register = &map_register_base->regs[i];
-    GntTbl_EndAccess(xpdd, map_register->gref, FALSE);
+    GntTbl_EndAccess(xpdd, map_register->gref, FALSE, XENPCI_GNTTBL_TAG);
     switch (map_register->map_type)
     {
     case MAP_TYPE_INVALID:
@@ -535,7 +537,7 @@ XenPci_DOP_MapTransfer(
     //KdPrint((__DRIVER_NAME "     B Requesting Grant Ref\n"));
     
     //ASSERT(map_register->gref != INVALID_GRANT_REF);
-    GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, map_register->gref);
+    GntTbl_GrantAccess(xpdd, 0, (ULONG) pfn, FALSE, map_register->gref, XENPCI_GNTTBL_TAG);
     //KdPrint((__DRIVER_NAME "     B Got Grant Ref %d\n", gref));
     map_register->logical.QuadPart = ((LONGLONG)map_register->gref << PAGE_SHIFT) | page_offset;
     map_register_base->count++;
@@ -556,7 +558,7 @@ XenPci_DOP_MapTransfer(
       memcpy(map_register->aligned_buffer, map_register->unaligned_buffer, map_register->copy_length);
     pfn = (PFN_NUMBER)(MmGetPhysicalAddress(map_register->aligned_buffer).QuadPart >> PAGE_SHIFT);
     //KdPrint((__DRIVER_NAME "     C Requesting Grant Ref\n"));
-    GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE, map_register->gref);
+    GntTbl_GrantAccess(xpdd, 0, (ULONG) pfn, FALSE, map_register->gref, XENPCI_GNTTBL_TAG);
     //KdPrint((__DRIVER_NAME "     C Got Grant Ref %d\n", gref));
     map_register->logical.QuadPart = ((LONGLONG)map_register->gref << PAGE_SHIFT);
     map_register_base->count++;
@@ -633,7 +635,7 @@ XenPci_DOP_PutScatterGatherList(
     {
       grant_ref_t gref;
       gref = (grant_ref_t)(sg_list->Elements[i].Address.QuadPart >> PAGE_SHIFT);
-      GntTbl_EndAccess(xpdd, gref, FALSE);
+      GntTbl_EndAccess(xpdd, gref, FALSE, XENPCI_GNTTBL_TAG);
       sg_list->Elements[i].Address.QuadPart = -1;
     }
     ASSERT(sg_extra->mdl);
@@ -672,7 +674,7 @@ XenPci_DOP_PutScatterGatherList(
     {
       grant_ref_t gref;
       gref = (grant_ref_t)(sg_list->Elements[i].Address.QuadPart >> PAGE_SHIFT);
-      GntTbl_EndAccess(xpdd, gref, FALSE);
+      GntTbl_EndAccess(xpdd, gref, FALSE, XENPCI_GNTTBL_TAG);
       sg_list->Elements[i].Address.QuadPart = -1;
     }
     break;
@@ -890,7 +892,7 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
   {
     for (sg_element = 0; sg_element < sglist->NumberOfElements; sg_element++)
     {
-      gref = GntTbl_GetRef(xpdd);
+      gref = GntTbl_GetRef(xpdd, XENPCI_GNTTBL_TAG);
       if (gref == INVALID_GRANT_REF)
       {
         KdPrint((__DRIVER_NAME "     Not enough gref's for SG list\n"));
@@ -899,7 +901,7 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
         for (sg_element = 0; sg_element < sglist->NumberOfElements; sg_element++)
         {
           gref = (grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT);
-          GntTbl_PutRef(xpdd, gref);
+          GntTbl_PutRef(xpdd, gref, XENPCI_GNTTBL_TAG);
         }
         return STATUS_INSUFFICIENT_RESOURCES;
       }
@@ -945,7 +947,7 @@ XenPci_DOP_BuildScatterGatherListButDontExecute(
             KdPrint((__DRIVER_NAME "     GGG\n"));
 
           GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE,
-            (grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT));
+            (grant_ref_t) (sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT), XENPCI_GNTTBL_TAG);
           sglist->Elements[sg_element].Address.QuadPart |= (LONGLONG)offset;
           sglist->Elements[sg_element].Length = min(min(PAGE_SIZE - offset, remaining), total_remaining);
           total_remaining -= sglist->Elements[sg_element].Length;
@@ -1018,7 +1020,7 @@ for (curr_mdl = Mdl; curr_mdl; curr_mdl = curr_mdl->Next)
       if ((grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT) == INVALID_GRANT_REF)
         KdPrint((__DRIVER_NAME "     HHH\n"));
       GntTbl_GrantAccess(xpdd, 0, (ULONG)pfn, FALSE,
-        (grant_ref_t)(sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT));
+        (grant_ref_t) (sglist->Elements[sg_element].Address.QuadPart >> PAGE_SHIFT), XENPCI_GNTTBL_TAG);
       sglist->Elements[sg_element].Length = min(PAGE_SIZE, remaining);
       remaining -= sglist->Elements[sg_element].Length;
     }
