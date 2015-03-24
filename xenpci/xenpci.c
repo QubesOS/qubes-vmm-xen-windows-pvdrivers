@@ -37,7 +37,7 @@ static EVT_WDF_DRIVER_DEVICE_ADD XenPci_EvtDeviceAdd;
 static EVT_WDF_DEVICE_USAGE_NOTIFICATION XenPci_EvtDeviceUsageNotification;
 static EVT_WDF_DEVICE_PREPARE_HARDWARE XenHide_EvtDevicePrepareHardware;
 
-#if (NTDDI_VERSION >= NTDDI_WS03SP1)
+#if ((_MSC_VER < 1600) && (NTDDI_VERSION >= NTDDI_WS03SP1))
 
 /* this is supposed to be defined in wdm.h, but isn't */
 NTSTATUS 
