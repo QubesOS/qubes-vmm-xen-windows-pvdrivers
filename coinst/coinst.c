@@ -28,27 +28,27 @@ __stdcall CoRequireReboot (
                IN OUT PCOINSTALLER_CONTEXT_DATA Context
                )
 {
-	UNREFERENCED_PARAMETER(Context);
+    UNREFERENCED_PARAMETER(Context);
 
-	OutputDebugString(TEXT("CoRequireReboot"));
+    OutputDebugString(TEXT("CoRequireReboot"));
 
-	if (InstallFunction == DIF_INSTALLDEVICE)
-	{
-		SP_DEVINSTALL_PARAMS DevInstallParams;
-		OutputDebugString(TEXT("  CoRequireReboot: DIF_INSTALLDEVICE"));
-		DevInstallParams.cbSize = sizeof(SP_DEVINSTALL_PARAMS);
-		
-		if (SetupDiGetDeviceInstallParams(DeviceInfoSet, DeviceInfoData, &DevInstallParams))
-		{
-			OutputDebugString(TEXT("  CoRequireReboot: SetupDiGetDeviceInstallParams"));
-			DevInstallParams.Flags |= DI_DONOTCALLCONFIGMG;
-			DevInstallParams.Flags |= DI_NEEDREBOOT;
-			if (SetupDiSetDeviceInstallParams(DeviceInfoSet, DeviceInfoData, &DevInstallParams))
-			{
-				OutputDebugString(TEXT("  CoRequireReboot: SetupDiSetDeviceInstallParams"));
-			}
-		}
-	}
+    if (InstallFunction == DIF_INSTALLDEVICE)
+    {
+        SP_DEVINSTALL_PARAMS DevInstallParams;
+        OutputDebugString(TEXT("  CoRequireReboot: DIF_INSTALLDEVICE"));
+        DevInstallParams.cbSize = sizeof(SP_DEVINSTALL_PARAMS);
+        
+        if (SetupDiGetDeviceInstallParams(DeviceInfoSet, DeviceInfoData, &DevInstallParams))
+        {
+            OutputDebugString(TEXT("  CoRequireReboot: SetupDiGetDeviceInstallParams"));
+            DevInstallParams.Flags |= DI_DONOTCALLCONFIGMG;
+            DevInstallParams.Flags |= DI_NEEDREBOOT;
+            if (SetupDiSetDeviceInstallParams(DeviceInfoSet, DeviceInfoData, &DevInstallParams))
+            {
+                OutputDebugString(TEXT("  CoRequireReboot: SetupDiSetDeviceInstallParams"));
+            }
+        }
+    }
 
     return NO_ERROR;
 }

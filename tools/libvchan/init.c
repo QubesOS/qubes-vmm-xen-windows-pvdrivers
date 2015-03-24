@@ -78,144 +78,144 @@
 
 static int init_gnt_srv(struct libxenvchan *ctrl, int domain)
 {
-	int pages_left = ctrl->read.order >= PAGE_SHIFT ? 1 << (ctrl->read.order - PAGE_SHIFT) : 0;
-	int pages_right = ctrl->write.order >= PAGE_SHIFT ? 1 << (ctrl->write.order - PAGE_SHIFT) : 0;
-	uint32_t ring_ref = -1;
-	void *ring;
+    int pages_left = ctrl->read.order >= PAGE_SHIFT ? 1 << (ctrl->read.order - PAGE_SHIFT) : 0;
+    int pages_right = ctrl->write.order >= PAGE_SHIFT ? 1 << (ctrl->write.order - PAGE_SHIFT) : 0;
+    uint32_t ring_ref = -1;
+    void *ring;
 
-	ring = xc_gntshr_share_page_notify(ctrl->gntshr, (domid_t)domain,
-			&ring_ref, 1, offsetof(struct vchan_interface, srv_live),
-			ctrl->event_port);
+    ring = xc_gntshr_share_page_notify(ctrl->gntshr, (domid_t)domain,
+            &ring_ref, 1, offsetof(struct vchan_interface, srv_live),
+            ctrl->event_port);
 
-	if (!ring)
-		goto out;
+    if (!ring)
+        goto out;
 
-	memset(ring, 0, PAGE_SIZE);
+    memset(ring, 0, PAGE_SIZE);
 
-	ctrl->ring = ring;
-	ctrl->read.shr = &ctrl->ring->left;
-	ctrl->write.shr = &ctrl->ring->right;
-	ctrl->ring->left_order = ctrl->read.order;
-	ctrl->ring->right_order = ctrl->write.order;
-	ctrl->ring->cli_live = 2;
-	ctrl->ring->srv_live = 1;
-	ctrl->ring->cli_notify = VCHAN_NOTIFY_WRITE;
+    ctrl->ring = ring;
+    ctrl->read.shr = &ctrl->ring->left;
+    ctrl->write.shr = &ctrl->ring->right;
+    ctrl->ring->left_order = ctrl->read.order;
+    ctrl->ring->right_order = ctrl->write.order;
+    ctrl->ring->cli_live = 2;
+    ctrl->ring->srv_live = 1;
+    ctrl->ring->cli_notify = VCHAN_NOTIFY_WRITE;
 
-	switch (ctrl->read.order) {
-	case SMALL_RING_SHIFT:
-		ctrl->read.buffer = ((char*)ctrl->ring) + SMALL_RING_OFFSET;
-		break;
-	case LARGE_RING_SHIFT:
-		ctrl->read.buffer = ((char*)ctrl->ring) + LARGE_RING_OFFSET;
-		break;
-	default:
-		ctrl->read.buffer = xc_gntshr_share_pages(ctrl->gntshr, (domid_t)domain,
-			pages_left, ctrl->ring->grants, 1);
-		if (!ctrl->read.buffer)
-			goto out_ring;
-	}
+    switch (ctrl->read.order) {
+    case SMALL_RING_SHIFT:
+        ctrl->read.buffer = ((char*)ctrl->ring) + SMALL_RING_OFFSET;
+        break;
+    case LARGE_RING_SHIFT:
+        ctrl->read.buffer = ((char*)ctrl->ring) + LARGE_RING_OFFSET;
+        break;
+    default:
+        ctrl->read.buffer = xc_gntshr_share_pages(ctrl->gntshr, (domid_t)domain,
+            pages_left, ctrl->ring->grants, 1);
+        if (!ctrl->read.buffer)
+            goto out_ring;
+    }
 
-	switch (ctrl->write.order) {
-	case SMALL_RING_SHIFT:
-		ctrl->write.buffer = ((char*)ctrl->ring) + SMALL_RING_OFFSET;
-		break;
-	case LARGE_RING_SHIFT:
-		ctrl->write.buffer = ((char*)ctrl->ring) + LARGE_RING_OFFSET;
-		break;
-	default:
-		ctrl->write.buffer = xc_gntshr_share_pages(ctrl->gntshr, (domid_t)domain,
-			pages_right, ctrl->ring->grants + pages_left, 1);
-		if (!ctrl->write.buffer)
-			goto out_unmap_left;
-	}
+    switch (ctrl->write.order) {
+    case SMALL_RING_SHIFT:
+        ctrl->write.buffer = ((char*)ctrl->ring) + SMALL_RING_OFFSET;
+        break;
+    case LARGE_RING_SHIFT:
+        ctrl->write.buffer = ((char*)ctrl->ring) + LARGE_RING_OFFSET;
+        break;
+    default:
+        ctrl->write.buffer = xc_gntshr_share_pages(ctrl->gntshr, (domid_t)domain,
+            pages_right, ctrl->ring->grants + pages_left, 1);
+        if (!ctrl->write.buffer)
+            goto out_unmap_left;
+    }
 
 out:
-	return ring_ref;
+    return ring_ref;
 out_unmap_left:
-	if (pages_left)
-		xc_gntshr_munmap(ctrl->gntshr, ctrl->read.buffer, pages_left);
+    if (pages_left)
+        xc_gntshr_munmap(ctrl->gntshr, ctrl->read.buffer, pages_left);
 out_ring:
-	xc_gntshr_munmap(ctrl->gntshr, ring, 1);
-	ring_ref = -1;
-	ctrl->ring = NULL;
-	ctrl->write.order = ctrl->read.order = 0;
-	goto out;
+    xc_gntshr_munmap(ctrl->gntshr, ring, 1);
+    ring_ref = -1;
+    ctrl->ring = NULL;
+    ctrl->write.order = ctrl->read.order = 0;
+    goto out;
 }
 
 static int init_gnt_cli(struct libxenvchan *ctrl, int domain, uint32_t ring_ref)
 {
 #ifdef LIBXENVCHAN_CLIENT_SUPPORTED
-	int rv = -1;
-	uint32_t *grants;
+    int rv = -1;
+    uint32_t *grants;
 
-	ctrl->ring = xc_gnttab_map_grant_ref_notify(ctrl->gnttab,
-		domain, ring_ref, PROT_READ|PROT_WRITE,
-		offsetof(struct vchan_interface, cli_live), ctrl->event_port);
+    ctrl->ring = xc_gnttab_map_grant_ref_notify(ctrl->gnttab,
+        domain, ring_ref, PROT_READ|PROT_WRITE,
+        offsetof(struct vchan_interface, cli_live), ctrl->event_port);
 
-	if (!ctrl->ring)
-		goto out;
+    if (!ctrl->ring)
+        goto out;
 
-	ctrl->write.order = ctrl->ring->left_order;
-	ctrl->read.order = ctrl->ring->right_order;
-	ctrl->write.shr = &ctrl->ring->left;
-	ctrl->read.shr = &ctrl->ring->right;
-	if (ctrl->write.order < SMALL_RING_SHIFT || ctrl->write.order > MAX_RING_SHIFT)
-		goto out_unmap_ring;
-	if (ctrl->read.order < SMALL_RING_SHIFT || ctrl->read.order > MAX_RING_SHIFT)
-		goto out_unmap_ring;
-	if (ctrl->read.order == ctrl->write.order && ctrl->read.order < PAGE_SHIFT)
-		goto out_unmap_ring;
+    ctrl->write.order = ctrl->ring->left_order;
+    ctrl->read.order = ctrl->ring->right_order;
+    ctrl->write.shr = &ctrl->ring->left;
+    ctrl->read.shr = &ctrl->ring->right;
+    if (ctrl->write.order < SMALL_RING_SHIFT || ctrl->write.order > MAX_RING_SHIFT)
+        goto out_unmap_ring;
+    if (ctrl->read.order < SMALL_RING_SHIFT || ctrl->read.order > MAX_RING_SHIFT)
+        goto out_unmap_ring;
+    if (ctrl->read.order == ctrl->write.order && ctrl->read.order < PAGE_SHIFT)
+        goto out_unmap_ring;
 
-	grants = ctrl->ring->grants;
+    grants = ctrl->ring->grants;
 
-	switch (ctrl->write.order) {
-	case SMALL_RING_SHIFT:
-		ctrl->write.buffer = ((char*)ctrl->ring) + SMALL_RING_OFFSET;
-		break;
-	case LARGE_RING_SHIFT:
-		ctrl->write.buffer = ((char*)ctrl->ring) + LARGE_RING_OFFSET;
-		break;
-	default:
-		{
-			int pages_left = 1 << (ctrl->write.order - PAGE_SHIFT);
-			ctrl->write.buffer = xc_gnttab_map_domain_grant_refs(ctrl->gnttab,
-				pages_left, domain, grants, PROT_READ|PROT_WRITE);
-			if (!ctrl->write.buffer)
-				goto out_unmap_ring;
-			grants += pages_left;
-		}
-	}
+    switch (ctrl->write.order) {
+    case SMALL_RING_SHIFT:
+        ctrl->write.buffer = ((char*)ctrl->ring) + SMALL_RING_OFFSET;
+        break;
+    case LARGE_RING_SHIFT:
+        ctrl->write.buffer = ((char*)ctrl->ring) + LARGE_RING_OFFSET;
+        break;
+    default:
+        {
+            int pages_left = 1 << (ctrl->write.order - PAGE_SHIFT);
+            ctrl->write.buffer = xc_gnttab_map_domain_grant_refs(ctrl->gnttab,
+                pages_left, domain, grants, PROT_READ|PROT_WRITE);
+            if (!ctrl->write.buffer)
+                goto out_unmap_ring;
+            grants += pages_left;
+        }
+    }
 
-	switch (ctrl->read.order) {
-	case SMALL_RING_SHIFT:
-		ctrl->read.buffer = ((char*)ctrl->ring) + SMALL_RING_OFFSET;
-		break;
-	case LARGE_RING_SHIFT:
-		ctrl->read.buffer = ((char*)ctrl->ring) + LARGE_RING_OFFSET;
-		break;
-	default:
-		{
-			int pages_right = 1 << (ctrl->read.order - PAGE_SHIFT);
-			ctrl->read.buffer = xc_gnttab_map_domain_grant_refs(ctrl->gnttab,
-				pages_right, domain, grants, PROT_READ);
-			if (!ctrl->read.buffer)
-				goto out_unmap_left;
-		}
-	}
+    switch (ctrl->read.order) {
+    case SMALL_RING_SHIFT:
+        ctrl->read.buffer = ((char*)ctrl->ring) + SMALL_RING_OFFSET;
+        break;
+    case LARGE_RING_SHIFT:
+        ctrl->read.buffer = ((char*)ctrl->ring) + LARGE_RING_OFFSET;
+        break;
+    default:
+        {
+            int pages_right = 1 << (ctrl->read.order - PAGE_SHIFT);
+            ctrl->read.buffer = xc_gnttab_map_domain_grant_refs(ctrl->gnttab,
+                pages_right, domain, grants, PROT_READ);
+            if (!ctrl->read.buffer)
+                goto out_unmap_left;
+        }
+    }
 
-	rv = 0;
+    rv = 0;
  out:
-	return rv;
+    return rv;
  out_unmap_left:
-	if (ctrl->write.order >= PAGE_SHIFT)
-		xc_gnttab_munmap(ctrl->gnttab, ctrl->write.buffer,
-		                 1 << ctrl->write.order);
+    if (ctrl->write.order >= PAGE_SHIFT)
+        xc_gnttab_munmap(ctrl->gnttab, ctrl->write.buffer,
+                         1 << ctrl->write.order);
  out_unmap_ring:
-	xc_gnttab_munmap(ctrl->gnttab, ctrl->ring, PAGE_SIZE);
-	ctrl->ring = 0;
-	ctrl->write.order = ctrl->read.order = 0;
-	rv = -1;
-	goto out;
+    xc_gnttab_munmap(ctrl->gnttab, ctrl->ring, PAGE_SIZE);
+    ctrl->ring = 0;
+    ctrl->write.order = ctrl->read.order = 0;
+    rv = -1;
+    goto out;
 #else
     return -1;
 #endif
@@ -225,155 +225,155 @@ static int init_evt_srv(struct libxenvchan *ctrl, int domain, xentoollog_logger 
 {
     evtchn_port_or_error_t event_port;
 #ifdef WINNT
-	ctrl->event = xc_evtchn_open();
+    ctrl->event = xc_evtchn_open();
 #else
-	ctrl->event = xc_evtchn_open(logger, 0);
+    ctrl->event = xc_evtchn_open(logger, 0);
 #endif
-	if (!ctrl->event)
-		return -1;
-	event_port = xc_evtchn_bind_unbound_port(ctrl->event, domain);
-	if (event_port < 0)
-		return -1;
+    if (!ctrl->event)
+        return -1;
+    event_port = xc_evtchn_bind_unbound_port(ctrl->event, domain);
+    if (event_port < 0)
+        return -1;
     ctrl->event_port = event_port;
-	if (xc_evtchn_unmask(ctrl->event, ctrl->event_port))
-		return -1;
-	return 0;
+    if (xc_evtchn_unmask(ctrl->event, ctrl->event_port))
+        return -1;
+    return 0;
 }
 
 static int init_xs_srv(struct libxenvchan *ctrl, int domain, const char* xs_base, int ring_ref)
 {
-	int ret = -1;
-	struct xs_handle *xs;
-	struct xs_permissions perms[2];
-	char buf[64];
-	char ref[16];
-	char* domid_str = NULL;
+    int ret = -1;
+    struct xs_handle *xs;
+    struct xs_permissions perms[2];
+    char buf[64];
+    char ref[16];
+    char* domid_str = NULL;
 #ifdef WINNT
-	xs_transaction_t xs_trans = 0;
+    xs_transaction_t xs_trans = 0;
 #else
-	xs_transaction_t xs_trans = NULL;
+    xs_transaction_t xs_trans = NULL;
 #endif
-	xs = xs_domain_open();
-	if (!xs)
-		goto fail;
-	domid_str = xs_read(xs, 0, "domid", NULL);
-	if (!domid_str)
-		goto fail_xs_open;
+    xs = xs_domain_open();
+    if (!xs)
+        goto fail;
+    domid_str = xs_read(xs, 0, "domid", NULL);
+    if (!domid_str)
+        goto fail_xs_open;
 
-	// owner domain is us
-	perms[0].id = atoi(domid_str);
-	// permissions for domains not listed = none
-	perms[0].perms = XS_PERM_NONE;
-	// other domains
-	perms[1].id = domain;
-	perms[1].perms = XS_PERM_READ;
+    // owner domain is us
+    perms[0].id = atoi(domid_str);
+    // permissions for domains not listed = none
+    perms[0].perms = XS_PERM_NONE;
+    // other domains
+    perms[1].id = domain;
+    perms[1].perms = XS_PERM_READ;
 
 #ifndef WINNT
 retry_transaction:
 #endif
-	xs_trans = xs_transaction_start(xs);
-	if (!xs_trans)
-		goto fail_xs_open;
+    xs_trans = xs_transaction_start(xs);
+    if (!xs_trans)
+        goto fail_xs_open;
 
-	snprintf(ref, sizeof ref, "%d", ring_ref);
-	snprintf(buf, sizeof buf, "%s/ring-ref", xs_base);
-	if (!xs_write(xs, xs_trans, buf, ref, strlen(ref)))
-		goto fail_xs_open;
-	if (!xs_set_permissions(xs, xs_trans, buf, perms, 2))
-		goto fail_xs_open;
+    snprintf(ref, sizeof ref, "%d", ring_ref);
+    snprintf(buf, sizeof buf, "%s/ring-ref", xs_base);
+    if (!xs_write(xs, xs_trans, buf, ref, strlen(ref)))
+        goto fail_xs_open;
+    if (!xs_set_permissions(xs, xs_trans, buf, perms, 2))
+        goto fail_xs_open;
 
-	snprintf(ref, sizeof ref, "%d", ctrl->event_port);
-	snprintf(buf, sizeof buf, "%s/event-channel", xs_base);
-	if (!xs_write(xs, xs_trans, buf, ref, strlen(ref)))
-		goto fail_xs_open;
-	if (!xs_set_permissions(xs, xs_trans, buf, perms, 2))
-		goto fail_xs_open;
+    snprintf(ref, sizeof ref, "%d", ctrl->event_port);
+    snprintf(buf, sizeof buf, "%s/event-channel", xs_base);
+    if (!xs_write(xs, xs_trans, buf, ref, strlen(ref)))
+        goto fail_xs_open;
+    if (!xs_set_permissions(xs, xs_trans, buf, perms, 2))
+        goto fail_xs_open;
 
-	if (!xs_transaction_end(xs, xs_trans, 0))
+    if (!xs_transaction_end(xs, xs_trans, 0))
 #ifndef WINNT
-		if (errno == EAGAIN)
+        if (errno == EAGAIN)
             goto retry_transaction;
 #else
         goto fail;
 #endif
 
-	ret = 0;
+    ret = 0;
  fail_xs_open:
-	free(domid_str);
-	xs_daemon_close(xs);
+    free(domid_str);
+    xs_daemon_close(xs);
  fail:
-	return ret;
+    return ret;
 }
 
 static uint16_t min_order(size_t siz)
 {
-	uint16_t rv = PAGE_SHIFT;
-	while (siz > (size_t)(1 << rv))
-		rv++;
-	return rv;
+    uint16_t rv = PAGE_SHIFT;
+    while (siz > (size_t)(1 << rv))
+        rv++;
+    return rv;
 }
 
 struct libxenvchan *libxenvchan_server_init(xentoollog_logger *logger, int domain, const char* xs_path, size_t left_min, size_t right_min)
 {
-	struct libxenvchan *ctrl;
-	int ring_ref;
-	if (left_min > MAX_RING_SIZE || right_min > MAX_RING_SIZE)
-		return 0;
+    struct libxenvchan *ctrl;
+    int ring_ref;
+    if (left_min > MAX_RING_SIZE || right_min > MAX_RING_SIZE)
+        return 0;
 
-	ctrl = malloc(sizeof(*ctrl));
-	if (!ctrl)
-		return 0;
+    ctrl = malloc(sizeof(*ctrl));
+    if (!ctrl)
+        return 0;
 
-	ctrl->ring = NULL;
-	ctrl->event = NULL;
-	ctrl->is_server = 1;
-	ctrl->server_persist = 0;
+    ctrl->ring = NULL;
+    ctrl->event = NULL;
+    ctrl->is_server = 1;
+    ctrl->server_persist = 0;
 
-	ctrl->read.order = min_order(left_min);
-	ctrl->write.order = min_order(right_min);
+    ctrl->read.order = min_order(left_min);
+    ctrl->write.order = min_order(right_min);
 
-	// if we can avoid allocating extra pages by using in-page rings, do so
-	if (left_min <= MAX_SMALL_RING && right_min <= MAX_LARGE_RING) {
-		ctrl->read.order = SMALL_RING_SHIFT;
-		ctrl->write.order = LARGE_RING_SHIFT;
-	} else if (left_min <= MAX_LARGE_RING && right_min <= MAX_SMALL_RING) {
-		ctrl->read.order = LARGE_RING_SHIFT;
-		ctrl->write.order = SMALL_RING_SHIFT;
-	} else if (left_min <= MAX_LARGE_RING) {
-		ctrl->read.order = LARGE_RING_SHIFT;
-	} else if (right_min <= MAX_LARGE_RING) {
-		ctrl->write.order = LARGE_RING_SHIFT;
-	}
+    // if we can avoid allocating extra pages by using in-page rings, do so
+    if (left_min <= MAX_SMALL_RING && right_min <= MAX_LARGE_RING) {
+        ctrl->read.order = SMALL_RING_SHIFT;
+        ctrl->write.order = LARGE_RING_SHIFT;
+    } else if (left_min <= MAX_LARGE_RING && right_min <= MAX_SMALL_RING) {
+        ctrl->read.order = LARGE_RING_SHIFT;
+        ctrl->write.order = SMALL_RING_SHIFT;
+    } else if (left_min <= MAX_LARGE_RING) {
+        ctrl->read.order = LARGE_RING_SHIFT;
+    } else if (right_min <= MAX_LARGE_RING) {
+        ctrl->write.order = LARGE_RING_SHIFT;
+    }
 
-	ctrl->gntshr = xc_gntshr_open(logger, 0);
-	if (!ctrl->gntshr)
-		goto out;
+    ctrl->gntshr = xc_gntshr_open(logger, 0);
+    if (!ctrl->gntshr)
+        goto out;
 
-	if (init_evt_srv(ctrl, domain, logger))
-		goto out;
-	ring_ref = init_gnt_srv(ctrl, domain);
-	if (ring_ref < 0)
-		goto out;
-	if (init_xs_srv(ctrl, domain, xs_path, ring_ref))
-		goto out;
-	return ctrl;
+    if (init_evt_srv(ctrl, domain, logger))
+        goto out;
+    ring_ref = init_gnt_srv(ctrl, domain);
+    if (ring_ref < 0)
+        goto out;
+    if (init_xs_srv(ctrl, domain, xs_path, ring_ref))
+        goto out;
+    return ctrl;
 out:
-	libxenvchan_close(ctrl);
-	return 0;
+    libxenvchan_close(ctrl);
+    return 0;
 }
 
 static int init_evt_cli(struct libxenvchan *ctrl, int domain, xentoollog_logger *logger)
 {
 #ifdef LIBXENVCHAN_CLIENT_SUPPORTED
-	ctrl->event = xc_evtchn_open(logger, 0);
-	if (!ctrl->event)
-		return -1;
-	ctrl->event_port = xc_evtchn_bind_interdomain(ctrl->event,
-		domain, ctrl->event_port);
-	if (ctrl->event_port < 0)
-		return -1;
-	xc_evtchn_unmask(ctrl->event, ctrl->event_port);
-	return 0;
+    ctrl->event = xc_evtchn_open(logger, 0);
+    if (!ctrl->event)
+        return -1;
+    ctrl->event_port = xc_evtchn_bind_interdomain(ctrl->event,
+        domain, ctrl->event_port);
+    if (ctrl->event_port < 0)
+        return -1;
+    xc_evtchn_unmask(ctrl->event, ctrl->event_port);
+    return 0;
 #else
     return -1;
 #endif
@@ -383,68 +383,68 @@ static int init_evt_cli(struct libxenvchan *ctrl, int domain, xentoollog_logger 
 struct libxenvchan *libxenvchan_client_init(xentoollog_logger *logger, int domain, const char* xs_path)
 {
 #ifdef LIBXENVCHAN_CLIENT_SUPPORTED
-	struct libxenvchan *ctrl = malloc(sizeof(struct libxenvchan));
-	struct xs_handle *xs = NULL;
-	char buf[64];
-	char *ref;
-	int ring_ref;
-	unsigned int len;
+    struct libxenvchan *ctrl = malloc(sizeof(struct libxenvchan));
+    struct xs_handle *xs = NULL;
+    char buf[64];
+    char *ref;
+    int ring_ref;
+    unsigned int len;
 
-	if (!ctrl)
-		return 0;
-	ctrl->ring = NULL;
-	ctrl->event = NULL;
-	ctrl->gnttab = NULL;
-	ctrl->write.order = ctrl->read.order = 0;
-	ctrl->is_server = 0;
+    if (!ctrl)
+        return 0;
+    ctrl->ring = NULL;
+    ctrl->event = NULL;
+    ctrl->gnttab = NULL;
+    ctrl->write.order = ctrl->read.order = 0;
+    ctrl->is_server = 0;
 
-	xs = xs_daemon_open();
-	if (!xs)
-		xs = xs_domain_open();
-	if (!xs)
-		goto fail;
+    xs = xs_daemon_open();
+    if (!xs)
+        xs = xs_domain_open();
+    if (!xs)
+        goto fail;
 
 // find xenstore entry
-	snprintf(buf, sizeof buf, "%s/ring-ref", xs_path);
-	ref = xs_read(xs, 0, buf, &len);
-	if (!ref)
-		goto fail;
-	ring_ref = atoi(ref);
-	free(ref);
-	if (!ring_ref)
-		goto fail;
-	snprintf(buf, sizeof buf, "%s/event-channel", xs_path);
-	ref = xs_read(xs, 0, buf, &len);
-	if (!ref)
-		goto fail;
-	ctrl->event_port = atoi(ref);
-	free(ref);
-	if (!ctrl->event_port)
-		goto fail;
+    snprintf(buf, sizeof buf, "%s/ring-ref", xs_path);
+    ref = xs_read(xs, 0, buf, &len);
+    if (!ref)
+        goto fail;
+    ring_ref = atoi(ref);
+    free(ref);
+    if (!ring_ref)
+        goto fail;
+    snprintf(buf, sizeof buf, "%s/event-channel", xs_path);
+    ref = xs_read(xs, 0, buf, &len);
+    if (!ref)
+        goto fail;
+    ctrl->event_port = atoi(ref);
+    free(ref);
+    if (!ctrl->event_port)
+        goto fail;
 
-	ctrl->gnttab = xc_gnttab_open(logger, 0);
-	if (!ctrl->gnttab)
-		goto fail;
+    ctrl->gnttab = xc_gnttab_open(logger, 0);
+    if (!ctrl->gnttab)
+        goto fail;
 
 // set up event channel
-	if (init_evt_cli(ctrl, domain, logger))
-		goto fail;
+    if (init_evt_cli(ctrl, domain, logger))
+        goto fail;
 
 // set up shared page(s)
-	if (init_gnt_cli(ctrl, domain, ring_ref))
-		goto fail;
+    if (init_gnt_cli(ctrl, domain, ring_ref))
+        goto fail;
 
-	ctrl->ring->cli_live = 1;
-	ctrl->ring->srv_notify = VCHAN_NOTIFY_WRITE;
+    ctrl->ring->cli_live = 1;
+    ctrl->ring->srv_notify = VCHAN_NOTIFY_WRITE;
 
  out:
-	if (xs)
-		xs_daemon_close(xs);
-	return ctrl;
+    if (xs)
+        xs_daemon_close(xs);
+    return ctrl;
  fail:
-	libxenvchan_close(ctrl);
-	ctrl = NULL;
-	goto out;
+    libxenvchan_close(ctrl);
+    ctrl = NULL;
+    goto out;
 #else
     return NULL;
 #endif

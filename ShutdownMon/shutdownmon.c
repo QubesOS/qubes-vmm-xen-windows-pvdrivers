@@ -136,46 +136,46 @@ remove_old_service()
 static void
 possibly_stop_service(SC_HANDLE service_handle)
 {
-	SERVICE_STATUS_PROCESS ssp;
-	DWORD dwStartTime = GetTickCount();
-	DWORD dwBytesNeeded;
-	DWORD dwTimeout = 3000; // 3-second time-out
+    SERVICE_STATUS_PROCESS ssp;
+    DWORD dwStartTime = GetTickCount();
+    DWORD dwBytesNeeded;
+    DWORD dwTimeout = 3000; // 3-second time-out
 
-	if ( !ControlService(
-				service_handle,
-				SERVICE_CONTROL_STOP,
-				(LPSERVICE_STATUS) &ssp ) )
-	{
-		printf( "ControlService failed (%d)\n", GetLastError() );
-		return;
-	}
+    if ( !ControlService(
+                service_handle,
+                SERVICE_CONTROL_STOP,
+                (LPSERVICE_STATUS) &ssp ) )
+    {
+        printf( "ControlService failed (%d)\n", GetLastError() );
+        return;
+    }
 
-	// Wait for the service to stop.
+    // Wait for the service to stop.
 
-	while ( ssp.dwCurrentState != SERVICE_STOPPED )
-	{
-		Sleep( ssp.dwWaitHint );
-		if ( !QueryServiceStatusEx(
-					service_handle,
-					SC_STATUS_PROCESS_INFO,
-					(LPBYTE)&ssp,
-					sizeof(SERVICE_STATUS_PROCESS),
-					&dwBytesNeeded ) )
-		{
-			printf( "QueryServiceStatusEx failed (%d)\n", GetLastError() );
-			return;
-		}
+    while ( ssp.dwCurrentState != SERVICE_STOPPED )
+    {
+        Sleep( ssp.dwWaitHint );
+        if ( !QueryServiceStatusEx(
+                    service_handle,
+                    SC_STATUS_PROCESS_INFO,
+                    (LPBYTE)&ssp,
+                    sizeof(SERVICE_STATUS_PROCESS),
+                    &dwBytesNeeded ) )
+        {
+            printf( "QueryServiceStatusEx failed (%d)\n", GetLastError() );
+            return;
+        }
 
-		if ( ssp.dwCurrentState == SERVICE_STOPPED )
-			break;
+        if ( ssp.dwCurrentState == SERVICE_STOPPED )
+            break;
 
-		if ( GetTickCount() - dwStartTime > dwTimeout )
-		{
-			printf( "Wait timed out\n" );
-			return;
-		}
-	}
-	printf("Service stopped successfully\n");
+        if ( GetTickCount() - dwStartTime > dwTimeout )
+        {
+            printf( "Wait timed out\n" );
+            return;
+        }
+    }
+    printf("Service stopped successfully\n");
 }
 
 static void

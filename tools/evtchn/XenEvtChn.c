@@ -38,13 +38,13 @@ get_xen_interface_handle()
   }
   
   h = CreateFile(
-	sdidd->DevicePath, 
-	FILE_GENERIC_READ|FILE_GENERIC_WRITE, 
-	0, 
-	NULL, 
-	OPEN_EXISTING, 
-	FILE_FLAG_OVERLAPPED | FILE_ATTRIBUTE_NORMAL, 
-	NULL);
+    sdidd->DevicePath, 
+    FILE_GENERIC_READ|FILE_GENERIC_WRITE, 
+    0, 
+    NULL, 
+    OPEN_EXISTING, 
+    FILE_FLAG_OVERLAPPED | FILE_ATTRIBUTE_NORMAL, 
+    NULL);
 
   free(sdidd);
   
@@ -54,16 +54,16 @@ get_xen_interface_handle()
 /*
 static void report_error() {
 
-	DWORD err = GetLastError();
-	LPWSTR errbuf;
-	if(!FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
-		NULL, err, 0, (LPWSTR)&errbuf, 0, NULL)) {
-			printf("Error: %x. Failed to get description (error %x)\n", err, GetLastError());
-	}
-	else {
-		printf("Error: %x (%ws)\n", err, errbuf);
-		LocalFree(errbuf);
-	}
+    DWORD err = GetLastError();
+    LPWSTR errbuf;
+    if(!FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
+        NULL, err, 0, (LPWSTR)&errbuf, 0, NULL)) {
+            printf("Error: %x. Failed to get description (error %x)\n", err, GetLastError());
+    }
+    else {
+        printf("Error: %x (%ws)\n", err, errbuf);
+        LocalFree(errbuf);
+    }
 
 }
 */
@@ -73,7 +73,7 @@ static void report_error() {
  */
 HANDLE xc_evtchn_open(void) {
 
-	return get_xen_interface_handle();
+    return get_xen_interface_handle();
 }
 
 /*
@@ -81,8 +81,8 @@ HANDLE xc_evtchn_open(void) {
  */
 int xc_evtchn_close(HANDLE xce_handle) {
 
-	CloseHandle(xce_handle);
-	return 0;
+    CloseHandle(xce_handle);
+    return 0;
 
 }
 
@@ -94,7 +94,7 @@ int xc_evtchn_close(HANDLE xce_handle) {
  */
 HANDLE xc_evtchn_fd(HANDLE xce_handle) {
 
-	return xce_handle;
+    return xce_handle;
 
 }
 
@@ -104,30 +104,30 @@ HANDLE xc_evtchn_fd(HANDLE xce_handle) {
  */
 int xc_evtchn_notify(HANDLE xce_handle, evtchn_port_t port) {
 
-	struct ioctl_evtchn_notify params;
-	DWORD bytes_written;
-	OVERLAPPED ol;
+    struct ioctl_evtchn_notify params;
+    DWORD bytes_written;
+    OVERLAPPED ol;
 
 
-	memset(&ol, 0, sizeof(ol));
-	ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    memset(&ol, 0, sizeof(ol));
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-	params.port = port;
+    params.port = port;
 
-	if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_NOTIFY, (LPVOID)&params, sizeof(params), NULL, 0, NULL, &ol)) {
-		if(GetLastError() != ERROR_IO_PENDING) {
-			CloseHandle(ol.hEvent);
-			return -1;
-		}
-	}
-	if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) { /* Wait */
-		CloseHandle(ol.hEvent);
-		return -1;
-	}
-	else {
-		CloseHandle(ol.hEvent);
-		return 0;
-	}
+    if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_NOTIFY, (LPVOID)&params, sizeof(params), NULL, 0, NULL, &ol)) {
+        if(GetLastError() != ERROR_IO_PENDING) {
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+    }
+    if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) { /* Wait */
+        CloseHandle(ol.hEvent);
+        return -1;
+    }
+    else {
+        CloseHandle(ol.hEvent);
+        return 0;
+    }
 
 }
 
@@ -138,32 +138,32 @@ int xc_evtchn_notify(HANDLE xce_handle, evtchn_port_t port) {
 evtchn_port_or_error_t
 xc_evtchn_bind_unbound_port(HANDLE xce_handle, int domid) {
 
-	struct ioctl_evtchn_bind_unbound_port params;
-	unsigned int port_out;
-	DWORD bytes_written; 
-	OVERLAPPED ol;
+    struct ioctl_evtchn_bind_unbound_port params;
+    unsigned int port_out;
+    DWORD bytes_written; 
+    OVERLAPPED ol;
 
 
-	memset(&ol, 0, sizeof(ol));
-	ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    memset(&ol, 0, sizeof(ol));
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-	params.remote_domain = domid;
+    params.remote_domain = domid;
 
-	if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_BIND_UNBOUND_PORT, (LPVOID)&params, sizeof(params), &port_out, sizeof(port_out), NULL, &ol)) {
-		if(GetLastError() != ERROR_IO_PENDING) {
-			CloseHandle(ol.hEvent);
-			return -1;
-		}
-	}
+    if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_BIND_UNBOUND_PORT, (LPVOID)&params, sizeof(params), &port_out, sizeof(port_out), NULL, &ol)) {
+        if(GetLastError() != ERROR_IO_PENDING) {
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+    }
 
-	if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) /* Wait */ {
-		CloseHandle(ol.hEvent);
-		return -1;
-	}
-	else {
-		CloseHandle(ol.hEvent);
-		return (int)port_out;
-	}
+    if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) /* Wait */ {
+        CloseHandle(ol.hEvent);
+        return -1;
+    }
+    else {
+        CloseHandle(ol.hEvent);
+        return (int)port_out;
+    }
 
 }
 
@@ -174,32 +174,32 @@ xc_evtchn_bind_unbound_port(HANDLE xce_handle, int domid) {
 evtchn_port_or_error_t
 xc_evtchn_bind_interdomain(HANDLE xce_handle, int domid, evtchn_port_t remote_port) {
 
-	struct ioctl_evtchn_bind_interdomain params;
-	unsigned int port_out;
-	DWORD bytes_written;
-	OVERLAPPED ol;
+    struct ioctl_evtchn_bind_interdomain params;
+    unsigned int port_out;
+    DWORD bytes_written;
+    OVERLAPPED ol;
 
 
-	memset(&ol, 0, sizeof(ol));
-	ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    memset(&ol, 0, sizeof(ol));
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-	params.remote_domain = domid;
-	params.remote_port = remote_port;
+    params.remote_domain = domid;
+    params.remote_port = remote_port;
 
-	if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_BIND_INTERDOMAIN, (LPVOID)&params, sizeof(params), &port_out, sizeof(port_out), NULL, &ol)) {
-		if(GetLastError() != ERROR_IO_PENDING) {
-			CloseHandle(ol.hEvent);
-			return -1;
-		}
-	}
+    if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_BIND_INTERDOMAIN, (LPVOID)&params, sizeof(params), &port_out, sizeof(port_out), NULL, &ol)) {
+        if(GetLastError() != ERROR_IO_PENDING) {
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+    }
 
-	if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) {
-		CloseHandle(ol.hEvent);
-		return -1;
-	} else {
-		CloseHandle(ol.hEvent);
-		return (int)port_out;
-	}
+    if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) {
+        CloseHandle(ol.hEvent);
+        return -1;
+    } else {
+        CloseHandle(ol.hEvent);
+        return (int)port_out;
+    }
 
 }
 
@@ -210,32 +210,32 @@ xc_evtchn_bind_interdomain(HANDLE xce_handle, int domid, evtchn_port_t remote_po
 evtchn_port_or_error_t
 xc_evtchn_bind_virq(HANDLE xce_handle, unsigned int virq) {
 
-	struct ioctl_evtchn_bind_virq params;
-	DWORD bytes_written;
-	OVERLAPPED ol;
-	unsigned int port_out;
+    struct ioctl_evtchn_bind_virq params;
+    DWORD bytes_written;
+    OVERLAPPED ol;
+    unsigned int port_out;
 
 
-	memset(&ol, 0, sizeof(ol));
-	ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    memset(&ol, 0, sizeof(ol));
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-	params.virq = virq;
+    params.virq = virq;
 
-	if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_BIND_VIRQ, (LPVOID)&params, sizeof(params), &port_out, sizeof(port_out), NULL, &ol)) {
-		if(GetLastError() != ERROR_IO_PENDING) {
-			CloseHandle(ol.hEvent);
-			return -1;
-		}
-	}
+    if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_BIND_VIRQ, (LPVOID)&params, sizeof(params), &port_out, sizeof(port_out), NULL, &ol)) {
+        if(GetLastError() != ERROR_IO_PENDING) {
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+    }
 
-	if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) {
-		CloseHandle(ol.hEvent);
-		return -1;
-	}
-	else {
-		CloseHandle(ol.hEvent);
-		return (int)port_out;
-	}
+    if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) {
+        CloseHandle(ol.hEvent);
+        return -1;
+    }
+    else {
+        CloseHandle(ol.hEvent);
+        return (int)port_out;
+    }
 
 }
 
@@ -245,31 +245,31 @@ xc_evtchn_bind_virq(HANDLE xce_handle, unsigned int virq) {
  */
 int xc_evtchn_unbind(HANDLE xce_handle, evtchn_port_t port) {
 
-	struct ioctl_evtchn_unbind params;
-	DWORD bytes_written;
-	OVERLAPPED ol;
+    struct ioctl_evtchn_unbind params;
+    DWORD bytes_written;
+    OVERLAPPED ol;
 
 
-	memset(&ol, 0, sizeof(ol));
-	ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    memset(&ol, 0, sizeof(ol));
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-	params.port = port;
+    params.port = port;
 
-	if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_UNBIND, (LPVOID)&params, sizeof(params), NULL, 0, &bytes_written, &ol)) {
-		if(GetLastError() != ERROR_IO_PENDING) {
-			CloseHandle(ol.hEvent);
-			return -1;
-		}
-	}
-	
-	if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) {
-		CloseHandle(ol.hEvent);
-		return -1;
-	}
-	else {
-		CloseHandle(ol.hEvent);
-		return 0;
-	}
+    if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_UNBIND, (LPVOID)&params, sizeof(params), NULL, 0, &bytes_written, &ol)) {
+        if(GetLastError() != ERROR_IO_PENDING) {
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+    }
+    
+    if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) {
+        CloseHandle(ol.hEvent);
+        return -1;
+    }
+    else {
+        CloseHandle(ol.hEvent);
+        return 0;
+    }
 
 }
 
@@ -280,29 +280,29 @@ int xc_evtchn_unbind(HANDLE xce_handle, evtchn_port_t port) {
 evtchn_port_or_error_t
 xc_evtchn_pending(HANDLE xce_handle) {
 
-	DWORD bytes_read;
-	OVERLAPPED ol;
-	unsigned int fired_port;
+    DWORD bytes_read;
+    OVERLAPPED ol;
+    unsigned int fired_port;
 
 
-	memset(&ol, 0, sizeof(ol));
-	ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    memset(&ol, 0, sizeof(ol));
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
 
-	if(!ReadFile(xce_handle, &fired_port, sizeof(fired_port), NULL, &ol)) {
-		if(GetLastError() != ERROR_IO_PENDING) {
-			CloseHandle(ol.hEvent);
-			return -1;
-		}
-	}
-	if(!GetOverlappedResult(xce_handle, &ol, &bytes_read, TRUE)) {
-		CloseHandle(ol.hEvent);
-		return -1;
-	}
-	else {
-		CloseHandle(ol.hEvent);
-		return fired_port;
-	}
+    if(!ReadFile(xce_handle, &fired_port, sizeof(fired_port), NULL, &ol)) {
+        if(GetLastError() != ERROR_IO_PENDING) {
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+    }
+    if(!GetOverlappedResult(xce_handle, &ol, &bytes_read, TRUE)) {
+        CloseHandle(ol.hEvent);
+        return -1;
+    }
+    else {
+        CloseHandle(ol.hEvent);
+        return fired_port;
+    }
 
 }
 
@@ -314,30 +314,30 @@ xc_evtchn_pending(HANDLE xce_handle) {
 evtchn_port_or_error_t
 xc_evtchn_pending_with_flush(HANDLE xce_handle) {
 
-	DWORD bytes_read;
-	OVERLAPPED ol;
-	// PAGE_SIZE/sizeof(unsigned int)
-	unsigned int fired_ports[1024];
+    DWORD bytes_read;
+    OVERLAPPED ol;
+    // PAGE_SIZE/sizeof(unsigned int)
+    unsigned int fired_ports[1024];
 
 
-	memset(&ol, 0, sizeof(ol));
-	ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    memset(&ol, 0, sizeof(ol));
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
 
-	if(!ReadFile(xce_handle, fired_ports, sizeof(fired_ports), NULL, &ol)) {
-		if(GetLastError() != ERROR_IO_PENDING) {
-			CloseHandle(ol.hEvent);
-			return -1;
-		}
-	}
-	if(!GetOverlappedResult(xce_handle, &ol, &bytes_read, TRUE)) {
-		CloseHandle(ol.hEvent);
-		return -1;
-	}
-	else {
-		CloseHandle(ol.hEvent);
-		return fired_ports[0];
-	}
+    if(!ReadFile(xce_handle, fired_ports, sizeof(fired_ports), NULL, &ol)) {
+        if(GetLastError() != ERROR_IO_PENDING) {
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+    }
+    if(!GetOverlappedResult(xce_handle, &ol, &bytes_read, TRUE)) {
+        CloseHandle(ol.hEvent);
+        return -1;
+    }
+    else {
+        CloseHandle(ol.hEvent);
+        return fired_ports[0];
+    }
 
 }
 
@@ -347,28 +347,28 @@ xc_evtchn_pending_with_flush(HANDLE xce_handle) {
  */
 int xc_evtchn_unmask(HANDLE xce_handle, evtchn_port_t port) {
 
-	DWORD bytes_written;
-	OVERLAPPED ol;
+    DWORD bytes_written;
+    OVERLAPPED ol;
 
 
-	memset(&ol, 0, sizeof(ol));
-	ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    memset(&ol, 0, sizeof(ol));
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-	if(!WriteFile(xce_handle, &port, sizeof(port), NULL, &ol)) {
-		if(GetLastError() != ERROR_IO_PENDING) {
-			CloseHandle(ol.hEvent);
-			return -1;
-		}
-	}
+    if(!WriteFile(xce_handle, &port, sizeof(port), NULL, &ol)) {
+        if(GetLastError() != ERROR_IO_PENDING) {
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+    }
 
-	if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) {
-		CloseHandle(ol.hEvent);
-		return -1;
-	}
-	else {
-		CloseHandle(ol.hEvent);
-		return 0;
-	}
+    if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) {
+        CloseHandle(ol.hEvent);
+        return -1;
+    }
+    else {
+        CloseHandle(ol.hEvent);
+        return 0;
+    }
 
 }
 
@@ -378,27 +378,27 @@ int xc_evtchn_unmask(HANDLE xce_handle, evtchn_port_t port) {
  */
 int xc_evtchn_reset(HANDLE xce_handle) {
 
-	DWORD bytes_written;
-	OVERLAPPED ol;
+    DWORD bytes_written;
+    OVERLAPPED ol;
 
 
-	memset(&ol, 0, sizeof(ol));
-	ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    memset(&ol, 0, sizeof(ol));
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-	if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_RESET, NULL, 0, NULL, 0, &bytes_written, &ol)) {
-		if(GetLastError() != ERROR_IO_PENDING) {
-			CloseHandle(ol.hEvent);
-			return -1;
-		}
-	}
+    if(!DeviceIoControl(xce_handle, IOCTL_EVTCHN_RESET, NULL, 0, NULL, 0, &bytes_written, &ol)) {
+        if(GetLastError() != ERROR_IO_PENDING) {
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+    }
 
-	if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) {
-		CloseHandle(ol.hEvent);
-		return -1;
-	}
-	else {
-		CloseHandle(ol.hEvent);
-		return 0;
-	}
+    if(!GetOverlappedResult(xce_handle, &ol, &bytes_written, TRUE)) {
+        CloseHandle(ol.hEvent);
+        return -1;
+    }
+    else {
+        CloseHandle(ol.hEvent);
+        return 0;
+    }
 
 }

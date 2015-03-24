@@ -719,9 +719,9 @@ XenPci_EvtDevicePrepareHardware (WDFDEVICE device, WDFCMRESLIST resources_raw, W
       xpdd->platform_mmio_flags = translated_descriptor->Flags;
       break;
     case CmResourceTypeInterrupt:
-	    xpdd->irq_level = (KIRQL)translated_descriptor->u.Interrupt.Level;
-  	  xpdd->irq_vector = translated_descriptor->u.Interrupt.Vector;
-	    xpdd->irq_affinity = translated_descriptor->u.Interrupt.Affinity;
+        xpdd->irq_level = (KIRQL)translated_descriptor->u.Interrupt.Level;
+      xpdd->irq_vector = translated_descriptor->u.Interrupt.Vector;
+        xpdd->irq_affinity = translated_descriptor->u.Interrupt.Affinity;
       xpdd->irq_mode = (translated_descriptor->Flags & CM_RESOURCE_INTERRUPT_LATCHED)?Latched:LevelSensitive;
       xpdd->irq_number = raw_descriptor->u.Interrupt.Vector;      
       KdPrint((__DRIVER_NAME "     irq_number = %03x\n", raw_descriptor->u.Interrupt.Vector));

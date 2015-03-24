@@ -322,13 +322,13 @@ typedef struct {
 
 typedef struct {
 
-	WDFQUEUE io_queue;
-	evtchn_port_t *ring;
-	unsigned int ring_cons, ring_prod, ring_overflow;
-	WDFSPINLOCK lock;
-	LIST_ENTRY bound_channels_list_head;
+    WDFQUEUE io_queue;
+    evtchn_port_t *ring;
+    unsigned int ring_cons, ring_prod, ring_overflow;
+    WDFSPINLOCK lock;
+    LIST_ENTRY bound_channels_list_head;
 
-	domid_t restrict_domid;
+    domid_t restrict_domid;
 
 } EVTCHN_INTERFACE_DATA, *PEVTCHN_INTERFACE_DATA;
 
@@ -357,11 +357,11 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_DEVICE_INTERFACE_DATA, GetXpdid)
 struct grant_record;
 
 typedef struct {
-	PMDL mdl;
-	PVOID base_vaddr;
-	PEPROCESS process;
-	struct grant_record* record;
-	INT32 uid;
+    PMDL mdl;
+    PVOID base_vaddr;
+    PEPROCESS process;
+    struct grant_record* record;
+    INT32 uid;
 } XENPCI_REQUEST_DATA, *PXENPCI_REQUEST_DATA;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(XENPCI_REQUEST_DATA, GetRequestData);

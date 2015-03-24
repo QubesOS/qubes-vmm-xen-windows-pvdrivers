@@ -28,7 +28,7 @@ BOOL xs_write_all(HANDLE fd, const void *data, unsigned int len);
 
 /* Convert strings to permissions.  False if a problem. */
 BOOL xs_strings_to_perms(struct xs_permissions *perms, unsigned int num,
-			 const char *strings);
+             const char *strings);
 
 /* Convert permissions to a string (up to len MAX_STRLEN(unsigned int)+1). */
 BOOL xs_perm_to_string(const struct xs_permissions *perm,

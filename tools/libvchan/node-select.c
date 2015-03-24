@@ -41,10 +41,10 @@
 
 void usage(char** argv)
 {
-	fprintf(stderr, "usage:\n"
-		"\t%s [client|server] domainid nodepath [rbufsiz wbufsiz]\n",
-		argv[0]);
-	exit(1);
+    fprintf(stderr, "usage:\n"
+        "\t%s [client|server] domainid nodepath [rbufsiz wbufsiz]\n",
+        argv[0]);
+    exit(1);
 }
 
 #define BUFSIZE 5000
@@ -55,108 +55,108 @@ int outsiz = 0;
 struct libxenvchan *ctrl = 0;
 
 void vchan_wr() {
-	if (!insiz)
-		return;
-	int ret = libxenvchan_write(ctrl, inbuf, insiz);
-	if (ret < 0) {
-		fprintf(stderr, "vchan write failed\n");
-		exit(1);
-	}
-	if (ret > 0) {
-		insiz -= ret;
-		memmove(inbuf, inbuf + ret, insiz);
-	}
+    if (!insiz)
+        return;
+    int ret = libxenvchan_write(ctrl, inbuf, insiz);
+    if (ret < 0) {
+        fprintf(stderr, "vchan write failed\n");
+        exit(1);
+    }
+    if (ret > 0) {
+        insiz -= ret;
+        memmove(inbuf, inbuf + ret, insiz);
+    }
 }
 
 void stdout_wr() {
-	if (!outsiz)
-		return;
-	int ret = write(1, outbuf, outsiz);
-	if (ret < 0 && errno != EAGAIN)
-		exit(1);
-	if (ret > 0) {
-		outsiz -= ret;
-		memmove(outbuf, outbuf + ret, outsiz);
-	}
+    if (!outsiz)
+        return;
+    int ret = write(1, outbuf, outsiz);
+    if (ret < 0 && errno != EAGAIN)
+        exit(1);
+    if (ret > 0) {
+        outsiz -= ret;
+        memmove(outbuf, outbuf + ret, outsiz);
+    }
 }
 
 /**
     Simple libxenvchan application, both client and server.
-	Both sides may write and read, both from the libxenvchan and from 
-	stdin/stdout (just like netcat).
+    Both sides may write and read, both from the libxenvchan and from 
+    stdin/stdout (just like netcat).
 */
 
 int main(int argc, char **argv)
 {
-	int ret;
-	int libxenvchan_fd;
-	if (argc < 4 || argv[3][0] != '/')
-		usage(argv);
-	if (!strcmp(argv[1], "server")) {
-		int rsiz = argc > 4 ? atoi(argv[4]) : 0;
-		int wsiz = argc > 5 ? atoi(argv[5]) : 0;
-		ctrl = libxenvchan_server_init(NULL, atoi(argv[2]), argv[3], rsiz, wsiz);
-	} else if (!strcmp(argv[1], "client"))
-		ctrl = libxenvchan_client_init(NULL, atoi(argv[2]), argv[3]);
-	else
-		usage(argv);
-	if (!ctrl) {
-		perror("libxenvchan_*_init");
-		exit(1);
-	}
+    int ret;
+    int libxenvchan_fd;
+    if (argc < 4 || argv[3][0] != '/')
+        usage(argv);
+    if (!strcmp(argv[1], "server")) {
+        int rsiz = argc > 4 ? atoi(argv[4]) : 0;
+        int wsiz = argc > 5 ? atoi(argv[5]) : 0;
+        ctrl = libxenvchan_server_init(NULL, atoi(argv[2]), argv[3], rsiz, wsiz);
+    } else if (!strcmp(argv[1], "client"))
+        ctrl = libxenvchan_client_init(NULL, atoi(argv[2]), argv[3]);
+    else
+        usage(argv);
+    if (!ctrl) {
+        perror("libxenvchan_*_init");
+        exit(1);
+    }
 
-	fcntl(0, F_SETFL, O_NONBLOCK);
-	fcntl(1, F_SETFL, O_NONBLOCK);
+    fcntl(0, F_SETFL, O_NONBLOCK);
+    fcntl(1, F_SETFL, O_NONBLOCK);
 
-	libxenvchan_fd = libxenvchan_fd_for_select(ctrl);
-	for (;;) {
-		fd_set rfds;
-		fd_set wfds;
-		FD_ZERO(&rfds);
-		FD_ZERO(&wfds);
-		if (insiz != BUFSIZE)
-			FD_SET(0, &rfds);
-		if (outsiz)
-			FD_SET(1, &wfds);
-		FD_SET(libxenvchan_fd, &rfds);
-		ret = select(libxenvchan_fd + 1, &rfds, &wfds, NULL, NULL);
-		if (ret < 0) {
-			perror("select");
-			exit(1);
-		}
-		if (FD_ISSET(0, &rfds)) {
-			ret = read(0, inbuf + insiz, BUFSIZE - insiz);
-			if (ret < 0 && errno != EAGAIN)
-				exit(1);
-			if (ret == 0) {
-				while (insiz) {
-					vchan_wr();
-					libxenvchan_wait(ctrl);
-				}
-				return 0;
-			}
-			if (ret)
-				insiz += ret;
-			vchan_wr();
-		}
-		if (FD_ISSET(libxenvchan_fd, &rfds)) {
-			libxenvchan_wait(ctrl);
-			vchan_wr();
-		}
-		if (FD_ISSET(1, &wfds))
-			stdout_wr();
-		while (libxenvchan_data_ready(ctrl) && outsiz < BUFSIZE) {
-			ret = libxenvchan_read(ctrl, outbuf + outsiz, BUFSIZE - outsiz);
-			if (ret < 0)
-				exit(1);
-			outsiz += ret;
-			stdout_wr();
-		}
-		if (!libxenvchan_is_open(ctrl)) {
-			fcntl(1, F_SETFL, 0);
-			while (outsiz)
-				stdout_wr();
-			return 0;
-		}
-	}
+    libxenvchan_fd = libxenvchan_fd_for_select(ctrl);
+    for (;;) {
+        fd_set rfds;
+        fd_set wfds;
+        FD_ZERO(&rfds);
+        FD_ZERO(&wfds);
+        if (insiz != BUFSIZE)
+            FD_SET(0, &rfds);
+        if (outsiz)
+            FD_SET(1, &wfds);
+        FD_SET(libxenvchan_fd, &rfds);
+        ret = select(libxenvchan_fd + 1, &rfds, &wfds, NULL, NULL);
+        if (ret < 0) {
+            perror("select");
+            exit(1);
+        }
+        if (FD_ISSET(0, &rfds)) {
+            ret = read(0, inbuf + insiz, BUFSIZE - insiz);
+            if (ret < 0 && errno != EAGAIN)
+                exit(1);
+            if (ret == 0) {
+                while (insiz) {
+                    vchan_wr();
+                    libxenvchan_wait(ctrl);
+                }
+                return 0;
+            }
+            if (ret)
+                insiz += ret;
+            vchan_wr();
+        }
+        if (FD_ISSET(libxenvchan_fd, &rfds)) {
+            libxenvchan_wait(ctrl);
+            vchan_wr();
+        }
+        if (FD_ISSET(1, &wfds))
+            stdout_wr();
+        while (libxenvchan_data_ready(ctrl) && outsiz < BUFSIZE) {
+            ret = libxenvchan_read(ctrl, outbuf + outsiz, BUFSIZE - outsiz);
+            if (ret < 0)
+                exit(1);
+            outsiz += ret;
+            stdout_wr();
+        }
+        if (!libxenvchan_is_open(ctrl)) {
+            fcntl(1, F_SETFL, 0);
+            while (outsiz)
+                stdout_wr();
+            return 0;
+        }
+    }
 }

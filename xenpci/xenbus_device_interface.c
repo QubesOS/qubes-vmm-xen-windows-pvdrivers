@@ -351,20 +351,20 @@ XenBus_EvtIoWrite(WDFQUEUE queue, WDFREQUEST request, size_t length)
     list_entry->offset = 0;
     InsertTailList(&xpdid->xenbus.read_list_head, (PLIST_ENTRY)list_entry);
 
-	// Check if someone was waiting for the answer already
-	status = WdfIoQueueRetrieveNextRequest(xpdid->xenbus.io_queue, &read_request);
+    // Check if someone was waiting for the answer already
+    status = WdfIoQueueRetrieveNextRequest(xpdid->xenbus.io_queue, &read_request);
     if (NT_SUCCESS(status))
     {
-		WDF_REQUEST_PARAMETERS parameters;
-		KdPrint((__DRIVER_NAME "     post-write: found pending read\n"));
-		WDF_REQUEST_PARAMETERS_INIT(&parameters);
-		WdfRequestGetParameters(read_request, &parameters);
-		XenBus_ProcessReadRequest(xpdid->xenbus.io_queue, read_request, parameters.Parameters.Read.Length);
-		WdfRequestComplete(read_request, STATUS_SUCCESS);
+        WDF_REQUEST_PARAMETERS parameters;
+        KdPrint((__DRIVER_NAME "     post-write: found pending read\n"));
+        WDF_REQUEST_PARAMETERS_INIT(&parameters);
+        WdfRequestGetParameters(read_request, &parameters);
+        XenBus_ProcessReadRequest(xpdid->xenbus.io_queue, read_request, parameters.Parameters.Read.Length);
+        WdfRequestComplete(read_request, STATUS_SUCCESS);
     }
     else
     {
-		KdPrint((__DRIVER_NAME "     post-write: no pending read (%08x)\n", status));
+        KdPrint((__DRIVER_NAME "     post-write: no pending read (%08x)\n", status));
     }
 
     KeReleaseSpinLock(&xpdid->lock, old_irql);

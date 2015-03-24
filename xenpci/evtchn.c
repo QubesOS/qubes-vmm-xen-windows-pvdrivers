@@ -149,9 +149,9 @@ to CPU != 0, but we should always use vcpu_info[0]
       port = (evt_word << BITS_PER_LONG_SHIFT) + evt_bit;
       ev_action = &xpdd->ev_actions[port];
       ev_action->count++;
-	  if(ev_action->mask_on_fire) {
-		  EvtChn_Mask(xpdd, port);
-	  }
+      if(ev_action->mask_on_fire) {
+          EvtChn_Mask(xpdd, port);
+      }
       synch_clear_bit(evt_bit, (volatile xen_long_t *)&shared_info_area->evtchn_pending[evt_word]);
       handled = TRUE;
       switch (ev_action->type)
@@ -276,15 +276,15 @@ EvtChn_BindDpcReplace(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROU
   
   if (InterlockedCompareExchange((volatile LONG *)&action->type, EVT_ACTION_TYPE_NEW, EVT_ACTION_TYPE_EMPTY) != EVT_ACTION_TYPE_EMPTY)
   {
-	if (!replace) {
-	    KdPrint((__DRIVER_NAME " Handler for port %d already registered\n", Port));
-	    return STATUS_UNSUCCESSFUL;
-	}
-	KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
+    if (!replace) {
+        KdPrint((__DRIVER_NAME " Handler for port %d already registered\n", Port));
+        return STATUS_UNSUCCESSFUL;
+    }
+    KdPrint((__DRIVER_NAME " Handler for port %d already registered, replacing\n", Port));
   }
 
   if(mask_on_fire) {
-	  KdPrint(("Setting event port %d to mask-on-fire\n", Port));
+      KdPrint(("Setting event port %d to mask-on-fire\n", Port));
   }
   xpdd->ev_actions[Port].mask_on_fire = mask_on_fire;
   xpdd->ev_actions[Port].ServiceRoutine = ServiceRoutine;
@@ -304,7 +304,7 @@ EvtChn_BindDpcReplace(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROU
 NTSTATUS
 EvtChn_BindDpc(PVOID Context, evtchn_port_t Port, PXEN_EVTCHN_SERVICE_ROUTINE ServiceRoutine, PVOID ServiceContext, ULONG flags) {
 
-	return EvtChn_BindDpcReplace(Context, Port, ServiceRoutine, ServiceContext, flags, TRUE, FALSE);
+    return EvtChn_BindDpcReplace(Context, Port, ServiceRoutine, ServiceContext, flags, TRUE, FALSE);
 
 }
 

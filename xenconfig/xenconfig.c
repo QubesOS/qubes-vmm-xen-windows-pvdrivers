@@ -311,7 +311,7 @@ XenConfig_QueueWorkItem(PDEVICE_OBJECT device_object, PIO_WORKITEM_ROUTINE routi
 
   work_item = IoAllocateWorkItem(device_object);
   IoQueueWorkItem(work_item, routine, DelayedWorkQueue, context);
-	
+    
   return status;
 }
 

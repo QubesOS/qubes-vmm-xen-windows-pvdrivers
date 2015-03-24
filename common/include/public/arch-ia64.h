@@ -423,23 +423,23 @@ DEFINE_XEN_GUEST_HANDLE(vcpu_guest_context_t);
 /* This structure has the same layout of struct ia64_boot_param, defined in
    <asm/system.h>.  It is redefined here to ease use.  */
 struct xen_ia64_boot_param {
-	xen_ulong_t command_line;	/* physical address of cmd line args */
-	xen_ulong_t efi_systab;	/* physical address of EFI system table */
-	xen_ulong_t efi_memmap;	/* physical address of EFI memory map */
-	xen_ulong_t efi_memmap_size;	/* size of EFI memory map */
-	xen_ulong_t efi_memdesc_size;	/* size of an EFI memory map descriptor */
-	unsigned int  efi_memdesc_version;	/* memory descriptor version */
-	struct {
-		unsigned short num_cols;	/* number of columns on console.  */
-		unsigned short num_rows;	/* number of rows on console.  */
-		unsigned short orig_x;	/* cursor's x position */
-		unsigned short orig_y;	/* cursor's y position */
-	} console_info;
-	xen_ulong_t fpswa;		/* physical address of the fpswa interface */
-	xen_ulong_t initrd_start;
-	xen_ulong_t initrd_size;
-	xen_ulong_t domain_start;	/* va where the boot time domain begins */
-	xen_ulong_t domain_size;	/* how big is the boot domain */
+    xen_ulong_t command_line;	/* physical address of cmd line args */
+    xen_ulong_t efi_systab;	/* physical address of EFI system table */
+    xen_ulong_t efi_memmap;	/* physical address of EFI memory map */
+    xen_ulong_t efi_memmap_size;	/* size of EFI memory map */
+    xen_ulong_t efi_memdesc_size;	/* size of an EFI memory map descriptor */
+    unsigned int  efi_memdesc_version;	/* memory descriptor version */
+    struct {
+        unsigned short num_cols;	/* number of columns on console.  */
+        unsigned short num_rows;	/* number of rows on console.  */
+        unsigned short orig_x;	/* cursor's x position */
+        unsigned short orig_y;	/* cursor's y position */
+    } console_info;
+    xen_ulong_t fpswa;		/* physical address of the fpswa interface */
+    xen_ulong_t initrd_start;
+    xen_ulong_t initrd_size;
+    xen_ulong_t domain_start;	/* va where the boot time domain begins */
+    xen_ulong_t domain_size;	/* how big is the boot domain */
 };
 
 #endif /* !__ASSEMBLY__ */

@@ -33,14 +33,14 @@ XenPci_EvtDeviceFileCreate(WDFDEVICE device, WDFREQUEST request, WDFFILEOBJECT f
   KdPrint(("XenPci_EvtDeviceFileCreate: file is %wZ\n", filename));
 
   if(filename->Length < 12) { /* 6 wide chars */
-	  if(!filename->Buffer) {
-		  KdPrint(("Failed to create a device file because the file object had no name\n"));
-	  }
-	  else {
-		  KdPrint(("Failed to create a device file for %wZ because the name is too short\n", filename));
-	  }
-	  WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
-	  return;
+      if(!filename->Buffer) {
+          KdPrint(("Failed to create a device file because the file object had no name\n"));
+      }
+      else {
+          KdPrint(("Failed to create a device file for %wZ because the name is too short\n", filename));
+      }
+      WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
+      return;
   }
 
   // i.e. a pointer to the last 6 wide-chars of the buffer.
@@ -49,38 +49,38 @@ XenPci_EvtDeviceFileCreate(WDFDEVICE device, WDFREQUEST request, WDFFILEOBJECT f
   reference_token = (PWSTR)(((char*)filename->Buffer) + (filename->Length - 12));
 
   KdPrint(("First 6 wchars of ref_token: %wc%wc%wc%wc%wc%wc",
-	  reference_token[0], reference_token[1], reference_token[2],
-	  reference_token[3], reference_token[4], reference_token[5]));
+      reference_token[0], reference_token[1], reference_token[2],
+      reference_token[3], reference_token[4], reference_token[5]));
 
   if(RtlCompareMemory(reference_token, L"xenbus", 12) == 12) {
-	  KdPrint(("File type matches Xenbus\n"));
-	  xpdid->type = DEVICE_INTERFACE_TYPE_XENBUS;
+      KdPrint(("File type matches Xenbus\n"));
+      xpdid->type = DEVICE_INTERFACE_TYPE_XENBUS;
   }
   else if(RtlCompareMemory(reference_token, L"evtchn", 12) == 12) {
-	  KdPrint(("File type matches Evtchn\n"));
-	  xpdid->type = DEVICE_INTERFACE_TYPE_EVTCHN;
+      KdPrint(("File type matches Evtchn\n"));
+      xpdid->type = DEVICE_INTERFACE_TYPE_EVTCHN;
   }
   else if(RtlCompareMemory(reference_token, L"gntmem", 12) == 12) {
-  	  KdPrint(("File type matches Gntmem\n"));
-	  xpdid->type = DEVICE_INTERFACE_TYPE_GNTMEM;
+      KdPrint(("File type matches Gntmem\n"));
+      xpdid->type = DEVICE_INTERFACE_TYPE_GNTMEM;
   }
   else {
-	  KdPrint(("Failed to create a device file: %wZ does not end with a valid reference string\n", filename));
-	  WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
-	  return;
+      KdPrint(("Failed to create a device file: %wZ does not end with a valid reference string\n", filename));
+      WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
+      return;
   }
   
   KeInitializeSpinLock(&xpdid->lock);
   WDF_IO_QUEUE_CONFIG_INIT(&queue_config, WdfIoQueueDispatchSequential);
   status = XenBus_DeviceFileInit(device, &queue_config, file_object); /* this completes the queue init */  
   if(xpdid->type == DEVICE_INTERFACE_TYPE_XENBUS) {
-	  status = XenBus_DeviceFileInit(device, &queue_config, file_object); /* this completes the queue init */  
+      status = XenBus_DeviceFileInit(device, &queue_config, file_object); /* this completes the queue init */  
   }
   else if(xpdid->type == DEVICE_INTERFACE_TYPE_EVTCHN) {
-	  status = EvtChn_DeviceFileInit(device, &queue_config, file_object);
+      status = EvtChn_DeviceFileInit(device, &queue_config, file_object);
   }
   else {
-	  status = GntMem_DeviceFileInit(device, &queue_config, file_object);
+      status = GntMem_DeviceFileInit(device, &queue_config, file_object);
   }
   if (!NT_SUCCESS(status)) {
       WdfRequestComplete(request, STATUS_UNSUCCESSFUL);
@@ -99,29 +99,29 @@ XenPci_EvtDeviceFileCreate(WDFDEVICE device, WDFREQUEST request, WDFFILEOBJECT f
 VOID
 XenPci_EvtIoInCallerContext(WDFDEVICE Device, WDFREQUEST Request) {
 
-	PXENPCI_DEVICE_INTERFACE_DATA xpdid;
-	WDFFILEOBJECT file;
-	NTSTATUS status;
-	
-	file = WdfRequestGetFileObject(Request);
-	if(!file) {
-		KdPrint(("XenPci_EvtIoInCallerContext: rejected request for null file\n"));
-		WdfRequestComplete(Request, STATUS_INVALID_PARAMETER);
-	}
+    PXENPCI_DEVICE_INTERFACE_DATA xpdid;
+    WDFFILEOBJECT file;
+    NTSTATUS status;
+    
+    file = WdfRequestGetFileObject(Request);
+    if(!file) {
+        KdPrint(("XenPci_EvtIoInCallerContext: rejected request for null file\n"));
+        WdfRequestComplete(Request, STATUS_INVALID_PARAMETER);
+    }
 
-	xpdid = GetXpdid(file);
+    xpdid = GetXpdid(file);
 
-	if(xpdid->type == DEVICE_INTERFACE_TYPE_GNTMEM) {
-		GntMem_EvtIoInCallerContext(xpdid, Request, Device); // Responsible for calling enqueue
-	}
-	else {
-		status = WdfDeviceEnqueueRequest(Device, Request);
-		if(!NT_SUCCESS(status)) {
-			KdPrint(("XenPci_EvtIoInCallerContext: failed to enqueue request: error %x\n", status));
-			WdfRequestComplete(Request, status);
-		}
-		// else, drop out -- the request will now be fed to EvtRead, EvtWrite etc
-	}
+    if(xpdid->type == DEVICE_INTERFACE_TYPE_GNTMEM) {
+        GntMem_EvtIoInCallerContext(xpdid, Request, Device); // Responsible for calling enqueue
+    }
+    else {
+        status = WdfDeviceEnqueueRequest(Device, Request);
+        if(!NT_SUCCESS(status)) {
+            KdPrint(("XenPci_EvtIoInCallerContext: failed to enqueue request: error %x\n", status));
+            WdfRequestComplete(Request, status);
+        }
+        // else, drop out -- the request will now be fed to EvtRead, EvtWrite etc
+    }
 
 }
 
