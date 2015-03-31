@@ -143,6 +143,58 @@ BOOLEAN GntTbl_EndAccess(PVOID Context, grant_ref_t ref, BOOLEAN keepref, ULONG 
     return TRUE;
 }
 
+grant_handle_t GntTbl_MapForeignPage(PVOID Context, domid_t foreign_domain, grant_ref_t grant_ref, PFN_NUMBER local_pfn, uint32_t flags)
+{
+    PXENPCI_DEVICE_DATA xpdd = Context;
+    struct gnttab_map_grant_ref op;
+    int status;
+
+    // TODO: batch mapping of multiple pages
+    FUNCTION_ENTER();
+
+    op.dom = foreign_domain;
+    op.ref = grant_ref;
+    op.flags = flags;
+    op.host_addr = local_pfn;
+
+    status = HYPERVISOR_grant_table_op(xpdd, GNTTABOP_map_grant_ref, &op, 1);
+
+    if ((status < 0) || (((int) op.handle) < 0) || (op.status != GNTST_okay))
+    {
+        DEBUGF("Error mapping foreign page: domain %u, grant ref %u, flags 0x%x, pfn 0x%I64x; status=%d (%d)",
+               foreign_domain, grant_ref, flags, local_pfn, op.handle, op.status);
+    }
+
+    FUNCTION_EXIT();
+
+    return op.handle;
+}
+
+int GntTbl_UnmapForeignPage(PVOID Context, grant_handle_t grant_handle, PFN_NUMBER local_pfn)
+{
+    PXENPCI_DEVICE_DATA xpdd = Context;
+    struct gnttab_unmap_grant_ref op;
+    int status;
+
+    // TODO: batch unmapping of multiple pages
+    FUNCTION_ENTER();
+
+    op.handle = grant_handle;
+    op.host_addr = local_pfn;
+
+    status = HYPERVISOR_grant_table_op(xpdd, GNTTABOP_unmap_grant_ref, &op, 1);
+
+    if ((status < 0) || (op.status != GNTST_okay))
+    {
+        DEBUGF("Error unmapping foreign page: grant handle %u, pfn 0x%I64x; status=%d",
+               grant_handle, local_pfn, op.status);
+    }
+
+    FUNCTION_EXIT();
+
+    return op.status;
+}
+
 static unsigned int GntTbl_QueryMaxFrames(PXENPCI_DEVICE_DATA xpdd)
 {
     struct gnttab_query_size query;

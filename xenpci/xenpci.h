@@ -488,5 +488,7 @@ grant_ref_t GntTbl_GrantAccess(PVOID Context, domid_t domid, uint32_t, int reado
 BOOLEAN GntTbl_EndAccess(PVOID Context, grant_ref_t ref, BOOLEAN keepref, ULONG tag);
 VOID GntTbl_PutRef(PVOID Context, grant_ref_t ref, ULONG tag);
 grant_ref_t GntTbl_GetRef(PVOID Context, ULONG tag);
+grant_handle_t GntTbl_MapForeignPage(PVOID Context, domid_t foreign_domain, grant_ref_t grant_ref, PFN_NUMBER local_pfn, uint32_t flags);
+int GntTbl_UnmapForeignPage(PVOID Context, grant_handle_t grant_handle, PFN_NUMBER local_pfn);
 
 #endif
