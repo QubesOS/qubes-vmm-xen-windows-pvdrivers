@@ -53,6 +53,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include <xen_public.h>
 
+#define DEBUGF(format, ...) DbgPrintEx(DPFLTR_IHVBUS_ID, DPFLTR_INFO_LEVEL, \
+    "[" __DRIVER_NAME "] " __FUNCTION__ ": " format "\n", ##__VA_ARGS__)
+
 //{C828ABE9-14CA-4445-BAA6-82C2376C6518}
 DEFINE_GUID( GUID_XENPCI_DEVCLASS, 0xC828ABE9, 0x14CA, 0x4445, 0xBA, 0xA6, 0x82, 0xC2, 0x37, 0x6C, 0x65, 0x18);
 

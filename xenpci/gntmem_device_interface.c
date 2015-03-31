@@ -84,28 +84,28 @@ VOID GntMem_EvtIoInCallerContext(PXENPCI_DEVICE_INTERFACE_DATA xpdid, WDFREQUEST
     if(RqParams.Type == WdfRequestTypeDeviceControl 
     && RqParams.Parameters.DeviceIoControl.IoControlCode == IOCTL_GNTMEM_GRANT_PAGES) {
 
-        KdPrint(("GntMem_EvtIoInCallerContextCallback: Request was a grant-pages IOCTL, attaching MDL\n"));
+        DEBUGF("Request was a grant-pages IOCTL, attaching MDL");
         /* This checks for buffer-too-small as well as fetching the buffer pointer */
         status = WdfRequestRetrieveInputBuffer(Request, sizeof(*gprq), (PVOID*)&gprq, NULL);
         if(NT_SUCCESS(status)) {
 
-            KdPrint(("...request is to pin %d pages and give them to domain %d\n", gprq->n_pages, gprq->domid));
+            DEBUGF("...request is to pin %d pages and give them to domain %d", gprq->n_pages, gprq->domid);
             WdfSpinLockAcquire(xpdd->gntmem_quota_lock);
 
             if(((xpdid->gntmem.mapped_pages + gprq->n_pages) > xpdid->gntmem.allowed_pages)
             || ((xpdd->gntmem_mapped_pages + gprq->n_pages) > xpdd->gntmem_allowed_pages)) {
-                KdPrint(("Gntmem: refusing to map a further %d pages, as only %d are allowed and %d are taken on local device\n",
-                         gprq->n_pages, xpdid->gntmem.allowed_pages, xpdid->gntmem.mapped_pages));
-                KdPrint(("Gntmem: %d pages are allowed and %d mapped overall\n", xpdd->gntmem_mapped_pages, xpdd->gntmem_allowed_pages));
+                DEBUGF("refusing to map a further %d pages, as only %d are allowed and %d are taken on local device",
+                         gprq->n_pages, xpdid->gntmem.allowed_pages, xpdid->gntmem.mapped_pages);
+                DEBUGF("%d pages are allowed and %d mapped overall", xpdd->gntmem_mapped_pages, xpdd->gntmem_allowed_pages);
                 status = STATUS_ACCESS_DENIED;
             }
             else {
                 xpdid->gntmem.mapped_pages += gprq->n_pages;
                 xpdd->gntmem_mapped_pages += gprq->n_pages;
                 refund_quotas = gprq->n_pages;
-                KdPrint(("Gntmem: accepted quota request for %d pages; now %d/%d local and %d/%d global\n",
+                DEBUGF("accepted quota request for %d pages; now %d/%d local and %d/%d global",
                     gprq->n_pages, xpdid->gntmem.mapped_pages, xpdid->gntmem.allowed_pages,
-                    xpdd->gntmem_mapped_pages, xpdd->gntmem_allowed_pages));
+                    xpdd->gntmem_mapped_pages, xpdd->gntmem_allowed_pages);
             }
 
             WdfSpinLockRelease(xpdd->gntmem_quota_lock);
@@ -124,12 +124,12 @@ VOID GntMem_EvtIoInCallerContext(PXENPCI_DEVICE_INTERFACE_DATA xpdid, WDFREQUEST
                 skip_bytes.QuadPart = 0;
                 // Alright, now we must leave WDF-land, as its page-locking facilities have a mandatory
                 // attachment to a WDFREQUEST, whereas for Xen granting we want to lock across multiple IRPs.
-                KdPrint(("gntmem: Allocating MDL and %d pages\n", gprq->n_pages));
+                DEBUGF("Allocating MDL and %d pages", gprq->n_pages);
                 rqdata->mdl = MmAllocatePagesForMdl(lowaddr, highaddr, skip_bytes, (gprq->n_pages * PAGE_SIZE));
-                KdPrint(("gntmem: Success; got an MDL at 0x%Ix\n", rqdata->mdl));
+                DEBUGF("Success; got an MDL at 0x%Ix", rqdata->mdl);
                 if((!rqdata->mdl) || (MmGetMdlByteCount(rqdata->mdl) != ((unsigned int)(gprq->n_pages * PAGE_SIZE)))) {
                     /* Allocate can return some but not all the pages we asked for, hence the extra check */
-                    KdPrint(("gntmem: MDL not allocated or too small; dying with ENOMEM\n"));
+                    DEBUGF("gntmem: MDL not allocated or too small; dying with ENOMEM");
                     status = STATUS_NO_MEMORY;
                     if(rqdata->mdl) {
                         MmFreePagesFromMdl(rqdata->mdl);
@@ -138,13 +138,13 @@ VOID GntMem_EvtIoInCallerContext(PXENPCI_DEVICE_INTERFACE_DATA xpdid, WDFREQUEST
                 }
                 else {
                     __try {
-                        KdPrint(("gntmem: Mapping pages into userspace\n"));
+                        DEBUGF("Mapping pages into userspace");
                         rqdata->base_vaddr = MmMapLockedPagesSpecifyCache(rqdata->mdl, UserMode, MmCached, NULL, FALSE, NormalPagePriority);
-                        KdPrint(("gntmem: Successfully mapped %d pages to user address %Ix\n", gprq->n_pages, rqdata->base_vaddr));
+                        DEBUGF("Successfully mapped %d pages to user address %Ix", gprq->n_pages, rqdata->base_vaddr);
                     }
                     __except(EXCEPTION_EXECUTE_HANDLER) {
                         status = GetExceptionCode();
-                        KdPrint(("GntMem_EvtIoInCallerContext: User mapping caused exception (0X%08X)\n", status));
+                        DEBUGF("User mapping caused exception (0X%08X)", status);
                         MmFreePagesFromMdl(rqdata->mdl);
                         ExFreePool(rqdata->mdl);
                     }
@@ -154,10 +154,10 @@ VOID GntMem_EvtIoInCallerContext(PXENPCI_DEVICE_INTERFACE_DATA xpdid, WDFREQUEST
         }
 
         if(!NT_SUCCESS(status)) {
-            KdPrint(("GntMem_EvtIoInCallerContextCallback: Failing a request with status 0x%08X\n", status));
+            DEBUGF("Failing a request with status 0x%08X", status);
             if(refund_quotas) {
                 WdfSpinLockAcquire(xpdd->gntmem_quota_lock);
-                KdPrint(("gntmem: Refunding %d pages for a failed request\n", refund_quotas));
+                DEBUGF("Refunding %d pages for a failed request", refund_quotas);
                 xpdd->gntmem_mapped_pages -= refund_quotas;
                 xpdid->gntmem.mapped_pages -= refund_quotas;
                 WdfSpinLockRelease(xpdd->gntmem_quota_lock);
@@ -168,10 +168,9 @@ VOID GntMem_EvtIoInCallerContext(PXENPCI_DEVICE_INTERFACE_DATA xpdid, WDFREQUEST
 
     }
 
-    KdPrint(("GntMem_EvtIoInCallerContextCallback: Queueing a request\n"));
+    DEBUGF("Queueing a request");
     // Either we successfully locked some pages, or this wasn't a GRANT_PAGES IOCTL at all
     WdfDeviceEnqueueRequest(Device, Request);
-
 }
 
 static void possibly_notify_unmap(struct grant_record* rec, PXENPCI_DEVICE_DATA xpdd) {
@@ -181,7 +180,7 @@ static void possibly_notify_unmap(struct grant_record* rec, PXENPCI_DEVICE_DATA 
     if (rec->notify_offset >= 0) {
         mapped_area = MmGetSystemAddressForMdlSafe(rec->mdl, LowPagePriority);
         if (!mapped_area) {
-            KdPrint(("gntmem: failed to map MDL for notification\n"));
+            DEBUGF("failed to map MDL for notification");
         } else {
             mapped_area_char = mapped_area;
             mapped_area_char[rec->notify_offset] = 0;
@@ -212,28 +211,28 @@ static BOOLEAN try_destroy_grant_record(struct grant_record* rec, PXENPCI_DEVICE
 
         if(rec->grants[i] != INVALID_GRANT_REF) {
             if(GntTbl_EndAccess(xpdd, rec->grants[i], FALSE, 0)) {
-                KdPrint(("gntmem: successfully freed grant %d\n", (int)rec->grants[i]));
+                DEBUGF("successfully freed grant %d", (int) rec->grants[i]);
                 rec->grants[i] = INVALID_GRANT_REF;
             }
             else {
-                KdPrint(("gntmem: couldn't free grant %d at this time\n", (int)rec->grants[i]));
+                DEBUGF("couldn't free grant %d at this time", (int) rec->grants[i]);
                 any_failures = TRUE;
             }
         }
 
     }
     if(!any_failures) {
-        KdPrint(("gntmem: Freed the entire region; releasing pages\n"));
+        DEBUGF("Freed the entire region; releasing pages");
         WdfSpinLockAcquire(xpdd->gntmem_quota_lock);
         xpdd->gntmem_mapped_pages -= rec->n_pages;
-        KdPrint(("Gntmem: destroyed region of %d pages; global quota now %d/%d global\n",
-            rec->n_pages, xpdd->gntmem_mapped_pages, xpdd->gntmem_allowed_pages));
+        DEBUGF("destroyed region of %d pages; global quota now %d/%d global",
+            rec->n_pages, xpdd->gntmem_mapped_pages, xpdd->gntmem_allowed_pages);
         WdfSpinLockRelease(xpdd->gntmem_quota_lock);
         ExFreePoolWithTag(rec->grants, XENPCI_POOL_TAG);
         return TRUE;
     }
     else {
-        KdPrint(("gntmem: At least one grant still outstanding from region"));
+        DEBUGF("At least one grant still outstanding from region");
         return FALSE;
     }
 
@@ -246,7 +245,7 @@ static VOID GntMem_EvtFreeMdlWorkItem(WDFWORKITEM work) {
 
     work_context = GetFreeMdlContext(work);
 
-    KdPrint(("gntmem: Free-MDL work item: freeing MDL at 0x%Ix", work_context->mdl));
+    DEBUGF("Free-MDL work item: freeing MDL at 0x%Ix", work_context->mdl);
 
     MmFreePagesFromMdl(work_context->mdl);
     ExFreePool(work_context->mdl);
@@ -264,7 +263,7 @@ static VOID queue_free_mdl_work_item(PMDL mdl, PXENPCI_DEVICE_DATA xpdd) {
     NTSTATUS status;
     PXENPCI_FREE_MDL_WORK_ITEM_CONTEXT work_context;
 
-    KdPrint(("gntmem: Queueing work item to free mdl at 0x%Ix\n", mdl));
+    DEBUGF("Queueing work item to free mdl at 0x%Ix", mdl);
 
     WDF_WORKITEM_CONFIG_INIT(&config, GntMem_EvtFreeMdlWorkItem);
     config.AutomaticSerialization = FALSE; /* Driver functions can be at DISPATCH_LEVEL */
@@ -272,7 +271,7 @@ static VOID queue_free_mdl_work_item(PMDL mdl, PXENPCI_DEVICE_DATA xpdd) {
     attributes.ParentObject = xpdd->wdf_device;
     status = WdfWorkItemCreate(&config, &attributes, &new_workitem);
     if(!NT_SUCCESS(status)) {
-        KdPrint(("gntmem: Couldn't allocate a work item to free an MDL. Non-fatal, but leaks physical pages.\n"));
+        DEBUGF("Couldn't allocate a work item to free an MDL. Non-fatal, but leaks physical pages");
         return;
     }
 
@@ -289,30 +288,30 @@ static BOOLEAN try_destroy_all_pending(PXENPCI_DEVICE_DATA xpdd) {
     struct grant_record* next_record;
     
     next_record = (struct grant_record*)xpdd->gntmem_pending_free_list_head.Flink;
-    KdPrint(("gntmem: Trying to free all pending regions\n"));
+    DEBUGF("Trying to free all pending regions");
 
     while(next_record != (struct grant_record*)&(xpdd->gntmem_pending_free_list_head)) {
         if(try_destroy_grant_record(next_record, xpdd)) {
             struct grant_record* to_destroy = next_record;
             next_record = (struct grant_record*)next_record->head.Flink;
-            KdPrint(("gntmem: Successfully freed a region; deleting and queueing free-MDL work item\n"));
+            DEBUGF("Successfully freed a region; deleting and queueing free-MDL work item");
             queue_free_mdl_work_item(to_destroy->mdl, xpdd);
             RemoveEntryList((PLIST_ENTRY)to_destroy);
             ExFreePoolWithTag(to_destroy, XENPCI_POOL_TAG);
         }
         else {
-            KdPrint(("gntmem: A region could not be freed at this time; retaining\n"));
+            DEBUGF("A region could not be freed at this time; retaining");
             next_record = (struct grant_record*)next_record->head.Flink;
             all_freed = FALSE;
         }
     }
 
     if(all_freed) {
-        KdPrint(("gntmem: Successfully destroyed all pending regions"));
+        DEBUGF("Successfully destroyed all pending regions");
         return TRUE;
     }
     else {
-        KdPrint(("gntmem: At least one region still pending"));
+        DEBUGF("At least one region still pending");
         return FALSE;
     }
 
@@ -326,12 +325,12 @@ VOID GntMem_EvtTimerFunc(WDFTIMER timer) {
     WdfSpinLockAcquire(xpdd->gntmem_pending_free_lock);
 
     if(try_destroy_all_pending(xpdd)) {
-        KdPrint(("gntmem: Timer task successfully destroyed all remaining sections!\n"));
+        DEBUGF("Timer task successfully destroyed all remaining sections!");
         xpdd->gntmem_free_work_queued = FALSE;
         WdfTimerStop(timer, FALSE); /* FALSE = don't wait... for ourselves :) */
     }
     else {
-        KdPrint(("gntmem: Timer task left at least one region alive; running again in 10s\n"));
+        DEBUGF("Timer task left at least one region alive; running again in 10s");
         // Timer is periodic; this will happen automatically.
     }
 
@@ -366,19 +365,19 @@ static VOID GntMem_EvtUnmapWorkItem(WDFWORKITEM work) {
     work_context = GetUnmapContext(work);
     rq_context = GetRequestData(work_context->request);
 
-    KdPrint(("gntmem: In unmap-from-userspace, trying to unmap user address 0x%Ix\n", rq_context->base_vaddr));
+    DEBUGF("In unmap-from-userspace, trying to unmap user address 0x%Ix", rq_context->base_vaddr);
 
     KeStackAttachProcess(rq_context->process, &old_state);
 
-    KdPrint(("gntmem: Switched into process\n"));
+    DEBUGF("Switched into process");
 
     MmUnmapLockedPages(rq_context->base_vaddr, rq_context->mdl);
 
-    KdPrint(("gntmem: Voided PTEs\n"));
+    DEBUGF("Voided PTEs");
 
     KeUnstackDetachProcess(&old_state);
 
-    KdPrint(("gntmem: Back in system thread\n"));
+    DEBUGF("Back in system thread");
 
     /* Alright, the user address space is cleaned; now we can complete the request and get on with
        trying to free up the grants, and finally the kernel memory. */
@@ -386,22 +385,22 @@ static VOID GntMem_EvtUnmapWorkItem(WDFWORKITEM work) {
     record = rq_context->record;
     mdl = rq_context->mdl;
 
-    KdPrint(("gntmem: unmap work item completing request with status 0x%lx\n", (unsigned long)work_context->status));
+    DEBUGF("unmap work item completing request with status 0x%lx", (unsigned long) work_context->status);
 
     WdfRequestComplete(work_context->request, work_context->status);
 
     // Try to free grants right now, as our currently passive IRQL might enable us to dodge a second work item
     if(!record) { // This is the error-recovery case -- we're unmapping after a failure that came before granting
         grants_freed = TRUE;
-        KdPrint(("gntmem: work item gives no grant list; this must be error recovery\n"));
+        DEBUGF("work item gives no grant list; this must be error recovery");
     }
     else {
         grants_freed = try_destroy_grant_record(record, work_context->xpdd);
-        KdPrint(("gntmem: Tried to destroy grant record right now; returned %d\n", (int)grants_freed));
+        DEBUGF("Tried to destroy grant record right now; returned %d", (int) grants_freed);
     }
 
     if(grants_freed) {
-        KdPrint(("gntmem: Freeing kernel memory from userspace-unmap work\n"));
+        DEBUGF("Freeing kernel memory from userspace-unmap work");
         // Excellent, free the kernel memory and we're done
         MmFreePagesFromMdl(mdl);
         ExFreePool(mdl);
@@ -409,7 +408,7 @@ static VOID GntMem_EvtUnmapWorkItem(WDFWORKITEM work) {
             ExFreePoolWithTag(record, XENPCI_POOL_TAG);
     }
     else {
-        KdPrint(("gntmem: Userspace-unmap work queued grant record for destruction later\n"));
+        DEBUGF("Userspace-unmap work queued grant record for destruction later");
         // Never mind, hand it over to the timer DPC, which will need another workitem to get the pages freed
         queue_grant_record_for_destruction(work_context->xpdd, record);
     }
@@ -434,11 +433,11 @@ static VOID queue_unmap_work_item(WDFREQUEST Request, NTSTATUS status, PXENPCI_D
     attributes.ParentObject = xpdd->wdf_device;
     local_status = WdfWorkItemCreate(&config, &attributes, &new_workitem);
     if(!NT_SUCCESS(local_status)) {
-        KdPrint(("gntmem: Couldn't allocate a work item to unmap pages from userspace. Ignoring, but expect a BSOD on process termination\n"));
+        DEBUGF("Couldn't allocate a work item to unmap pages from userspace. Ignoring, but expect a BSOD on process termination");
         return;
     }
 
-    KdPrint(("gntmem: Queued a work item for userspace-unmap\n"));
+    DEBUGF("Queued a work item for userspace-unmap");
 
     work_context = GetUnmapContext(new_workitem);
     work_context->request = Request;
@@ -469,7 +468,7 @@ static VOID
     PXENPCI_DEVICE_INTERFACE_DATA xpdid = GetXpdid(file_object);
     PXENPCI_REQUEST_DATA xprq = GetRequestData(Request);
 
-    KdPrint(("GntMem: IOCTL %ux with in/out buffers %d/%d\n", IoControlCode, InputBufferLength, OutputBufferLength));
+    DEBUGF("IOCTL 0x%x with in/out buffers %d/%d", IoControlCode, InputBufferLength, OutputBufferLength);
 
     /* These modes of failure can't happen for grant-pages calls, which checked their input buffer
        in caller context, and which don't have output buffers since they never return. */
@@ -477,7 +476,7 @@ static VOID
     if(InputBufferLength) {
         rc = WdfRequestRetrieveInputBuffer(Request, InputBufferLength, &inbuffer, NULL);
         if(!NT_SUCCESS(rc)) {
-            KdPrint(("GntMem: IOCTL couldn't map in-buffer\n"));
+            DEBUGF("IOCTL couldn't map in-buffer");
             WdfRequestCompleteWithInformation(Request, rc, 0);
             return;
         }
@@ -485,7 +484,7 @@ static VOID
     if(OutputBufferLength) {
         rc = WdfRequestRetrieveOutputBuffer(Request, OutputBufferLength, &outbuffer, NULL);
         if(!NT_SUCCESS(rc)) {
-            KdPrint(("EvtChn: IOCTL couldn't map out-buffer\n"));
+            DEBUGF("IOCTL couldn't map out-buffer");
             WdfRequestCompleteWithInformation(Request, rc, 0);
             return;
         }
@@ -496,11 +495,11 @@ static VOID
         case IOCTL_GNTMEM_SET_LOCAL_LIMIT: 
             {
                 struct ioctl_gntmem_set_limit* set_limit = (struct ioctl_gntmem_set_limit*)inbuffer;
-                if(InputBufferLength < sizeof(*set_limit)) {
+                if (InputBufferLength < sizeof(*set_limit)) {
                     rc = STATUS_BUFFER_TOO_SMALL;
                     break;
                 }
-                KdPrint(("Setting device-local mapping quota to %d\n", set_limit->new_limit));
+                DEBUGF("Setting device-local mapping quota to %d", set_limit->new_limit);
                 WdfSpinLockAcquire(xpdd->gntmem_quota_lock);
                 xpdid->gntmem.allowed_pages = set_limit->new_limit;
                 WdfSpinLockRelease(xpdd->gntmem_quota_lock);
@@ -511,11 +510,11 @@ static VOID
         case IOCTL_GNTMEM_SET_GLOBAL_LIMIT: 
             {
                 struct ioctl_gntmem_set_limit* set_limit = (struct ioctl_gntmem_set_limit*)inbuffer;
-                if(InputBufferLength < sizeof(*set_limit)) {
+                if (InputBufferLength < sizeof(*set_limit)) {
                     rc = STATUS_BUFFER_TOO_SMALL;
                     break;
                 }
-                KdPrint(("Setting machine-global mapping quota to %d\n", set_limit->new_limit));
+                DEBUGF("Setting machine-global mapping quota to %d", set_limit->new_limit);
                 WdfSpinLockAcquire(xpdd->gntmem_quota_lock);
                 xpdd->gntmem_allowed_pages = set_limit->new_limit;
                 WdfSpinLockRelease(xpdd->gntmem_quota_lock);
@@ -552,40 +551,40 @@ static VOID
                 int i;
                 PPFN_NUMBER grant_pfns = 0;
 
-                KdPrint(("IOCTL is grant-pages: asked to grant %d pages to domain %u; associate UID %d\n", grant_request->n_pages, grant_request->domid, grant_request->uid));
+                DEBUGF("IOCTL is grant-pages: asked to grant %d pages to domain %u; associate UID %d", grant_request->n_pages, grant_request->domid, grant_request->uid);
                 grant_record_list = ExAllocatePoolWithTag(NonPagedPool, sizeof(grant_ref_t) * grant_request->n_pages, XENPCI_POOL_TAG);
                 grant_record = ExAllocatePoolWithTag(NonPagedPool, sizeof(struct grant_record), XENPCI_POOL_TAG);
                 grant_to_domain = grant_request->domid;
                 xprq->record = grant_record;
                 xprq->uid = grant_request->uid;
                 if((!grant_record_list) || (!grant_record)) {
-                    KdPrint(("gntmem: Failed to allocate grant record\n"));
+                    DEBUGF("Failed to allocate grant record");
                     rc = STATUS_NO_MEMORY;
                 }
                 else {
                     if((!xprq->mdl) || (!xprq->base_vaddr)) {
                         // This shouldn't have got here, but just in case...
-                        KdPrint(("gntmem: Rejected grant-pages request because it had no MDL or user vaddr\n"));
+                        DEBUGF("Rejected grant-pages request because it had no MDL or user vaddr");
                         rc = STATUS_INVALID_PARAMETER;
                     }
                     else {
                         grant_pfns = MmGetMdlPfnArray(xprq->mdl);
                         if(!grant_pfns) {
-                            KdPrint(("gntmem: Rejected grant-pages because we couldn't get PFNs for its MDL\n"));
+                            DEBUGF("Rejected grant-pages because we couldn't get PFNs for its MDL");
                             rc = STATUS_UNSUCCESSFUL;
                         }
                     }
                 }
                 // See whether our early setup all worked out...
                 if(!NT_SUCCESS(rc)) {
-                    KdPrint(("gntmem: Bailing early from grant-pages\n"));
+                    DEBUGF("Bailing early from grant-pages");
                     WdfSpinLockAcquire(xpdd->gntmem_quota_lock);
                     xpdd->gntmem_mapped_pages -= grant_request->n_pages;
                     xpdid->gntmem.mapped_pages -= grant_request->n_pages;
                     WdfSpinLockRelease(xpdd->gntmem_quota_lock);
-                    KdPrint(("Gntmem: rescinded quota request for %d pages; now %d/%d local and %d/%d global\n",
+                    DEBUGF("rescinded quota request for %d pages; now %d/%d local and %d/%d global",
                         grant_request->n_pages, xpdid->gntmem.mapped_pages, xpdid->gntmem.allowed_pages,
-                        xpdd->gntmem_mapped_pages, xpdd->gntmem_allowed_pages));
+                        xpdd->gntmem_mapped_pages, xpdd->gntmem_allowed_pages);
                     if(grant_record)
                         ExFreePoolWithTag(grant_record, XENPCI_POOL_TAG);
                     if(grant_record_list)
@@ -605,7 +604,7 @@ static VOID
                         }
                     }
                     else {
-                        KdPrint(("gntmem: Very weird: got a grant IOCTL without an MDL. Shouldn't ever happen; expect a BSOD soon\n"));
+                        DEBUGF("Very weird: got a grant IOCTL without an MDL. Shouldn't ever happen; expect a BSOD soon");
                         // If we didn't have an MDL, we can complete from here.
                     }
                     break;
@@ -630,22 +629,22 @@ static VOID
                     grant_ref_t new_grant;
                     new_grant = GntTbl_GrantAccess(xpdd, grant_to_domain, (uint32_t)grant_pfns[i], 0, INVALID_GRANT_REF, 0);
                     if(new_grant == INVALID_GRANT_REF) {
-                        KdPrint(("gntmem: Granting failed! Bailing out...\n"));
+                        DEBUGF("Granting failed! Bailing out...");
                         rc = STATUS_UNSUCCESSFUL;
                         break; // From the for loop, not the switch block
                     }
-                    KdPrint(("gntmem: Granted frame %u; got grant %u\n", (uint32_t)grant_pfns[i], new_grant));
+                    DEBUGF("Granted frame %u; got grant %u", (uint32_t) grant_pfns[i], new_grant);
                     grant_record_list[i] = new_grant;
                 }
                 
                 if(!NT_SUCCESS(rc)) {
-                    KdPrint(("gntmem: Some grant failed; queueing work to unmap from userspace...\n"));
+                    DEBUGF("Some grant failed; queueing work to unmap from userspace...");
                     WdfSpinLockAcquire(xpdd->gntmem_quota_lock);
                     xpdid->gntmem.mapped_pages -= grant_record->n_pages;
                     WdfSpinLockRelease(xpdd->gntmem_quota_lock);
-                    KdPrint(("Gntmem: released local aspect of %d pages; now %d/%d local and %d/%d global\n",
+                    DEBUGF("released local aspect of %d pages; now %d/%d local and %d/%d global",
                         grant_record->n_pages, xpdid->gntmem.mapped_pages, xpdid->gntmem.allowed_pages,
-                        xpdd->gntmem_mapped_pages, xpdd->gntmem_allowed_pages));
+                        xpdd->gntmem_mapped_pages, xpdd->gntmem_allowed_pages);
                     queue_unmap_work_item(Request, rc, xpdd); // Will complete this request, then move on to ungranting
                     return;
                 }
@@ -667,7 +666,7 @@ static VOID
                 WDFREQUEST last_rq_examined = NULL;
                 PXENPCI_REQUEST_DATA this_rq_data = NULL;
 
-                KdPrint(("IOCTL is GET_GRANTS for granted section UID %d\n", get_grants->uid));
+                DEBUGF("IOCTL is GET_GRANTS for granted section UID %d", get_grants->uid);
 
                 if(InputBufferLength < sizeof(*get_grants)) {
                     rc = STATUS_BUFFER_TOO_SMALL;
@@ -687,12 +686,12 @@ static VOID
                 WdfSpinLockRelease(xpdid->gntmem.pending_queue_lock);
 
                 if(!last_rq_examined) {
-                    KdPrint(("gntmem: No such section\n"));
+                    DEBUGF("No such section");
                     rc = STATUS_INVALID_PARAMETER;
                     break;
                 }
                 if(OutputBufferLength < (sizeof(void*) + (this_rq_data->record->n_pages * sizeof(grant_ref_t)))) {
-                    KdPrint(("gntmem: Output buffer too small for a section with %d pages\n", this_rq_data->record->n_pages));
+                    DEBUGF("Output buffer too small for a section with %d pages", this_rq_data->record->n_pages);
                     rc = STATUS_BUFFER_TOO_SMALL;
                     break;
                 }
@@ -711,7 +710,7 @@ static VOID
                 WDFREQUEST last_rq_examined = NULL;
                 PXENPCI_REQUEST_DATA this_rq_data = NULL;
 
-                KdPrint(("IOCTL is UNMAP_NOTIFY for granted section UID %d\n", unmap_notify->uid));
+                DEBUGF("IOCTL is UNMAP_NOTIFY for granted section UID %d", unmap_notify->uid);
 
                 WdfSpinLockAcquire(xpdid->gntmem.pending_queue_lock);
 
@@ -726,12 +725,12 @@ static VOID
                 WdfSpinLockRelease(xpdid->gntmem.pending_queue_lock);
 
                 if(!last_rq_examined) {
-                    KdPrint(("gntmem: No such section\n"));
+                    DEBUGF("No such section");
                     rc = STATUS_INVALID_PARAMETER;
                     break;
                 }
                 if (unmap_notify->notify_offset > this_rq_data->record->n_pages * PAGE_SIZE) {
-                    KdPrint(("gntmem: notify_offest outside of mapped area\n"));
+                    DEBUGF("notify_offest outside of mapped area");
                     rc = STATUS_INVALID_PARAMETER;
                     break;
                 }
@@ -744,7 +743,7 @@ static VOID
             }
 
         default:
-            KdPrint(("GntMem: IOCTL code was not recognised\n"));
+            DEBUGF("IOCTL code was not recognised");
             rc = STATUS_INVALID_PARAMETER;
             break;
     }
@@ -760,7 +759,7 @@ static VOID GntMem_EvtIoCanceledOnPendingGrantQueue(WDFQUEUE Queue, WDFREQUEST R
     WDFFILEOBJECT file_object = WdfRequestGetFileObject(Request);
     PXENPCI_DEVICE_INTERFACE_DATA xpdid = GetXpdid(file_object);
 
-    KdPrint(("Got a cancellation on a pending IOCTL; scheduling work item to complete request\n"));
+    DEBUGF("Got a cancellation on a pending IOCTL; scheduling work item to complete request");
 
     WdfSpinLockAcquire(xpdid->gntmem.pending_queue_lock);
 
@@ -776,7 +775,7 @@ GntMem_EvtFileCleanup(WDFFILEOBJECT file_object)
 {
     UNREFERENCED_PARAMETER(file_object);
 
-    KdPrint(("gntmem: file cleanup (ignored, should be dealt with by cancellations)\n"));
+    DEBUGF("file cleanup (ignored, should be dealt with by cancellations)");
 
 }
 
@@ -785,7 +784,7 @@ GntMem_EvtFileClose(WDFFILEOBJECT file_object)
 {
   UNREFERENCED_PARAMETER(file_object);
 
-  KdPrint(("GntMem: close (ignored)\n"));
+  DEBUGF("close (ignored)");
 
   FUNCTION_ENTER();
   FUNCTION_EXIT();
@@ -801,7 +800,7 @@ GntMem_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_config, WDFFI
     NTSTATUS status;
 
     UNREFERENCED_PARAMETER(device);
-    KdPrint(("GntMem: DeviceFileInit\n"));
+    DEBUGF("DeviceFileInit");
 
     xpdid->EvtFileCleanup = GntMem_EvtFileCleanup;  
     xpdid->EvtFileClose = GntMem_EvtFileClose;
@@ -819,9 +818,7 @@ GntMem_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_config, WDFFI
     xpdid->gntmem.allowed_pages = 0;
     xpdid->gntmem.mapped_pages = 0;
 
-    KdPrint(("GntMem: completing init\n"));
+    DEBUGF("completing init");
 
     return STATUS_SUCCESS;
 }
-
-
