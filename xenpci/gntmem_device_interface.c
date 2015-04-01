@@ -831,9 +831,11 @@ static VOID GntMem_EvtFileClose(WDFFILEOBJECT file_object)
 NTSTATUS GntMem_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_config, WDFFILEOBJECT file_object)
 {
     PXENPCI_DEVICE_INTERFACE_DATA xpdid = GetXpdid(file_object);
+    PXENPCI_DEVICE_DATA xpdd = GetXpdd(device);
     WDF_IO_QUEUE_CONFIG internal_queue_config;
     WDF_OBJECT_ATTRIBUTES internal_queue_attributes;
     NTSTATUS status;
+    ULONG grant_entries;
 
     UNREFERENCED_PARAMETER(device);
     DEBUGF("DeviceFileInit");
@@ -851,8 +853,13 @@ NTSTATUS GntMem_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_conf
     if (!NT_SUCCESS(status))
         return status;
 
-    xpdid->gntmem.allowed_pages = 0;
+    grant_entries = min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t))) - NR_RESERVED_ENTRIES;
+    DEBUGF("setting local and global quota to %u grants", grant_entries);
+
+    xpdid->gntmem.allowed_pages = grant_entries;
     xpdid->gntmem.mapped_pages = 0;
+    xpdd->gntmem_allowed_pages = grant_entries;
+    xpdd->gntmem_mapped_pages = 0;
 
     DEBUGF("completing init");
 
