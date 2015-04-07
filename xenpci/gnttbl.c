@@ -67,6 +67,7 @@ int GntTbl_Map(PVOID Context, unsigned int start_idx, unsigned int end_idx)
     unsigned int i = end_idx;
 
     FUNCTION_ENTER();
+    DEBUGF("start idx: %u, end idx: %u", start_idx, end_idx);
     /* Loop backwards, so that the first hypercall has the largest index,  ensuring that the table will grow only once.  */
     do
     {
@@ -143,7 +144,7 @@ BOOLEAN GntTbl_EndAccess(PVOID Context, grant_ref_t ref, BOOLEAN keepref, ULONG 
     return TRUE;
 }
 
-grant_handle_t GntTbl_MapForeignPage(PVOID Context, domid_t foreign_domain, grant_ref_t grant_ref, PFN_NUMBER local_pfn, uint32_t flags)
+grant_handle_t GntTbl_MapForeignPage(PVOID Context, domid_t foreign_domain, grant_ref_t grant_ref, PHYSICAL_ADDRESS address, uint32_t flags)
 {
     PXENPCI_DEVICE_DATA xpdd = Context;
     struct gnttab_map_grant_ref op;
@@ -155,14 +156,14 @@ grant_handle_t GntTbl_MapForeignPage(PVOID Context, domid_t foreign_domain, gran
     op.dom = foreign_domain;
     op.ref = grant_ref;
     op.flags = flags;
-    op.host_addr = local_pfn;
+    op.host_addr = address.QuadPart;
 
     status = HYPERVISOR_grant_table_op(xpdd, GNTTABOP_map_grant_ref, &op, 1);
 
     if ((status < 0) || (((int) op.handle) < 0) || (op.status != GNTST_okay))
     {
-        DEBUGF("Error mapping foreign page: domain %u, grant ref %u, flags 0x%x, pfn 0x%I64x; status=%d (%d)",
-               foreign_domain, grant_ref, flags, local_pfn, op.handle, op.status);
+        DEBUGF("Error mapping foreign page: domain %u, grant ref %u, flags 0x%x, address %p; status=%d (%d)",
+               foreign_domain, grant_ref, flags, address.QuadPart, op.handle, op.status);
     }
 
     FUNCTION_EXIT();
@@ -170,7 +171,7 @@ grant_handle_t GntTbl_MapForeignPage(PVOID Context, domid_t foreign_domain, gran
     return op.handle;
 }
 
-int GntTbl_UnmapForeignPage(PVOID Context, grant_handle_t grant_handle, PFN_NUMBER local_pfn)
+int GntTbl_UnmapForeignPage(PVOID Context, grant_handle_t grant_handle, PHYSICAL_ADDRESS address)
 {
     PXENPCI_DEVICE_DATA xpdd = Context;
     struct gnttab_unmap_grant_ref op;
@@ -180,14 +181,14 @@ int GntTbl_UnmapForeignPage(PVOID Context, grant_handle_t grant_handle, PFN_NUMB
     FUNCTION_ENTER();
 
     op.handle = grant_handle;
-    op.host_addr = local_pfn;
+    op.host_addr = address.QuadPart;
 
     status = HYPERVISOR_grant_table_op(xpdd, GNTTABOP_unmap_grant_ref, &op, 1);
 
     if ((status < 0) || (op.status != GNTST_okay))
     {
-        DEBUGF("Error unmapping foreign page: grant handle %u, pfn 0x%I64x; status=%d",
-               grant_handle, local_pfn, op.status);
+        DEBUGF("Error unmapping foreign page: grant handle %u, address %p; status=%d",
+               grant_handle, address.QuadPart, op.status);
     }
 
     FUNCTION_EXIT();
