@@ -153,6 +153,7 @@ grant_handle_t GntTbl_MapForeignPage(PVOID Context, domid_t foreign_domain, gran
     // TODO: batch mapping of multiple pages
     FUNCTION_ENTER();
 
+    RtlZeroMemory(&op, sizeof(op));
     op.dom = foreign_domain;
     op.ref = grant_ref;
     op.flags = flags;
@@ -180,6 +181,7 @@ int GntTbl_UnmapForeignPage(PVOID Context, grant_handle_t grant_handle, PHYSICAL
     // TODO: batch unmapping of multiple pages
     FUNCTION_ENTER();
 
+    RtlZeroMemory(&op, sizeof(op));
     op.handle = grant_handle;
     op.host_addr = address.QuadPart;
 
