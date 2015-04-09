@@ -707,8 +707,8 @@ XenPci_EvtDevicePrepareHardware (WDFDEVICE device, WDFCMRESLIST resources_raw, W
       xpdd->platform_ioport_len = translated_descriptor->u.Port.Length;
       break;
     case CmResourceTypeMemory:
-      KdPrint((__DRIVER_NAME "     Memory mapped CSR:(%x:%x) Length:(%d)\n", translated_descriptor->u.Memory.Start.LowPart, translated_descriptor->u.Memory.Start.HighPart, translated_descriptor->u.Memory.Length));
-      KdPrint((__DRIVER_NAME "     Memory flags = %04X\n", translated_descriptor->Flags));
+      DEBUGF("Memory mapped CSR: %I64x, Length: 0x%x", translated_descriptor->u.Memory.Start.QuadPart, translated_descriptor->u.Memory.Length);
+      DEBUGF("Memory flags = %04X", translated_descriptor->Flags);
 #if 0      
       mmio_freelist_free = 0;
       for (j = 0; j < translated_descriptor->u.Memory.Length >> PAGE_SHIFT; j++)

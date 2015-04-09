@@ -980,7 +980,7 @@ XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
   //PMDL mdl;
  
   FUNCTION_ENTER();
-  KdPrint((__DRIVER_NAME "     %s\n", xppdd->path));
+  DEBUGF("%s", xppdd->path);
 
   stack = IoGetCurrentIrpStackLocation(irp);
 
@@ -1019,16 +1019,16 @@ XenPciPdo_EvtDeviceWdmIrpPreprocess_START_DEVICE(WDFDEVICE device, PIRP irp)
     switch (prd->Type)
     {
     case CmResourceTypeMemory:
-      KdPrint((__DRIVER_NAME "     CmResourceTypeMemory (%d)\n", i));
-      KdPrint((__DRIVER_NAME "     Start = %08x, Length = %d\n", prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
+      DEBUGF("CmResourceTypeMemory (%d)", i);
+      DEBUGF("Start = 0x%I64x, Length = 0x%x", prd->u.Memory.Start.QuadPart, prd->u.Memory.Length);
       if (prd->u.Memory.Start.QuadPart == xpdd->platform_mmio_addr.QuadPart)
       {
         if (prd->u.Memory.Length == 0)
         {
-          KdPrint((__DRIVER_NAME "     pfn[0] = %08x\n", (ULONG)MmGetMdlPfnArray(xppdd->config_page_mdl)[0]));
+          DEBUGF("pfn[0] = %08x", (ULONG)MmGetMdlPfnArray(xppdd->config_page_mdl)[0]);
           prd->u.Memory.Start.QuadPart = (ULONGLONG)MmGetMdlPfnArray(xppdd->config_page_mdl)[0] << PAGE_SHIFT;
           prd->u.Memory.Length = MmGetMdlByteCount(xppdd->config_page_mdl);
-          KdPrint((__DRIVER_NAME "     New Start = %08x%08x, Length = %d\n", prd->u.Memory.Start.HighPart, prd->u.Memory.Start.LowPart, prd->u.Memory.Length));
+          DEBUGF("New Start = 0x%08x%08x, Length = 0x%x", prd->u.Memory.Start.HighPart, prd->u.Memory.Start.LowPart, prd->u.Memory.Length);
         }
         xppdd->config_page_phys = prd->u.Memory.Start;
         xppdd->config_page_length = prd->u.Memory.Length;

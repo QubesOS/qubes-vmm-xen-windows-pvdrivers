@@ -97,9 +97,7 @@ struct gntmem_handle* gntmem_open() {
     new_handle->h = h;
     new_handle->first_grant = NULL;
     new_handle->next_uid = 1;
-
     return new_handle;
-
 }
 
 void gntmem_close(struct gntmem_handle* h) {
@@ -113,7 +111,7 @@ void gntmem_close(struct gntmem_handle* h) {
     next_grant = h->first_grant;
 
     if(!CancelIo(h->h)) {
-        fprintf(stderr, "Gntmem: Unable to cancel outstanding grants\n");
+        fwprintf(stderr, L"Gntmem: Unable to cancel outstanding grants\n");
         return;
     }
 
@@ -131,15 +129,15 @@ void gntmem_close(struct gntmem_handle* h) {
                     free(next_grant);
                 }
                 else {
-                    fprintf(stderr, "Gntmem: grant %d incomplete after event had fired; leaking\n", next_grant->uid);
+                    fwprintf(stderr, L"Gntmem: grant %d incomplete after event had fired; leaking\n", next_grant->uid);
                 }
             }
             else {
-                fprintf(stderr, "Gntmem: grant %d completed successfully, which should never happen; leaking\n", next_grant->uid);
+                fwprintf(stderr, L"Gntmem: grant %d completed successfully, which should never happen; leaking\n", next_grant->uid);
             }
         }
         else {
-            fprintf(stderr, "Gntmem: timed out waiting for grant %d to be released; leaking\n", next_grant->uid);
+            fwprintf(stderr, L"Gntmem: timed out waiting for grant %d to be released; leaking\n", next_grant->uid);
         }
 
         next_grant = next;
@@ -266,12 +264,12 @@ void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domai
         if(!DeviceIoControl(h->h, IOCTL_GNTMEM_UNMAP_NOTIFY, &unmap_notify, sizeof(unmap_notify),
                     NULL, 0, NULL, &umol)) {
             if(GetLastError() != ERROR_IO_PENDING) {
-                fprintf(stderr, "Warning: failed to set unmap notify, ignoring error\n");
+                fwprintf(stderr, L"Warning: failed to set unmap notify, ignoring error\n");
             }
         }
 
         if(!GetOverlappedResult(h->h, &umol, &bytesWritten, TRUE)) {
-            fprintf(stderr, "Warning: failed to set unmap notify, ignoring error\n");
+            fwprintf(stderr, L"Warning: failed to set unmap notify, ignoring error\n");
         }
     }
 
@@ -289,7 +287,7 @@ void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domai
             if(GetLastError() != ERROR_IO_PENDING) {
                 CloseHandle(ggol.hEvent);
                 free(out_buffer);
-                fprintf(stderr, "Warning: gntmem library leaked %d bytes and two handles\n", sizeof(new_handle->grant));
+                fwprintf(stderr, L"Warning: gntmem library leaked %d bytes and two handles\n", sizeof(new_handle->grant));
                 // Must leak new handle, which might be referenced by overlapped I/O.
                 return NULL;
             }
@@ -298,7 +296,7 @@ void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domai
     if(!GetOverlappedResult(h->h, &ggol, &bytesWritten, TRUE)) {
         CloseHandle(ggol.hEvent);
         free(out_buffer);
-        fprintf(stderr, "Warning: gntmem library leaked %d bytes and two handles\n", sizeof(new_handle->grant));
+        fwprintf(stderr, L"Warning: gntmem library leaked %d bytes and two handles\n", sizeof(new_handle->grant));
         // Must leak new handle, which might be referenced by overlapped I/O.
         return NULL;
     }
@@ -317,3 +315,60 @@ void* gntmem_grant_pages_to_domain(struct gntmem_handle* h, domid_t domain,
     return gntmem_grant_pages_to_domain_notify(h, domain, n_pages, -1, -1, grants_out);
 }
 
+int gntmem_map_foreign_pages(struct gntmem_handle* h, struct ioctl_gntmem_map_foreign_pages *in, struct ioctl_gntmem_map_foreign_pages_out *out)
+{
+    OVERLAPPED ol = { 0 };
+    DWORD bytes_written;
+
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (!DeviceIoControl(h->h, IOCTL_GNTMEM_MAP_FOREIGN_PAGES, in, sizeof(*in), out, sizeof(*out), NULL, &ol))
+    {
+        if (GetLastError() != ERROR_IO_PENDING)
+        {
+            fwprintf(stderr, L"map ioctl failed: 0x%x\n", GetLastError());
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+        fwprintf(stderr, L"map ioctl pending\n");
+    }
+
+    if (!GetOverlappedResult(h->h, &ol, &bytes_written, TRUE))
+    {
+        fwprintf(stderr, L"map ioctl: GOR failed: 0x%x\n", GetLastError());
+        CloseHandle(ol.hEvent);
+        return -1;
+    }
+
+    CloseHandle(ol.hEvent);
+
+    return 0;
+}
+
+int gntmem_unmap_foreign_pages(struct gntmem_handle* h, struct ioctl_gntmem_unmap_foreign_pages *in)
+{
+    OVERLAPPED ol = { 0 };
+    DWORD bytes_written;
+
+    ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (!DeviceIoControl(h->h, IOCTL_GNTMEM_UNMAP_FOREIGN_PAGES, in, sizeof(*in), NULL, 0, NULL, &ol))
+    {
+        if (GetLastError() != ERROR_IO_PENDING)
+        {
+            fwprintf(stderr, L"unmap ioctl failed: 0x%x\n", GetLastError());
+            CloseHandle(ol.hEvent);
+            return -1;
+        }
+        fwprintf(stderr, L"unmap ioctl pending\n");
+    }
+
+    if (!GetOverlappedResult(h->h, &ol, &bytes_written, TRUE))
+    {
+        fwprintf(stderr, L"unmap ioctl: GOR failed: 0x%x\n", GetLastError());
+        CloseHandle(ol.hEvent);
+        return -1;
+    }
+
+    CloseHandle(ol.hEvent);
+
+    return 0;
+}

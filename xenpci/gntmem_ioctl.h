@@ -89,4 +89,31 @@ struct ioctl_gntmem_unmap_notify
     evtchn_port_t notify_port;
 };
 
+/* Map foreign pages into the current address space. */
+#define IOCTL_GNTMEM_MAP_FOREIGN_PAGES \
+    CTL_CODE(FILE_DEVICE_BUS_EXTENDER, 0x805, METHOD_BUFFERED, FILE_READ_DATA | FILE_WRITE_DATA)
+
+struct ioctl_gntmem_map_foreign_pages
+{
+    domid_t foreign_domain;
+    grant_ref_t grant_ref;
+    BOOLEAN read_only;
+};
+
+struct ioctl_gntmem_map_foreign_pages_out
+{
+    PVOID mapped_va;
+    grant_handle_t map_handle;
+    PVOID context; // pass to unmap ioctl
+};
+
+/* Unmap foreign pages from the current address space. */
+#define IOCTL_GNTMEM_UNMAP_FOREIGN_PAGES \
+    CTL_CODE(FILE_DEVICE_BUS_EXTENDER, 0x806, METHOD_BUFFERED, FILE_READ_DATA | FILE_WRITE_DATA)
+
+struct ioctl_gntmem_unmap_foreign_pages
+{
+    PVOID context;
+};
+
 #endif /* __WINDOWS_PUBLIC_GNTMEM_H__ */

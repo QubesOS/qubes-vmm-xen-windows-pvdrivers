@@ -79,6 +79,8 @@ XenPci_EvtDeviceUsageNotification(WDFDEVICE device, WDF_SPECIAL_FILE_TYPE notifi
   FUNCTION_EXIT();  
 }
 
+extern PXENPCI_DEVICE_DATA gntmem_xpdd_global;
+
 static NTSTATUS
 XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
 {
@@ -165,8 +167,12 @@ XenPci_EvtDeviceAdd_XenPci(WDFDRIVER driver, PWDFDEVICE_INIT device_init)
   xpdd->gntmem_mapped_pages = 0;
   xpdd->gntmem_free_work_queued = 0;
   InitializeListHead(&xpdd->gntmem_pending_free_list_head);
+  InitializeListHead(&xpdd->gntmem_mapped_list);
   WdfSpinLockCreate(NULL, &xpdd->gntmem_quota_lock);
   WdfSpinLockCreate(NULL, &xpdd->gntmem_pending_free_lock);
+  WdfSpinLockCreate(NULL, &xpdd->gntmem_mapped_lock);
+  gntmem_xpdd_global = xpdd; // GntMem_ProcessCallback doesn't get any context but needs to access xpdd
+  PsSetCreateProcessNotifyRoutine(GntMem_ProcessCallback, FALSE);
 
   WdfCollectionCreate(WDF_NO_OBJECT_ATTRIBUTES, &veto_devices);
   status = WdfDriverOpenParametersRegistryKey(driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &param_key);
@@ -591,6 +597,9 @@ XenPci_EvtDriverUnload(WDFDRIVER driver)
 {
   UNREFERENCED_PARAMETER(driver);
   
+  // unregister gntmem's process callback
+  PsSetCreateProcessNotifyRoutine(GntMem_ProcessCallback, TRUE);
+
   #if DBG
   XenPci_UnHookDbgPrint();
   #endif  

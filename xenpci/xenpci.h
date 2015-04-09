@@ -225,6 +225,8 @@ typedef struct
     int gntmem_allowed_pages;
     BOOLEAN gntmem_free_work_queued;
     LIST_ENTRY gntmem_pending_free_list_head;
+    LIST_ENTRY gntmem_mapped_list; // list of mapped grants
+    WDFSPINLOCK gntmem_mapped_lock;
     WDFSPINLOCK gntmem_pending_free_lock;
     WDFSPINLOCK gntmem_quota_lock;
     WDFTIMER gntmem_cleanup_timer;
@@ -386,6 +388,7 @@ NTSTATUS GntMem_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_conf
 VOID XenPci_EvtIoInCallerContext(WDFDEVICE Device, WDFREQUEST Request);
 VOID GntMem_EvtIoInCallerContext(PXENPCI_DEVICE_INTERFACE_DATA xpdid, WDFREQUEST Request, WDFDEVICE Device);
 VOID GntMem_EvtTimerFunc(WDFTIMER timer);
+VOID GntMem_ProcessCallback(IN HANDLE ParentId, IN HANDLE ProcessId, IN BOOLEAN Create);
 
 EVT_WDF_DEVICE_FILE_CREATE XenPci_EvtDeviceFileCreate;
 EVT_WDF_FILE_CLOSE XenPci_EvtFileClose;

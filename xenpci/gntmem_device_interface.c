@@ -43,6 +43,16 @@ struct grant_record
     evtchn_port_t notify_port;
 };
 
+struct map_record
+{
+    LIST_ENTRY entry;
+    PMDL mdl;
+    PVOID user_va;
+    PVOID kernel_va;
+    grant_handle_t map_handle;
+    PEPROCESS process;
+};
+
 typedef struct
 {
     WDFREQUEST request;
@@ -469,6 +479,104 @@ static VOID queue_unmap_work_item(WDFREQUEST Request, NTSTATUS status, PXENPCI_D
     WdfWorkItemEnqueue(new_workitem);
 }
 
+// Needed for the process callback since it doesn't receive any context...
+PXENPCI_DEVICE_DATA gntmem_xpdd_global = 0;
+
+#pragma warning(push)
+#pragma warning(disable: 4127) // conditional expression is constant (for set_xen_guest_handle)
+
+// Actual unmapping/cleanup is performed here.
+// xpdd->gntmem_mapped_lock spinlock must be held.
+static VOID GntMem_UnmapForeign(struct map_record *record, PEPROCESS current_process)
+{
+    xen_memory_reservation_t xmr;
+    PFN_NUMBER pfn;
+    int ret;
+    BOOLEAN leak = FALSE;
+
+    pfn = MmGetMdlPfnArray(record->mdl)[0];
+    DEBUGF("process %p: freeing map handle 0x%x (record %p)", current_process, record->map_handle, record);
+    DEBUGF("record: user %p, kernel %p, phys %p, handle 0x%x, mdl size: %u",
+           record->user_va, record->kernel_va, MmGetPhysicalAddress(record->kernel_va), record->map_handle, record->mdl->ByteCount);
+
+    // unmap the page
+    ret = GntTbl_UnmapForeignPage(gntmem_xpdd_global, record->map_handle, MmGetPhysicalAddress(record->kernel_va));
+    if (ret != GNTST_okay)
+    {
+        DEBUGF("WARNING: GntTbl_UnmapForeignPage failed for handle 0x%x, leaking pages", record->map_handle);
+        leak = TRUE;
+        // This is not necessarily fatal, but now we can't free this page to the OS
+        // because the foreign domain still controls its contents.
+    }
+    else
+        DEBUGF("successfully unmapped map handle 0x%x", record->map_handle);
+
+    if (!leak)
+    {
+        // repopulate the unmapped page with memory
+        RtlZeroMemory(&xmr, sizeof(xmr));
+        xmr.domid = DOMID_SELF;
+        xmr.nr_extents = 1;
+        set_xen_guest_handle(xmr.extent_start, &pfn);
+        ret = HYPERVISOR_memory_op(gntmem_xpdd_global, XENMEM_populate_physmap, &xmr);
+        if (ret != 1) // number of pages populated
+        {
+            DEBUGF("WARNING: XENMEM_populate_physmap failed for pfn %x (%d), leaking pages", pfn, ret);
+            // Can't free the page either, OS will crash if we give it
+            // a page that is not backed by physical memory.
+            leak = TRUE;
+        }
+
+        DEBUGF("XENMEM_populate_physmap returned pfn %x", pfn);
+    }
+
+    // free the rest
+    MmUnmapLockedPages(record->user_va, record->mdl); // undo user mapping
+    IoFreeMdl(record->mdl);
+
+    if (!leak)
+        ExFreePoolWithTag(record->kernel_va, XENPCI_POOL_TAG); // page itself
+    else
+        DEBUGF("!!! LEAKING PAGE: va %p, pfn %x", record->kernel_va, pfn);
+
+    RemoveEntryList((PLIST_ENTRY) record);
+    ExFreePoolWithTag(record, XENPCI_POOL_TAG);
+}
+
+// Process creation/destruction notify routine.
+// Used for cleaning up mapped grants done by IOCTL_GNTMEM_MAP_FOREIGN_PAGES.
+// TODO: make IOCTL_GNTMEM_GRANT_PAGES use this as well, this is much easier than what it's currently doing.
+// Runs at PASSIVE_LEVEL and if Create==FALSE, in the context of the process being destroyed.
+VOID GntMem_ProcessCallback(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
+{
+    PEPROCESS current_process;
+    PLIST_ENTRY node;
+
+    UNREFERENCED_PARAMETER(ParentId);
+    UNREFERENCED_PARAMETER(ProcessId);
+
+    // we're only interested in process destruction for cleanup purposes
+    if (Create)
+        return;
+
+    current_process = PsGetCurrentProcess();
+
+    // walk the map list, free everything that's allocated by this process and still in the list
+    WdfSpinLockAcquire(gntmem_xpdd_global->gntmem_mapped_lock);
+    node = gntmem_xpdd_global->gntmem_mapped_list.Flink;
+    while (node->Flink != gntmem_xpdd_global->gntmem_mapped_list.Flink)
+    {
+        struct map_record *record = CONTAINING_RECORD(node, struct map_record, entry);
+
+        node = node->Flink;
+        if (record->process != current_process)
+            continue;
+
+        GntMem_UnmapForeign(record, current_process);
+    }
+    WdfSpinLockRelease(gntmem_xpdd_global->gntmem_mapped_lock);
+}
+
 static VOID GntMem_EvtIoDeviceControl(IN WDFQUEUE Queue, IN WDFREQUEST Request, IN size_t OutputBufferLength, IN size_t InputBufferLength, IN ULONG IoControlCode)
 {
     NTSTATUS rc = STATUS_SUCCESS;
@@ -785,6 +893,219 @@ static VOID GntMem_EvtIoDeviceControl(IN WDFQUEUE Queue, IN WDFREQUEST Request, 
         break;
     }
 
+    case IOCTL_GNTMEM_MAP_FOREIGN_PAGES:
+    {
+        // TODO: batch mapping of multiple pages
+        struct ioctl_gntmem_map_foreign_pages input;
+        struct ioctl_gntmem_map_foreign_pages_out *output = (struct ioctl_gntmem_map_foreign_pages_out *) outbuffer;
+        struct map_record *record;
+        PHYSICAL_ADDRESS phys_addr;
+        xen_memory_reservation_t xmr;
+        PFN_NUMBER pfn = { 0 };
+        int released_pages = 0, ret;
+
+        if ((InputBufferLength < sizeof(input)) || (OutputBufferLength < sizeof(*output)))
+        {
+            rc = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+
+        info = sizeof(*output); // size of data returned to user mode
+        // copy input because writing to output will overwrite it (same buffer)
+        memcpy(&input, inbuffer, sizeof(input));
+
+        DEBUGF("mapping foreign page ref %u from domain %u, process %p", input.grant_ref, input.foreign_domain, PsGetCurrentProcess());
+
+        record = ExAllocatePoolWithTag(NonPagedPool, sizeof(*record), XENPCI_POOL_TAG);
+        if (record == NULL)
+        {
+            rc = STATUS_NO_MEMORY;
+            DEBUGF("failed to alloc map record");
+            goto map_cleanup;
+        }
+
+        RtlZeroMemory(record, sizeof(*record));
+        record->map_handle = (grant_handle_t) -1;
+
+        // TODO: don't allocate memory, use xenpci's io address space instead
+        record->kernel_va = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
+        if (record->kernel_va == NULL)
+        {
+            rc = STATUS_NO_MEMORY;
+            DEBUGF("failed to alloc mapped page");
+            goto map_cleanup;
+        }
+
+        RtlZeroMemory(record->kernel_va, PAGE_SIZE);
+        phys_addr = MmGetPhysicalAddress(record->kernel_va);
+        pfn = phys_addr.QuadPart >> PAGE_SHIFT;
+
+        DEBUGF("record %p: kernel va %p, phys addr %p", record, record->kernel_va, phys_addr);
+
+        // release underlying memory to xen since it'll be replaced with the mapped page anyway
+        // (and we'll need to repopulate it with memory after unmapping)
+        RtlZeroMemory(&xmr, sizeof(xmr));
+        xmr.domid = DOMID_SELF;
+        xmr.nr_extents = 1;
+        set_xen_guest_handle(xmr.extent_start, &pfn);
+        released_pages = HYPERVISOR_memory_op(xpdd, XENMEM_decrease_reservation, &xmr);
+        if (released_pages != 1) // number of pages released
+        {
+            rc = STATUS_UNSUCCESSFUL;
+            DEBUGF("XENMEM_decrease_reservation failed for pfn %x", pfn);
+            goto map_cleanup;
+        }
+
+        DEBUGF("pfn %x released to Xen", pfn);
+
+        // perform the actual grant mapping
+        record->map_handle = GntTbl_MapForeignPage(xpdd, input.foreign_domain, input.grant_ref, phys_addr,
+                                                   input.read_only ? GNTMAP_host_map | GNTMAP_readonly : GNTMAP_host_map);
+        if (((int) record->map_handle) < 0) // funny how grant_handle_t is unsigned but the hypercall returns "negative values on error"...
+        {
+            rc = STATUS_UNSUCCESSFUL;
+            DEBUGF("GntTbl_MapForeignPage failed");
+            goto map_cleanup;
+        }
+
+        DEBUGF("grant map OK, handle: 0x%x", record->map_handle);
+
+        // map the page into user space
+        record->mdl = IoAllocateMdl(record->kernel_va, PAGE_SIZE, FALSE, FALSE, NULL);
+        if (record->mdl == NULL)
+        {
+            rc = STATUS_NO_MEMORY;
+            DEBUGF("IoAllocateMdl failed");
+            goto map_cleanup;
+        }
+
+        MmBuildMdlForNonPagedPool(record->mdl);
+
+        __try
+        {
+            record->user_va = MmMapLockedPagesSpecifyCache(record->mdl, UserMode, MmCached, NULL, FALSE, NormalPagePriority);
+            DEBUGF("successfully mapped page to user address %p", record->user_va);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            rc = GetExceptionCode();
+            DEBUGF("user mapping caused exception 0x%08x", rc);
+            goto map_cleanup;
+        }
+
+        // complete filling the structures
+        record->process = PsGetCurrentProcess();
+        output->map_handle = record->map_handle;
+        output->mapped_va = record->user_va;
+        output->context = record;
+
+        // add record to the list
+        WdfSpinLockAcquire(xpdd->gntmem_mapped_lock);
+        InsertTailList(&xpdd->gntmem_mapped_list, (PLIST_ENTRY) record);
+        WdfSpinLockRelease(xpdd->gntmem_mapped_lock);
+
+        rc = STATUS_SUCCESS;
+
+    map_cleanup:
+        if (rc != STATUS_SUCCESS)
+        {
+            DEBUGF("cleanup on failed map");
+            if (record)
+            {
+                BOOLEAN leak = FALSE;
+
+                if (record->mdl)
+                    IoFreeMdl(record->mdl);
+
+                if (((int) record->map_handle) > 0)
+                {
+                    // foreign pages were mapped, need to unmap again
+                    ret = GntTbl_UnmapForeignPage(xpdd, record->map_handle, MmGetPhysicalAddress(record->kernel_va));
+                    if (ret != GNTST_okay)
+                    {
+                        DEBUGF("WARNING: GntTbl_UnmapForeignPage failed for handle 0x%x, leaking pages", record->map_handle);
+                        leak = TRUE;
+                    }
+                    else
+                        DEBUGF("successfully unmapped map handle 0x%x", record->map_handle);
+                }
+
+                if ((released_pages > 0) && !leak) // memory was released to xen, need to reacquire
+                {
+                    // repopulate unmapped page with memory
+                    RtlZeroMemory(&xmr, sizeof(xmr));
+                    xmr.domid = DOMID_SELF;
+                    xmr.nr_extents = 1;
+                    set_xen_guest_handle(xmr.extent_start, &pfn); // pfn is valid if we are here
+                    ret = HYPERVISOR_memory_op(xpdd, XENMEM_populate_physmap, &xmr);
+                    if (ret != 1)
+                    {
+                        DEBUGF("WARNING: XENMEM_populate_physmap failed for pfn %x (%d), leaking pages", pfn, ret);
+                        leak = TRUE;
+                    }
+                }
+
+                if (record->kernel_va)
+                {
+                    if (!leak)
+                        ExFreePoolWithTag(record->kernel_va, XENPCI_POOL_TAG);
+                    else // see GntMem_UnmapForeign() for why we're leaking pages
+                        DEBUGF("!!! LEAKING PAGE: va %p, pfn %x", record->kernel_va, pfn); // pfn is valid if we're here
+                }
+
+                ExFreePoolWithTag(record, XENPCI_POOL_TAG);
+            }
+        }
+        break;
+    }
+
+    case IOCTL_GNTMEM_UNMAP_FOREIGN_PAGES:
+    {
+        // TODO: batch unmapping of multiple pages
+        struct ioctl_gntmem_unmap_foreign_pages *input = (struct ioctl_gntmem_unmap_foreign_pages *) inbuffer;
+        PLIST_ENTRY node;
+        PEPROCESS current_process;
+
+        if (InputBufferLength < sizeof(*input))
+        {
+            rc = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+
+        info = 0;
+        rc = STATUS_NOT_FOUND;
+        current_process = PsGetCurrentProcess();
+        DEBUGF("unmapping grant: record %p, process %p", input->context, current_process);
+
+        // walk the map list, search for provided record (context)
+        WdfSpinLockAcquire(xpdd->gntmem_mapped_lock);
+        node = xpdd->gntmem_mapped_list.Flink;
+        while (node->Flink != xpdd->gntmem_mapped_list.Flink)
+        {
+            struct map_record *record = CONTAINING_RECORD(node, struct map_record, entry);
+
+            node = node->Flink;
+            if (record == input->context)
+            {
+                if (record->process != current_process)
+                {
+                    DEBUGF("WARNING: current process is different than the mapping holder, will clean up on holder's destruction");
+                    rc = STATUS_UNSUCCESSFUL;
+                    break;
+                }
+
+                GntMem_UnmapForeign(record, current_process);
+                rc = STATUS_SUCCESS;
+                break; // while
+            }
+        }
+
+        WdfSpinLockRelease(xpdd->gntmem_mapped_lock);
+        break; // switch
+    }
+
+#pragma warning(pop)
+
     default:
         DEBUGF("IOCTL code was not recognised");
         rc = STATUS_INVALID_PARAMETER;
@@ -853,6 +1174,7 @@ NTSTATUS GntMem_DeviceFileInit(WDFDEVICE device, PWDF_IO_QUEUE_CONFIG queue_conf
     if (!NT_SUCCESS(status))
         return status;
 
+    // FIXME: this is local-only (device open)
     grant_entries = min(NR_GRANT_ENTRIES, (xpdd->grant_frames * PAGE_SIZE / sizeof(grant_entry_t))) - NR_RESERVED_ENTRIES;
     DEBUGF("setting local and global quota to %u grants", grant_entries);
 

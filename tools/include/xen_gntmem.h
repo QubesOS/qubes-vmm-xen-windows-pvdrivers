@@ -16,6 +16,7 @@ extern "C" {
 #endif
 
 typedef UINT32 grant_ref_t;
+typedef UINT32 grant_handle_t;
 typedef UINT16 domid_t;
 typedef unsigned int evtchn_port_t;
 struct gntmem_handle;
@@ -54,6 +55,10 @@ void* gntmem_grant_pages_to_domain(struct gntmem_handle* h, domid_t domain, int 
 void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t
         domain, int n_pages, int notify_offset, evtchn_port_t notify_port,
         grant_ref_t* grants_out);
+
+
+int gntmem_map_foreign_pages(struct gntmem_handle* h, struct ioctl_gntmem_map_foreign_pages *in, struct ioctl_gntmem_map_foreign_pages_out *out);
+int gntmem_unmap_foreign_pages(struct gntmem_handle* h, struct ioctl_gntmem_unmap_foreign_pages *in);
 
 #ifdef __cplusplus
 }
