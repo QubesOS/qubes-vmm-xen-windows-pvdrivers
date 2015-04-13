@@ -226,9 +226,8 @@ void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domai
     void* out_buffer;
     struct grant_handle* new_handle;
     struct ioctl_gntmem_get_grants get_grants;
-    struct ioctl_gntmem_unmap_notify unmap_notify;
     OVERLAPPED ggol;
-    PVOID	pResult;
+    PVOID pResult;
 
     if (!h)
         return NULL;
@@ -267,12 +266,14 @@ void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domai
     if (notify_offset > -1 || notify_port != -1)
     {
         OVERLAPPED umol;
+        struct ioctl_gntmem_unmap_notify unmap_notify = { 0 };
 
         unmap_notify.uid = new_handle->uid;
+        unmap_notify.notify_port = notify_port;
+        unmap_notify.notify_offset = notify_offset;
         umol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-        if (!DeviceIoControl(h->h, IOCTL_GNTMEM_UNMAP_NOTIFY, &unmap_notify, sizeof(unmap_notify),
-            NULL, 0, NULL, &umol))
+        if (!DeviceIoControl(h->h, IOCTL_GNTMEM_UNMAP_NOTIFY, &unmap_notify, sizeof(unmap_notify), NULL, 0, NULL, &umol))
         {
             if (GetLastError() != ERROR_IO_PENDING)
             {
