@@ -18,78 +18,79 @@
 #include <gntmem_ioctl.h>
 #include <xen_gntmem.h>
 
-static HANDLE
-get_xen_interface_handle()
+static HANDLE get_xen_interface_handle()
 {
-  HDEVINFO handle;
-  SP_DEVICE_INTERFACE_DATA sdid;
-  SP_DEVICE_INTERFACE_DETAIL_DATA *sdidd;
-  DWORD buf_len;
-  HANDLE h;
+    HDEVINFO handle;
+    SP_DEVICE_INTERFACE_DATA sdid;
+    SP_DEVICE_INTERFACE_DETAIL_DATA *sdidd;
+    DWORD buf_len;
+    HANDLE h;
 
-  handle = SetupDiGetClassDevs(&GUID_DEVINTERFACE_GNTMEM, 0, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-  if (handle == INVALID_HANDLE_VALUE)
-  {
-    return INVALID_HANDLE_VALUE;
-  }
-  sdid.cbSize = sizeof(sdid);
-  if (!SetupDiEnumDeviceInterfaces(handle, NULL, &GUID_DEVINTERFACE_GNTMEM, 0, &sdid))
-  {
-    return INVALID_HANDLE_VALUE;
-  }
-  SetupDiGetDeviceInterfaceDetail(handle, &sdid, NULL, 0, &buf_len, NULL);
-  sdidd = (SP_DEVICE_INTERFACE_DETAIL_DATA *)malloc(buf_len);
-  sdidd->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-  if (!SetupDiGetDeviceInterfaceDetail(handle, &sdid, sdidd, buf_len, NULL, NULL))
-  {
+    handle = SetupDiGetClassDevs(&GUID_DEVINTERFACE_GNTMEM, 0, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        return INVALID_HANDLE_VALUE;
+    }
+    
+    sdid.cbSize = sizeof(sdid);
+    if (!SetupDiEnumDeviceInterfaces(handle, NULL, &GUID_DEVINTERFACE_GNTMEM, 0, &sdid))
+    {
+        return INVALID_HANDLE_VALUE;
+    }
+    
+    SetupDiGetDeviceInterfaceDetail(handle, &sdid, NULL, 0, &buf_len, NULL);
+    sdidd = (SP_DEVICE_INTERFACE_DETAIL_DATA *) malloc(buf_len);
+    sdidd->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+    
+    if (!SetupDiGetDeviceInterfaceDetail(handle, &sdid, sdidd, buf_len, NULL, NULL))
+    {
+        free(sdidd);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    h = CreateFile(
+        sdidd->DevicePath,
+        FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+        0,
+        NULL,
+        OPEN_EXISTING,
+        FILE_FLAG_OVERLAPPED | FILE_ATTRIBUTE_NORMAL,
+        NULL);
+
     free(sdidd);
-    return INVALID_HANDLE_VALUE;
-  }
-  
-  h = CreateFile(
-    sdidd->DevicePath, 
-    FILE_GENERIC_READ|FILE_GENERIC_WRITE, 
-    0, 
-    NULL, 
-    OPEN_EXISTING, 
-    FILE_FLAG_OVERLAPPED | FILE_ATTRIBUTE_NORMAL, 
-    NULL);
 
-  free(sdidd);
-  
-  return h;
+    return h;
 }
 
-struct grant_handle {
-
+struct grant_handle
+{
     struct grant_handle* next;
     struct ioctl_gntmem_grant_pages grant;
     OVERLAPPED overlapped;
     INT32 uid;
-
 };
 
-struct gntmem_handle {
-
+struct gntmem_handle
+{
     HANDLE h;
     struct grant_handle* first_grant;
     INT32 next_uid;
-
 };
 
-struct gntmem_handle* gntmem_open() {
-
+struct gntmem_handle* gntmem_open()
+{
     HANDLE h;
     struct gntmem_handle* new_handle;
 
-
     h = get_xen_interface_handle();
-    if(h == INVALID_HANDLE_VALUE) {
+    if (h == INVALID_HANDLE_VALUE)
+    {
         return NULL;
     }
 
     new_handle = malloc(sizeof(*new_handle));
-    if(!new_handle) {
+    if (!new_handle)
+    {
         CloseHandle(h);
         return NULL;
     }
@@ -100,8 +101,8 @@ struct gntmem_handle* gntmem_open() {
     return new_handle;
 }
 
-void gntmem_close(struct gntmem_handle* h) {
-
+void gntmem_close(struct gntmem_handle* h)
+{
     struct grant_handle* next_grant;
     DWORD transferred;
 
@@ -110,51 +111,55 @@ void gntmem_close(struct gntmem_handle* h) {
 
     next_grant = h->first_grant;
 
-    if(!CancelIo(h->h)) {
+    if (!CancelIo(h->h))
+    {
         fwprintf(stderr, L"Gntmem: Unable to cancel outstanding grants\n");
         return;
     }
 
-    while(next_grant) {
-        
+    while (next_grant)
+    {
         struct grant_handle* next = next_grant->next;
         // Wait for I/O to finish before freeing buffers
-        if(WaitForSingleObject(next_grant->overlapped.hEvent, 5000) == WAIT_OBJECT_0) {
+        if (WaitForSingleObject(next_grant->overlapped.hEvent, 5000) == WAIT_OBJECT_0)
+        {
             // Event signalled; I/O should have finished
-            if(!GetOverlappedResult(h->h, &next_grant->overlapped, &transferred, FALSE)) {
+            if (!GetOverlappedResult(h->h, &next_grant->overlapped, &transferred, FALSE))
+            {
                 // Should have died with STATUS_CANCELLED, which is an error
-                if(GetLastError() != ERROR_IO_INCOMPLETE) {
+                if (GetLastError() != ERROR_IO_INCOMPLETE)
+                {
                     // i.e. it really is finished, and we can free
                     CloseHandle(next_grant->overlapped.hEvent);
                     free(next_grant);
                 }
-                else {
+                else
+                {
                     fwprintf(stderr, L"Gntmem: grant %d incomplete after event had fired; leaking\n", next_grant->uid);
                 }
             }
-            else {
+            else
+            {
                 fwprintf(stderr, L"Gntmem: grant %d completed successfully, which should never happen; leaking\n", next_grant->uid);
             }
         }
-        else {
+        else
+        {
             fwprintf(stderr, L"Gntmem: timed out waiting for grant %d to be released; leaking\n", next_grant->uid);
         }
 
         next_grant = next;
-
     }
 
     CloseHandle(h->h);
     free(h); // Might leave some dangling grant_handles though, dependent on previous results
-
 }
 
-int gntmem_set_local_quota(struct gntmem_handle* h, int new_limit) {
-
+int gntmem_set_local_quota(struct gntmem_handle* h, int new_limit)
+{
     struct ioctl_gntmem_set_limit setlim;
     DWORD bytes_written;
     OVERLAPPED ol;
-
 
     if (!h)
         return -1;
@@ -163,29 +168,30 @@ int gntmem_set_local_quota(struct gntmem_handle* h, int new_limit) {
     memset(&ol, 0, sizeof(ol));
     ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-    if(!DeviceIoControl(h->h, IOCTL_GNTMEM_SET_LOCAL_LIMIT, &setlim, sizeof(setlim), NULL, 0, NULL, &ol)) {
-        if(GetLastError() != ERROR_IO_PENDING) {
+    if (!DeviceIoControl(h->h, IOCTL_GNTMEM_SET_LOCAL_LIMIT, &setlim, sizeof(setlim), NULL, 0, NULL, &ol))
+    {
+        if (GetLastError() != ERROR_IO_PENDING)
+        {
             CloseHandle(ol.hEvent);
             return -1;
         }
     }
 
-    if(!GetOverlappedResult(h->h, &ol, &bytes_written, TRUE)) {
+    if (!GetOverlappedResult(h->h, &ol, &bytes_written, TRUE))
+    {
         CloseHandle(ol.hEvent);
         return -1;
     }
 
     CloseHandle(ol.hEvent);
     return 0;
-
 }
 
-int gntmem_set_global_quota(struct gntmem_handle* h, int new_limit) {
-
+int gntmem_set_global_quota(struct gntmem_handle* h, int new_limit)
+{
     struct ioctl_gntmem_set_limit setlim;
     DWORD bytes_written;
     OVERLAPPED ol;
-
 
     if (!h)
         return -1;
@@ -194,25 +200,27 @@ int gntmem_set_global_quota(struct gntmem_handle* h, int new_limit) {
     memset(&ol, 0, sizeof(ol));
     ol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-    if(!DeviceIoControl(h->h, IOCTL_GNTMEM_SET_GLOBAL_LIMIT, &setlim, sizeof(setlim), NULL, 0, NULL, &ol)) {
-        if(GetLastError() != ERROR_IO_PENDING) {
+    if (!DeviceIoControl(h->h, IOCTL_GNTMEM_SET_GLOBAL_LIMIT, &setlim, sizeof(setlim), NULL, 0, NULL, &ol))
+    {
+        if (GetLastError() != ERROR_IO_PENDING)
+        {
             CloseHandle(ol.hEvent);
             return -1;
         }
     }
-    if(!GetOverlappedResult(h->h, &ol, &bytes_written, TRUE)) {
+    
+    if (!GetOverlappedResult(h->h, &ol, &bytes_written, TRUE))
+    {
         CloseHandle(ol.hEvent);
         return -1;
     }
 
     CloseHandle(ol.hEvent);
     return 0;
-
 }
 
-
-void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domain, int n_pages, int notify_offset, evtchn_port_t notify_port, grant_ref_t* grants_out) {
-
+void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domain, int n_pages, int notify_offset, evtchn_port_t notify_port, grant_ref_t* grants_out)
+{
     DWORD bytesWritten;
     int out_buffer_size;
     void* out_buffer;
@@ -222,22 +230,21 @@ void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domai
     OVERLAPPED ggol;
     PVOID	pResult;
 
-
     if (!h)
         return NULL;
 
-    if(domain < 0)
+    if (domain < 0)
         return NULL;
-    if(n_pages <= 0)
+    if (n_pages <= 0)
         return NULL;
 
     new_handle = malloc(sizeof(struct grant_handle));
-    if(!new_handle)
+    if (!new_handle)
         return NULL;
 
     out_buffer_size = ((sizeof(void*)) + (n_pages * sizeof(grant_ref_t)));
     out_buffer = malloc(out_buffer_size);
-    if(!out_buffer)
+    if (!out_buffer)
         return NULL;
 
     new_handle->uid = InterlockedIncrement(&h->next_uid);
@@ -247,53 +254,61 @@ void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domai
     memset(&new_handle->overlapped, 0, sizeof(OVERLAPPED));
     new_handle->overlapped.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-    if(!DeviceIoControl(h->h, IOCTL_GNTMEM_GRANT_PAGES, &new_handle->grant, sizeof(new_handle->grant), NULL, 0, NULL, &new_handle->overlapped)) {
-        if(GetLastError() != ERROR_IO_PENDING) {
+    if (!DeviceIoControl(h->h, IOCTL_GNTMEM_GRANT_PAGES, &new_handle->grant, sizeof(new_handle->grant), NULL, 0, NULL, &new_handle->overlapped))
+    {
+        if (GetLastError() != ERROR_IO_PENDING)
+        {
             free(out_buffer);
             free(new_handle);
             return NULL;
         }
     }
 
-    if (notify_offset > -1 || notify_port != -1) {
+    if (notify_offset > -1 || notify_port != -1)
+    {
         OVERLAPPED umol;
 
         unmap_notify.uid = new_handle->uid;
         umol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-        if(!DeviceIoControl(h->h, IOCTL_GNTMEM_UNMAP_NOTIFY, &unmap_notify, sizeof(unmap_notify),
-                    NULL, 0, NULL, &umol)) {
-            if(GetLastError() != ERROR_IO_PENDING) {
+        if (!DeviceIoControl(h->h, IOCTL_GNTMEM_UNMAP_NOTIFY, &unmap_notify, sizeof(unmap_notify),
+            NULL, 0, NULL, &umol))
+        {
+            if (GetLastError() != ERROR_IO_PENDING)
+            {
                 fwprintf(stderr, L"Warning: failed to set unmap notify, ignoring error\n");
             }
         }
 
-        if(!GetOverlappedResult(h->h, &umol, &bytesWritten, TRUE)) {
+        if (!GetOverlappedResult(h->h, &umol, &bytesWritten, TRUE))
+        {
             fwprintf(stderr, L"Warning: failed to set unmap notify, ignoring error\n");
         }
     }
 
-
     get_grants.uid = new_handle->uid;
     ggol.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-    if(!DeviceIoControl(h->h, IOCTL_GNTMEM_GET_GRANTS, &get_grants, sizeof(get_grants),
-        out_buffer, out_buffer_size, NULL, &ggol)) {
+    if (!DeviceIoControl(h->h, IOCTL_GNTMEM_GET_GRANTS, &get_grants, sizeof(get_grants),
+        out_buffer, out_buffer_size, NULL, &ggol))
+    {
         /* Problem here: can't do anything about the pending ioctl above, which may
            keep some pages granted until thread termination, because CancelIo kills all
            IO from this thread, and therefore other sections too.
 
            We just hope that failure of GET_GRANTS implies the section has gone away. */
-            if(GetLastError() != ERROR_IO_PENDING) {
-                CloseHandle(ggol.hEvent);
-                free(out_buffer);
-                fwprintf(stderr, L"Warning: gntmem library leaked %d bytes and two handles\n", sizeof(new_handle->grant));
-                // Must leak new handle, which might be referenced by overlapped I/O.
-                return NULL;
-            }
+        if (GetLastError() != ERROR_IO_PENDING)
+        {
+            CloseHandle(ggol.hEvent);
+            free(out_buffer);
+            fwprintf(stderr, L"Warning: gntmem library leaked %d bytes and two handles\n", sizeof(new_handle->grant));
+            // Must leak new handle, which might be referenced by overlapped I/O.
+            return NULL;
+        }
     }
 
-    if(!GetOverlappedResult(h->h, &ggol, &bytesWritten, TRUE)) {
+    if (!GetOverlappedResult(h->h, &ggol, &bytesWritten, TRUE))
+    {
         CloseHandle(ggol.hEvent);
         free(out_buffer);
         fwprintf(stderr, L"Warning: gntmem library leaked %d bytes and two handles\n", sizeof(new_handle->grant));
@@ -301,17 +316,18 @@ void* gntmem_grant_pages_to_domain_notify(struct gntmem_handle* h, domid_t domai
         return NULL;
     }
 
-    memcpy(grants_out, (grant_ref_t*)(&(((void**)out_buffer)[1])), sizeof(grant_ref_t) * n_pages);
+    memcpy(grants_out, (grant_ref_t*) (&(((void**) out_buffer)[1])), sizeof(grant_ref_t) * n_pages);
     new_handle->next = h->first_grant;
     h->first_grant = new_handle;
 
-    pResult = *((void**)out_buffer);
+    pResult = *((void**) out_buffer);
     free(out_buffer);
     return pResult;
 }
 
 void* gntmem_grant_pages_to_domain(struct gntmem_handle* h, domid_t domain,
-        int n_pages, grant_ref_t* grants_out) {
+                                   int n_pages, grant_ref_t* grants_out)
+{
     return gntmem_grant_pages_to_domain_notify(h, domain, n_pages, -1, -1, grants_out);
 }
 
