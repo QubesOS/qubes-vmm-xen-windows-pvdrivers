@@ -1,32 +1,10 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 
-#include "xen_gntmem.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <Windows.h>
-
-typedef UINT32 grant_ref_t;
-typedef UINT32 grant_handle_t;
-typedef UINT16 domid_t;
-
-struct ioctl_gntmem_map_foreign_pages
-{
-    domid_t foreign_domain;
-    grant_ref_t grant_ref;
-    BOOLEAN read_only;
-};
-
-struct ioctl_gntmem_map_foreign_pages_out
-{
-    PVOID mapped_va;
-    grant_handle_t map_handle;
-    PVOID context; // pass to unmap ioctl
-};
-
-struct ioctl_gntmem_unmap_foreign_pages
-{
-    PVOID context;
-};
+#include "xen_gntmem.h"
+#include "gntmem_ioctl.h"
 
 #define PB(va) ((BYTE*)(va))
 
@@ -96,6 +74,8 @@ int wmain(int argc, WCHAR *argv[])
         in.foreign_domain = (domid_t) _wtoi(argv[1]);
         in.grant_ref = (grant_ref_t) _wtoi(argv[2]);
         in.read_only = FALSE;
+        in.notify_offset = -1;
+        in.notify_port = -1;
 
         wprintf(L"server domain: %u, ref: %u\n", in.foreign_domain, in.grant_ref);
 
