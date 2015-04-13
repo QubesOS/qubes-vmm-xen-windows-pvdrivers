@@ -899,7 +899,7 @@ static VOID GntMem_EvtIoDeviceControl(IN WDFQUEUE Queue, IN WDFREQUEST Request, 
             break;
         }
 
-        if (unmap_notify->notify_offset > this_rq_data->record->n_pages * PAGE_SIZE)
+        if (unmap_notify->notify_offset >= this_rq_data->record->n_pages * PAGE_SIZE)
         {
             DEBUGF("notify_offest outside of mapped area");
             rc = STATUS_INVALID_PARAMETER;
