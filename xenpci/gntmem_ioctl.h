@@ -98,6 +98,8 @@ struct ioctl_gntmem_map_foreign_pages
     domid_t foreign_domain;
     grant_ref_t grant_ref;
     BOOLEAN read_only;
+    int notify_offset; // offset to a byte inside the mapped area that will be set to 0 when the memory is unmapped, -1 to ignore
+    evtchn_port_t notify_port; // event channel port that will be signaled when the memory is unmapped, -1 to ignore
 };
 
 struct ioctl_gntmem_map_foreign_pages_out

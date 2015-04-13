@@ -51,6 +51,8 @@ struct map_record
     PVOID kernel_va;
     grant_handle_t map_handle;
     PEPROCESS process;
+    int notify_offset;
+    evtchn_port_t notify_port;
 };
 
 typedef struct
@@ -485,6 +487,22 @@ PXENPCI_DEVICE_DATA gntmem_xpdd_global = 0;
 #pragma warning(push)
 #pragma warning(disable: 4127) // conditional expression is constant (for set_xen_guest_handle)
 
+static VOID GntMem_UnmapNotify(PXENPCI_DEVICE_DATA xpdd, struct map_record *record)
+{
+    DEBUGF("offset %d, port %u", record->notify_offset, record->notify_port);
+
+    if (record->notify_offset >= 0)
+    {
+        ((BYTE *) record->kernel_va)[record->notify_offset] = 0;
+    }
+
+    if (record->notify_port > 0)
+    {
+        EvtChn_Notify(xpdd, record->notify_port);
+        record->notify_port = (evtchn_port_t) -1;
+    }
+}
+
 // Actual unmapping/cleanup is performed here.
 // xpdd->gntmem_mapped_lock spinlock must be held.
 static VOID GntMem_UnmapForeign(struct map_record *record, PEPROCESS current_process)
@@ -498,6 +516,8 @@ static VOID GntMem_UnmapForeign(struct map_record *record, PEPROCESS current_pro
     DEBUGF("process %p: freeing map handle 0x%x (record %p)", current_process, record->map_handle, record);
     DEBUGF("record: user %p, kernel %p, phys %p, handle 0x%x, mdl size: %u",
            record->user_va, record->kernel_va, MmGetPhysicalAddress(record->kernel_va), record->map_handle, record->mdl->ByteCount);
+
+    GntMem_UnmapNotify(gntmem_xpdd_global, record);
 
     // unmap the page
     ret = GntTbl_UnmapForeignPage(gntmem_xpdd_global, record->map_handle, MmGetPhysicalAddress(record->kernel_va));
@@ -572,6 +592,7 @@ VOID GntMem_ProcessCallback(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
         if (record->process != current_process)
             continue;
 
+        DEBUGF("cleanup from process callback");
         GntMem_UnmapForeign(record, current_process);
     }
     WdfSpinLockRelease(gntmem_xpdd_global->gntmem_mapped_lock);
@@ -914,6 +935,12 @@ static VOID GntMem_EvtIoDeviceControl(IN WDFQUEUE Queue, IN WDFREQUEST Request, 
         // copy input because writing to output will overwrite it (same buffer)
         memcpy(&input, inbuffer, sizeof(input));
 
+        if (input.notify_offset >= PAGE_SIZE) // watch this when adding support for multiple page mapping
+        {
+            rc = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
         DEBUGF("mapping foreign page ref %u from domain %u, process %p", input.grant_ref, input.foreign_domain, PsGetCurrentProcess());
 
         record = ExAllocatePoolWithTag(NonPagedPool, sizeof(*record), XENPCI_POOL_TAG);
@@ -926,6 +953,8 @@ static VOID GntMem_EvtIoDeviceControl(IN WDFQUEUE Queue, IN WDFREQUEST Request, 
 
         RtlZeroMemory(record, sizeof(*record));
         record->map_handle = (grant_handle_t) -1;
+        record->notify_offset = input.notify_offset;
+        record->notify_port = input.notify_port;
 
         // TODO: don't allocate memory, use xenpci's io address space instead
         record->kernel_va = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, XENPCI_POOL_TAG);
