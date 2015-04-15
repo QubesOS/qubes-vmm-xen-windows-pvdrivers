@@ -411,6 +411,7 @@ NTSTATUS EvtChn_Notify(PVOID Context, evtchn_port_t Port)
 
     send.port = Port;
     (void) HYPERVISOR_event_channel_op(xpdd, EVTCHNOP_send, &send);
+    //DEBUGF("port %d", Port);
     return STATUS_SUCCESS;
 }
 
@@ -436,6 +437,17 @@ evtchn_port_t EvtChn_AllocUnbound(PVOID Context, domid_t Domain)
     op.remote_dom = Domain;
     HYPERVISOR_event_channel_op(xpdd, EVTCHNOP_alloc_unbound, &op);
     return op.port;
+}
+
+evtchn_port_t EvtChn_BindInterdomain(PVOID Context, domid_t Domain, evtchn_port_t Port)
+{
+    PXENPCI_DEVICE_DATA xpdd = Context;
+    evtchn_bind_interdomain_t op;
+
+    op.remote_dom = Domain;
+    op.remote_port = Port;
+    HYPERVISOR_event_channel_op(xpdd, EVTCHNOP_bind_interdomain, &op);
+    return op.local_port;
 }
 
 VOID EvtChn_Close(PVOID Context, evtchn_port_t port)

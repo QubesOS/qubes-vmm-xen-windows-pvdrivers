@@ -482,6 +482,7 @@ NTSTATUS EvtChn_Unbind(PVOID Context, evtchn_port_t Port);
 NTSTATUS EvtChn_Notify(PVOID Context, evtchn_port_t Port);
 VOID EvtChn_Close(PVOID Context, evtchn_port_t Port);
 evtchn_port_t EvtChn_AllocUnbound(PVOID Context, domid_t Domain);
+evtchn_port_t EvtChn_BindInterdomain(PVOID Context, domid_t Domain, evtchn_port_t Port);
 BOOLEAN EvtChn_AckEvent(PVOID context, evtchn_port_t port, BOOLEAN *last_interrupt);
 
 VOID GntTbl_Init(PXENPCI_DEVICE_DATA xpdd);

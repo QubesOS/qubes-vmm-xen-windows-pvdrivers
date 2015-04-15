@@ -415,32 +415,35 @@ static VOID EvtChn_EvtIoDeviceControl(IN WDFQUEUE  Queue, IN WDFREQUEST  Request
             }
             */
 
-        /*
-        case IOCTL_EVTCHN_BIND_INTERDOMAIN: {
-        struct ioctl_evtchn_bind_interdomain bind;
-        struct evtchn_bind_interdomain bind_interdomain;
+    case IOCTL_EVTCHN_BIND_INTERDOMAIN:
+    {
+        struct ioctl_evtchn_bind_interdomain *bind = inbuffer;
+        evtchn_port_t port_out;
 
-        rc = -EFAULT;
-        if (copy_from_user(&bind, uarg, sizeof(bind)))
-        break;
+        rc = STATUS_BUFFER_TOO_SMALL;
+        if (OutputBufferLength < sizeof(evtchn_port_t) || InputBufferLength < sizeof(*bind))
+            break;
 
-        rc = -EACCES;
-        if (u->restrict_domid != UNRESTRICTED_DOMID &&
-        u->restrict_domid != bind.remote_domain)
-        break;
+        DEBUGF("IOCTL_EVTCHN_BIND_INTERDOMAIN: remote domain %d, remote port %d", bind->remote_domain, bind->remote_port);
 
-        bind_interdomain.remote_dom  = bind.remote_domain;
-        bind_interdomain.remote_port = bind.remote_port;
-        rc = HYPERVISOR_event_channel_op(EVTCHNOP_bind_interdomain,
-        &bind_interdomain);
-        if (rc != 0)
-        break;
-
-        rc = bind_interdomain.local_port;
-        evtchn_bind_to_user(u, rc);
-        break;
+        rc = STATUS_ACCESS_DENIED;
+        if ((xpdid->evtchn.restrict_domid != UNRESTRICTED_DOMID) && (xpdid->evtchn.restrict_domid != bind->remote_domain))
+        {
+            DEBUGF("restriction is enabled (domain %d), denying request", xpdid->evtchn.restrict_domid);
+            break;
         }
-        */
+
+        port_out = EvtChn_BindInterdomain(xpdd, (domid_t) bind->remote_domain, bind->remote_port);
+        evtchn_bind_to_user(xpdid, xpdd, port_out);
+
+        rc = STATUS_SUCCESS;
+        info = sizeof(evtchn_port_t);
+        DEBUGF("returning new local port %d", port_out);
+        /* Note: overwrites first sizeof(evtchn_port_t) of input buffer */
+        *(evtchn_port_t*) outbuffer = port_out;
+
+        break;
+    }
 
     case IOCTL_EVTCHN_BIND_UNBOUND_PORT:
     {
@@ -451,18 +454,21 @@ static VOID EvtChn_EvtIoDeviceControl(IN WDFQUEUE  Queue, IN WDFREQUEST  Request
         if (OutputBufferLength < sizeof(evtchn_port_t) || InputBufferLength < sizeof(*bind))
             break;
 
-        KdPrint(("EvtChn: IOCTL is bind-unbound-port with remote domain %d\n", bind->remote_domain));
+        DEBUGF("IOCTL_EVTCHN_BIND_UNBOUND_PORT: remote domain %d", bind->remote_domain);
 
         rc = STATUS_ACCESS_DENIED;
-        if (xpdid->evtchn.restrict_domid != UNRESTRICTED_DOMID)
+        if ((xpdid->evtchn.restrict_domid != UNRESTRICTED_DOMID) && (xpdid->evtchn.restrict_domid != bind->remote_domain))
+        {
+            DEBUGF("restriction is enabled (domain %d), denying request", xpdid->evtchn.restrict_domid);
             break;
+        }
 
         port_out = EvtChn_AllocUnbound(xpdd, (domid_t) bind->remote_domain);
         evtchn_bind_to_user(xpdid, xpdd, port_out);
 
         rc = STATUS_SUCCESS;
         info = sizeof(evtchn_port_t);
-        KdPrint(("EvtChn: returning new local channel %d\n", port_out));
+        DEBUGF("returning new local port %d", port_out);
         /* Note: overwrites first sizeof(evtchn_port_t) of input buffer */
         *(evtchn_port_t*) outbuffer = port_out;
 
@@ -478,7 +484,7 @@ static VOID EvtChn_EvtIoDeviceControl(IN WDFQUEUE  Queue, IN WDFREQUEST  Request
         if (InputBufferLength < sizeof(*unbind))
             break;
 
-        KdPrint(("IOCTL is unbind port %d\n", unbind->port));
+        DEBUGF("IOCTL_EVTCHN_UNBIND: port %d", unbind->port);
 
         rc = STATUS_INVALID_PARAMETER;
         if (unbind->port >= NR_EVENT_CHANNELS)
@@ -503,7 +509,7 @@ static VOID EvtChn_EvtIoDeviceControl(IN WDFQUEUE  Queue, IN WDFREQUEST  Request
         // Flushes DPCs; the DPC bound to this port is certainly not running any longer.
         KdPrint(("Unbind: DPC disabled\n"));
         EvtChn_Close(xpdd, unbind->port);
-        KdPrint(("Unbind: port closed\n"));
+        DEBUGF("Unbind: port %d closed", unbind->port);
 
         /* This just stops us conflicting with a concurrent IOCTL-unbind,
            though that may be impossible. To check: might be able to eliminate some of this
@@ -543,7 +549,7 @@ static VOID EvtChn_EvtIoDeviceControl(IN WDFQUEUE  Queue, IN WDFREQUEST  Request
         if (InputBufferLength < sizeof(*notify))
             break;
 
-        KdPrint(("EvtChn: IOCTL is Notify on port %d\n", notify->port));
+        DEBUGF("IOCTL_EVTCHN_NOTIFY: port %d", notify->port);
 
         if (notify->port >= NR_EVENT_CHANNELS)
         {
@@ -563,7 +569,7 @@ static VOID EvtChn_EvtIoDeviceControl(IN WDFQUEUE  Queue, IN WDFREQUEST  Request
 
     case IOCTL_EVTCHN_RESET:
     {
-        KdPrint(("EvtChn: IOCTL is RESET\n"));
+        DEBUGF("IOCTL_EVTCHN_RESET");
         /* Initialise the ring to empty. Clear errors. */
         // TOCHECK: Safe against DPCs?
         WdfSpinLockAcquire(xpdid->evtchn.lock);
@@ -582,7 +588,7 @@ static VOID EvtChn_EvtIoDeviceControl(IN WDFQUEUE  Queue, IN WDFREQUEST  Request
         if (InputBufferLength < sizeof(*ierd))
             break;
 
-        KdPrint(("EvtChn: IOCTL is restrict-domid to %d\n", ierd->domid));
+        DEBUGF("IOCTL_EVTCHN_RESTRICT_DOMID %d", ierd->domid);
 
         rc = STATUS_ACCESS_DENIED;
         if (xpdid->evtchn.restrict_domid != UNRESTRICTED_DOMID)
@@ -600,7 +606,7 @@ static VOID EvtChn_EvtIoDeviceControl(IN WDFQUEUE  Queue, IN WDFREQUEST  Request
     }
 
     default:
-        KdPrint(("EvtChn: IOCTL code was not recognised\n"));
+        DEBUGF("IOCTL code not recognised: 0x%x", IoControlCode);
         rc = STATUS_INVALID_PARAMETER;
         break;
     }
