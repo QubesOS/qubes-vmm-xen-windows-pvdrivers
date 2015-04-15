@@ -163,8 +163,11 @@ grant_handle_t GntTbl_MapForeignPage(PVOID Context, domid_t foreign_domain, gran
 
     if ((status < 0) || (((int) op.handle) < 0) || (op.status != GNTST_okay))
     {
-        DEBUGF("Error mapping foreign page: domain %u, grant ref %u, flags 0x%x, address %p; status=%d (%d)",
-               foreign_domain, grant_ref, flags, address.QuadPart, op.handle, op.status);
+        DEBUGF("Error mapping foreign page: domain %u, grant ref %u, flags 0x%x, address %p; status=%d (handle=%d)",
+               foreign_domain, grant_ref, flags, address.QuadPart, op.status, op.handle);
+
+        if ((((int) op.handle) >= 0) && (op.status < 0))
+            op.handle = (grant_handle_t) op.status; // this is not set on most errors like the xen header says...
     }
 
     FUNCTION_EXIT();
