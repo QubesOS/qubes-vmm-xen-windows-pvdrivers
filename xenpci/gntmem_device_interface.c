@@ -487,6 +487,7 @@ PXENPCI_DEVICE_DATA gntmem_xpdd_global = 0;
 #pragma warning(push)
 #pragma warning(disable: 4127) // conditional expression is constant (for set_xen_guest_handle)
 
+// Can be called at any IRQL.
 static VOID GntMem_UnmapNotify(PXENPCI_DEVICE_DATA xpdd, struct map_record *record)
 {
     DEBUGF("offset %d, port %u", record->notify_offset, record->notify_port);
@@ -504,16 +505,19 @@ static VOID GntMem_UnmapNotify(PXENPCI_DEVICE_DATA xpdd, struct map_record *reco
 }
 
 // Actual unmapping/cleanup is performed here.
-// xpdd->gntmem_mapped_lock spinlock must be held.
-static VOID GntMem_UnmapForeign(struct map_record *record, PEPROCESS current_process)
+// Requires IRQL <= APC_LEVEL since it unmaps user memory.
+// No spinlocks may be held.
+static VOID GntMem_UnmapForeign(struct map_record *record)
 {
     xen_memory_reservation_t xmr;
     PFN_NUMBER pfn;
     int ret;
     BOOLEAN leak = FALSE;
 
+    ASSERT(KeGetCurrentIrql() <= APC_LEVEL);
+
     pfn = MmGetMdlPfnArray(record->mdl)[0];
-    DEBUGF("process %p: freeing map handle 0x%x (record %p)", current_process, record->map_handle, record);
+    DEBUGF("freeing map handle 0x%x (record %p)", record->map_handle, record);
     DEBUGF("record: user %p, kernel %p, phys %p, handle 0x%x, mdl size: %u",
            record->user_va, record->kernel_va, MmGetPhysicalAddress(record->kernel_va), record->map_handle, record->mdl->ByteCount);
 
@@ -559,7 +563,6 @@ static VOID GntMem_UnmapForeign(struct map_record *record, PEPROCESS current_pro
     else
         DEBUGF("!!! LEAKING PAGE: va %p, pfn %x", record->kernel_va, pfn);
 
-    RemoveEntryList((PLIST_ENTRY) record);
     ExFreePoolWithTag(record, XENPCI_POOL_TAG);
 }
 
@@ -571,6 +574,8 @@ VOID GntMem_ProcessCallback(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
 {
     PEPROCESS current_process;
     PLIST_ENTRY node;
+    struct map_record *record;
+    LIST_ENTRY to_free;
 
     UNREFERENCED_PARAMETER(ParentId);
     UNREFERENCED_PARAMETER(ProcessId);
@@ -580,22 +585,38 @@ VOID GntMem_ProcessCallback(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
         return;
 
     current_process = PsGetCurrentProcess();
+    DEBUGF("cleanup from process callback: %p", current_process);
+    InitializeListHead(&to_free);
 
-    // walk the map list, free everything that's allocated by this process and still in the list
+    // Walk the map list, find everything that's allocated by this process and still in the list.
+    // Spinlock raises IRQL to DISPATCH so we can't safely unlock user memory while holding it.
     WdfSpinLockAcquire(gntmem_xpdd_global->gntmem_mapped_lock);
     node = gntmem_xpdd_global->gntmem_mapped_list.Flink;
     while (node->Flink != gntmem_xpdd_global->gntmem_mapped_list.Flink)
     {
-        struct map_record *record = CONTAINING_RECORD(node, struct map_record, entry);
+        record = CONTAINING_RECORD(node, struct map_record, entry);
 
         node = node->Flink;
         if (record->process != current_process)
             continue;
 
-        DEBUGF("cleanup from process callback");
-        GntMem_UnmapForeign(record, current_process);
+        DEBUGF("moving record %p to to_free list", record);
+        RemoveEntryList((PLIST_ENTRY) record);
+        InsertTailList(&to_free, (PLIST_ENTRY) record);
     }
     WdfSpinLockRelease(gntmem_xpdd_global->gntmem_mapped_lock);
+
+    // Now we can free the entries at our leisure since they're removed from the main list.
+    node = to_free.Flink;
+    while (node->Flink != to_free.Flink)
+    {
+        record = CONTAINING_RECORD(node, struct map_record, entry);
+        node = node->Flink;
+
+        DEBUGF("destroying record %p", record);
+        RemoveEntryList((PLIST_ENTRY) record);
+        GntMem_UnmapForeign(record); // also frees the record structure itself
+    }
 }
 
 static VOID GntMem_EvtIoDeviceControl(IN WDFQUEUE Queue, IN WDFREQUEST Request, IN size_t OutputBufferLength, IN size_t InputBufferLength, IN ULONG IoControlCode)
@@ -1094,6 +1115,7 @@ static VOID GntMem_EvtIoDeviceControl(IN WDFQUEUE Queue, IN WDFREQUEST Request, 
         struct ioctl_gntmem_unmap_foreign_pages *input = (struct ioctl_gntmem_unmap_foreign_pages *) inbuffer;
         PLIST_ENTRY node;
         PEPROCESS current_process;
+        struct map_record *record = NULL;
 
         if (InputBufferLength < sizeof(*input))
         {
@@ -1111,7 +1133,7 @@ static VOID GntMem_EvtIoDeviceControl(IN WDFQUEUE Queue, IN WDFREQUEST Request, 
         node = xpdd->gntmem_mapped_list.Flink;
         while (node->Flink != xpdd->gntmem_mapped_list.Flink)
         {
-            struct map_record *record = CONTAINING_RECORD(node, struct map_record, entry);
+            record = CONTAINING_RECORD(node, struct map_record, entry);
 
             node = node->Flink;
             if (record == input->context)
@@ -1123,13 +1145,17 @@ static VOID GntMem_EvtIoDeviceControl(IN WDFQUEUE Queue, IN WDFREQUEST Request, 
                     break;
                 }
 
-                GntMem_UnmapForeign(record, current_process);
                 rc = STATUS_SUCCESS;
                 break; // while
             }
         }
-
         WdfSpinLockRelease(xpdd->gntmem_mapped_lock);
+
+        if (record != NULL)
+            GntMem_UnmapForeign(record);
+        else
+            DEBUGF("record %p not found", input->context);
+
         break; // switch
     }
 
