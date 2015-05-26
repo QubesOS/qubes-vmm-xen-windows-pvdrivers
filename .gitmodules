@@ -1,0 +1,15 @@
+[submodule "xennet"]
+	path = xennet
+	url = git://xenbits.xen.org/pvdrivers/win/xennet.git
+[submodule "xenvbd"]
+	path = xenvbd
+	url = git://xenbits.xen.org/pvdrivers/win/xenvbd.git
+[submodule "xenvif"]
+	path = xenvif
+	url = git://xenbits.xen.org/pvdrivers/win/xenvif.git
+[submodule "xenbus"]
+	path = xenbus
+	url = https://github.com/omeg/xenbus.git
+[submodule "xeniface"]
+	path = xeniface
+	url = https://github.com/omeg/xeniface.git
