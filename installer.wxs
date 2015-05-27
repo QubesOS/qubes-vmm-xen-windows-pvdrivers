@@ -25,7 +25,7 @@
         <Directory Id='System64Folder'>
             <Component Id='userDlls' Guid='1BA9B085-AFC2-4248-9DF2-5E85692DC707'>
                 <File Id='xencontrol.dll' Name='xencontrol.dll' DiskId='1' Source='bin\$(env.DDK_ARCH)\xencontrol.dll' KeyPath="no" />
-                <File Id='libxenvchan.dll.dll' Name='libxenvchan.dll' DiskId='1' Source='bin\$(env.DDK_ARCH)\libxenvchan.dll' KeyPath="no" />
+                <File Id='libxenvchan.dll' Name='libxenvchan.dll' DiskId='1' Source='bin\$(env.DDK_ARCH)\libxenvchan.dll' KeyPath="no" />
             </Component>
         </Directory>
     </Directory>
