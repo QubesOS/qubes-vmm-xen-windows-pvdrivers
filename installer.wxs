@@ -1,0 +1,34 @@
+<?xml version='1.0' encoding='windows-1252'?>
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+
+    <Module
+        Id='windowsPvDrivers'
+        Language='1033'
+        Codepage='1252'
+        Version='$(env.VERSION)'
+    >
+
+    <Package
+        Id='{4DC8E152-E37F-4BD9-A938-3877D6EC528C}'
+        Keywords='Installer'
+        Description="Xen PV drivers for Qubes"
+        Comments='no comment'
+        Manufacturer='Invisible Things Lab'
+        InstallScope='perMachine'
+        InstallerVersion='200'
+        Languages='1033'
+        SummaryCodepage='1252'
+        InstallPrivileges="elevated"
+    />
+
+    <Directory Id='TARGETDIR' Name='SourceDir'>
+        <Directory Id='System64Folder'>
+            <Component Id='userDlls' Guid='1BA9B085-AFC2-4248-9DF2-5E85692DC707'>
+                <File Id='xencontrol.dll' Name='xencontrol.dll' DiskId='1' Source='bin\$(env.DDK_ARCH)\xencontrol.dll' KeyPath="no" />
+                <File Id='libxenvchan.dll.dll' Name='libxenvchan.dll' DiskId='1' Source='bin\$(env.DDK_ARCH)\libxenvchan.dll' KeyPath="no" />
+            </Component>
+        </Directory>
+    </Directory>
+
+    </Module>
+</Wix>
