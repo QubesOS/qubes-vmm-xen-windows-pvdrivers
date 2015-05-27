@@ -4,7 +4,7 @@ if "%python3%" == "" goto :py_error
 
 if "%WIN_BUILD_TYPE%" == "fre" set USER_BUILD_TYPE=Release
 if "%WIN_BUILD_TYPE%" == "chk" set USER_BUILD_TYPE=Debug
-
+set
 :: build the PV drivers
 set OBJECT_PREFIX=Qubes
 
@@ -28,7 +28,7 @@ xcopy /y xeniface\include\xencontrol.h include\
 xcopy /y xeniface\include\xeniface_ioctls.h include\
 xcopy /y /s xeniface\xencontrol\* bin\
 
-exit 0
+exit /b 0
 
 :build_driver
 cd %1
@@ -42,10 +42,10 @@ goto :eof
 echo.
 echo *** ERROR: Set %%PYTHON3%% variable to the full path to a Python 3 executable ***
 echo.
-exit 1
+exit /b 1
 
 :build_error:
 echo.
 echo *** BUILD FAILED for %1 ***
 echo.
-exit 1
+exit /b 1
