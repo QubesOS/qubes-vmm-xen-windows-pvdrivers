@@ -4,7 +4,10 @@ if "%python3%" == "" goto :py_error
 
 if "%WIN_BUILD_TYPE%" == "fre" set USER_BUILD_TYPE=Release
 if "%WIN_BUILD_TYPE%" == "chk" set USER_BUILD_TYPE=Debug
-set
+
+set USER_ARCH=%DDK_ARCH%
+if "%DDK_ARCH%" == "x86" set USER_ARCH=Win32
+
 :: build the PV drivers
 set OBJECT_PREFIX=Qubes
 
@@ -17,10 +20,8 @@ call :build_driver xennet
 :: build the main project
 call "%VS%\VC\vcvarsall.bat" x86
 cd vs2013
-msbuild.exe /m:1 /p:Configuration="%USER_BUILD_TYPE%" /p:Platform="x64" /t:"Build" vmm-xen-windows-pvdrivers.sln
-if errorlevel 1 call :build_error main solution x64
-msbuild.exe /m:1 /p:Configuration="%USER_BUILD_TYPE%" /p:Platform="Win32" /t:"Build" vmm-xen-windows-pvdrivers.sln
-if errorlevel 1 call :build_error main solution x86
+msbuild.exe /m:1 /p:Configuration="%USER_BUILD_TYPE%" /p:Platform="%USER_ARCH%" /t:"Build" vmm-xen-windows-pvdrivers.sln
+if errorlevel 1 call :build_error "main solution %DDK_ARCH%"
 cd ..
 
 :: copy driver libs up
@@ -32,7 +33,7 @@ exit /b 0
 
 :build_driver
 cd %1
-%python3% ..\build.py %1 %WIN_BUILD_TYPE%
+%python3% ..\build.py %1 %WIN_BUILD_TYPE% %DDK_ARCH%
 if errorlevel 1 call :build_error %1
 cd ..
 :: the following line returns to the caller

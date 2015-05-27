@@ -125,6 +125,7 @@ def getVsVersion():
 if __name__ == '__main__':
     driver = sys.argv[1]
     config = sys.argv[2]
+    arch = sys.argv[3]
     debug = { 'chk': True, 'fre': False }
     vs = getVsVersion()
 
@@ -153,5 +154,4 @@ if __name__ == '__main__':
     else:
         release = 'Windows 7'
 
-    build_sln(driver, release, 'x86', debug[config], vs)
-    build_sln(driver, release, 'x64', debug[config], vs)
+    build_sln(driver, release, arch, debug[config], vs)
