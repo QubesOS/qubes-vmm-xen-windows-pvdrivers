@@ -224,6 +224,9 @@ xcopy /y $(TargetDir)$(TargetName).lib $(SolutionDir)\..\bin\$(PlatformTarget)\<
     <ClInclude Include="..\..\include\libxenvchan.h" />
     <ClInclude Include="..\..\include\libxenvchan_ring.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\..\src\libxenvchan\version.rc" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
