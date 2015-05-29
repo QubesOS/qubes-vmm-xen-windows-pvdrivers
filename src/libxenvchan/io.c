@@ -218,8 +218,8 @@ static inline int fast_get_buffer_space(struct libxenvchan *ctrl, int request)
     Log("> request %d", request);
     if (ready >= request)
     {
-        return ready;
         Log("< %d", ready);
+        return ready;
     }
     /* We plan to fill the buffer; please tell us when you've read it */
     request_notify(ctrl, VCHAN_NOTIFY_READ);
@@ -317,16 +317,19 @@ int libxenvchan_send(struct libxenvchan *ctrl, const void *data, size_t size)
             Log("< %d", sent);
             return sent;
         }
+
         if (!ctrl->blocking)
         {
             Log("< 0");
             return 0;
         }
+
         if ((int)size > wr_ring_size(ctrl))
         {
             Log("< !!! -1");
             return -1;
         }
+
         if (libxenvchan_wait(ctrl))
             return -1;
     }
