@@ -110,7 +110,7 @@ def manifest():
 
 def getVsVersion():
     vsenv ={} 
-    vars = subprocess.check_output([os.environ['VS']+'\\VC\\vcvarsall.bat', '&&', 'set'], shell=True)
+    vars = subprocess.check_output([os.environ['VS_PATH']+'\\VC\\vcvarsall.bat', '&&', 'set'], shell=True)
     for var in vars.splitlines():
         k, _, v = map(str.strip, var.strip().decode('utf-8').partition('='))
         if k.startswith('?'):

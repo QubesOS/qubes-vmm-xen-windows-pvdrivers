@@ -10,6 +10,7 @@ if "%DDK_ARCH%" == "x86" set USER_ARCH=Win32
 
 :: build the PV drivers
 set OBJECT_PREFIX=Qubes
+set VS=%VS_PATH%
 
 call :build_driver xenbus
 call :build_driver xeniface
@@ -18,7 +19,7 @@ call :build_driver xenvif
 call :build_driver xennet
 
 :: build the main project
-call "%VS%\VC\vcvarsall.bat" x86
+call "%VS_PATH%\VC\vcvarsall.bat" x86
 cd vs2013
 msbuild.exe /m:1 /p:Configuration="%USER_BUILD_TYPE%" /p:Platform="%USER_ARCH%" /t:"Build" vmm-xen-windows-pvdrivers.sln
 if errorlevel 1 call :build_error "main solution %DDK_ARCH%"
@@ -32,6 +33,7 @@ xcopy /y /s xeniface\xencontrol\* bin\
 exit /b 0
 
 :build_driver
+echo * Building %1...
 cd %1
 %python3% ..\build.py %1 %WIN_BUILD_TYPE% %DDK_ARCH%
 if errorlevel 1 call :build_error %1
@@ -43,10 +45,10 @@ goto :eof
 echo.
 echo *** ERROR: Set %%PYTHON3%% variable to the full path to a Python 3 executable ***
 echo.
-exit /b 1
+exit 1
 
 :build_error:
 echo.
 echo *** BUILD FAILED for %1 ***
 echo.
-exit /b 1
+exit 1
