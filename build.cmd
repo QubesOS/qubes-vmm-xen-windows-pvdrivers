@@ -1,5 +1,5 @@
 @echo off
-
+set
 if "%python3%" == "" goto :py_error
 
 if "%WIN_BUILD_TYPE%" == "fre" set USER_BUILD_TYPE=Release
@@ -11,6 +11,7 @@ if "%DDK_ARCH%" == "x86" set USER_ARCH=Win32
 :: build the PV drivers
 set OBJECT_PREFIX=Qubes
 set VS=%VS_PATH%
+set KIT=%WDK8_PATH%
 
 call :build_driver xenbus
 call :build_driver xeniface
@@ -30,6 +31,7 @@ xcopy /y xeniface\include\xencontrol.h include\
 xcopy /y xeniface\include\xeniface_ioctls.h include\
 xcopy /y /s xeniface\xencontrol\* bin\
 
+echo *** Build OK ***
 exit /b 0
 
 :build_driver
