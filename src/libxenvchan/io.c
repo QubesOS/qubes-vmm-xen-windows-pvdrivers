@@ -519,10 +519,20 @@ void libxenvchan_close(struct libxenvchan *ctrl)
         return;
 
     if (ctrl->read.order >= PAGE_SHIFT)
-        GnttabUngrantPages(ctrl->xeniface, ctrl->read.handle);
+    {
+        if (ctrl->is_server)
+            GnttabUngrantPages(ctrl->xeniface, ctrl->read.handle);
+        else
+            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->read.handle);
+    }
 
     if (ctrl->write.order >= PAGE_SHIFT)
-        GnttabUngrantPages(ctrl->xeniface, ctrl->write.handle);
+    {
+        if (ctrl->is_server)
+            GnttabUngrantPages(ctrl->xeniface, ctrl->write.handle);
+        else
+            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->write.handle);
+    }
 
     if (ctrl->ring)
     {
