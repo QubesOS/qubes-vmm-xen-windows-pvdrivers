@@ -1,5 +1,5 @@
 @echo off
-set
+
 if "%python3%" == "" goto :py_error
 
 if "%WIN_BUILD_TYPE%" == "fre" set USER_BUILD_TYPE=Release
