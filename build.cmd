@@ -13,6 +13,12 @@ set OBJECT_PREFIX=Qubes
 set VS=%VS_PATH%
 set KIT=%WDK8_PATH%
 
+:: Patch Xenbus device IDs in xenvbd and xenvif INFs.
+:: They should bind to the current latest Xenbus PDO revision.
+:: Xennet binds to xenvif so no changes needed there.
+powershell -Command "(Get-Content xenvbd\src\xenvbd.inf) -replace 'DEV_VBD&REV_00000001', 'DEV_VBD&REV_00000028' | Set-Content xenvbd\src\xenvbd.inf"
+powershell -Command "(Get-Content xenvif\src\xenvif.inf) -replace 'DEV_VIF&REV_00000004', 'DEV_VIF&REV_00000028' | Set-Content xenvif\src\xenvif.inf"
+
 call :build_driver xenbus
 call :build_driver xeniface
 call :build_driver xenvbd
