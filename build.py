@@ -60,6 +60,24 @@ def shell(command, dir):
     return sub.returncode
 
 
+def update_cert_path(name, vs, path):
+    for pkg in os.listdir(vs):
+        if not os.path.isdir(os.path.join(vs, pkg)):
+            continue
+        vxproj_path = "{vs}/{name}/{name}.vcxproj.user".format(name=pkg, vs=vs)
+        if os.path.exists(vxproj_path):
+            f = open(vxproj_path, "r")
+            content = f.read()
+            content = re.sub(r"<TestCertificate>.*</TestCertificate>",
+                    "<TestCertificate>{}</TestCertificate>".format(path),
+                    content)
+            f.close()
+            # break the link
+            os.unlink(vxproj_path)
+            f = open(vxproj_path, "w")
+            f.write(content)
+            f.close()
+
 class msbuild_failure(Exception):
     def __init__(self, value):
         self.value = value
@@ -148,6 +166,9 @@ if __name__ == '__main__':
         revision = open('revision', 'w')
         print(os.environ['GIT_REVISION'], file=revision)
         revision.close()
+
+    if 'CERT_FILENAME' in os.environ:
+        update_cert_path(driver, vs, os.environ['CERT_FILENAME'])
 
     if vs=='vs2012':
         release = 'Windows Vista'
