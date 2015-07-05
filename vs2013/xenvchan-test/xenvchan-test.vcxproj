@@ -18,34 +18,28 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
-
   <ItemGroup>
     <ClCompile Include="..\..\src\xenvchan-test\xenvchan-test.c" />
   </ItemGroup>
-
   <PropertyGroup Label="Globals">
     <ProjectGuid>{3C9B9ECD-6068-4E19-9405-333831C52DF2}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>xenvchantest</RootNamespace>
   </PropertyGroup>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="..\common.props" />
   </ImportGroup>
-
   <PropertyGroup>
     <IncludePath>$(SolutionDir)\..\include;$(SolutionDir)\..\xeniface\include;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)\$(Configuration)\$(Platform);$(SolutionDir)\..\xeniface\vs2013\$(Configuration)\$(Platform);$(LibraryPath);</LibraryPath>
   </PropertyGroup>
-
   <ItemDefinitionGroup>
     <ClCompile>
       <PreprocessorDefinitions>_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -55,8 +49,12 @@
       <AdditionalDependencies>xencontrol.lib;libxenvchan.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <ProjectExtensions>
+    <VisualStudio>
+      <UserProperties />
+    </VisualStudio>
+  </ProjectExtensions>
 </Project>

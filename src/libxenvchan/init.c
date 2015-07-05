@@ -67,12 +67,19 @@
 
 #define snprintf _snprintf
 
-// TODO: use xencontrol's logger
-#if defined(DBG) || defined(DEBUG) || defined(_DEBUG)
-#   define Log(msg, ...) fprintf(stderr, __FUNCTION__ ": " msg "\n", __VA_ARGS__)
-#else
-#   define Log(msg, ...)
-#endif
+static void _Log(XENIFACE_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan *ctrl, PWCHAR format, ...)
+{
+    va_list args;
+
+    if (!ctrl->logger)
+        return;
+
+    va_start(args, format);
+    ctrl->logger(logLevel, function, format, args);
+    va_end(args);
+}
+
+#define Log(level, msg, ...) _Log(level, __FUNCTION__, ctrl, L"(%p) " L##msg L"\n", ctrl, __VA_ARGS__)
 
 static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
 {
@@ -94,6 +101,7 @@ static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
 
     if (status != ERROR_SUCCESS)
     {
+        Log(XLL_ERROR, "Granting ring to domain %u failed", domain);
         ring_ref = ~0ul;
         goto out;
     }
@@ -129,7 +137,10 @@ static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
                                   ctrl->ring->grants);
 
         if (status != ERROR_SUCCESS)
+        {
+            Log(XLL_ERROR, "Granting read buffer (%d pages) to domain %u failed", pages_left, domain);
             goto out_ring;
+        }
     }
 
     switch (ctrl->write.order)
@@ -154,10 +165,14 @@ static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
                                   ctrl->ring->grants + pages_left);
 
         if (status != ERROR_SUCCESS)
+        {
+            Log(XLL_ERROR, "Granting write buffer (%d pages) to domain %u failed", pages_right, domain);
             goto out_unmap_left;
+        }
     }
 
 out:
+    Log(XLL_TRACE, "returning %d", ring_ref);
     return ring_ref;
 
 out_unmap_left:
@@ -189,7 +204,10 @@ static int init_gnt_cli(struct libxenvchan *ctrl, USHORT domain, uint32_t ring_r
                                    &ctrl->ring);
 
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "Mapping ring (ref %u) from domain %u failed", ring_ref, domain);
         goto out;
+    }
 
     ctrl->write.order = ctrl->ring->left_order;
     ctrl->read.order = ctrl->ring->right_order;
@@ -230,7 +248,10 @@ static int init_gnt_cli(struct libxenvchan *ctrl, USHORT domain, uint32_t ring_r
                                        &ctrl->write.buffer);
 
         if (status != ERROR_SUCCESS)
+        {
+            Log(XLL_ERROR, "Mapping write buffer (%d pages) from domain %u failed", pages_left, domain);
             goto out_unmap_ring;
+        }
 
         grants += pages_left;
     }
@@ -261,12 +282,16 @@ static int init_gnt_cli(struct libxenvchan *ctrl, USHORT domain, uint32_t ring_r
                                        &ctrl->read.buffer);
 
         if (status != ERROR_SUCCESS)
+        {
+            Log(XLL_ERROR, "Mapping read buffer (%d pages) from domain %u failed", pages_right, domain);
             goto out_unmap_left;
+        }
     }
     }
 
     rv = 0;
 out:
+    Log(XLL_TRACE, "returning %d", rv);
     return rv;
 
 out_unmap_left:
@@ -287,14 +312,21 @@ static int init_evt_srv(struct libxenvchan *ctrl, USHORT domain)
 
     ctrl->event = CreateEvent(NULL, FALSE, FALSE, NULL);
     if (ctrl->event == NULL)
+    {
+        Log(XLL_ERROR, "CreateEvent failed: 0x%x", GetLastError());
         goto fail;
+    }
+
     status = EvtchnBindUnboundPort(ctrl->xeniface, domain, ctrl->event, FALSE, &ctrl->event_port);
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "EvtchnBindUnboundPort(%u) failed: 0x%x", domain, status);
         goto fail;
+    }
 
     /*
     if (xc_evtchn_unmask(ctrl->event, ctrl->event_port))
-        goto fail;
+    goto fail;
     */
 
     return 0;
@@ -317,7 +349,10 @@ static int init_xs_srv(struct libxenvchan *ctrl, USHORT domain, const char *xs_b
 
     status = StoreRead(ctrl->xeniface, "domid", sizeof(domid_str), domid_str);
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "StoreRead(\"domid\") failed: 0x%x", status);
         goto fail;
+    }
 
     // owner domain is us
     perms[0].Domain = (USHORT)atoi(domid_str);
@@ -332,22 +367,34 @@ static int init_xs_srv(struct libxenvchan *ctrl, USHORT domain, const char *xs_b
 
     status = StoreWrite(ctrl->xeniface, buf, ref);
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "StoreWrite(%S, %S) failed: 0x%x", buf, ref, status);
         goto fail;
+    }
 
     status = StoreSetPermissions(ctrl->xeniface, buf, 2, perms);
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "StoreSetPermissions(%S) failed: 0x%x", buf, status);
         goto fail;
+    }
 
     snprintf(ref, sizeof(ref), "%d", ctrl->event_port);
     snprintf(buf, sizeof(buf), "%s/event-channel", xs_base);
 
     status = StoreWrite(ctrl->xeniface, buf, ref);
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "StoreWrite(%S, %S) failed: 0x%x", buf, ref, status);
         goto fail;
+    }
 
     status = StoreSetPermissions(ctrl->xeniface, buf, 2, perms);
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "StoreSetPermissions(%S) failed: 0x%x", buf, status);
         goto fail;
+    }
 
     ret = 0;
 
@@ -369,6 +416,7 @@ struct libxenvchan *libxenvchan_server_init(XenifaceLogger *logger, int domain, 
 {
     struct libxenvchan *ctrl;
     uint32_t ring_ref;
+    DWORD status;
 
     if (left_min > MAX_RING_SIZE || right_min > MAX_RING_SIZE)
         return NULL;
@@ -377,10 +425,8 @@ struct libxenvchan *libxenvchan_server_init(XenifaceLogger *logger, int domain, 
     if (!ctrl)
         return NULL;
 
-    ctrl->logger = logger;
-    XenifaceRegisterLogger(logger);
-
     ZeroMemory(ctrl, sizeof(*ctrl));
+    ctrl->logger = logger;
     ctrl->is_server = 1;
     ctrl->server_persist = 0;
 
@@ -407,8 +453,12 @@ struct libxenvchan *libxenvchan_server_init(XenifaceLogger *logger, int domain, 
         ctrl->write.order = LARGE_RING_SHIFT;
     }
 
-    if (XenifaceOpen(&ctrl->xeniface) != ERROR_SUCCESS)
+    status = XenifaceOpen(&ctrl->xeniface);
+    if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "XenifaceOpen failed: 0x%x", status);
         goto out;
+    }
 
     if (init_evt_srv(ctrl, (USHORT)domain))
         goto out;
@@ -420,6 +470,7 @@ struct libxenvchan *libxenvchan_server_init(XenifaceLogger *logger, int domain, 
     if (init_xs_srv(ctrl, (USHORT)domain, xs_path, ring_ref))
         goto out;
 
+    Log(XLL_DEBUG, "returning %p", ctrl);
     return ctrl;
 
 out:
@@ -434,15 +485,22 @@ static int init_evt_cli(struct libxenvchan *ctrl, USHORT domain)
 
     ctrl->event = CreateEvent(NULL, FALSE, FALSE, NULL);
     if (ctrl->event == NULL)
+    {
+        Log(XLL_ERROR, "CreateEvent failed: 0x%x", GetLastError());
         goto fail;
+    }
+
     status = EvtchnBindInterdomain(ctrl->xeniface, domain, ctrl->event_port, ctrl->event, FALSE, &port);
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "EvtchnBindInterdomain(%u, %u) failed: 0x%x", domain, ctrl->event_port, status);
         goto fail;
+    }
 
     ctrl->event_port = port;
     /*
     if (xc_evtchn_unmask(ctrl->event, ctrl->event_port))
-        goto fail;
+    goto fail;
     */
     return 0;
 
@@ -463,22 +521,26 @@ struct libxenvchan *libxenvchan_client_init(XenifaceLogger *logger, int domain, 
     if (!ctrl)
         return NULL;
 
-    ctrl->logger = logger;
-    XenifaceRegisterLogger(logger);
-
     ZeroMemory(ctrl, sizeof(*ctrl));
+    ctrl->logger = logger;
     ctrl->write.order = ctrl->read.order = 0;
     ctrl->is_server = 0;
 
     status = XenifaceOpen(&ctrl->xeniface);
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "XenifaceOpen failed: 0x%x", status);
         goto fail;
+    }
 
     // find xenstore entry
     snprintf(buf, sizeof buf, "%s/ring-ref", xs_path);
     status = StoreRead(ctrl->xeniface, buf, sizeof(ref), ref);
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "StoreRead(%S) failed: 0x%x", buf, status);
         goto fail;
+    }
 
     ring_ref = atoi(ref);
     if (!ring_ref)
@@ -487,11 +549,16 @@ struct libxenvchan *libxenvchan_client_init(XenifaceLogger *logger, int domain, 
     snprintf(buf, sizeof buf, "%s/event-channel", xs_path);
     status = StoreRead(ctrl->xeniface, buf, sizeof(ref), ref);
     if (status != ERROR_SUCCESS)
+    {
+        Log(XLL_ERROR, "StoreRead(%S) failed: 0x%x", buf, status);
         goto fail;
+    }
 
     ctrl->event_port = atoi(ref);
     if (!ctrl->event_port)
         goto fail;
+
+    Log(XLL_DEBUG, "ring-ref %u, event-channel %u", ring_ref, ctrl->event_port);
 
     // set up event channel
     if (init_evt_cli(ctrl, (USHORT)domain))
@@ -505,6 +572,7 @@ struct libxenvchan *libxenvchan_client_init(XenifaceLogger *logger, int domain, 
     ctrl->ring->srv_notify = VCHAN_NOTIFY_WRITE;
 
 out:
+    Log(XLL_DEBUG, "returning %p", ctrl);
     return ctrl;
 
 fail:
