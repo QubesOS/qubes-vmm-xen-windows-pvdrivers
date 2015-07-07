@@ -13,18 +13,7 @@ set OBJECT_PREFIX=Qubes
 set VS=%VS_PATH%
 set KIT=%WDK8_PATH%
 
-:: Patch Xenbus device IDs in xenvbd and xenvif INFs.
-:: They should bind to the current latest Xenbus PDO revision.
-:: Xennet binds to xenvif so no changes needed there.
-powershell -Command "(Get-Content xenvbd\src\xenvbd.inf) -replace 'DEV_VBD&REV_00000001', 'DEV_VBD&REV_00000028' | Set-Content xenvbd\src\xenvbd.inf"
-powershell -Command "(Get-Content xenvif\src\xenvif.inf) -replace 'DEV_VIF&REV_00000004', 'DEV_VIF&REV_00000028' | Set-Content xenvif\src\xenvif.inf"
-
-:: Patch evtchn interface headers to only support version 5 to reduce number of PDO revisions and avoid failed assertions.
-:: Upstream drivers use version 3 so don't change it in xenbus repo (yet).
-powershell -Command "(Get-Content xenbus\include\evtchn_interface.h) -replace '#define XENBUS_EVTCHN_INTERFACE_VERSION_MIN 3', '#define XENBUS_EVTCHN_INTERFACE_VERSION_MIN 5' | Set-Content xenbus\include\evtchn_interface.h"
-xcopy /y xenbus\include\evtchn_interface.h xeniface\include\evtchn_interface.h
-xcopy /y xenbus\include\evtchn_interface.h xenvbd\include\evtchn_interface.h
-xcopy /y xenbus\include\evtchn_interface.h xenvif\include\evtchn_interface.h
+powershell -executionpolicy bypass patch.ps1
 
 call :build_driver xenbus
 call :build_driver xeniface
