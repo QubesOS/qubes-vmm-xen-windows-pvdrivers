@@ -71,6 +71,9 @@ static void _Log(XENIFACE_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan
 {
     va_list args;
 
+    if (!ctrl)
+        return;
+
     if (!ctrl->logger)
         return;
 

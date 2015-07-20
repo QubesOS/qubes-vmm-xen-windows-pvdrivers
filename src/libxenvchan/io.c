@@ -49,6 +49,9 @@ static void _Log(XENIFACE_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan
 {
     va_list args;
 
+    if (!ctrl)
+        return;
+
     if (!ctrl->logger)
         return;
 
@@ -571,7 +574,7 @@ void libxenvchan_close(struct libxenvchan *ctrl)
         return;
 
     Log(XLL_DEBUG, "start");
-    if (ctrl->read.order >= PAGE_SHIFT)
+    if (ctrl->read.order >= PAGE_SHIFT && ctrl->read.handle)
     {
         if (ctrl->is_server)
             GnttabUngrantPages(ctrl->xeniface, ctrl->read.handle);
@@ -579,7 +582,7 @@ void libxenvchan_close(struct libxenvchan *ctrl)
             GnttabUnmapForeignPages(ctrl->xeniface, ctrl->read.handle);
     }
 
-    if (ctrl->write.order >= PAGE_SHIFT)
+    if (ctrl->write.order >= PAGE_SHIFT && ctrl->write.handle)
     {
         if (ctrl->is_server)
             GnttabUngrantPages(ctrl->xeniface, ctrl->write.handle);
@@ -587,7 +590,7 @@ void libxenvchan_close(struct libxenvchan *ctrl)
             GnttabUnmapForeignPages(ctrl->xeniface, ctrl->write.handle);
     }
 
-    if (ctrl->ring)
+    if (ctrl->ring && ctrl->ring_handle)
     {
         if (ctrl->is_server)
         {
