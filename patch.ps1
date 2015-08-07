@@ -4,6 +4,9 @@
 (Get-Content 'xenvbd\src\xenvbd.inf') -replace 'DEV_VBD&REV_00000001', 'DEV_VBD&REV_00000028' | Set-Content 'xenvbd\src\xenvbd.inf'
 (Get-Content 'xenvif\src\xenvif.inf') -replace 'DEV_VIF&REV_00000004', 'DEV_VIF&REV_00000028' | Set-Content 'xenvif\src\xenvif.inf'
 
+# Disable messing with system debug print filters.
+(Get-Content 'xenvif\src\xenvif\driver.c') -replace '__DbgPrintEnable\(\);', '' | Set-Content 'xenvif\src\xenvif\driver.c'
+
 # Patch evtchn interface headers to only support version 5 to reduce number of PDO revisions and avoid failed assertions.
 # Upstream drivers use version 3 so don't change it in xenbus repo (yet).
 (Get-Content 'xenbus\include\evtchn_interface.h') -replace '#define XENBUS_EVTCHN_INTERFACE_VERSION_MIN 3', '#define XENBUS_EVTCHN_INTERFACE_VERSION_MIN 5' | Set-Content 'xenbus\include\evtchn_interface.h'
