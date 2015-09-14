@@ -360,10 +360,10 @@ static int init_xs_srv(struct libxenvchan *ctrl, USHORT domain, const char *xs_b
     // owner domain is us
     perms[0].Domain = (USHORT)atoi(domid_str);
     // permissions for domains not listed = none
-    perms[0].Mask = XS_PERM_NONE;
+    perms[0].Mask = XENBUS_STORE_PERM_NONE;
     // peer domain
     perms[1].Domain = domain;
-    perms[1].Mask = XS_PERM_READ;
+    perms[1].Mask = XENBUS_STORE_PERM_READ;
 
     snprintf(ref, sizeof(ref), "%d", ring_ref);
     snprintf(buf, sizeof(buf), "%s/ring-ref", xs_base);
