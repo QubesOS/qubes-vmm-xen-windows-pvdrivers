@@ -9,7 +9,6 @@ set USER_ARCH=%DDK_ARCH%
 if "%DDK_ARCH%" == "x86" set USER_ARCH=Win32
 
 :: build the PV drivers
-set OBJECT_PREFIX=Qubes
 set VS=%VS_PATH%
 set KIT=%WDK8_PATH%
 
