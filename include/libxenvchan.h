@@ -61,8 +61,6 @@ struct libxenvchan_ring {
     struct ring_shared* shr;
     /* ring data; may be its own shared page(s) depending on order */
     void *buffer;
-    /* xeniface handle that identifies the buffer mapping */
-    PVOID handle;
     /**
      * The size of the ring is (1 << order); offsets wrap around when they
      * exceed this. This copy is required because we can't trust the order
@@ -80,8 +78,6 @@ struct libxenvchan {
     XenifaceLogger *logger;
     /* Pointer to shared ring page */
     struct vchan_interface *ring;
-    /* handle that identifies the ring mapping */
-    PVOID ring_handle;
     uint32_t event_port;
     /* event to wait on */
     HANDLE event;

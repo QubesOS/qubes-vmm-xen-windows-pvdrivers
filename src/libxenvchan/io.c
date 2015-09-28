@@ -574,33 +574,33 @@ void libxenvchan_close(struct libxenvchan *ctrl)
         return;
 
     Log(XLL_DEBUG, "start");
-    if (ctrl->read.order >= PAGE_SHIFT && ctrl->read.handle)
+    if (ctrl->read.order >= PAGE_SHIFT && ctrl->read.buffer)
     {
         if (ctrl->is_server)
-            GnttabUngrantPages(ctrl->xeniface, ctrl->read.handle);
+            GnttabUngrantPages(ctrl->xeniface, ctrl->read.buffer);
         else
-            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->read.handle);
+            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->read.buffer);
     }
 
-    if (ctrl->write.order >= PAGE_SHIFT && ctrl->write.handle)
+    if (ctrl->write.order >= PAGE_SHIFT && ctrl->write.buffer)
     {
         if (ctrl->is_server)
-            GnttabUngrantPages(ctrl->xeniface, ctrl->write.handle);
+            GnttabUngrantPages(ctrl->xeniface, ctrl->write.buffer);
         else
-            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->write.handle);
+            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->write.buffer);
     }
 
-    if (ctrl->ring && ctrl->ring_handle)
+    if (ctrl->ring)
     {
         if (ctrl->is_server)
         {
             ctrl->ring->srv_live = 0;
-            GnttabUngrantPages(ctrl->xeniface, ctrl->ring_handle);
+            GnttabUngrantPages(ctrl->xeniface, ctrl->ring);
         }
         else
         {
             ctrl->ring->cli_live = 0;
-            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->ring_handle);
+            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->ring);
         }
     }
 

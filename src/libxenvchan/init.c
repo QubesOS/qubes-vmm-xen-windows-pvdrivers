@@ -98,7 +98,6 @@ static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
                               offsetof(struct vchan_interface, srv_live),
                               ctrl->event_port,
                               GNTTAB_GRANT_PAGES_USE_NOTIFY_OFFSET | GNTTAB_GRANT_PAGES_USE_NOTIFY_PORT,
-                              &ctrl->ring_handle,
                               &ring,
                               &ring_ref);
 
@@ -135,7 +134,6 @@ static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
                                   0,
                                   0,
                                   0, // no notifications
-                                  &ctrl->read.handle,
                                   &ctrl->read.buffer,
                                   ctrl->ring->grants);
 
@@ -163,7 +161,6 @@ static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
                                   0,
                                   0,
                                   0, // no notifications
-                                  &ctrl->write.handle,
                                   &ctrl->write.buffer,
                                   ctrl->ring->grants + pages_left);
 
@@ -180,10 +177,10 @@ out:
 
 out_unmap_left:
     if (pages_left > 0)
-        GnttabUngrantPages(ctrl->xeniface, ctrl->read.handle);
+        GnttabUngrantPages(ctrl->xeniface, ctrl->read.buffer);
 
 out_ring:
-    GnttabUngrantPages(ctrl->xeniface, ctrl->ring_handle);
+    GnttabUngrantPages(ctrl->xeniface, ctrl->ring);
     ring_ref = ~0ul;
     ctrl->ring = NULL;
     ctrl->write.order = ctrl->read.order = 0;
@@ -203,7 +200,6 @@ static int init_gnt_cli(struct libxenvchan *ctrl, USHORT domain, uint32_t ring_r
                                    offsetof(struct vchan_interface, cli_live),
                                    ctrl->event_port,
                                    GNTTAB_GRANT_PAGES_USE_NOTIFY_OFFSET | GNTTAB_GRANT_PAGES_USE_NOTIFY_PORT,
-                                   &ctrl->ring_handle,
                                    &ctrl->ring);
 
     if (status != ERROR_SUCCESS)
@@ -247,7 +243,6 @@ static int init_gnt_cli(struct libxenvchan *ctrl, USHORT domain, uint32_t ring_r
                                        0,
                                        0,
                                        0, // no notifications
-                                       &ctrl->write.handle,
                                        &ctrl->write.buffer);
 
         if (status != ERROR_SUCCESS)
@@ -281,7 +276,6 @@ static int init_gnt_cli(struct libxenvchan *ctrl, USHORT domain, uint32_t ring_r
                                        0,
                                        0,
                                        GNTTAB_GRANT_PAGES_READONLY, // no notifications
-                                       &ctrl->read.handle,
                                        &ctrl->read.buffer);
 
         if (status != ERROR_SUCCESS)
@@ -299,10 +293,10 @@ out:
 
 out_unmap_left:
     if (ctrl->write.order >= PAGE_SHIFT)
-        GnttabUnmapForeignPages(ctrl->xeniface, ctrl->write.handle);
+        GnttabUnmapForeignPages(ctrl->xeniface, ctrl->write.buffer);
 
 out_unmap_ring:
-    GnttabUnmapForeignPages(ctrl->xeniface, ctrl->ring_handle);
+    GnttabUnmapForeignPages(ctrl->xeniface, ctrl->ring);
     ctrl->ring = 0;
     ctrl->write.order = ctrl->read.order = 0;
     rv = -1;
