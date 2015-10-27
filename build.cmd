@@ -12,8 +12,6 @@ if "%DDK_ARCH%" == "x86" set USER_ARCH=Win32
 set VS=%VS_PATH%
 set KIT=%WDK8_PATH%
 
-powershell -executionpolicy bypass patch.ps1
-
 call :build_driver xenbus
 call :build_driver xeniface
 call :build_driver xenvbd
