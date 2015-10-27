@@ -67,7 +67,7 @@
 
 #define snprintf _snprintf
 
-static void _Log(XENIFACE_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan *ctrl, PWCHAR format, ...)
+static void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan *ctrl, PWCHAR format, ...)
 {
     va_list args;
 
@@ -92,14 +92,14 @@ static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
     void *ring;
     DWORD status;
 
-    status = GnttabGrantPages(ctrl->xeniface,
-                              domain,
-                              1,
-                              offsetof(struct vchan_interface, srv_live),
-                              ctrl->event_port,
-                              GNTTAB_GRANT_PAGES_USE_NOTIFY_OFFSET | GNTTAB_GRANT_PAGES_USE_NOTIFY_PORT,
-                              &ring,
-                              &ring_ref);
+    status = XcGnttabPermitForeignAccess(ctrl->xc,
+                                         domain,
+                                         1,
+                                         offsetof(struct vchan_interface, srv_live),
+                                         ctrl->event_port,
+                                         XENIFACE_GNTTAB_USE_NOTIFY_OFFSET | XENIFACE_GNTTAB_USE_NOTIFY_PORT,
+                                         &ring,
+                                         &ring_ref);
 
     if (status != ERROR_SUCCESS)
     {
@@ -128,14 +128,14 @@ static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
         break;
 
     default:
-        status = GnttabGrantPages(ctrl->xeniface,
-                                  domain,
-                                  pages_left,
-                                  0,
-                                  0,
-                                  0, // no notifications
-                                  &ctrl->read.buffer,
-                                  ctrl->ring->grants);
+        status = XcGnttabPermitForeignAccess(ctrl->xc,
+                                             domain,
+                                             pages_left,
+                                             0,
+                                             0,
+                                             0, // no notifications
+                                             &ctrl->read.buffer,
+                                             ctrl->ring->grants);
 
         if (status != ERROR_SUCCESS)
         {
@@ -155,14 +155,14 @@ static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
         break;
 
     default:
-        status = GnttabGrantPages(ctrl->xeniface,
-                                  domain,
-                                  pages_right,
-                                  0,
-                                  0,
-                                  0, // no notifications
-                                  &ctrl->write.buffer,
-                                  ctrl->ring->grants + pages_left);
+        status = XcGnttabPermitForeignAccess(ctrl->xc,
+                                             domain,
+                                             pages_right,
+                                             0,
+                                             0,
+                                             0, // no notifications
+                                             &ctrl->write.buffer,
+                                             ctrl->ring->grants + pages_left);
 
         if (status != ERROR_SUCCESS)
         {
@@ -177,10 +177,10 @@ out:
 
 out_unmap_left:
     if (pages_left > 0)
-        GnttabUngrantPages(ctrl->xeniface, ctrl->read.buffer);
+        XcGnttabRevokeForeignAccess(ctrl->xc, ctrl->read.buffer);
 
 out_ring:
-    GnttabUngrantPages(ctrl->xeniface, ctrl->ring);
+    XcGnttabRevokeForeignAccess(ctrl->xc, ctrl->ring);
     ring_ref = ~0ul;
     ctrl->ring = NULL;
     ctrl->write.order = ctrl->read.order = 0;
@@ -193,13 +193,13 @@ static int init_gnt_cli(struct libxenvchan *ctrl, USHORT domain, uint32_t ring_r
     uint32_t *grants;
     DWORD status;
 
-    status = GnttabMapForeignPages(ctrl->xeniface,
+    status = XcGnttabMapForeignPages(ctrl->xc,
                                    domain,
                                    1,
                                    &ring_ref,
                                    offsetof(struct vchan_interface, cli_live),
                                    ctrl->event_port,
-                                   GNTTAB_GRANT_PAGES_USE_NOTIFY_OFFSET | GNTTAB_GRANT_PAGES_USE_NOTIFY_PORT,
+                                   XENIFACE_GNTTAB_USE_NOTIFY_OFFSET | XENIFACE_GNTTAB_USE_NOTIFY_PORT,
                                    &ctrl->ring);
 
     if (status != ERROR_SUCCESS)
@@ -236,14 +236,14 @@ static int init_gnt_cli(struct libxenvchan *ctrl, USHORT domain, uint32_t ring_r
     {
         int pages_left = 1 << (ctrl->write.order - PAGE_SHIFT);
 
-        status = GnttabMapForeignPages(ctrl->xeniface,
-                                       domain,
-                                       pages_left,
-                                       grants,
-                                       0,
-                                       0,
-                                       0, // no notifications
-                                       &ctrl->write.buffer);
+        status = XcGnttabMapForeignPages(ctrl->xc,
+                                         domain,
+                                         pages_left,
+                                         grants,
+                                         0,
+                                         0,
+                                         0, // no notifications
+                                         &ctrl->write.buffer);
 
         if (status != ERROR_SUCCESS)
         {
@@ -269,14 +269,14 @@ static int init_gnt_cli(struct libxenvchan *ctrl, USHORT domain, uint32_t ring_r
     {
         int pages_right = 1 << (ctrl->read.order - PAGE_SHIFT);
 
-        status = GnttabMapForeignPages(ctrl->xeniface,
-                                       domain,
-                                       pages_right,
-                                       grants,
-                                       0,
-                                       0,
-                                       GNTTAB_GRANT_PAGES_READONLY, // no notifications
-                                       &ctrl->read.buffer);
+        status = XcGnttabMapForeignPages(ctrl->xc,
+                                         domain,
+                                         pages_right,
+                                         grants,
+                                         0,
+                                         0,
+                                         XENIFACE_GNTTAB_READONLY, // no notifications
+                                         &ctrl->read.buffer);
 
         if (status != ERROR_SUCCESS)
         {
@@ -293,10 +293,10 @@ out:
 
 out_unmap_left:
     if (ctrl->write.order >= PAGE_SHIFT)
-        GnttabUnmapForeignPages(ctrl->xeniface, ctrl->write.buffer);
+        XcGnttabUnmapForeignPages(ctrl->xc, ctrl->write.buffer);
 
 out_unmap_ring:
-    GnttabUnmapForeignPages(ctrl->xeniface, ctrl->ring);
+    XcGnttabUnmapForeignPages(ctrl->xc, ctrl->ring);
     ctrl->ring = 0;
     ctrl->write.order = ctrl->read.order = 0;
     rv = -1;
@@ -314,10 +314,10 @@ static int init_evt_srv(struct libxenvchan *ctrl, USHORT domain)
         goto fail;
     }
 
-    status = EvtchnBindUnboundPort(ctrl->xeniface, domain, ctrl->event, FALSE, &ctrl->event_port);
+    status = XcEvtchnBindUnbound(ctrl->xc, domain, ctrl->event, FALSE, &ctrl->event_port);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "EvtchnBindUnboundPort(%u) failed: 0x%x", domain, status);
+        Log(XLL_ERROR, "failed to bind event channel for domain %u: 0x%x", domain, status);
         goto fail;
     }
 
@@ -338,58 +338,58 @@ fail:
 static int init_xs_srv(struct libxenvchan *ctrl, USHORT domain, const char *xs_base, uint32_t ring_ref)
 {
     int ret = -1;
-    XENBUS_STORE_PERMISSION perms[2];
+    XENIFACE_STORE_PERMISSION perms[2];
     char buf[64];
     char ref[16];
     char domid_str[16];
     DWORD status;
 
-    status = StoreRead(ctrl->xeniface, "domid", sizeof(domid_str), domid_str);
+    status = XcStoreRead(ctrl->xc, "domid", sizeof(domid_str), domid_str);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "StoreRead(\"domid\") failed: 0x%x", status);
+        Log(XLL_ERROR, "failed to read own domid from xenstore: 0x%x", status);
         goto fail;
     }
 
     // owner domain is us
     perms[0].Domain = (USHORT)atoi(domid_str);
     // permissions for domains not listed = none
-    perms[0].Mask = XENBUS_STORE_PERM_NONE;
+    perms[0].Mask = XENIFACE_STORE_PERM_NONE;
     // peer domain
     perms[1].Domain = domain;
-    perms[1].Mask = XENBUS_STORE_PERM_READ;
+    perms[1].Mask = XENIFACE_STORE_PERM_READ;
 
     snprintf(ref, sizeof(ref), "%d", ring_ref);
     snprintf(buf, sizeof(buf), "%s/ring-ref", xs_base);
 
-    status = StoreWrite(ctrl->xeniface, buf, ref);
+    status = XcStoreWrite(ctrl->xc, buf, ref);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "StoreWrite(%S, %S) failed: 0x%x", buf, ref, status);
+        Log(XLL_ERROR, "store write (%S, %S) failed: 0x%x", buf, ref, status);
         goto fail;
     }
 
-    status = StoreSetPermissions(ctrl->xeniface, buf, 2, perms);
+    status = XcStoreSetPermissions(ctrl->xc, buf, 2, perms);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "StoreSetPermissions(%S) failed: 0x%x", buf, status);
+        Log(XLL_ERROR, "failed to set store permissions on '%S': 0x%x", buf, status);
         goto fail;
     }
 
     snprintf(ref, sizeof(ref), "%d", ctrl->event_port);
     snprintf(buf, sizeof(buf), "%s/event-channel", xs_base);
 
-    status = StoreWrite(ctrl->xeniface, buf, ref);
+    status = XcStoreWrite(ctrl->xc, buf, ref);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "StoreWrite(%S, %S) failed: 0x%x", buf, ref, status);
+        Log(XLL_ERROR, "store write (%S, %S) failed: 0x%x", buf, ref, status);
         goto fail;
     }
 
-    status = StoreSetPermissions(ctrl->xeniface, buf, 2, perms);
+    status = XcStoreSetPermissions(ctrl->xc, buf, 2, perms);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "StoreSetPermissions(%S) failed: 0x%x", buf, status);
+        Log(XLL_ERROR, "failed to set store permissions on '%S': 0x%x", buf, status);
         goto fail;
     }
 
@@ -409,7 +409,7 @@ static int min_order(int size)
     return rv;
 }
 
-struct libxenvchan *libxenvchan_server_init(XenifaceLogger *logger, int domain, const char *xs_path, size_t left_min, size_t right_min)
+struct libxenvchan *libxenvchan_server_init(XencontrolLogger *logger, int domain, const char *xs_path, size_t left_min, size_t right_min)
 {
     struct libxenvchan *ctrl;
     uint32_t ring_ref;
@@ -450,10 +450,10 @@ struct libxenvchan *libxenvchan_server_init(XenifaceLogger *logger, int domain, 
         ctrl->write.order = LARGE_RING_SHIFT;
     }
 
-    status = XenifaceOpen(&ctrl->xeniface);
+    status = XcOpen(logger, &ctrl->xc);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "XenifaceOpen failed: 0x%x", status);
+        Log(XLL_ERROR, "failed to open xencontrol: 0x%x", status);
         goto out;
     }
 
@@ -487,10 +487,10 @@ static int init_evt_cli(struct libxenvchan *ctrl, USHORT domain)
         goto fail;
     }
 
-    status = EvtchnBindInterdomain(ctrl->xeniface, domain, ctrl->event_port, ctrl->event, FALSE, &port);
+    status = XcEvtchnBindInterdomain(ctrl->xc, domain, ctrl->event_port, ctrl->event, FALSE, &port);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "EvtchnBindInterdomain(%u, %u) failed: 0x%x", domain, ctrl->event_port, status);
+        Log(XLL_ERROR, "failed to bind event channel (%u, %u): 0x%x", domain, ctrl->event_port, status);
         goto fail;
     }
 
@@ -508,7 +508,7 @@ fail:
     return -1;
 }
 
-struct libxenvchan *libxenvchan_client_init(XenifaceLogger *logger, int domain, const char *xs_path)
+struct libxenvchan *libxenvchan_client_init(XencontrolLogger *logger, int domain, const char *xs_path)
 {
     struct libxenvchan *ctrl = malloc(sizeof(struct libxenvchan));
     char buf[64], ref[64];
@@ -523,19 +523,19 @@ struct libxenvchan *libxenvchan_client_init(XenifaceLogger *logger, int domain, 
     ctrl->write.order = ctrl->read.order = 0;
     ctrl->is_server = 0;
 
-    status = XenifaceOpen(&ctrl->xeniface);
+    status = XcOpen(logger, &ctrl->xc);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "XenifaceOpen failed: 0x%x", status);
+        Log(XLL_ERROR, "failed to open xencontrol: 0x%x", status);
         goto fail;
     }
 
     // find xenstore entry
     snprintf(buf, sizeof buf, "%s/ring-ref", xs_path);
-    status = StoreRead(ctrl->xeniface, buf, sizeof(ref), ref);
+    status = XcStoreRead(ctrl->xc, buf, sizeof(ref), ref);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "StoreRead(%S) failed: 0x%x", buf, status);
+        Log(XLL_ERROR, "failed to read '%s' from store: 0x%x", buf, status);
         goto fail;
     }
 
@@ -544,10 +544,10 @@ struct libxenvchan *libxenvchan_client_init(XenifaceLogger *logger, int domain, 
         goto fail;
 
     snprintf(buf, sizeof buf, "%s/event-channel", xs_path);
-    status = StoreRead(ctrl->xeniface, buf, sizeof(ref), ref);
+    status = XcStoreRead(ctrl->xc, buf, sizeof(ref), ref);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "StoreRead(%S) failed: 0x%x", buf, status);
+        Log(XLL_ERROR, "failed to read '%s' from store: 0x%x", buf, status);
         goto fail;
     }
 

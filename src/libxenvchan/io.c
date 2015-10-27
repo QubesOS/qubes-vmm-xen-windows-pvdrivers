@@ -45,7 +45,7 @@
 #define PAGE_SIZE 4096
 #endif
 
-static void _Log(XENIFACE_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan *ctrl, PWCHAR format, ...)
+static void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan *ctrl, PWCHAR format, ...)
 {
     va_list args;
 
@@ -133,11 +133,11 @@ static inline int send_notify(struct libxenvchan *ctrl, uint8_t bit)
     if (prev & bit)
     {
         Log(XLL_TRACE, "sending notify 0x%x", bit);
-        status = EvtchnNotify(ctrl->xeniface, ctrl->event_port);
+        status = XcEvtchnNotify(ctrl->xc, ctrl->event_port);
         if (status == ERROR_SUCCESS)
             return 0;
 
-        Log(XLL_ERROR, "EvtchnNotify(%u) failed: 0x%x", ctrl->event_port, status);
+        Log(XLL_ERROR, "failed to notify event channel %u: 0x%x", ctrl->event_port, status);
         return -1;
     }
     else
@@ -577,17 +577,17 @@ void libxenvchan_close(struct libxenvchan *ctrl)
     if (ctrl->read.order >= PAGE_SHIFT && ctrl->read.buffer)
     {
         if (ctrl->is_server)
-            GnttabUngrantPages(ctrl->xeniface, ctrl->read.buffer);
+            XcGnttabRevokeForeignAccess(ctrl->xc, ctrl->read.buffer);
         else
-            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->read.buffer);
+            XcGnttabUnmapForeignPages(ctrl->xc, ctrl->read.buffer);
     }
 
     if (ctrl->write.order >= PAGE_SHIFT && ctrl->write.buffer)
     {
         if (ctrl->is_server)
-            GnttabUngrantPages(ctrl->xeniface, ctrl->write.buffer);
+            XcGnttabRevokeForeignAccess(ctrl->xc, ctrl->write.buffer);
         else
-            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->write.buffer);
+            XcGnttabUnmapForeignPages(ctrl->xc, ctrl->write.buffer);
     }
 
     if (ctrl->ring)
@@ -595,23 +595,23 @@ void libxenvchan_close(struct libxenvchan *ctrl)
         if (ctrl->is_server)
         {
             ctrl->ring->srv_live = 0;
-            GnttabUngrantPages(ctrl->xeniface, ctrl->ring);
+            XcGnttabRevokeForeignAccess(ctrl->xc, ctrl->ring);
         }
         else
         {
             ctrl->ring->cli_live = 0;
-            GnttabUnmapForeignPages(ctrl->xeniface, ctrl->ring);
+            XcGnttabUnmapForeignPages(ctrl->xc, ctrl->ring);
         }
     }
 
     if (ctrl->event)
     {
         if (ctrl->ring)
-            EvtchnNotify(ctrl->xeniface, ctrl->event_port);
+            XcEvtchnNotify(ctrl->xc, ctrl->event_port);
 
-        EvtchnClose(ctrl->xeniface, ctrl->event_port);
+        XcEvtchnClose(ctrl->xc, ctrl->event_port);
     }
 
-    XenifaceClose(ctrl->xeniface);
+    XcClose(ctrl->xc);
     free(ctrl);
 }

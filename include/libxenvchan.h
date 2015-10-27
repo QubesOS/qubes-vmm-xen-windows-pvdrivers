@@ -73,9 +73,9 @@ struct libxenvchan_ring {
  * struct libxenvchan: control structure passed to all library calls
  */
 struct libxenvchan {
-    /* Handle to the XenIface device */
-    HANDLE xeniface;
-    XenifaceLogger *logger;
+    /* xencontrol  handle */
+    PXENCONTROL_CONTEXT xc;
+    XencontrolLogger *logger;
     /* Pointer to shared ring page */
     struct vchan_interface *ring;
     uint32_t event_port;
@@ -101,7 +101,7 @@ struct libxenvchan {
  * @return The structure, or NULL in case of an error
  */
 XENVCHAN_API
-struct libxenvchan *libxenvchan_server_init(XenifaceLogger *logger, int domain, const char *xs_path, size_t read_min, size_t write_min);
+struct libxenvchan *libxenvchan_server_init(XencontrolLogger *logger, int domain, const char *xs_path, size_t read_min, size_t write_min);
 
 /**
  * Connect to an existing vchan. Note: you can reconnect to an existing vchan
@@ -114,7 +114,7 @@ struct libxenvchan *libxenvchan_server_init(XenifaceLogger *logger, int domain, 
  * @return The structure, or NULL in case of an error
  */
 XENVCHAN_API
-struct libxenvchan *libxenvchan_client_init(XenifaceLogger *logger, int domain, const char *xs_path);
+struct libxenvchan *libxenvchan_client_init(XencontrolLogger *logger, int domain, const char *xs_path);
 
 /**
  * Close a vchan. This deallocates the vchan and attempts to free its

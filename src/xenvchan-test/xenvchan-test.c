@@ -41,7 +41,7 @@
 
 #include <strsafe.h>
 
-void XifLogger(XENIFACE_LOG_LEVEL level, PCHAR function, PWCHAR format, va_list args)
+void XifLogger(XENCONTROL_LOG_LEVEL level, const CHAR *function, const WCHAR *format, va_list args)
 {
     WCHAR buf[1024];
     StringCbVPrintfW(buf, sizeof(buf), format, args);
@@ -180,8 +180,6 @@ int __cdecl main(int argc, char **argv)
     else
         usage(argv);
 
-    XenifaceSetLogLevel(XLL_DEBUG);
-
     if (!strcmp(argv[1], "server"))
         ctrl = libxenvchan_server_init(XifLogger, atoi(argv[3]), argv[4], 0, 0);
     else if (!strcmp(argv[1], "client"))
@@ -189,6 +187,7 @@ int __cdecl main(int argc, char **argv)
     else
         usage(argv);
 
+    XcSetLogLevel(ctrl->xc, XLL_DEBUG);
     if (!ctrl)
     {
         perror("libxenvchan_*_init");
