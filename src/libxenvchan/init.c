@@ -409,7 +409,7 @@ static int min_order(int size)
     return rv;
 }
 
-struct libxenvchan *libxenvchan_server_init(XencontrolLogger *logger, int domain, const char *xs_path, size_t left_min, size_t right_min)
+struct libxenvchan *libxenvchan_server_init(XENCONTROL_LOGGER *logger, int domain, const char *xs_path, size_t left_min, size_t right_min)
 {
     struct libxenvchan *ctrl;
     uint32_t ring_ref;
@@ -508,7 +508,7 @@ fail:
     return -1;
 }
 
-struct libxenvchan *libxenvchan_client_init(XencontrolLogger *logger, int domain, const char *xs_path)
+struct libxenvchan *libxenvchan_client_init(XENCONTROL_LOGGER *logger, int domain, const char *xs_path)
 {
     struct libxenvchan *ctrl = malloc(sizeof(struct libxenvchan));
     char buf[64], ref[64];
