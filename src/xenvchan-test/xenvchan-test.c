@@ -187,13 +187,13 @@ int __cdecl main(int argc, char **argv)
     else
         usage(argv);
 
-    XcSetLogLevel(ctrl->xc, XLL_DEBUG);
     if (!ctrl)
     {
         perror("libxenvchan_*_init");
         exit(1);
     }
 
+    XcSetLogLevel(ctrl->xc, XLL_DEBUG);
     ctrl->blocking = 1;
     Log("blocking: %d", ctrl->blocking);
 
