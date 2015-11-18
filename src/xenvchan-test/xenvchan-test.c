@@ -54,6 +54,8 @@ void XifLogger(XENCONTROL_LOG_LEVEL level, const CHAR *function, const WCHAR *fo
 #define Log(msg, ...)
 #endif
 
+#define perror(msg) fprintf(stderr, __FUNCTION__ ": " msg " failed: error 0x%x\n", GetLastError())
+
 int libxenvchan_write_all(struct libxenvchan *ctrl, char *buf, int size)
 {
     int written = 0;
