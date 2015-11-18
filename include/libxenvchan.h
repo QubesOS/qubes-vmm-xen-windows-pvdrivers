@@ -91,6 +91,14 @@ struct libxenvchan {
     struct libxenvchan_ring read, write;
 };
 
+/*
+Note: libxenvchan_*_init sets last error to ERROR_NOT_SUPPORTED if
+the xeniface device is not available. The caller can potentially
+wait for xeniface to become active in that case (this can happen
+after the first reboot after pvdrivers installation, xeniface takes
+a while to load).
+*/
+
 /**
  * Set up a vchan, including granting pages
  * @param logger Logger for libxc errors

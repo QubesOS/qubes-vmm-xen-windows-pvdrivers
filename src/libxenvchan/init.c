@@ -454,6 +454,13 @@ struct libxenvchan *libxenvchan_server_init(XENCONTROL_LOGGER *logger, int domai
     if (status != ERROR_SUCCESS)
     {
         Log(XLL_ERROR, "failed to open xencontrol: 0x%x", status);
+        /*
+        This error signifies that xeniface is not available.
+        We need to return a well-defined code so the caller can potentially
+        wait for xeniface to become active (this can happen after the first
+        reboot after pvdrivers installation, xeniface takes a while to load).
+        */
+        SetLastError(ERROR_NOT_SUPPORTED);
         goto out;
     }
 
@@ -527,6 +534,13 @@ struct libxenvchan *libxenvchan_client_init(XENCONTROL_LOGGER *logger, int domai
     if (status != ERROR_SUCCESS)
     {
         Log(XLL_ERROR, "failed to open xencontrol: 0x%x", status);
+        /*
+        This error signifies that xeniface is not available.
+        We need to return a well-defined code so the caller can potentially
+        wait for xeniface to become active (this can happen after the first
+        reboot after pvdrivers installation, xeniface takes a while to load).
+        */
+        SetLastError(ERROR_NOT_SUPPORTED);
         goto fail;
     }
 
