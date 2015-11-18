@@ -612,6 +612,8 @@ void libxenvchan_close(struct libxenvchan *ctrl)
         XcEvtchnClose(ctrl->xc, ctrl->event_port);
     }
 
-    XcClose(ctrl->xc);
+    if (ctrl->xc)
+        XcClose(ctrl->xc);
+
     free(ctrl);
 }
