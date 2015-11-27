@@ -116,7 +116,6 @@ static inline void request_notify(struct libxenvchan *ctrl, uint8_t bit)
 {
     uint8_t *notify = ctrl->is_server ? &ctrl->ring->cli_notify : &ctrl->ring->srv_notify;
 
-    Log(XLL_TRACE, "bit 0x%x", bit);
     __sync_or_and_fetch(notify, bit);
     xen_mb(); /* post the request /before/ caller re-reads any indexes */
 }
@@ -132,7 +131,6 @@ static inline int send_notify(struct libxenvchan *ctrl, uint8_t bit)
 
     if (prev & bit)
     {
-        Log(XLL_TRACE, "sending notify 0x%x", bit);
         status = XcEvtchnNotify(ctrl->xc, ctrl->event_port);
         if (status == ERROR_SUCCESS)
             return 0;
@@ -142,7 +140,6 @@ static inline int send_notify(struct libxenvchan *ctrl, uint8_t bit)
     }
     else
     {
-        Log(XLL_TRACE, "NOT sending notify 0x%x", bit);
         return 0;
     }
 }
@@ -162,7 +159,6 @@ static inline int raw_get_data_ready(struct libxenvchan *ctrl)
         Log(XLL_ERROR, "ready > rd_ring_size(ctrl)");
         return 0;
     }
-    Log(XLL_TRACE, "%d", ready);
     return ready;
 }
 
@@ -173,11 +169,9 @@ static inline int fast_get_data_ready(struct libxenvchan *ctrl, int request)
 {
     int ready;
 
-    Log(XLL_TRACE, "request %d", request);
     ready = raw_get_data_ready(ctrl);
     if (ready >= request)
     {
-        Log(XLL_TRACE, "%d", ready);
         return ready;
     }
 
@@ -189,7 +183,6 @@ static inline int fast_get_data_ready(struct libxenvchan *ctrl, int request)
      * above request. Reread rd_prod to cover this case.
      */
     ready = raw_get_data_ready(ctrl);
-    Log(XLL_TRACE, "%d", ready);
     return ready;
 }
 
@@ -201,7 +194,6 @@ int libxenvchan_data_ready(struct libxenvchan *ctrl)
     int ready;
     request_notify(ctrl, VCHAN_NOTIFY_WRITE);
     ready = raw_get_data_ready(ctrl);
-    Log(XLL_TRACE, "%d", ready);
     return ready;
 }
 
@@ -220,7 +212,6 @@ static inline int raw_get_buffer_space(struct libxenvchan *ctrl)
         Log(XLL_ERROR, "0");
         return 0;
     }
-    Log(XLL_TRACE, "%d", ready);
     return ready;
 }
 
@@ -231,10 +222,8 @@ static inline int fast_get_buffer_space(struct libxenvchan *ctrl, int request)
 {
     int ready = raw_get_buffer_space(ctrl);
 
-    Log(XLL_TRACE, "request %d", request);
     if (ready >= request)
     {
-        Log(XLL_TRACE, "%d", ready);
         return ready;
     }
     /* We plan to fill the buffer; please tell us when you've read it */
@@ -245,7 +234,6 @@ static inline int fast_get_buffer_space(struct libxenvchan *ctrl, int request)
      * is above request. Reread wr_cons to cover this case.
      */
     ready = raw_get_buffer_space(ctrl);
-    Log(XLL_TRACE, "%d", ready);
     return ready;
 }
 
@@ -257,7 +245,6 @@ int libxenvchan_buffer_space(struct libxenvchan *ctrl)
     int ready;
     request_notify(ctrl, VCHAN_NOTIFY_READ);
     ready = raw_get_buffer_space(ctrl);
-    Log(XLL_TRACE, "%d", ready);
     return ready;
 }
 
@@ -265,22 +252,12 @@ int libxenvchan_wait(struct libxenvchan *ctrl)
 {
     DWORD ret;
 
-    Log(XLL_TRACE, "waiting");
     ret = WaitForSingleObject(ctrl->event, INFINITE);
     if (ret != WAIT_OBJECT_0)
     {
         Log(XLL_ERROR, "WaitForSingleObject failed: 0x%x", ret);
         return -1;
     }
-    Log(XLL_TRACE, "ok");
-    /*
-    int ret = xc_evtchn_pending(ctrl->event);
-
-    if (ret < 0)
-        return -1;
-
-    xc_evtchn_unmask(ctrl->event, ret);
-    */
     return 0;
 }
 
@@ -294,7 +271,6 @@ static int do_send(struct libxenvchan *ctrl, const void *data, int size)
     int real_idx = wr_prod(ctrl) & (wr_ring_size(ctrl) - 1);
     int avail_contig = wr_ring_size(ctrl) - real_idx;
 
-    Log(XLL_TRACE, "size %d", size);
     if (avail_contig > size)
         avail_contig = size;
 
@@ -316,7 +292,6 @@ static int do_send(struct libxenvchan *ctrl, const void *data, int size)
         return -1;
     }
 
-    Log(XLL_TRACE, "size %d", size);
     return size;
 }
 
@@ -328,7 +303,6 @@ int libxenvchan_send(struct libxenvchan *ctrl, const void *data, size_t size)
     int avail;
     int sent;
 
-    Log(XLL_TRACE, "size %d", (int)size);
     while (1)
     {
         if (!libxenvchan_is_open(ctrl))
@@ -341,13 +315,11 @@ int libxenvchan_send(struct libxenvchan *ctrl, const void *data, size_t size)
         if ((int)size <= avail)
         {
             sent = do_send(ctrl, data, (int)size);
-            Log(XLL_TRACE, "%d", sent);
             return sent;
         }
 
         if (!ctrl->blocking)
         {
-            Log(XLL_TRACE, "nonblocking");
             return 0;
         }
 
@@ -370,7 +342,6 @@ int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
     int avail;
     int sent;
 
-    Log(XLL_TRACE, "size %d", (int)size);
     if (!libxenvchan_is_open(ctrl))
     {
         Log(XLL_ERROR, "vchan not open");
@@ -381,7 +352,6 @@ int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
     {
         int pos = 0;
 
-        Log(XLL_TRACE, "blocking, pos %d", pos);
         while (1)
         {
             avail = fast_get_buffer_space(ctrl, (int)size - pos);
@@ -389,17 +359,14 @@ int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
             if (pos + avail > (int)size)
                 avail = (int)size - pos;
 
-            Log(XLL_TRACE, "avail %d", avail);
             if (avail)
             {
                 sent = do_send(ctrl, (uint8_t*)data + pos, avail);
-                Log(XLL_TRACE, "sent %d", sent);
                 pos += sent;
             }
 
             if (pos == size)
             {
-                Log(XLL_TRACE, "%d", pos);
                 return pos;
             }
 
@@ -418,7 +385,6 @@ int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
     }
     else
     {
-        Log(XLL_TRACE, "not blocking");
         avail = fast_get_buffer_space(ctrl, (int)size);
 
         if ((int)size > avail)
@@ -428,7 +394,6 @@ int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
             return 0;
 
         sent = do_send(ctrl, data, (int)size);
-        Log(XLL_TRACE, "sent %d", sent);
         return sent;
     }
 }
@@ -443,7 +408,6 @@ static int do_recv(struct libxenvchan *ctrl, void *data, int size)
     int real_idx = rd_cons(ctrl) & (rd_ring_size(ctrl) - 1);
     int avail_contig = rd_ring_size(ctrl) - real_idx;
 
-    Log(XLL_TRACE, "size %d", size);
     if (avail_contig > size)
         avail_contig = size;
 
@@ -465,7 +429,6 @@ static int do_recv(struct libxenvchan *ctrl, void *data, int size)
         return -1;
     }
 
-    Log(XLL_TRACE, "size %d", size);
     return size;
 }
 
@@ -477,7 +440,6 @@ int libxenvchan_recv(struct libxenvchan *ctrl, void *data, size_t size)
 {
     int tx;
 
-    Log(XLL_TRACE, "size %d", (int)size);
     while (1)
     {
         int avail = fast_get_data_ready(ctrl, (int)size);
@@ -485,7 +447,6 @@ int libxenvchan_recv(struct libxenvchan *ctrl, void *data, size_t size)
         if ((int)size <= avail)
         {
             tx = do_recv(ctrl, data, (int)size);
-            Log(XLL_TRACE, "recvd %d", tx);
             return tx;
         }
 
@@ -497,7 +458,6 @@ int libxenvchan_recv(struct libxenvchan *ctrl, void *data, size_t size)
 
         if (!ctrl->blocking)
         {
-            Log(XLL_TRACE, "nonblocking");
             return 0;
         }
 
@@ -519,7 +479,6 @@ int libxenvchan_read(struct libxenvchan *ctrl, void *data, size_t size)
 {
     int tx;
 
-    Log(XLL_TRACE, "size %d", (int)size);
     while (1)
     {
         int avail = fast_get_data_ready(ctrl, (int)size);
@@ -530,7 +489,6 @@ int libxenvchan_read(struct libxenvchan *ctrl, void *data, size_t size)
         if (avail)
         {
             tx = do_recv(ctrl, data, (int)size);
-            Log(XLL_TRACE, "recvd %d", tx);
             return tx;
         }
 
@@ -542,7 +500,6 @@ int libxenvchan_read(struct libxenvchan *ctrl, void *data, size_t size)
 
         if (!ctrl->blocking)
         {
-            Log(XLL_TRACE, "nonblocking");
             return 0;
         }
 
@@ -564,7 +521,6 @@ int libxenvchan_is_open(struct libxenvchan* ctrl)
 
 HANDLE libxenvchan_fd_for_select(struct libxenvchan *ctrl)
 {
-    Log(XLL_TRACE, "event %p", ctrl->event);
     return ctrl->event;
 }
 
