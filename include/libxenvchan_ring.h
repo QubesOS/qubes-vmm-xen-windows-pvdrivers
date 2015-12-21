@@ -46,7 +46,7 @@
 #include <stdint.h>
 
 struct ring_shared {
-	int cons, prod;
+	uint32_t cons, prod;
 };
 
 #define VCHAN_NOTIFY_WRITE 0x1
