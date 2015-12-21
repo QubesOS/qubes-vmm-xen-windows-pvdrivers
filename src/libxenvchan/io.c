@@ -269,7 +269,7 @@ int libxenvchan_wait(struct libxenvchan *ctrl)
 static int do_send(struct libxenvchan *ctrl, const void *data, size_t size)
 {
     int real_idx = wr_prod(ctrl) & (wr_ring_size(ctrl) - 1);
-    int avail_contig = wr_ring_size(ctrl) - real_idx;
+    size_t avail_contig = wr_ring_size(ctrl) - real_idx;
 
     if (avail_contig > size)
         avail_contig = size;
@@ -284,7 +284,7 @@ static int do_send(struct libxenvchan *ctrl, const void *data, size_t size)
     }
 
     xen_wmb(); /* write data /then/ notify */
-    wr_prod(ctrl) += size;
+    wr_prod(ctrl) += (uint32_t)size;
 
     if (send_notify(ctrl, VCHAN_NOTIFY_WRITE))
     {
@@ -292,7 +292,7 @@ static int do_send(struct libxenvchan *ctrl, const void *data, size_t size)
         return -1;
     }
 
-    return size;
+    return (int)size;
 }
 
 /**
@@ -339,7 +339,7 @@ int libxenvchan_send(struct libxenvchan *ctrl, const void *data, size_t size)
 
 int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
 {
-    int avail;
+    size_t avail;
     int sent;
 
     if (!libxenvchan_is_open(ctrl))
@@ -367,7 +367,7 @@ int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
 
             if (pos == size)
             {
-                return pos;
+                return (int)pos;
             }
 
             if (libxenvchan_wait(ctrl))
@@ -406,7 +406,7 @@ int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
 static int do_recv(struct libxenvchan *ctrl, void *data, size_t size)
 {
     int real_idx = rd_cons(ctrl) & (rd_ring_size(ctrl) - 1);
-    int avail_contig = rd_ring_size(ctrl) - real_idx;
+    size_t avail_contig = rd_ring_size(ctrl) - real_idx;
 
     if (avail_contig > size)
         avail_contig = size;
@@ -421,7 +421,7 @@ static int do_recv(struct libxenvchan *ctrl, void *data, size_t size)
     }
 
     xen_mb(); /* consume /then/ notify */
-    rd_cons(ctrl) += size;
+    rd_cons(ctrl) += (uint32_t)size;
 
     if (send_notify(ctrl, VCHAN_NOTIFY_READ))
     {
@@ -429,7 +429,7 @@ static int do_recv(struct libxenvchan *ctrl, void *data, size_t size)
         return -1;
     }
 
-    return size;
+    return (int)size;
 }
 
 /**
