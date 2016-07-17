@@ -49,7 +49,7 @@ DisplayName='Installation directory'
                             <File Id='XenifaceInf' Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface.inf' KeyPath='yes' />
                             <File Id='XenifaceCat' Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface.cat' />
                             <File Id='XenifaceSys' Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface.sys' />
-                            <File Id='LiteagentExe' Source='xeniface\xeniface\$(env.DDK_ARCH)\LiteAgent.exe' />
+                            <File Id='LiteagentExe' Source='xeniface\xeniface\$(env.DDK_ARCH)\xenagent.exe' />
                             <File Id='XenifaceCoinst' Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface_coinst.dll' />
                         </Component>
                     </Directory>
