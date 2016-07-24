@@ -52,7 +52,7 @@ DisplayName='Installation directory'
                             <File Id='XenSys' Source='xenbus\xenbus\$(env.DDK_ARCH)\xen.sys' />
                             <File Id='XenfiltSys' Source='xenbus\xenbus\$(env.DDK_ARCH)\xenfilt.sys' />
                             <File Id='XenbusCoinst' Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus_coinst.dll' />
-                            <difx:Driver Legacy='yes' />
+                            <difx:Driver />
                         </Component>
                     </Directory>
                 </Directory>
