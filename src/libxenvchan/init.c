@@ -549,7 +549,7 @@ struct libxenvchan *libxenvchan_client_init(XENCONTROL_LOGGER *logger, int domai
     status = XcStoreRead(ctrl->xc, buf, sizeof(ref), ref);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "failed to read '%s' from store: 0x%x", buf, status);
+        Log(XLL_ERROR, "failed to read '%S' from store: 0x%x", buf, status);
         goto fail;
     }
 
@@ -561,7 +561,7 @@ struct libxenvchan *libxenvchan_client_init(XENCONTROL_LOGGER *logger, int domai
     status = XcStoreRead(ctrl->xc, buf, sizeof(ref), ref);
     if (status != ERROR_SUCCESS)
     {
-        Log(XLL_ERROR, "failed to read '%s' from store: 0x%x", buf, status);
+        Log(XLL_ERROR, "failed to read '%S' from store: 0x%x", buf, status);
         goto fail;
     }
 
