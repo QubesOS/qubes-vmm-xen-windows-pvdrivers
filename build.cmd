@@ -17,10 +17,14 @@ call :build_driver xeniface
 call :build_driver xenvbd
 call :build_driver xenvif
 call :build_driver xennet
+:: some weird problem - without this the last build_driver isn't called ("The
+:: system cannot find the batch label specified - build_driver")
+goto :main_project
 
+:main_project
 :: build the main project
-call "%VS_PATH%\VC\vcvarsall.bat" x86
-cd vs2013
+call "%VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" x86
+cd vs2017
 msbuild.exe /m:1 /p:Configuration="%USER_BUILD_TYPE%" /p:Platform="%USER_ARCH%" /t:"Build" vmm-xen-windows-pvdrivers.sln
 if errorlevel 1 call :build_error "main solution %DDK_ARCH%"
 cd ..

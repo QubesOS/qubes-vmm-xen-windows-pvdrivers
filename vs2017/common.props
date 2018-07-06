@@ -15,7 +15,6 @@
 
   <PropertyGroup Label="Configuration">
     <LinkIncremental>false</LinkIncremental>
-    <PlatformToolset>v120</PlatformToolset>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
@@ -42,18 +41,12 @@
       <TreatWarningAsError>true</TreatWarningAsError>
     </ClCompile>
     <CustomBuildStep>
+      <Message>Copying output files</Message>
+      <Inputs>$(TargetPath);$(TargetDir)$(TargetName).pdb;$(TargetDir)$(TargetName).lib</Inputs>
+      <Outputs>$(SolutionDir)\..\bin\$(PlatformTarget)$(TargetFileName);$(SolutionDir)\..\bin\$(PlatformTarget)$(TargetName).pdb;$(SolutionDir)\..\bin\$(PlatformTarget)$(TargetName).lib;%(Outputs)</Outputs>
       <Command>xcopy /y $(TargetPath) $(SolutionDir)\..\bin\$(PlatformTarget)\
 xcopy /y $(TargetDir)$(TargetName).pdb $(SolutionDir)\..\bin\$(PlatformTarget)\
 if exist $(TargetDir)$(TargetName).lib xcopy /y $(TargetDir)$(TargetName).lib $(SolutionDir)\..\bin\$(PlatformTarget)\</Command>
-    </CustomBuildStep>
-    <CustomBuildStep>
-      <Message>Copying output files</Message>
-    </CustomBuildStep>
-    <CustomBuildStep>
-      <Outputs>$(SolutionDir)\..\bin\$(PlatformTarget)$(TargetFileName);$(SolutionDir)\..\bin\$(PlatformTarget)$(TargetName).pdb;$(SolutionDir)\..\bin\$(PlatformTarget)$(TargetName).lib;%(Outputs)</Outputs>
-    </CustomBuildStep>
-    <CustomBuildStep>
-      <Inputs>$(TargetPath);$(TargetDir)$(TargetName).pdb;$(TargetDir)$(TargetName).lib</Inputs>
     </CustomBuildStep>
   </ItemDefinitionGroup>
 
