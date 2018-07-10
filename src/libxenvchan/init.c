@@ -314,7 +314,7 @@ static int init_evt_srv(struct libxenvchan *ctrl, USHORT domain)
         goto fail;
     }
 
-    status = XcEvtchnBindUnbound(ctrl->xc, domain, ctrl->event, FALSE, &ctrl->event_port);
+    status = XcEvtchnOpenUnbound(ctrl->xc, domain, ctrl->event, FALSE, &ctrl->event_port);
     if (status != ERROR_SUCCESS)
     {
         Log(XLL_ERROR, "failed to bind event channel for domain %u: 0x%x", domain, status);

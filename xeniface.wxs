@@ -61,7 +61,7 @@ DisplayName='Installation directory'
 
     <Directory Id='$(var.SYSDIR)'>
         <Component Id='XenUserDlls' Guid='{1BA9B085-AFC2-4248-9DF2-5E85692DC707}'>
-            <File Id='xencontrol' Source='bin\$(env.DDK_ARCH)\xencontrol.dll' KeyPath='yes' />
+            <File Id='xencontrol' Source='xeniface\xeniface\$(env.DDK_ARCH)\xencontrol.dll' KeyPath='yes' />
             <File Id='libxenvchan' Source='bin\$(env.DDK_ARCH)\libxenvchan.dll' />
         </Component>
     </Directory>

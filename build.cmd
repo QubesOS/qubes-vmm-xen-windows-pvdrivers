@@ -34,7 +34,7 @@ cd ..
 :: copy driver libs up
 xcopy /y xeniface\include\xencontrol.h include\
 xcopy /y xeniface\include\xeniface_ioctls.h include\
-xcopy /y /s xeniface\xencontrol\* bin\
+xcopy /y xeniface\xeniface\%DDK_ARCH%\xencontrol* bin\%DDK_ARCH%\
 
 echo *** Build OK ***
 exit /b 0
