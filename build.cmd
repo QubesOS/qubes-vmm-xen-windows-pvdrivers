@@ -13,15 +13,25 @@ set VS=%VS_PATH%
 set KIT=%WDK10_PATH%
 set DPINST_REDIST=%WDK8_PATH%\redist\DIFx\dpinst\EngMui
 set SYMBOL_SERVER=C:\Symbols
+set PVDRIVERS_VERSION=8.2.1
+set XENPV_USE_UPSTREAM_BUILD=1
 
-call :build_driver xenbus
 call :build_driver xeniface
+
+if "%XENPV_USE_UPSTREAM_BUILD%" == "1" goto :unpack_upstream
+call :build_driver xenbus
 call :build_driver xenvbd
 call :build_driver xenvif
 call :build_driver xennet
-:: some weird problem - without this the last build_driver isn't called ("The
-:: system cannot find the batch label specified - build_driver")
 goto :main_project
+
+:unpack_upstream
+
+tar xvf xenbus-%PVDRIVERS_VERSION%.tar -C xenbus
+tar xvf xeniface-%PVDRIVERS_VERSION%.tar -C xeniface
+tar xvf xenvbd-%PVDRIVERS_VERSION%.tar -C xenvbd
+tar xvf xenvif-%PVDRIVERS_VERSION%.tar -C xenvif
+tar xvf xennet-%PVDRIVERS_VERSION%.tar -C xennet
 
 :main_project
 :: build the main project
