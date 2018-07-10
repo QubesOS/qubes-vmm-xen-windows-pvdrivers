@@ -10,7 +10,9 @@ if "%DDK_ARCH%" == "x86" set USER_ARCH=Win32
 
 :: build the PV drivers
 set VS=%VS_PATH%
-set KIT=%WDK8_PATH%
+set KIT=%WDK10_PATH%
+set DPINST_REDIST=%WDK8_PATH%\redist\DIFx\dpinst\EngMui
+set SYMBOL_SERVER=C:\Symbols
 
 call :build_driver xenbus
 call :build_driver xeniface
@@ -40,7 +42,7 @@ exit /b 0
 :build_driver
 echo * Building %1...
 cd %1
-%python3% ..\build.py %1 %WIN_BUILD_TYPE% %DDK_ARCH%
+%python3% ..\build.py %1 %WIN_BUILD_TYPE% "Windows 7" %DDK_ARCH% nosdv
 if errorlevel 1 call :build_error %1
 cd ..
 :: the following line returns to the caller
@@ -52,7 +54,7 @@ echo *** ERROR: Set %%PYTHON3%% variable to the full path to a Python 3 executab
 echo.
 exit 1
 
-:build_error:
+:build_error
 echo.
 echo *** BUILD FAILED for %1 ***
 echo.

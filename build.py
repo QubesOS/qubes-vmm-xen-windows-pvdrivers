@@ -4,6 +4,7 @@ import os, sys
 import datetime
 import re
 import glob
+import tarfile
 import subprocess
 import shutil
 import time
@@ -100,6 +101,9 @@ def copy_inf(vs, name):
 
 
 def copy_mof(name):
+    if not os.path.exists('src\\%s.mof' % name):
+        return
+
     src = open('src\\%s.mof' % name, 'r')
     dst = open('src\\%s\\wmi.mof' % name, 'w')
 
@@ -109,6 +113,48 @@ def copy_mof(name):
 
     dst.close()
     src.close()
+
+
+def get_expired_symbols(name, age = 30):
+    path = os.path.join(os.environ['SYMBOL_SERVER'], '000Admin\\history.txt')
+
+    try:
+        file = open(path, 'r')
+    except IOError:
+        return []
+
+    threshold = datetime.datetime.utcnow() - datetime.timedelta(days = age)
+
+    expired = []
+
+    for line in file:
+        item = line.split(',')
+
+        if (re.match('add', item[1])):
+            id = item[0]
+            date = item[3].split('/')
+            time = item[4].split(':')
+            tag = item[5].strip('"')
+
+            age = datetime.datetime(year = int(date[2]),
+                                    month = int(date[0]),
+                                    day = int(date[1]),
+                                    hour = int(time[0]),
+                                    minute = int(time[1]),
+                                    second = int(time[2]))
+            if (tag == name and age < threshold):
+                expired.append(id)
+
+        elif (re.match('del', item[1])):
+            id = item[2].rstrip()
+            try:
+                expired.remove(id)
+            except ValueError:
+                pass
+
+    file.close()
+
+    return expired
 
 
 def get_configuration(release, debug):
@@ -137,6 +183,7 @@ def shell(command, dir):
     sys.stdout.flush()
 
     sub = subprocess.Popen(' '.join(command), cwd=dir,
+                           shell=True,
                            stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT)
 
@@ -148,23 +195,11 @@ def shell(command, dir):
     return sub.returncode
 
 
-def update_cert_path(name, vs, path):
-    for pkg in os.listdir(vs):
-        if not os.path.isdir(os.path.join(vs, pkg)):
-            continue
-        vxproj_path = "{vs}/{name}/{name}.vcxproj.user".format(name=pkg, vs=vs)
-        if os.path.exists(vxproj_path):
-            f = open(vxproj_path, "r")
-            content = f.read()
-            content = re.sub(r"<TestCertificate>.*</TestCertificate>",
-                    "<TestCertificate>{}</TestCertificate>".format(path),
-                    content)
-            f.close()
-            # break the link
-            os.unlink(vxproj_path)
-            f = open(vxproj_path, "w")
-            f.write(content)
-            f.close()
+def find(name, path):
+    for root, dirs, files in os.walk(path):
+        if name in files:
+            return os.path.join(root, name)
+
 
 class msbuild_failure(Exception):
     def __init__(self, value):
@@ -174,11 +209,14 @@ class msbuild_failure(Exception):
 
 
 def msbuild(platform, configuration, target, file, args, dir):
-    os.environ['PLATFORM'] = platform
-    os.environ['CONFIGURATION'] = configuration
-    os.environ['TARGET'] = target
-    os.environ['FILE'] = file
-    os.environ['EXTRA'] = args
+    vcvarsall = find('vcvarsall.bat', os.environ['VS'])
+
+    os.environ['MSBUILD_PLATFORM'] = platform
+    os.environ['MSBUILD_CONFIGURATION'] = configuration
+    os.environ['MSBUILD_TARGET'] = target
+    os.environ['MSBUILD_FILE'] = file
+    os.environ['MSBUILD_EXTRA'] = args
+    os.environ['MSBUILD_VCVARSALL'] = vcvarsall
 
     bin = os.path.join(os.getcwd(), 'msbuild.bat')
 
@@ -196,9 +234,133 @@ def build_sln(name, release, arch, debug, vs):
     elif arch == 'x64':
         platform = 'x64'
 
-    cwd = os.getcwd()
-
     msbuild(platform, configuration, 'Build', name + '.sln', '', vs)
+
+def copy_package(name, release, arch, debug, vs):
+    configuration = get_configuration(release, debug)
+
+    if arch == 'x86':
+        platform = 'Win32'
+    elif arch == 'x64':
+        platform = 'x64'
+
+    pattern = '/'.join([vs, ''.join(configuration.split(' ')), platform, 'package', '*'])
+    print('Copying package from %s' % pattern)
+
+    files = glob.glob(pattern)
+
+    dst = os.path.join(name, arch)
+
+    os.makedirs(dst, exist_ok=True)
+
+    for file in files:
+        new = shutil.copy(file, dst)
+        print(new)
+
+    print('')
+
+def remove_timestamps(path):
+    try:
+        os.unlink(path + '.orig')
+    except OSError:
+        pass
+
+    os.rename(path, path + '.orig')
+
+    src = open(path + '.orig', 'r')
+    dst = open(path, 'w')
+
+    for line in src:
+        if line.find('TimeStamp') == -1:
+            dst.write(line)
+
+    dst.close()
+    src.close()
+
+def run_sdv(name, dir, vs):
+    release = { 'vs2012':'Windows 8',
+                'vs2013':'Windows 8',
+                'vs2015':'Windows 10',
+                'vs2017':'Windows 10' }
+
+    configuration = get_configuration(release[vs], False)
+    platform = 'x64'
+
+    msbuild(platform, configuration, 'Build', name + '.vcxproj',
+            '', os.path.join(vs, name))
+
+    msbuild(platform, configuration, 'sdv', name + '.vcxproj',
+            '/p:Inputs="/clean"', os.path.join(vs, name))
+
+    msbuild(platform, configuration, 'sdv', name + '.vcxproj',
+            '/p:Inputs="/check:default.sdv"', os.path.join(vs, name))
+
+    path = [vs, name, 'sdv', 'SDV.DVL.xml']
+    remove_timestamps(os.path.join(*path))
+
+    msbuild(platform, configuration, 'dvl', name + '.vcxproj',
+            '', os.path.join(vs, name))
+
+    path = [vs, name, name + '.DVL.XML']
+    shutil.copy(os.path.join(*path), dir)
+
+    path = [vs, name, 'refine.sdv']
+    if os.path.isfile(os.path.join(*path)):
+        msbuild(platform, configuration, 'sdv', name + '.vcxproj',
+                '/p:Inputs=/refine', os.path.join(vs, name))
+
+
+def symstore_del(name, age):
+    symstore_path = [os.environ['KIT'], 'Debuggers']
+    if os.environ['PROCESSOR_ARCHITECTURE'] == 'x86':
+        symstore_path.append('x86')
+    else:
+        symstore_path.append('x64')
+    symstore_path.append('symstore.exe')
+
+    symstore = os.path.join(*symstore_path)
+
+    for id in get_expired_symbols(name, age):
+        command=['"' + symstore + '"']
+        command.append('del')
+        command.append('/i')
+        command.append(str(id))
+        command.append('/s')
+        command.append(os.environ['SYMBOL_SERVER'])
+
+        shell(command, None)
+
+
+def symstore_add(name, release, arch, debug, vs):
+    target_path = get_target_path(release, arch, debug, vs)
+
+    symstore_path = [os.environ['KIT'], 'Debuggers']
+    if os.environ['PROCESSOR_ARCHITECTURE'] == 'x86':
+        symstore_path.append('x86')
+    else:
+        symstore_path.append('x64')
+    symstore_path.append('symstore.exe')
+
+    symstore = os.path.join(*symstore_path)
+
+    version = '.'.join([os.environ['MAJOR_VERSION'],
+                        os.environ['MINOR_VERSION'],
+                        os.environ['MICRO_VERSION'],
+                        os.environ['BUILD_NUMBER']])
+
+    command=['"' + symstore + '"']
+    command.append('add')
+    command.append('/s')
+    command.append(os.environ['SYMBOL_SERVER'])
+    command.append('/r')
+    command.append('/f')
+    command.append('*.pdb')
+    command.append('/t')
+    command.append(name)
+    command.append('/v')
+    command.append(version)
+
+    shell(command, target_path)
 
 
 def manifest():
@@ -214,25 +376,49 @@ def manifest():
     return output.decode('utf-8')
 
 
+def archive(filename, files, tgz=False):
+    access='w'
+    if tgz:
+        access='w:gz'
+    tar = tarfile.open(filename, access)
+    for name in files :
+        try:
+            tar.add(name)
+        except:
+            pass
+    tar.close()
+
+
 def getVsVersion():
-    vsenv ={}
-    vars = subprocess.check_output([os.environ['VS_PATH']+'\\VC\\vcvarsall.bat', '&&', 'set'], shell=True)
+    vsenv = {}
+    vcvarsall= find('vcvarsall.bat', os.environ['VS'])
+
+    vars = subprocess.check_output([vcvarsall, 'x86_amd64', '&&', 'set'], shell=True)
+
     for var in vars.splitlines():
         k, _, v = map(str.strip, var.strip().decode('utf-8').partition('='))
         if k.startswith('?'):
             continue
         vsenv[k] = v
 
-    if vsenv['VisualStudioVersion'] == '11.0' :
-        return 'vs2012'
-    elif vsenv['VisualStudioVersion'] == '12.0' :
-        return 'vs2013'
+    mapping = { '14.0':'vs2015',
+                '15.0':'vs2017'}
 
-if __name__ == '__main__':
+    return mapping[vsenv['VisualStudioVersion']]
+
+def main():
+    # args: driver build-type target arch [nosdv]
+    # build-type: fee, checked, fre, chk
+    # target: Windows 7, Windows 8, etc
+    # arch: x86, x64
+    debug = { 'checked': True, 'chk': True, 'free': False, 'fre': False }
+    sdv = { 'nosdv': False, None: True }
     driver = sys.argv[1]
-    config = sys.argv[2]
-    arch = sys.argv[3]
-    debug = { 'chk': True, 'fre': False }
+    do_debug = debug[sys.argv[2]]
+    target = sys.argv[3]
+    arch = sys.argv[4]
+    do_sdv = len(sys.argv) <= 5 or sdv[sys.argv[5]]
+
     vs = getVsVersion()
 
     if 'VENDOR_NAME' not in os.environ.keys():
@@ -252,7 +438,7 @@ if __name__ == '__main__':
 
     os.environ['MAJOR_VERSION'] = '8'
     os.environ['MINOR_VERSION'] = '2'
-    os.environ['MICRO_VERSION'] = '0'
+    os.environ['MICRO_VERSION'] = '1'
 
     if 'BUILD_NUMBER' not in os.environ.keys():
         os.environ['BUILD_NUMBER'] = next_build_number()
@@ -262,9 +448,6 @@ if __name__ == '__main__':
         print(os.environ['GIT_REVISION'], file=revision)
         revision.close()
 
-    if 'CERT_FILENAME' in os.environ:
-        update_cert_path(driver, vs, os.environ['CERT_FILENAME'])
-
     print("VENDOR_NAME\t\t'%s'" % os.environ['VENDOR_NAME'])
     print("VENDOR_PREFIX\t\t'%s'" % os.environ['VENDOR_PREFIX'])
 
@@ -272,6 +455,8 @@ if __name__ == '__main__':
         print("VENDOR_DEVICE_ID\t'%s'" % os.environ['VENDOR_DEVICE_ID'])
 
     print("PRODUCT_NAME\t\t'%s'" % os.environ['PRODUCT_NAME'])
+    print("OBJECT_PREFIX\t\t'%s'" % os.environ['OBJECT_PREFIX'])
+    print("REG_KEY_NAME\t\t'%s'" % os.environ['REG_KEY_NAME'])
     print("MAJOR_VERSION\t\t%s" % os.environ['MAJOR_VERSION'])
     print("MINOR_VERSION\t\t%s" % os.environ['MINOR_VERSION'])
     print("MICRO_VERSION\t\t%s" % os.environ['MICRO_VERSION'])
@@ -280,13 +465,21 @@ if __name__ == '__main__':
 
     make_header()
     copy_inf(vs, driver)
+    copy_mof(driver)
 
-    if driver=='xeniface':
-        copy_mof(driver)
+    symstore_del(driver, 30)
 
-    if vs=='vs2012':
-        release = 'Windows Vista'
-    else:
-        release = 'Windows 7'
+    shutil.rmtree(driver, ignore_errors=True)
 
-    build_sln(driver, release, arch, debug[config], vs)
+    build_sln(driver, target, arch, do_debug, vs)
+    copy_package(driver, target, arch , do_debug, vs)
+    symstore_add(driver, target, arch, do_debug, vs)
+
+    if do_sdv:
+        run_sdv(driver, driver, vs)
+
+    archive(driver + '\\source.tgz', manifest().splitlines(), tgz=True)
+    archive(driver + '.tar', [driver,'revision'])
+
+if __name__ == '__main__':
+    main()
