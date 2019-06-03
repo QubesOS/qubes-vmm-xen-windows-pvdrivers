@@ -45,7 +45,7 @@
 #define PAGE_SIZE 4096
 #endif
 
-static void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan *ctrl, PWCHAR format, ...)
+static void _Log(XENCONTROL_LOG_LEVEL logLevel, LPCSTR function, struct libxenvchan *ctrl, PWCHAR format, ...)
 {
     va_list args;
 
@@ -60,15 +60,21 @@ static void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, struct libxenvch
     va_end(args);
 }
 
+#ifdef __MINGW32__
+#define Log(level, msg, ...) _Log(level, __FUNCTION__, ctrl, L"(%p) " L##msg L"\n", ctrl, ##__VA_ARGS__)
+#else
 #define Log(level, msg, ...) _Log(level, __FUNCTION__, ctrl, L"(%p) " L##msg L"\n", ctrl, __VA_ARGS__)
+#endif
 
 #define inline __inline
 #define xen_mb()  _ReadWriteBarrier()
 #define xen_rmb() _ReadBarrier()
 #define xen_wmb() _WriteBarrier()
 
+#ifndef __MINGW32__
 #define __sync_or_and_fetch(a, b)   ((*(a)) |= (b))
 #define __sync_fetch_and_and        InterlockedAnd8
+#endif
 
 static inline uint32_t rd_prod(struct libxenvchan *ctrl)
 {

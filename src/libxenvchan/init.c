@@ -67,7 +67,7 @@
 
 #define snprintf _snprintf
 
-static void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan *ctrl, PWCHAR format, ...)
+static void _Log(XENCONTROL_LOG_LEVEL logLevel, LPCSTR function, struct libxenvchan *ctrl, PWCHAR format, ...)
 {
     va_list args;
 
@@ -82,7 +82,11 @@ static void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, struct libxenvch
     va_end(args);
 }
 
+#ifdef __MINGW32__
+#define Log(level, msg, ...) _Log(level, __FUNCTION__, ctrl, L"(%p) " L##msg L"\n", ctrl, ##__VA_ARGS__)
+#else
 #define Log(level, msg, ...) _Log(level, __FUNCTION__, ctrl, L"(%p) " L##msg L"\n", ctrl, __VA_ARGS__)
+#endif
 
 static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
 {
