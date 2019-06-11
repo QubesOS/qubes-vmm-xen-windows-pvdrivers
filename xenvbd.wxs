@@ -1,22 +1,30 @@
 <?xml version='1.0' encoding='windows-1252'?>
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'
-    xmlns:difx='http://schemas.microsoft.com/wix/DifxAppExtension'>
-
-<Fragment>
-
-                <DirectoryRef Id='DriversDir'>
-                    <Directory Id='XenvbdDir' Name='xenvbd'>
-                        <Component Id='XenvbdDriver' Guid='{87BAEE21-4695-4B75-A484-0A6136B70516}'>
-                            <File Id='XenvbdInf' Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xenvbd.inf' KeyPath='yes' />
-                            <File Id='XenvbdCat' Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xenvbd.cat' />
-                            <File Id='XenvbdSys' Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xenvbd.sys' />
-                            <File Id='XendiskSys' Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xendisk.sys' />
-                            <File Id='XencrshSys' Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xencrsh.sys' />
-                            <File Id='XenvbdCoinst' Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xenvbd_coinst.dll' />
-                            <difx:Driver/>
-                        </Component>
-                    </Directory>
-                </DirectoryRef>
-
-</Fragment>
+     xmlns:difx='http://schemas.microsoft.com/wix/DifxAppExtension'>
+     
+    <Fragment>
+        <DirectoryRef Id='DriversDir'>
+            <Directory Id='XenvbdDir'
+                       Name='xenvbd'>
+                <Component Id='XenvbdDriver'
+                           Guid='{87BAEE21-4695-4B75-A484-0A6136B70516}'>
+                           
+                    <File Id='XenvbdInf'
+                          Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xenvbd.inf'
+                          KeyPath='yes' />
+                    <File Id='XenvbdCat'
+                          Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xenvbd.cat' />
+                    <File Id='XenvbdSys'
+                          Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xenvbd.sys' />
+                    <File Id='XendiskSys'
+                          Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xendisk.sys' />
+                    <File Id='XencrshSys'
+                          Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xencrsh.sys' />
+                    <File Id='XenvbdCoinst'
+                          Source='xenvbd\xenvbd\$(env.DDK_ARCH)\xenvbd_coinst.dll' />
+                    <difx:Driver />
+                </Component>
+            </Directory>
+        </DirectoryRef>
+    </Fragment>
 </Wix>

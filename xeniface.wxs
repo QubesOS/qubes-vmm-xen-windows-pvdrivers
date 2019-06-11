@@ -1,35 +1,46 @@
 <?xml version='1.0' encoding='windows-1252'?>
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'
-    xmlns:difx='http://schemas.microsoft.com/wix/DifxAppExtension'>
-
-<?if $(env.DDK_ARCH) = x64 ?>
+     xmlns:difx='http://schemas.microsoft.com/wix/DifxAppExtension'>
+     
+    <?if $(env.DDK_ARCH) = x64 ?>
     <?define SYSDIR = System64Folder ?>
-<?else?>
+    <?else?>
     <?define SYSDIR = SystemFolder ?>
-<?endif ?>
-
-<Fragment>
-
-                <DirectoryRef Id='DriversDir'>
-                    <Directory Id='XenifaceDir' Name='xeniface'>
-                        <Component Id='XenifaceDriver' Guid='{D464EDB0-CF0D-4FE5-A160-210BF246C3A4}'>
-                            <File Id='XenifaceInf' Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface.inf' KeyPath='yes' />
-                            <File Id='XenifaceCat' Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface.cat' />
-                            <File Id='XenifaceSys' Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface.sys' />
-                            <File Id='XenagentDll' Source='xeniface\xeniface\$(env.DDK_ARCH)\xenagent.dll' />
-                            <File Id='XenagentExe' Source='xeniface\xeniface\$(env.DDK_ARCH)\xenagent.exe' />
-                            <File Id='XenifaceCoinst' Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface_coinst.dll' />
-                    	    <difx:Driver/>
-                        </Component>
-                    </Directory>
-                </DirectoryRef>
-
-    <DirectoryRef Id='$(var.SYSDIR)'>
-        <Component Id='XenUserDlls' Guid='{1BA9B085-AFC2-4248-9DF2-5E85692DC707}'>
-            <File Id='xencontrol' Source='xeniface\xeniface\$(env.DDK_ARCH)\xencontrol.dll' KeyPath='yes' />
-            <File Id='libxenvchan' Source='bin\$(env.DDK_ARCH)\libxenvchan.dll' />
-        </Component>
-    </DirectoryRef>
-
-</Fragment>
+    <?endif ?>
+    <Fragment>
+        <DirectoryRef Id='DriversDir'>
+            <Directory Id='XenifaceDir'
+                       Name='xeniface'>
+                <Component Id='XenifaceDriver'
+                           Guid='{D464EDB0-CF0D-4FE5-A160-210BF246C3A4}'>
+                           
+                    <File Id='XenifaceInf'
+                          Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface.inf'
+                          KeyPath='yes' />
+                    <File Id='XenifaceCat'
+                          Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface.cat' />
+                    <File Id='XenifaceSys'
+                          Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface.sys' />
+                    <File Id='XenagentDll'
+                          Source='xeniface\xeniface\$(env.DDK_ARCH)\xenagent.dll' />
+                    <File Id='XenagentExe'
+                          Source='xeniface\xeniface\$(env.DDK_ARCH)\xenagent.exe' />
+                    <File Id='XenifaceCoinst'
+                          Source='xeniface\xeniface\$(env.DDK_ARCH)\xeniface_coinst.dll' />
+                    <difx:Driver />
+                </Component>
+            </Directory>
+        </DirectoryRef>
+        <DirectoryRef Id='$(var.SYSDIR)'>
+            <Component Id='XenUserDlls'
+                       Guid='{1BA9B085-AFC2-4248-9DF2-5E85692DC707}'>
+                       
+                <File Id='xencontrol'
+                      Source='xeniface\xeniface\$(env.DDK_ARCH)\xencontrol.dll'
+                      KeyPath='yes' />
+                <File Id='libxenvchan'
+                      Source='bin\$(env.DDK_ARCH)\libxenvchan.dll' />
+            </Component>
+        </DirectoryRef>
+    </Fragment>
 </Wix>

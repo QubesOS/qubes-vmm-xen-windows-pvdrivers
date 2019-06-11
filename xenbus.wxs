@@ -1,23 +1,34 @@
 <?xml version='1.0' encoding='windows-1252'?>
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'
-    xmlns:difx='http://schemas.microsoft.com/wix/DifxAppExtension'>
-
-<Fragment>
-                <DirectoryRef Id='DriversDir'>
-                    <Directory Id='XenbusDir' Name='xenbus'>
-                        <Component Id='XenbusDriver' Guid='{FAC4C476-2F1C-4970-B5E1-8FD95A9BBCB9}'>
-                            <File Id='XenbusInf' Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus.inf' KeyPath='yes' />
-                            <File Id='XenbusCat' Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus.cat' />
-                            <File Id='XenbusSys' Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus.sys' />
-                            <File Id='XenSys' Source='xenbus\xenbus\$(env.DDK_ARCH)\xen.sys' />
-                            <File Id='XenfiltSys' Source='xenbus\xenbus\$(env.DDK_ARCH)\xenfilt.sys' />
-                            <File Id='XenbusCoinst' Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus_coinst.dll' />
-                            <File Id='XenbusMonitorDll' Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus_monitor.dll' />
-                            <File Id='XenbusMonitorExe' Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus_monitor.exe' />
-                            <difx:Driver />
-                        </Component>
-                    </Directory>
-                </DirectoryRef>
-
-</Fragment>
+     xmlns:difx='http://schemas.microsoft.com/wix/DifxAppExtension'>
+     
+    <Fragment>
+        <DirectoryRef Id='DriversDir'>
+            <Directory Id='XenbusDir'
+                       Name='xenbus'>
+                <Component Id='XenbusDriver'
+                           Guid='{FAC4C476-2F1C-4970-B5E1-8FD95A9BBCB9}'>
+                           
+                    <File Id='XenbusInf'
+                          Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus.inf'
+                          KeyPath='yes' />
+                    <File Id='XenbusCat'
+                          Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus.cat' />
+                    <File Id='XenbusSys'
+                          Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus.sys' />
+                    <File Id='XenSys'
+                          Source='xenbus\xenbus\$(env.DDK_ARCH)\xen.sys' />
+                    <File Id='XenfiltSys'
+                          Source='xenbus\xenbus\$(env.DDK_ARCH)\xenfilt.sys' />
+                    <File Id='XenbusCoinst'
+                          Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus_coinst.dll' />
+                    <File Id='XenbusMonitorDll'
+                          Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus_monitor.dll' />
+                    <File Id='XenbusMonitorExe'
+                          Source='xenbus\xenbus\$(env.DDK_ARCH)\xenbus_monitor.exe' />
+                    <difx:Driver />
+                </Component>
+            </Directory>
+        </DirectoryRef>
+    </Fragment>
 </Wix>
