@@ -1,4 +1,1 @@
-version.h
-bin/
-*.msm
-*.tar
+/bin/
