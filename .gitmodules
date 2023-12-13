@@ -9,9 +9,7 @@
 	url = https://xenbits.xen.org/git-http/pvdrivers/win/xenvif.git
 [submodule "xenbus"]
 	path = xenbus
-	url = git://github.com/omeg/xenbus.git
-	branch = omeg/win10-qubes-fix
+	url = https://xenbits.xen.org/git-http/pvdrivers/win/xenbus.git
 [submodule "xeniface"]
 	path = xeniface
-	url = git://github.com/omeg/xeniface.git
-	branch = omeg/win10
+	url = https://github.com/omeg/xeniface.git
