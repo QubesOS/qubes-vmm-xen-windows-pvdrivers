@@ -1,0 +1,7 @@
+Xen Windows PV drivers used for Windows guests in Qubes OS.
+Contains libxenvchan implementtion for Windows.
+
+TODO: installer for win10 QWT
+TODO: integrate with Qubes builder
+pvdrivers should be built first (order: xenbus, xeniface, xenvbd, xenvif, xennet),
+then libxenvchan (which references xencontrol from xeniface).
