@@ -3,5 +3,6 @@ Contains libxenvchan implementtion for Windows.
 
 TODO: installer for win10 QWT
 TODO: integrate with Qubes builder
-pvdrivers should be built first (order: xenbus, xeniface, xenvbd, xenvif, xennet),
-then libxenvchan (which references xencontrol from xeniface).
+
+EWDK_PATH env variable must be set to the root of MS Enterprise WDK.
+PV drivers are built by a dummy project in the solution (pvdrivers).

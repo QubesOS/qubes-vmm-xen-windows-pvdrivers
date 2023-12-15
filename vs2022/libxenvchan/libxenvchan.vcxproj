@@ -88,7 +88,7 @@
       <Command>powershell $(SolutionDir)\..\set_version.ps1 $(SolutionDir)\..\version $(SolutionDir)\..\include\qwt_version.h</Command>
     </PreBuildEvent>
     <PostBuildEvent>
-      <Command>cmd /c for %%e in (exe dll lib pdb) do @xcopy /E /L /Y "$(OutDir)\*.%%e" "$(SolutionDir)\..\bin\"</Command>
+      <Command>cmd /c for %%e in (exe dll lib pdb) do @xcopy /E /F /Y /I "$(OutDir)\*.%%e" "$(SolutionDir)\..\bin\"</Command>
     </PostBuildEvent>
     <PostBuildEvent>
       <Message>copy output</Message>
@@ -119,10 +119,10 @@
       <Command>powershell $(SolutionDir)\..\set_version.ps1 $(SolutionDir)\..\version $(SolutionDir)\..\include\qwt_version.h</Command>
     </PreBuildEvent>
     <PostBuildEvent>
-      <Command>cmd /c for %%e in (exe dll lib pdb) do @xcopy /E /L /Y "$(OutDir)\*.%%e" "$(SolutionDir)\..\bin\"</Command>
+      <Command>cmd /c for %%e in (exe dll lib pdb) do @xcopy /E /F /Y /I "$(OutDir)\*.%%e" "$(SolutionDir)\..\bin\"</Command>
     </PostBuildEvent>
     <PostBuildEvent>
-      <Message>copy output</Message>
+      <Message>Copy output</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
