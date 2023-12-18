@@ -1,7 +1,7 @@
 @echo off
 setlocal enableextensions
 
-set SOLUTION=vs2022\vmm-xen-windows-pvdrivers.sln
+set SOLUTION="%~dp0\vs2022\vmm-xen-windows-pvdrivers.sln"
 
 if "%1" == "" (
   echo Usage: %0 Release^|Debug [sign]
