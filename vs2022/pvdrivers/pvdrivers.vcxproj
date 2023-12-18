@@ -72,25 +72,17 @@ if not defined EWDK_PATH (
 
 call %EWDK_PATH%\LaunchBuildEnv.cmd
 
-set PVCFG=free
-if "$(Configuration)" == "Debug" set PVCFG=checked
+set PV_CFG=free
+if "$(Configuration)" == "Debug" set PV_CFG=checked
 
-echo cfg=%PVCFG%
+if "%PV_SIGN%" == "" (
+  set PV_SIGN=Off
+)
 
-cd $(SolutionDir)\..\xenbus
-powershell .\build.ps1 %PVCFG% x64
-
-cd $(SolutionDir)\..\xeniface
-powershell .\build.ps1 %PVCFG% x64
-
-cd $(SolutionDir)\..\xenvbd
-powershell .\build.ps1 %PVCFG% x64
-
-cd $(SolutionDir)\..\xenvif
-powershell .\build.ps1 %PVCFG% x64
-
-cd $(SolutionDir)\..\xennet
-powershell .\build.ps1 %PVCFG% x64
+for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
+  cd $(SolutionDir)\..\%%d
+  powershell .\build.ps1 %PV_CFG% x64 %PV_SIGN%
+)
 </Command>
       <Message>Building pvdrivers</Message>
     </PreBuildEvent>
@@ -144,25 +136,17 @@ if not defined EWDK_PATH (
 
 call %EWDK_PATH%\LaunchBuildEnv.cmd
 
-set PVCFG=free
-if "$(Configuration)" == "Debug" set PVCFG=checked
+set PV_CFG=free
+if "$(Configuration)" == "Debug" set PV_CFG=checked
 
-echo cfg=%PVCFG%
+if "%PV_SIGN%" == "" (
+  set PV_SIGN=Off
+)
 
-cd $(SolutionDir)\..\xenbus
-powershell .\build.ps1 %PVCFG% x64
-
-cd $(SolutionDir)\..\xeniface
-powershell .\build.ps1 %PVCFG% x64
-
-cd $(SolutionDir)\..\xenvbd
-powershell .\build.ps1 %PVCFG% x64
-
-cd $(SolutionDir)\..\xenvif
-powershell .\build.ps1 %PVCFG% x64
-
-cd $(SolutionDir)\..\xennet
-powershell .\build.ps1 %PVCFG% x64
+for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
+  cd $(SolutionDir)\..\%%d
+  powershell .\build.ps1 %PV_CFG% x64 %PV_SIGN%
+)
 </Command>
       <Message>Building pvdrivers</Message>
     </PreBuildEvent>
