@@ -12,4 +12,4 @@
 	url = https://xenbits.xen.org/git-http/pvdrivers/win/xenbus.git
 [submodule "xeniface"]
 	path = xeniface
-	url = https://github.com/omeg/xeniface.git
+	url = https://xenbits.xen.org/git-http/pvdrivers/win/xeniface.git
