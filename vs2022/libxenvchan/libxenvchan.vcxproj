@@ -56,14 +56,14 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(SolutionDir)\..\include;$(SolutionDir)\..\xeniface\include;$(EWDK_INCLUDE)</IncludePath>
-    <LibraryPath>$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64);$(SolutionDir)\..\xeniface\xeniface\x64;$(OutDir);$(EWDK_LIB)</LibraryPath>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(ProjectDir)\..\..\include;$(ProjectDir)\..\..\xeniface\include;$(EWDK_INCLUDE)</IncludePath>
+    <LibraryPath>$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64);$(ProjectDir)\..\..\xeniface\xeniface\x64;$(OutDir);$(EWDK_LIB)</LibraryPath>
     <LinkIncremental>false</LinkIncremental>
     <IntDir>$(SolutionDir)\tmp\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(SolutionDir)\..\include;$(SolutionDir)\..\xeniface\include;$(EWDK_INCLUDE)</IncludePath>
-    <LibraryPath>$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64);$(SolutionDir)\..\xeniface\xeniface\x64;$(OutDir);$(EWDK_LIB)</LibraryPath>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(ProjectDir)\..\..\include;$(ProjectDir)\..\..\xeniface\include;$(EWDK_INCLUDE)</IncludePath>
+    <LibraryPath>$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64);$(ProjectDir)\..\..\xeniface\xeniface\x64;$(OutDir);$(EWDK_LIB)</LibraryPath>
     <LinkIncremental>false</LinkIncremental>
     <IntDir>$(SolutionDir)\tmp\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
@@ -85,7 +85,7 @@
       <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);xencontrol.lib</AdditionalDependencies>
     </Link>
     <PreBuildEvent>
-      <Command>powershell $(SolutionDir)\..\set_version.ps1 $(SolutionDir)\..\version $(SolutionDir)\..\include\qwt_version.h</Command>
+      <Command>powershell $(ProjectDir)\..\..\set_version.ps1 $(ProjectDir)\..\..\version $(ProjectDir)\..\..\include\qwt_version.h</Command>
       <Message>Generate qwt_version.h</Message>
     </PreBuildEvent>
     <PostBuildEvent>
@@ -117,7 +117,7 @@
       <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);xencontrol.lib</AdditionalDependencies>
     </Link>
     <PreBuildEvent>
-      <Command>powershell $(SolutionDir)\..\set_version.ps1 $(SolutionDir)\..\version $(SolutionDir)\..\include\qwt_version.h</Command>
+      <Command>powershell $(ProjectDir)\..\..\set_version.ps1 $(ProjectDir)\..\..\version $(ProjectDir)\..\..\include\qwt_version.h</Command>
       <Message>Generate qwt_version.h</Message>
     </PreBuildEvent>
     <PostBuildEvent>
