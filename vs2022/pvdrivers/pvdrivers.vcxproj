@@ -81,6 +81,7 @@ if "%PV_SIGN%" == "" (
 
 for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
   cd $(ProjectDir)\..\..\%%d
+  mkdir %%d\x64
   powershell .\build.ps1 %PV_CFG% x64 %PV_SIGN%
 )
 </Command>
@@ -100,7 +101,7 @@ set BIN_PATH=$(Solutiondir)\..\bin
 
 for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
   for %%e in (exe dll lib pdb sys inf cat) do (
-    xcopy /E /F /Y /I "$(ProjectDir)\..\..\%%d\%%d\x64\*.%%e" "%BIN_PATH%\%%d\"
+    xcopy /E /F /Y /I "$(ProjectDir)\..\..\%%d\vs2022\Windows10$(Configuration)\x64\package\*.%%e" "%BIN_PATH%\%%d\"
   )
 )
 </Command>
@@ -145,6 +146,7 @@ if "%PV_SIGN%" == "" (
 
 for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
   cd $(ProjectDir)\..\..\%%d
+  mkdir %%d\x64
   powershell .\build.ps1 %PV_CFG% x64 %PV_SIGN%
 )
 </Command>
@@ -164,7 +166,7 @@ set BIN_PATH=$(Solutiondir)\..\bin
 
 for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
   for %%e in (exe dll lib pdb sys inf cat) do (
-    xcopy /E /F /Y /I "$(ProjectDir)\..\..\%%d\%%d\x64\*.%%e" "%BIN_PATH%\%%d\"
+    xcopy /E /F /Y /I "$(ProjectDir)\..\..\%%d\vs2022\Windows10$(Configuration)\x64\package\*.%%e" "%BIN_PATH%\%%d\"
   )
 )
 </Command>
