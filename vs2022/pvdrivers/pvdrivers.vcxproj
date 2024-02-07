@@ -70,7 +70,7 @@ if not defined EWDK_PATH (
   exit 1
 )
 
-call %EWDK_PATH%\LaunchBuildEnv.cmd
+call "%EWDK_PATH%\BuildEnv\SetupBuildEnv.cmd" x86_amd64
 
 set PV_CFG=free
 if "$(Configuration)" == "Debug" set PV_CFG=checked
@@ -82,7 +82,7 @@ if "%PV_SIGN%" == "" (
 for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
   cd $(ProjectDir)\..\..\%%d
   mkdir %%d\x64
-  powershell .\build.ps1 %PV_CFG% x64 %PV_SIGN%
+  powershell -executionpolicy bypass .\build.ps1 %PV_CFG% x64 %PV_SIGN%
 )
 </Command>
       <Message>Building pvdrivers</Message>
@@ -135,7 +135,7 @@ if not defined EWDK_PATH (
   exit 1
 )
 
-call %EWDK_PATH%\LaunchBuildEnv.cmd
+call "%EWDK_PATH%\BuildEnv\SetupBuildEnv.cmd" x86_amd64
 
 set PV_CFG=free
 if "$(Configuration)" == "Debug" set PV_CFG=checked
@@ -147,7 +147,7 @@ if "%PV_SIGN%" == "" (
 for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
   cd $(ProjectDir)\..\..\%%d
   mkdir %%d\x64
-  powershell .\build.ps1 %PV_CFG% x64 %PV_SIGN%
+  powershell -executionpolicy bypass .\build.ps1 %PV_CFG% x64 %PV_SIGN%
 )
 </Command>
       <Message>Building pvdrivers</Message>
