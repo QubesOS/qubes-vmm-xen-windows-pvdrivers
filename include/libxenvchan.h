@@ -106,10 +106,13 @@ a while to load).
  * @param xs_path Base xenstore path for storing ring/event data
  * @param send_min The minimum size (in bytes) of the send ring (left)
  * @param recv_min The minimum size (in bytes) of the receive ring (right)
+ * @param log_level Logger verbosity
  * @return The structure, or NULL in case of an error
  */
 XENVCHAN_API
-struct libxenvchan *libxenvchan_server_init(XENCONTROL_LOGGER *logger, int domain, const char *xs_path, size_t read_min, size_t write_min);
+struct libxenvchan *libxenvchan_server_init(XENCONTROL_LOGGER *logger, int domain, const char *xs_path,
+                                            size_t read_min, size_t write_min,
+                                            XENCONTROL_LOG_LEVEL log_level);
 
 /**
  * Connect to an existing vchan. Note: you can reconnect to an existing vchan
@@ -119,10 +122,12 @@ struct libxenvchan *libxenvchan_server_init(XENCONTROL_LOGGER *logger, int domai
  * @param logger Logger for libxc errors
  * @param domain The peer domain to connect to
  * @param xs_path Base xenstore path for storing ring/event data
+ * @param log_level Logger verbosity
  * @return The structure, or NULL in case of an error
  */
 XENVCHAN_API
-struct libxenvchan *libxenvchan_client_init(XENCONTROL_LOGGER *logger, int domain, const char *xs_path);
+struct libxenvchan *libxenvchan_client_init(XENCONTROL_LOGGER *logger, int domain, const char *xs_path,
+                                            XENCONTROL_LOG_LEVEL log_level);
 
 /**
  * Close a vchan. This deallocates the vchan and attempts to free its
