@@ -325,11 +325,6 @@ static int init_evt_srv(struct libxenvchan *ctrl, USHORT domain)
         goto fail;
     }
 
-    /*
-    if (xc_evtchn_unmask(ctrl->event, ctrl->event_port))
-    goto fail;
-    */
-
     return 0;
 
 fail:
@@ -510,10 +505,6 @@ static int init_evt_cli(struct libxenvchan *ctrl, USHORT domain)
     }
 
     ctrl->event_port = port;
-    /*
-    if (xc_evtchn_unmask(ctrl->event, ctrl->event_port))
-    goto fail;
-    */
     return 0;
 
 fail:
