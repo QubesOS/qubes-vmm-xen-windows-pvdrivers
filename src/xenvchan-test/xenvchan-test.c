@@ -183,9 +183,9 @@ int __cdecl main(int argc, char **argv)
         usage(argv);
 
     if (!strcmp(argv[1], "server"))
-        ctrl = libxenvchan_server_init(XifLogger, atoi(argv[3]), argv[4], 0, 0);
+        ctrl = libxenvchan_server_init(XifLogger, atoi(argv[3]), argv[4], 0, 0, XLL_DEBUG);
     else if (!strcmp(argv[1], "client"))
-        ctrl = libxenvchan_client_init(XifLogger, atoi(argv[3]), argv[4]);
+        ctrl = libxenvchan_client_init(XifLogger, atoi(argv[3]), argv[4], XLL_DEBUG);
     else
         usage(argv);
 
