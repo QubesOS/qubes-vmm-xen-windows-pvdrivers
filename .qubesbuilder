@@ -1,0 +1,38 @@
+vm:
+  windows:
+    build:
+    - vs2022/vmm-xen-windows-pvdrivers.sln
+    bin:
+    - xenbus/vs2022/Windows10@CONFIGURATION@/x64/package/xen.sys
+    - xenbus/vs2022/Windows10@CONFIGURATION@/x64/package/xenbus.cat
+    - xenbus/vs2022/Windows10@CONFIGURATION@/x64/package/xenbus.inf
+    - xenbus/vs2022/Windows10@CONFIGURATION@/x64/package/xenbus.sys
+    - xenbus/vs2022/Windows10@CONFIGURATION@/x64/package/xenbus_monitor.dll
+    - xenbus/vs2022/Windows10@CONFIGURATION@/x64/package/xenbus_monitor.exe
+    - xenbus/vs2022/Windows10@CONFIGURATION@/x64/package/xenfilt.sys
+    - xeniface/vs2022/Windows10@CONFIGURATION@/x64/package/xenagent.dll
+    - xeniface/vs2022/Windows10@CONFIGURATION@/x64/package/xenagent.exe
+    - xeniface/vs2022/Windows10@CONFIGURATION@/x64/package/xencontrol.dll
+    - xeniface/vs2022/Windows10@CONFIGURATION@/x64/package/xeniface.cat
+    - xeniface/vs2022/Windows10@CONFIGURATION@/x64/package/xeniface.inf
+    - xeniface/vs2022/Windows10@CONFIGURATION@/x64/package/xeniface.sys
+    - xennet/vs2022/Windows10@CONFIGURATION@/x64/package/xennet.cat
+    - xennet/vs2022/Windows10@CONFIGURATION@/x64/package/xennet.inf
+    - xennet/vs2022/Windows10@CONFIGURATION@/x64/package/xennet.sys
+    - xenvbd/vs2022/Windows10@CONFIGURATION@/x64/package/xencrsh.sys
+    - xenvbd/vs2022/Windows10@CONFIGURATION@/x64/package/xendisk.sys
+    - xenvbd/vs2022/Windows10@CONFIGURATION@/x64/package/xenvbd.cat
+    - xenvbd/vs2022/Windows10@CONFIGURATION@/x64/package/xenvbd.inf
+    - xenvbd/vs2022/Windows10@CONFIGURATION@/x64/package/xenvbd.sys
+    - xenvif/vs2022/Windows10@CONFIGURATION@/x64/package/xenvif.cat
+    - xenvif/vs2022/Windows10@CONFIGURATION@/x64/package/xenvif.inf
+    - xenvif/vs2022/Windows10@CONFIGURATION@/x64/package/xenvif.sys
+    - vs2022/x64/@CONFIGURATION@/libxenvchan/libxenvchan.dll
+    inc:
+    - xeniface/include/xencontrol.h
+    - xeniface/include/xeniface_ioctls.h
+    - include/libxenvchan.h
+    - include/libxenvchan_ring.h
+    lib:
+    - xeniface/vs2022/Windows10@CONFIGURATION@/x64/package/xencontrol.lib
+    - vs2022/x64/@CONFIGURATION@/libxenvchan/libxenvchan.lib

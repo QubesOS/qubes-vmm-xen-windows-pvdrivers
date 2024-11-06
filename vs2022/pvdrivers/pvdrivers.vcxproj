@@ -63,28 +63,17 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PreBuildEvent>
-      <Command>:: build pvdrivers via EWDK (env EWDK_PATH)
+      <Command>:: build pvdrivers via their build scripts
 
 @echo off
-
-if not defined EWDK_PATH (
-  echo EWDK_PATH not defined
-  exit 1
-)
-
-call "%EWDK_PATH%\BuildEnv\SetupBuildEnv.cmd" x86_amd64
 
 set PV_CFG=free
 if "$(Configuration)" == "Debug" set PV_CFG=checked
 
-if "%PV_SIGN%" == "" (
-  set PV_SIGN=Off
-)
-
 for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
   cd $(ProjectDir)\..\..\%%d
   mkdir %%d\x64
-  powershell -executionpolicy bypass .\build.ps1 %PV_CFG% x64 %PV_SIGN%
+  powershell -executionpolicy bypass .\build.ps1 %PV_CFG% $(Platform) Off
 )
 </Command>
       <Message>Building pvdrivers</Message>
@@ -97,20 +86,6 @@ for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
       <Message>
       </Message>
     </CustomBuildStep>
-    <PostBuildEvent>
-      <Command>@echo off
-set BIN_PATH=$(Solutiondir)\..\bin
-
-for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
-  for %%e in (exe dll lib pdb sys inf cat) do (
-    xcopy /E /F /Y /I "$(ProjectDir)\..\..\%%d\vs2022\Windows10$(Configuration)\x64\package\*.%%e" "%BIN_PATH%\%%d\"
-  )
-)
-</Command>
-    </PostBuildEvent>
-    <PostBuildEvent>
-      <Message>Copy output</Message>
-    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -128,28 +103,17 @@ for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PreBuildEvent>
-      <Command>:: build pvdrivers via EWDK (env EWDK_PATH)
+      <Command>:: build pvdrivers via their build scripts
 
 @echo off
-
-if not defined EWDK_PATH (
-  echo EWDK_PATH not defined
-  exit 1
-)
-
-call "%EWDK_PATH%\BuildEnv\SetupBuildEnv.cmd" x86_amd64
 
 set PV_CFG=free
 if "$(Configuration)" == "Debug" set PV_CFG=checked
 
-if "%PV_SIGN%" == "" (
-  set PV_SIGN=Off
-)
-
 for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
   cd $(ProjectDir)\..\..\%%d
   mkdir %%d\x64
-  powershell -executionpolicy bypass .\build.ps1 %PV_CFG% x64 %PV_SIGN%
+  powershell -executionpolicy bypass .\build.ps1 %PV_CFG% $(Platform) Off
 )
 </Command>
       <Message>Building pvdrivers</Message>
@@ -162,20 +126,6 @@ for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
       <Message>
       </Message>
     </CustomBuildStep>
-    <PostBuildEvent>
-      <Command>@echo off
-set BIN_PATH=$(Solutiondir)\..\bin
-
-for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
-  for %%e in (exe dll lib pdb sys inf cat) do (
-    xcopy /E /F /Y /I "$(ProjectDir)\..\..\%%d\vs2022\Windows10$(Configuration)\x64\package\*.%%e" "%BIN_PATH%\%%d\"
-  )
-)
-</Command>
-    </PostBuildEvent>
-    <PostBuildEvent>
-      <Message>Copy output</Message>
-    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="readme.txt" />
