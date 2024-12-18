@@ -2,10 +2,15 @@
 
 Contains libxenvchan implementtion for Windows.
 
-`EWDK_PATH` env variable must be set to the root of MS Enterprise WDK for Windows 10/Visual Studio 2022.
-PV drivers are built by a dummy project in the solution (`pvdrivers`).
+## Local command-line build on Windows
 
-`build.cmd` script builds the solution from command line using the EWDK (no need for external VS installation).
-Usage: `build.cmd Release|Debug [sign]`
+### Prerequisites
 
-PV drivers are not signed unless the `sign` parameter is used (then test signed).
+- Microsoft EWDK iso mounted as a drive
+- `qubes-builderv2`
+- `powershell-yaml` PowerShell package (run `powershell -command Install-Package powershell-yaml` as admin)
+  (TODO: provide offline installer for this)
+
+### Build
+
+- run `powershell qubes-builderv2\qubesbuilder\plugins\build_windows\scripts\local\build.ps1 src_dir output_dir Release|Debug`
