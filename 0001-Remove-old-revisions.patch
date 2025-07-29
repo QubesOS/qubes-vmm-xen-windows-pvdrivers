@@ -1,0 +1,37 @@
+From 152a7a5de10980c75b3ca8e3788144166259cadd Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Marek=20Marczykowski-G=C3=B3recki?=
+ <marmarek@invisiblethingslab.com>
+Date: Sun, 27 Jul 2025 03:57:20 +0200
+Subject: [PATCH] Remove old revisions
+
+With revision 0x0900000C it a limit of REGSTR_VAL_MAX_HCID_LEN. Remove
+old revisions to fix the issue for now. It will break updating from
+older versions, but it isn't relevant for now.
+---
+ include/revision.h | 10 ----------
+ 1 file changed, 10 deletions(-)
+
+diff --git a/include/revision.h b/include/revision.h
+index ec35aeb..2f45548 100644
+--- a/xenbus/include/revision.h
++++ b/xenbus/include/revision.h
+@@ -48,16 +48,6 @@
+ 
+ //                    REVISION   S  SI   E   D  ST   R   C   G   U  CO  EM
+ #define DEFINE_REVISION_TABLE                                                \
+-    DEFINE_REVISION(0x09000000,  1,  2,  5,  1,  2,  1,  1,  2,  1,  0,  1), \
+-    DEFINE_REVISION(0x09000001,  1,  2,  6,  1,  2,  1,  1,  2,  1,  1,  1), \
+-    DEFINE_REVISION(0x09000002,  1,  2,  7,  1,  2,  1,  1,  2,  1,  1,  1), \
+-    DEFINE_REVISION(0x09000003,  1,  2,  8,  1,  2,  1,  1,  2,  1,  1,  1), \
+-    DEFINE_REVISION(0x09000004,  1,  2,  8,  1,  2,  1,  1,  3,  1,  1,  1), \
+-    DEFINE_REVISION(0x09000005,  1,  2,  8,  1,  2,  1,  2,  4,  1,  1,  1), \
+-    DEFINE_REVISION(0x09000006,  1,  3,  8,  1,  2,  1,  2,  4,  1,  1,  1), \
+-    DEFINE_REVISION(0x09000007,  1,  3,  8,  1,  2,  1,  2,  4,  1,  1,  2), \
+-    DEFINE_REVISION(0x09000008,  1,  3,  9,  1,  2,  1,  2,  4,  1,  1,  2), \
+-    DEFINE_REVISION(0x09000009,  1,  4,  9,  1,  2,  1,  2,  4,  1,  1,  2), \
+     DEFINE_REVISION(0x0900000A,  1,  4,  9,  1,  2,  1,  2,  4,  2,  1,  2), \
+     DEFINE_REVISION(0x0900000B,  1,  4,  9,  1,  2,  1,  2,  4,  3,  1,  2), \
+     DEFINE_REVISION(0x0900000C,  1,  4,  9,  1,  2,  1,  2,  4,  3,  1,  3)
+-- 
+2.49.0
+
