@@ -70,6 +70,8 @@
 set PV_CFG=free
 if "$(Configuration)" == "Debug" set PV_CFG=checked
 
+for %%p in ($(ProjectDir)\..\..\*.patch) do (git -C $(ProjectDir)\..\.. apply %%p)
+
 for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
   cd $(ProjectDir)\..\..\%%d
   mkdir %%d\x64
@@ -109,6 +111,8 @@ for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
 
 set PV_CFG=free
 if "$(Configuration)" == "Debug" set PV_CFG=checked
+
+for %%p in ($(ProjectDir)\..\..\*.patch) do (git -C $(ProjectDir)\..\.. apply %%p)
 
 for %%d in (xenbus xeniface xenvbd xenvif xennet) do (
   cd $(ProjectDir)\..\..\%%d

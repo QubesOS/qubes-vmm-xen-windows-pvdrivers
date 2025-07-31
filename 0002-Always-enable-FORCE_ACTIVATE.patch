@@ -1,0 +1,26 @@
+From c6e6e8c135957c1746ed4cb128176e6c43cfc403 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Marek=20Marczykowski-G=C3=B3recki?=
+ <marmarek@invisiblethingslab.com>
+Date: Thu, 31 Jul 2025 03:48:57 +0200
+Subject: [PATCH] Always enable FORCE_ACTIVATE
+
+---
+ scripts/genfiles.ps1 | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/scripts/genfiles.ps1 b/scripts/genfiles.ps1
+index 5b99728..11534c4 100644
+--- a/xenbus/scripts/genfiles.ps1
++++ b/xenbus/scripts/genfiles.ps1
+@@ -68,7 +68,7 @@ $Replacements = [ordered]@{
+ 	'MICRO_VERSION' = $Env:MICRO_VERSION;
+ 	'BUILD_NUMBER' = $Env:BUILD_NUMBER;
+ 
+-	'FORCE_ACTIVATE' = $Env:FORCE_ACTIVATE;
++	'FORCE_ACTIVATE' = "1";
+ 
+ 	# generated values
+ 	'GIT_REVISION' = $GitRevision;
+-- 
+2.49.0
+
