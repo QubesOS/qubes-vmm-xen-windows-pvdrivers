@@ -20,7 +20,7 @@ foreach ($driver in @("xenbus", "xeniface", "xenvbd", "xenvif", "xennet")) {
   echo "Building $driver"
   cd "$component_dir\$driver"
   if (! (Test-Path "$driver\x64")) {
-    New-Item -Path "$driver\x64" -ItemType Directory -Force
+    New-Item -Path "$driver\x64" -ItemType Directory -Force | Out-Null
   }
   & .\build.ps1 $cfg x64 Off # no signing
 }
