@@ -540,6 +540,11 @@ void libxenvchan_close(struct libxenvchan *ctrl)
         return;
 
     Log(XLL_DEBUG, "start");
+
+    /*
+     * Tear down our grants/maps before signalling the peer via ring page.
+     * This matches the order used by upstream libxenvchan.
+     */
     if (ctrl->read.order >= PAGE_SHIFT && ctrl->read.buffer)
     {
         if (ctrl->is_server)
@@ -558,16 +563,16 @@ void libxenvchan_close(struct libxenvchan *ctrl)
 
     if (ctrl->ring)
     {
+        /*
+         * Control ring is mapped/shared with USE_NOTIFY_* flags for
+         * srv_live/cli_live, so xeniface writes 0 there itself and sends
+         * the vchan notify after the hypercall completes. Don't duplicate
+         * the write here to avoid possible races.
+         */
         if (ctrl->is_server)
-        {
-            ctrl->ring->srv_live = 0;
             XcGnttabRevokeForeignAccess(ctrl->xc, ctrl->ring);
-        }
         else
-        {
-            ctrl->ring->cli_live = 0;
             XcGnttabUnmapForeignPages(ctrl->xc, ctrl->ring);
-        }
     }
 
     if (ctrl->event)
